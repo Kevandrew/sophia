@@ -39,9 +39,17 @@ func buildTrustReport(cr *model.CR, validation *ValidationReport, diff *diffSumm
 	if diff == nil {
 		diff = &diffSummary{}
 	}
+	shortStat := parseShortStatMetrics(diff.ShortStat)
 	impact := validation.Impact
 	if impact == nil {
 		impact = &ImpactReport{FilesChanged: len(diff.Files)}
+	}
+	if impact.FilesChanged == 0 {
+		if len(diff.Files) > 0 {
+			impact.FilesChanged = len(diff.Files)
+		} else if shortStat.FilesChanged > 0 {
+			impact.FilesChanged = shortStat.FilesChanged
+		}
 	}
 
 	hardFailures := []string{}
@@ -60,6 +68,7 @@ func buildTrustReport(cr *model.CR, validation *ValidationReport, diff *diffSumm
 		buildScopeDisciplineDimension(impact),
 		buildTaskProofChainDimension(cr.Subtasks),
 		buildRiskAccountabilityDimension(cr.Contract, impact, diff),
+		buildChangeMagnitudeDimension(impact, shortStat),
 		buildValidationHealthDimension(validation),
 		buildTestEvidenceDimension(cr.Contract, diff),
 	}
@@ -333,6 +342,52 @@ func buildValidationHealthDimension(validation *ValidationReport) TrustDimension
 		dimension.Score -= warningPenalty
 		dimension.Reasons = append(dimension.Reasons, fmt.Sprintf("%d validation warning(s)", len(validation.Warnings)))
 		dimension.RequiredActions = append(dimension.RequiredActions, "Reduce validation warnings to improve trust confidence.")
+	}
+	return dimension
+}
+
+func buildChangeMagnitudeDimension(impact *ImpactReport, shortStat shortStatMetrics) TrustDimension {
+	dimension := TrustDimension{
+		Code:            "change_magnitude",
+		Label:           "Change Magnitude",
+		Score:           10,
+		Max:             10,
+		Reasons:         []string{},
+		RequiredActions: []string{},
+	}
+	filesChanged := 0
+	riskTier := ""
+	if impact != nil {
+		filesChanged = impact.FilesChanged
+		riskTier = strings.TrimSpace(impact.RiskTier)
+	}
+	if filesChanged == 0 {
+		filesChanged = shortStat.FilesChanged
+	}
+	if filesChanged >= 15 {
+		dimension.Score -= 2
+		dimension.Reasons = append(dimension.Reasons, fmt.Sprintf("large file surface (%d files changed)", filesChanged))
+		dimension.RequiredActions = append(dimension.RequiredActions, "Split or justify broad change surface for reviewer confidence.")
+	}
+	if filesChanged >= 25 {
+		dimension.Score -= 2
+		dimension.Reasons = append(dimension.Reasons, "very large file surface (>=25 files changed)")
+		dimension.RequiredActions = append(dimension.RequiredActions, "Consider splitting intent into stacked CRs for reviewability.")
+	}
+	if shortStat.Insertions >= 500 {
+		dimension.Score -= 2
+		dimension.Reasons = append(dimension.Reasons, fmt.Sprintf("high insertion volume (%d)", shortStat.Insertions))
+		dimension.RequiredActions = append(dimension.RequiredActions, "Provide explicit rationale for high insertion volume.")
+	}
+	if shortStat.Deletions >= 200 {
+		dimension.Score -= 1
+		dimension.Reasons = append(dimension.Reasons, fmt.Sprintf("high deletion volume (%d)", shortStat.Deletions))
+		dimension.RequiredActions = append(dimension.RequiredActions, "Call out rollback considerations for high deletion volume.")
+	}
+	if strings.EqualFold(riskTier, "high") && filesChanged >= 15 {
+		dimension.Score -= 2
+		dimension.Reasons = append(dimension.Reasons, "high-risk tier with broad change surface")
+		dimension.RequiredActions = append(dimension.RequiredActions, "Add focused reviewer notes for high-risk broad-surface changes.")
 	}
 	return dimension
 }

@@ -265,6 +265,40 @@ func TestParseShortStatMetrics(t *testing.T) {
 	}
 }
 
+func TestTrustReportAppliesChangeMagnitudePenalties(t *testing.T) {
+	cr := &model.CR{
+		Contract: validTrustContract(),
+		Subtasks: []model.Subtask{
+			{ID: 1, Status: model.TaskStatusDone, CheckpointCommit: "abc1234"},
+		},
+	}
+	report := buildTrustReport(cr, &ValidationReport{
+		Impact: &ImpactReport{
+			FilesChanged: 21,
+			RiskTier:     "high",
+			Signals:      []RiskSignal{{Code: "large_change_set", Points: 2}},
+		},
+	}, &diffSummary{
+		Files:     []string{"a.go", "b.go"},
+		TestFiles: []string{"a_test.go"},
+		ShortStat: "21 files changed, 995 insertions(+), 70 deletions(-)",
+	})
+
+	dimension := trustDimensionByCode(t, report, "change_magnitude")
+	if dimension.Score != 4 {
+		t.Fatalf("expected change_magnitude score 4, got %d", dimension.Score)
+	}
+	if !containsAny(dimension.Reasons, "large file surface") {
+		t.Fatalf("expected large file surface reason, got %#v", dimension.Reasons)
+	}
+	if !containsAny(dimension.Reasons, "high insertion volume") {
+		t.Fatalf("expected insertion reason, got %#v", dimension.Reasons)
+	}
+	if !containsAny(dimension.Reasons, "high-risk tier with broad change surface") {
+		t.Fatalf("expected high-risk/broad-surface reason, got %#v", dimension.Reasons)
+	}
+}
+
 func validTrustContract() model.Contract {
 	return model.Contract{
 		Why:          "Deliver deterministic trust evidence so review can be metadata-first.",
