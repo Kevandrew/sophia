@@ -422,6 +422,8 @@ Displays:
 * Test file changes (basic detection)
 * Deterministic trust envelope (`trusted | needs_attention | untrusted`) with score, hard-fail reasons, dimension breakdown, and required actions
 * Trust is advisory-only in v1 (no merge gating change); thresholds are `trusted >= 85`, `needs_attention 60..84`, `untrusted < 60` or any hard-fail
+* Hard-fail is defined as either `validation errors > 0` or missing required CR contract fields; the missing-fields check is intentionally listed separately for explicit reviewer consistency, even though it usually overlaps validation errors
+* Evidence signals are derived from scope drift, validation warnings/errors, task checkpoint presence/missing proof commits, tests touched, dependency files touched, and delegated-task blockers/pending state
 * For merged CRs whose branch was deleted, review diff context is derived from merge metadata instead of live branch diff
 * Supports machine-readable output via `--json`
 
