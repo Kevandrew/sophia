@@ -97,6 +97,69 @@ func TestSetCRContractPartialUpdateOnlyMutatesTargetFields(t *testing.T) {
 	}
 }
 
+func TestSetAndGetTaskContractRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	cr, err := svc.AddCR("Task contract", "roundtrip")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	task, err := svc.AddTask(cr.ID, "Implement task contract")
+	if err != nil {
+		t.Fatalf("AddTask() error = %v", err)
+	}
+
+	intent := "Ensure task intent is explicit."
+	acceptance := []string{"Task can be completed safely."}
+	scope := []string{"internal/service"}
+	changed, err := svc.SetTaskContract(cr.ID, task.ID, TaskContractPatch{
+		Intent:             &intent,
+		AcceptanceCriteria: &acceptance,
+		Scope:              &scope,
+	})
+	if err != nil {
+		t.Fatalf("SetTaskContract() error = %v", err)
+	}
+	if len(changed) != 3 {
+		t.Fatalf("expected 3 changed fields, got %#v", changed)
+	}
+
+	got, err := svc.GetTaskContract(cr.ID, task.ID)
+	if err != nil {
+		t.Fatalf("GetTaskContract() error = %v", err)
+	}
+	if got.Intent != intent || len(got.AcceptanceCriteria) != 1 || len(got.Scope) != 1 {
+		t.Fatalf("unexpected task contract values: %#v", got)
+	}
+	if strings.TrimSpace(got.UpdatedAt) == "" || strings.TrimSpace(got.UpdatedBy) == "" {
+		t.Fatalf("expected task contract update audit fields, got %#v", got)
+	}
+}
+
+func TestDoneTaskBlockedWhenTaskContractMissing(t *testing.T) {
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	cr, err := svc.AddCR("Missing task contract", "block done")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	task, err := svc.AddTask(cr.ID, "Task without contract")
+	if err != nil {
+		t.Fatalf("AddTask() error = %v", err)
+	}
+
+	err = svc.DoneTask(cr.ID, task.ID)
+	if !errors.Is(err, ErrTaskContractIncomplete) {
+		t.Fatalf("expected ErrTaskContractIncomplete, got %v", err)
+	}
+}
+
 func TestValidateCRFailsWhenRequiredContractFieldsMissing(t *testing.T) {
 	dir := t.TempDir()
 	svc := New(dir)
@@ -218,6 +281,49 @@ func TestValidateCRWarnsOnTaskScopeMismatch(t *testing.T) {
 	}
 	if len(report.Warnings) == 0 {
 		t.Fatalf("expected task scope warning, got none")
+	}
+}
+
+func TestValidateCRWarnsOnTaskContractScopeDrift(t *testing.T) {
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	runGit(t, dir, "config", "user.name", "Test User")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+
+	cr, err := svc.AddCR("Task contract drift", "warn on drift")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	task, err := svc.AddTask(cr.ID, "feat: drift task")
+	if err != nil {
+		t.Fatalf("AddTask() error = %v", err)
+	}
+	setValidContract(t, svc, cr.ID)
+	setValidTaskContract(t, svc, cr.ID, task.ID)
+
+	if err := os.WriteFile(filepath.Join(dir, "outside.txt"), []byte("x\n"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+	loaded, err := svc.store.LoadCR(cr.ID)
+	if err != nil {
+		t.Fatalf("LoadCR() error = %v", err)
+	}
+	loaded.Subtasks[task.ID-1].Status = "done"
+	loaded.Subtasks[task.ID-1].CheckpointScope = []string{"outside.txt"}
+	loaded.Subtasks[task.ID-1].Contract.Scope = []string{"internal/service"}
+	if err := svc.store.SaveCR(loaded); err != nil {
+		t.Fatalf("SaveCR() error = %v", err)
+	}
+
+	report, err := svc.ValidateCR(cr.ID)
+	if err != nil {
+		t.Fatalf("ValidateCR() error = %v", err)
+	}
+	if !containsAny(report.Warnings, "outside task contract scope") {
+		t.Fatalf("expected task contract drift warning, got %#v", report.Warnings)
 	}
 }
 

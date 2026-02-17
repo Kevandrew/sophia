@@ -25,3 +25,19 @@ func setValidContract(t *testing.T, svc *Service, crID int) {
 		t.Fatalf("SetCRContract() error = %v", err)
 	}
 }
+
+func setValidTaskContract(t *testing.T, svc *Service, crID, taskID int) {
+	t.Helper()
+	intent := "Implement scoped task outcome."
+	acceptance := []string{"Behavior works as specified."}
+	scope := []string{"."}
+
+	_, err := svc.SetTaskContract(crID, taskID, TaskContractPatch{
+		Intent:             &intent,
+		AcceptanceCriteria: &acceptance,
+		Scope:              &scope,
+	})
+	if err != nil {
+		t.Fatalf("SetTaskContract() error = %v", err)
+	}
+}

@@ -192,6 +192,7 @@ func TestTaskAddAndDonePreservesOrderAndStatus(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AddTask() #2 error = %v", err)
 	}
+	setValidTaskContract(t, svc, 1, t1.ID)
 	if err := svc.DoneTask(1, t1.ID); err != nil {
 		t.Fatalf("DoneTask() error = %v", err)
 	}
@@ -236,6 +237,7 @@ func TestDoneTaskWithCheckpointCreatesCommit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AddTask() error = %v", err)
 	}
+	setValidTaskContract(t, svc, cr.ID, task.ID)
 	if err := os.WriteFile(filepath.Join(dir, "checkpoint.txt"), []byte("checkpoint\n"), 0o644); err != nil {
 		t.Fatalf("write checkpoint file: %v", err)
 	}
@@ -288,6 +290,7 @@ func TestDoneTaskWithCheckpointNoChangesKeepsTaskOpen(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AddTask() error = %v", err)
 	}
+	setValidTaskContract(t, svc, cr.ID, task.ID)
 
 	if _, err := svc.DoneTaskWithCheckpoint(cr.ID, task.ID, DoneTaskOptions{Checkpoint: true, StageAll: true}); !errors.Is(err, ErrNoTaskChanges) {
 		t.Fatalf("expected ErrNoTaskChanges, got %v", err)
@@ -316,6 +319,7 @@ func TestDoneTaskWithNoCheckpointIsMetadataOnly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AddTask() error = %v", err)
 	}
+	setValidTaskContract(t, svc, cr.ID, task.ID)
 
 	sha, err := svc.DoneTaskWithCheckpoint(cr.ID, task.ID, DoneTaskOptions{Checkpoint: false})
 	if err != nil {
@@ -350,6 +354,7 @@ func TestDoneTaskWithCheckpointRequiresCRBranch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AddTask() error = %v", err)
 	}
+	setValidTaskContract(t, svc, cr.ID, task.ID)
 	runGit(t, dir, "checkout", "main")
 	if err := os.WriteFile(filepath.Join(dir, "branch.txt"), []byte("x\n"), 0o644); err != nil {
 		t.Fatalf("write file: %v", err)
@@ -377,6 +382,7 @@ func TestDoneTaskWithCheckpointScopesToSelectedPaths(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AddTask() error = %v", err)
 	}
+	setValidTaskContract(t, svc, cr.ID, task.ID)
 
 	if err := os.WriteFile(filepath.Join(dir, "scoped.txt"), []byte("scoped\n"), 0o644); err != nil {
 		t.Fatalf("write scoped file: %v", err)
@@ -432,6 +438,7 @@ func TestDoneTaskWithCheckpointRequiresExplicitScope(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AddTask() error = %v", err)
 	}
+	setValidTaskContract(t, svc, cr.ID, task.ID)
 	if err := os.WriteFile(filepath.Join(dir, "file.txt"), []byte("x\n"), 0o644); err != nil {
 		t.Fatalf("write file: %v", err)
 	}
@@ -456,6 +463,7 @@ func TestDoneTaskWithCheckpointRejectsInvalidScopePaths(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AddTask() error = %v", err)
 	}
+	setValidTaskContract(t, svc, cr.ID, task.ID)
 
 	cases := []DoneTaskOptions{
 		{Checkpoint: true, Paths: []string{""}},
@@ -493,6 +501,7 @@ func TestDoneTaskWithCheckpointRejectsPreStagedChanges(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AddTask() error = %v", err)
 	}
+	setValidTaskContract(t, svc, cr.ID, task.ID)
 
 	if err := os.WriteFile(filepath.Join(dir, "already-staged.txt"), []byte("staged\n"), 0o644); err != nil {
 		t.Fatalf("write already-staged file: %v", err)
@@ -533,6 +542,7 @@ func TestDoneTaskWithCheckpointScopedPathWithoutChangesFails(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AddTask() error = %v", err)
 	}
+	setValidTaskContract(t, svc, cr.ID, task.ID)
 	if err := os.WriteFile(filepath.Join(dir, "other.txt"), []byte("other\n"), 0o644); err != nil {
 		t.Fatalf("write other file: %v", err)
 	}

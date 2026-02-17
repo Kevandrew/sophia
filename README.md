@@ -169,6 +169,7 @@ sophia cr task done <cr-id> <task-id> --path internal/service/service.go --path 
 Behavior:
 
 * Requires explicit checkpoint scope: `--path <file>` (repeatable) or `--all`
+* Requires task contract completeness before completion (`intent`, `acceptance_criteria`, `scope`)
 * Stages only selected paths by default (or all changes when `--all` is explicitly set)
 * Fails fast if staged changes already exist before checkpointing
 * Marks task done only if checkpoint commit succeeds
@@ -187,8 +188,22 @@ Explicit legacy stage-all behavior:
 sophia cr task done <cr-id> <task-id> --all
 ```
 
-Chunk/hunk scoping is planned for CR-8.
-Chunk/hunk scoping is planned for CR-9.
+Chunk/hunk scoping is planned for CR-10.
+
+---
+
+### Task Contract Management
+
+```
+sophia cr task contract set <cr-id> <task-id> --intent "..." --acceptance "..." --scope internal/service
+sophia cr task contract show <cr-id> <task-id>
+```
+
+Behavior:
+
+* Stores task-level intent contract fields for each subtask
+* Supports partial updates and records `task_contract_updated` audit events
+* Enables task-contract drift warnings in review/validation
 
 ---
 
@@ -295,6 +310,8 @@ sophia hook install
 sophia cr current
 sophia cr switch <id>
 sophia cr reopen <id>
+sophia cr task contract set <cr-id> <task-id> --intent "..."
+sophia cr task contract show <cr-id> <task-id>
 sophia cr edit <id> --title "..."
 sophia cr contract set <id> --why "..."
 sophia cr contract show <id>
@@ -309,6 +326,7 @@ sophia cr history <id>
 * `repair` rebuilds missing local CR metadata from Git history and realigns CR IDs
 * `hook install` adds a pre-commit guard against direct commits on the base branch
 * `current/switch/reopen` supports quick branch context moves
+* `task contract` enforces subtask intent + acceptance + scope before completion
 * `contract/impact/validate` provide intent integrity and blast-radius review context
 * `edit/redact/history` supports retroactive metadata hygiene with audit-safe events
 

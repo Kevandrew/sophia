@@ -18,16 +18,17 @@ import (
 )
 
 var (
-	ErrCRAlreadyMerged    = errors.New("cr is already merged")
-	ErrNoActiveCRContext  = errors.New("current branch is not a CR branch")
-	ErrWorkingTreeDirty   = errors.New("working tree is dirty")
-	ErrNoCRChanges        = errors.New("no CR changes provided")
-	ErrCRValidationFailed = errors.New("cr validation failed")
-	ErrAlreadyRedacted    = errors.New("target is already redacted")
-	ErrNoTaskChanges      = errors.New("no task checkpoint changes found")
-	ErrTaskScopeRequired  = errors.New("checkpoint scope is required (use --path or --all)")
-	ErrInvalidTaskScope   = errors.New("invalid task checkpoint scope")
-	ErrPreStagedChanges   = errors.New("staged changes already exist before checkpoint")
+	ErrCRAlreadyMerged        = errors.New("cr is already merged")
+	ErrNoActiveCRContext      = errors.New("current branch is not a CR branch")
+	ErrWorkingTreeDirty       = errors.New("working tree is dirty")
+	ErrNoCRChanges            = errors.New("no CR changes provided")
+	ErrCRValidationFailed     = errors.New("cr validation failed")
+	ErrAlreadyRedacted        = errors.New("target is already redacted")
+	ErrNoTaskChanges          = errors.New("no task checkpoint changes found")
+	ErrTaskScopeRequired      = errors.New("checkpoint scope is required (use --path or --all)")
+	ErrInvalidTaskScope       = errors.New("invalid task checkpoint scope")
+	ErrPreStagedChanges       = errors.New("staged changes already exist before checkpoint")
+	ErrTaskContractIncomplete = errors.New("task contract is incomplete")
 )
 
 var (
@@ -151,18 +152,19 @@ type RiskSignal struct {
 }
 
 type ImpactReport struct {
-	CRID              int
-	FilesChanged      int
-	NewFiles          []string
-	ModifiedFiles     []string
-	DeletedFiles      []string
-	TestFiles         []string
-	DependencyFiles   []string
-	ScopeDrift        []string
-	TaskScopeWarnings []string
-	Signals           []RiskSignal
-	RiskScore         int
-	RiskTier          string
+	CRID                 int
+	FilesChanged         int
+	NewFiles             []string
+	ModifiedFiles        []string
+	DeletedFiles         []string
+	TestFiles            []string
+	DependencyFiles      []string
+	ScopeDrift           []string
+	TaskScopeWarnings    []string
+	TaskContractWarnings []string
+	Signals              []RiskSignal
+	RiskScore            int
+	RiskTier             string
 }
 
 type ValidationReport struct {
@@ -170,6 +172,12 @@ type ValidationReport struct {
 	Errors   []string
 	Warnings []string
 	Impact   *ImpactReport
+}
+
+type TaskContractPatch struct {
+	Intent             *string
+	AcceptanceCriteria *[]string
+	Scope              *[]string
 }
 
 type diffSummary struct {
@@ -555,6 +563,7 @@ func (s *Service) ValidateCR(id int) (*ValidationReport, error) {
 	}
 
 	warnings := append([]string(nil), impact.TaskScopeWarnings...)
+	warnings = append(warnings, impact.TaskContractWarnings...)
 	return &ValidationReport{
 		Valid:    len(errorsOut) == 0,
 		Errors:   errorsOut,
@@ -768,6 +777,83 @@ func (s *Service) AddTask(crID int, title string) (*model.Subtask, error) {
 	return &task, nil
 }
 
+func (s *Service) SetTaskContract(crID, taskID int, patch TaskContractPatch) ([]string, error) {
+	cr, err := s.store.LoadCR(crID)
+	if err != nil {
+		return nil, err
+	}
+	taskIndex := indexOfTask(cr.Subtasks, taskID)
+	if taskIndex < 0 {
+		return nil, fmt.Errorf("task %d not found in cr %d", taskID, crID)
+	}
+	task := &cr.Subtasks[taskIndex]
+
+	changed := []string{}
+	if patch.Intent != nil {
+		normalized := strings.TrimSpace(*patch.Intent)
+		if task.Contract.Intent != normalized {
+			task.Contract.Intent = normalized
+			changed = append(changed, "intent")
+		}
+	}
+	if patch.AcceptanceCriteria != nil {
+		normalized := normalizeNonEmptyStringList(*patch.AcceptanceCriteria)
+		if !equalStringSlices(task.Contract.AcceptanceCriteria, normalized) {
+			task.Contract.AcceptanceCriteria = normalized
+			changed = append(changed, "acceptance_criteria")
+		}
+	}
+	if patch.Scope != nil {
+		normalized, normalizeErr := s.normalizeContractScopePrefixes(*patch.Scope)
+		if normalizeErr != nil {
+			return nil, normalizeErr
+		}
+		if !equalStringSlices(task.Contract.Scope, normalized) {
+			task.Contract.Scope = normalized
+			changed = append(changed, "scope")
+		}
+	}
+	if len(changed) == 0 {
+		return nil, ErrNoCRChanges
+	}
+
+	now := s.timestamp()
+	actor := s.git.Actor()
+	task.Contract.UpdatedAt = now
+	task.Contract.UpdatedBy = actor
+	task.UpdatedAt = now
+	cr.UpdatedAt = now
+	cr.Events = append(cr.Events, model.Event{
+		TS:      now,
+		Actor:   actor,
+		Type:    "task_contract_updated",
+		Summary: fmt.Sprintf("Updated task %d contract fields: %s", taskID, strings.Join(changed, ",")),
+		Ref:     fmt.Sprintf("task:%d", taskID),
+		Meta: map[string]string{
+			"fields": strings.Join(changed, ","),
+		},
+	})
+	if err := s.store.SaveCR(cr); err != nil {
+		return nil, err
+	}
+	return changed, nil
+}
+
+func (s *Service) GetTaskContract(crID, taskID int) (*model.TaskContract, error) {
+	cr, err := s.store.LoadCR(crID)
+	if err != nil {
+		return nil, err
+	}
+	taskIndex := indexOfTask(cr.Subtasks, taskID)
+	if taskIndex < 0 {
+		return nil, fmt.Errorf("task %d not found in cr %d", taskID, crID)
+	}
+	contract := cr.Subtasks[taskIndex].Contract
+	contract.AcceptanceCriteria = append([]string(nil), contract.AcceptanceCriteria...)
+	contract.Scope = append([]string(nil), contract.Scope...)
+	return &contract, nil
+}
+
 func (s *Service) ListTasks(crID int) ([]model.Subtask, error) {
 	cr, err := s.store.LoadCR(crID)
 	if err != nil {
@@ -812,6 +898,10 @@ func (s *Service) DoneTaskWithCheckpoint(crID, taskID int, opts DoneTaskOptions)
 	}
 	if !found {
 		return "", fmt.Errorf("task %d not found in cr %d", taskID, crID)
+	}
+	missingContractFields := missingTaskContractFields(cr.Subtasks[taskIndex].Contract)
+	if len(missingContractFields) > 0 {
+		return "", fmt.Errorf("%w: task %d missing %s", ErrTaskContractIncomplete, taskID, strings.Join(missingContractFields, ","))
 	}
 
 	commitSHA := ""
@@ -1498,6 +1588,15 @@ func nextTaskID(tasks []model.Subtask) int {
 	return maxID + 1
 }
 
+func indexOfTask(tasks []model.Subtask, taskID int) int {
+	for i := range tasks {
+		if tasks[i].ID == taskID {
+			return i
+		}
+	}
+	return -1
+}
+
 func buildMergeCommitMessage(cr *model.CR, actor, mergedAt string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "[CR-%d] %s\n\n", cr.ID, cr.Title)
@@ -1648,7 +1747,8 @@ func (s *Service) summarizeCRDiff(cr *model.CR) (*diffSummary, error) {
 func buildImpactReport(cr *model.CR, diff *diffSummary) *ImpactReport {
 	scope := append([]string(nil), cr.Contract.Scope...)
 	scopeDrift := findScopeDrift(diff.Files, scope)
-	warnings := findTaskScopeWarnings(cr.Subtasks, scope)
+	taskScopeWarnings := findTaskScopeWarnings(cr.Subtasks, scope)
+	taskContractWarnings := findTaskContractWarnings(cr.Subtasks)
 
 	signals := []RiskSignal{}
 	riskScore := 0
@@ -1700,18 +1800,19 @@ func buildImpactReport(cr *model.CR, diff *diffSummary) *ImpactReport {
 	}
 
 	return &ImpactReport{
-		CRID:              cr.ID,
-		FilesChanged:      len(diff.Files),
-		NewFiles:          append([]string(nil), diff.NewFiles...),
-		ModifiedFiles:     append([]string(nil), diff.ModifiedFiles...),
-		DeletedFiles:      append([]string(nil), diff.DeletedFiles...),
-		TestFiles:         append([]string(nil), diff.TestFiles...),
-		DependencyFiles:   append([]string(nil), diff.DependencyFiles...),
-		ScopeDrift:        scopeDrift,
-		TaskScopeWarnings: warnings,
-		Signals:           signals,
-		RiskScore:         riskScore,
-		RiskTier:          riskTier,
+		CRID:                 cr.ID,
+		FilesChanged:         len(diff.Files),
+		NewFiles:             append([]string(nil), diff.NewFiles...),
+		ModifiedFiles:        append([]string(nil), diff.ModifiedFiles...),
+		DeletedFiles:         append([]string(nil), diff.DeletedFiles...),
+		TestFiles:            append([]string(nil), diff.TestFiles...),
+		DependencyFiles:      append([]string(nil), diff.DependencyFiles...),
+		ScopeDrift:           scopeDrift,
+		TaskScopeWarnings:    taskScopeWarnings,
+		TaskContractWarnings: taskContractWarnings,
+		Signals:              signals,
+		RiskScore:            riskScore,
+		RiskTier:             riskTier,
 	}
 }
 
@@ -1766,6 +1867,53 @@ func findTaskScopeWarnings(tasks []model.Subtask, scopePrefixes []string) []stri
 	}
 	sort.Strings(warnings)
 	return dedupeStrings(warnings)
+}
+
+func findTaskContractWarnings(tasks []model.Subtask) []string {
+	warnings := []string{}
+	for _, task := range tasks {
+		if task.Status != model.TaskStatusDone {
+			continue
+		}
+		missing := missingTaskContractFields(task.Contract)
+		if len(missing) > 0 {
+			warnings = append(warnings, fmt.Sprintf("task #%d is done but missing contract fields: %s", task.ID, strings.Join(missing, ",")))
+		}
+		if len(task.Contract.Scope) == 0 || len(task.CheckpointScope) == 0 {
+			continue
+		}
+		for _, scopedPath := range task.CheckpointScope {
+			if strings.TrimSpace(scopedPath) == "" || scopedPath == "*" {
+				continue
+			}
+			inScope := false
+			for _, taskScope := range task.Contract.Scope {
+				if pathMatchesScopePrefix(scopedPath, taskScope) {
+					inScope = true
+					break
+				}
+			}
+			if !inScope {
+				warnings = append(warnings, fmt.Sprintf("task #%d checkpoint scope %q is outside task contract scope", task.ID, scopedPath))
+			}
+		}
+	}
+	sort.Strings(warnings)
+	return dedupeStrings(warnings)
+}
+
+func missingTaskContractFields(contract model.TaskContract) []string {
+	missing := []string{}
+	if strings.TrimSpace(contract.Intent) == "" {
+		missing = append(missing, "intent")
+	}
+	if len(normalizeNonEmptyStringList(contract.AcceptanceCriteria)) == 0 {
+		missing = append(missing, "acceptance_criteria")
+	}
+	if len(contract.Scope) == 0 {
+		missing = append(missing, "scope")
+	}
+	return missing
 }
 
 func pathMatchesScopePrefix(candidatePath, scopePrefix string) bool {
