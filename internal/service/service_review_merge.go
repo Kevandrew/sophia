@@ -2,6 +2,8 @@ package service
 
 import (
 	"fmt"
+	"path/filepath"
+	"sophia/internal/gitx"
 	"sophia/internal/model"
 	"strconv"
 	"strings"
@@ -40,75 +42,105 @@ func (s *Service) ReviewCR(id int) (*Review, error) {
 }
 
 func (s *Service) MergeCR(id int, keepBranch bool, overrideReason string) (string, error) {
+	sha, _, err := s.MergeCRWithWarnings(id, keepBranch, overrideReason)
+	return sha, err
+}
+
+func (s *Service) MergeCRWithWarnings(id int, keepBranch bool, overrideReason string) (string, []string, error) {
+	warnings := []string{}
 	cr, err := s.store.LoadCR(id)
 	if err != nil {
-		return "", err
+		return "", warnings, err
 	}
 	if _, err := ensureCRUID(cr); err != nil {
-		return "", err
+		return "", warnings, err
 	}
 	if _, err := s.ensureCRBaseFields(cr, true); err != nil {
-		return "", err
+		return "", warnings, err
 	}
 	if cr.Status == model.StatusMerged {
-		return "", ErrCRAlreadyMerged
+		return "", warnings, ErrCRAlreadyMerged
 	}
 	validation, err := s.ValidateCR(id)
 	if err != nil {
-		return "", err
+		return "", warnings, err
 	}
 	overrideReason = strings.TrimSpace(overrideReason)
 	if cr.ParentCRID > 0 {
 		parent, parentErr := s.store.LoadCR(cr.ParentCRID)
 		if parentErr != nil {
-			return "", fmt.Errorf("parent cr %d not found: %w", cr.ParentCRID, parentErr)
+			return "", warnings, fmt.Errorf("parent cr %d not found: %w", cr.ParentCRID, parentErr)
 		}
 		if parent.Status != model.StatusMerged && overrideReason == "" && !childDelegatedFromParent(parent, cr.ID) {
-			return "", fmt.Errorf("%w: CR %d depends on parent CR %d (%s)", ErrParentCRNotMerged, cr.ID, parent.ID, parent.Status)
+			return "", warnings, fmt.Errorf("%w: CR %d depends on parent CR %d (%s)", ErrParentCRNotMerged, cr.ID, parent.ID, parent.Status)
 		}
 	}
 	if !validation.Valid && overrideReason == "" {
-		return "", fmt.Errorf("%w: %s", ErrCRValidationFailed, strings.Join(validation.Errors, "; "))
+		return "", warnings, fmt.Errorf("%w: %s", ErrCRValidationFailed, strings.Join(validation.Errors, "; "))
 	}
 	if overrideReason == "" {
 		blockers := s.mergeBlockersForCR(cr, validation)
 		if len(blockers) > 0 {
-			return "", fmt.Errorf("merge blocked: %s", strings.Join(blockers, "; "))
+			return "", warnings, fmt.Errorf("merge blocked: %s", strings.Join(blockers, "; "))
 		}
 	}
-	if dirty, summary, err := s.workingTreeDirtySummary(); err != nil {
-		return "", err
-	} else if dirty {
-		return "", fmt.Errorf("%w: %s", ErrWorkingTreeDirty, summary)
-	}
 	if !s.git.BranchExists(cr.BaseBranch) {
-		return "", fmt.Errorf("base branch %q does not exist", cr.BaseBranch)
+		return "", warnings, fmt.Errorf("base branch %q does not exist", cr.BaseBranch)
 	}
 	if !s.git.BranchExists(cr.Branch) {
-		return "", fmt.Errorf("cr branch %q does not exist", cr.Branch)
+		return "", warnings, fmt.Errorf("cr branch %q does not exist", cr.Branch)
+	}
+
+	mergeGit := s.git
+	baseOwner, err := s.branchOwnerWorktree(cr.BaseBranch)
+	if err != nil {
+		return "", warnings, err
+	}
+	if baseOwner != nil && !s.isCurrentWorktreePath(baseOwner.Path) {
+		mergeGit = gitx.New(baseOwner.Path)
+	}
+	if dirty, summary, err := s.workingTreeDirtySummaryFor(mergeGit); err != nil {
+		return "", warnings, err
+	} else if dirty {
+		return "", warnings, fmt.Errorf("%w: %s", ErrWorkingTreeDirty, summary)
+	}
+	currentBranch, err := mergeGit.CurrentBranch()
+	if err != nil {
+		return "", warnings, err
+	}
+	if strings.TrimSpace(currentBranch) != strings.TrimSpace(cr.BaseBranch) {
+		if err := mergeGit.CheckoutBranch(cr.BaseBranch); err != nil {
+			return "", warnings, err
+		}
 	}
 
 	files, err := s.diffNamesForCR(cr)
 	if err != nil {
-		return "", err
+		return "", warnings, err
 	}
 
-	actor := s.git.Actor()
+	actor := mergeGit.Actor()
 	mergedAt := s.timestamp()
 	msg := buildMergeCommitMessage(cr, actor, mergedAt)
-	if err := s.git.MergeNoFF(cr.BaseBranch, cr.Branch, msg); err != nil {
-		return "", err
+	if err := mergeGit.MergeNoFFOnCurrentBranch(cr.Branch, msg); err != nil {
+		return "", warnings, err
 	}
 
 	if !keepBranch {
-		if err := s.git.DeleteBranch(cr.Branch, true); err != nil {
-			return "", err
+		crOwner, ownerErr := s.branchOwnerWorktree(cr.Branch)
+		if ownerErr != nil {
+			return "", warnings, ownerErr
+		}
+		if crOwner != nil {
+			warnings = append(warnings, fmt.Sprintf("Kept branch %s because it is checked out in worktree %s", cr.Branch, crOwner.Path))
+		} else if err := s.git.DeleteBranch(cr.Branch, true); err != nil {
+			return "", warnings, err
 		}
 	}
 
-	sha, err := s.git.HeadShortSHA()
+	sha, err := mergeGit.HeadShortSHA()
 	if err != nil {
-		return "", err
+		return "", warnings, err
 	}
 
 	cr.Status = model.StatusMerged
@@ -139,16 +171,16 @@ func (s *Service) MergeCR(id int, keepBranch bool, overrideReason string) (strin
 		Ref:     fmt.Sprintf("cr:%d", cr.ID),
 	})
 	if err := s.store.SaveCR(cr); err != nil {
-		return "", err
+		return "", warnings, err
 	}
 	if err := s.backfillChildrenAfterParentMerge(cr); err != nil {
-		return "", err
+		return "", warnings, err
 	}
 	if err := s.syncDelegatedTasksAfterChildMerge(cr.ID); err != nil {
-		return "", err
+		return "", warnings, err
 	}
 
-	return sha, nil
+	return sha, warnings, nil
 }
 
 func (s *Service) Doctor(limit int) (*DoctorReport, error) {
@@ -199,6 +231,14 @@ func (s *Service) Doctor(limit int) (*DoctorReport, error) {
 			report.Findings = append(report.Findings, DoctorFinding{
 				Code:    "tracked_sophia_metadata",
 				Message: fmt.Sprintf("%d tracked path(s) found under .sophia in local metadata mode", len(trackedSophia)),
+			})
+		}
+		if strings.TrimSpace(s.sharedLocalSophiaDir) != "" &&
+			filepath.Clean(s.store.SophiaDir()) != filepath.Clean(s.legacySophiaDir) &&
+			pathExists(s.legacySophiaDir) {
+			report.Findings = append(report.Findings, DoctorFinding{
+				Code:    "legacy_local_metadata",
+				Message: fmt.Sprintf("legacy local metadata path still exists at %s", s.legacySophiaDir),
 			})
 		}
 	}
@@ -290,6 +330,13 @@ func (s *Service) SwitchCR(id int) (*model.CR, error) {
 		return nil, err
 	}
 	if s.git.BranchExists(cr.Branch) {
+		owner, ownerErr := s.branchOwnerWorktree(cr.Branch)
+		if ownerErr != nil {
+			return nil, ownerErr
+		}
+		if owner != nil && !s.isCurrentWorktreePath(owner.Path) {
+			return nil, fmt.Errorf("%w: branch %q is checked out in worktree %q", ErrBranchInOtherWorktree, cr.Branch, owner.Path)
+		}
 		if err := s.git.CheckoutBranch(cr.Branch); err != nil {
 			return nil, err
 		}
@@ -327,6 +374,13 @@ func (s *Service) ReopenCR(id int) (*model.CR, error) {
 		return nil, fmt.Errorf("cr %d is not merged", id)
 	}
 	if s.git.BranchExists(cr.Branch) {
+		owner, ownerErr := s.branchOwnerWorktree(cr.Branch)
+		if ownerErr != nil {
+			return nil, ownerErr
+		}
+		if owner != nil && !s.isCurrentWorktreePath(owner.Path) {
+			return nil, fmt.Errorf("%w: branch %q is checked out in worktree %q", ErrBranchInOtherWorktree, cr.Branch, owner.Path)
+		}
 		if err := s.git.CheckoutBranch(cr.Branch); err != nil {
 			return nil, err
 		}
