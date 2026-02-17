@@ -29,8 +29,11 @@ Recommended daily flow (intent-first):
 8. `sophia cr review <id>` (use Trust verdict/required actions as primary metadata confidence signal; diff deep-dive becomes optional when trust is strong; hard-fail means `validation errors > 0` or missing required CR contract fields, and evidence signals come from scope drift, validation warnings/errors, task checkpoints, tests/dependencies touched, and delegated blockers)
 9. optional machine-readable checks: `sophia cr status <id> --json`, `sophia cr validate <id> --json`
 10. `sophia cr merge <id>`
-11. stacked flows when needed: `sophia cr restack <id>` or `sophia cr base set <id> --ref <git-ref> [--rebase]`
-12. optional delegated stacking:
+11. if merge conflicts occur:
+   `sophia cr merge status <id>`
+   resolve conflicts + `sophia cr merge resume <id>` or `sophia cr merge abort <id>`
+12. stacked flows when needed: `sophia cr restack <id>` or `sophia cr base set <id> --ref <git-ref> [--rebase]`
+13. optional delegated stacking:
    `sophia cr task delegate <parent-cr-id> <task-id> --child <child-cr-id>`
    `sophia cr stack [<id>] [--json]`
 
@@ -65,6 +68,7 @@ Recommended daily flow (intent-first):
 - Use `--no-checkpoint` for metadata-only completion; use `--all` only when full-stage behavior is intended.
 - Pre-staged index changes are rejected before checkpointing to prevent accidental scope drift.
 - Merge is validation-gated; use `--override-reason` only for audited emergency bypasses.
+- During unresolved merge state, mutating CR commands are blocked until `cr merge abort` or `cr merge resume` completes.
 - For non-delegated stacked CRs, merge parents before children unless an audited override is explicitly required.
 - Delegated child CRs may merge before parent when explicitly linked via `cr task delegate`; parent merge remains blocked until delegated children are merged.
 - PRs should include:
@@ -76,4 +80,4 @@ Recommended daily flow (intent-first):
 - `.sophia/` is local-first workflow state and is ignored in Git by default.
 - If local metadata is missing/out-of-sync, run `sophia repair`.
 - `_docs/` is local/internal and ignored via `.gitignore`.
-- Current milestone: CR-22 (YAML plan apply for CR setup, dry-run previews, and init template seeding).
+- Current milestone: CR-29 (merge conflict recovery primitive with deterministic status/abort/resume).
