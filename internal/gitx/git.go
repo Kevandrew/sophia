@@ -335,6 +335,97 @@ func (c *Client) WorkingTreeStatus() ([]StatusEntry, error) {
 	return entries, nil
 }
 
+func (c *Client) IsMergeInProgress() (bool, error) {
+	cmd := exec.Command("git", "rev-parse", "-q", "--verify", "MERGE_HEAD")
+	cmd.Dir = c.WorkDir
+	raw, err := cmd.CombinedOutput()
+	if err == nil {
+		return strings.TrimSpace(string(raw)) != "", nil
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+		return false, nil
+	}
+	trimmed := strings.TrimSpace(string(raw))
+	if trimmed == "" {
+		return false, fmt.Errorf("git rev-parse -q --verify MERGE_HEAD: %w", err)
+	}
+	return false, fmt.Errorf("git rev-parse -q --verify MERGE_HEAD: %w: %s", err, trimmed)
+}
+
+func (c *Client) MergeHeadSHA() (string, error) {
+	cmd := exec.Command("git", "rev-parse", "-q", "--verify", "MERGE_HEAD")
+	cmd.Dir = c.WorkDir
+	raw, err := cmd.CombinedOutput()
+	if err == nil {
+		return strings.TrimSpace(string(raw)), nil
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+		return "", nil
+	}
+	trimmed := strings.TrimSpace(string(raw))
+	if trimmed == "" {
+		return "", fmt.Errorf("git rev-parse -q --verify MERGE_HEAD: %w", err)
+	}
+	return "", fmt.Errorf("git rev-parse -q --verify MERGE_HEAD: %w: %s", err, trimmed)
+}
+
+func (c *Client) MergeConflictFiles() ([]string, error) {
+	entries, err := c.WorkingTreeStatus()
+	if err != nil {
+		return nil, err
+	}
+	unmergedCodes := map[string]struct{}{
+		"UU": {},
+		"AA": {},
+		"DD": {},
+		"AU": {},
+		"UA": {},
+		"DU": {},
+		"UD": {},
+	}
+	seen := map[string]struct{}{}
+	files := make([]string, 0)
+	for _, entry := range entries {
+		code := strings.TrimSpace(entry.Code)
+		if _, ok := unmergedCodes[code]; !ok {
+			continue
+		}
+		path := strings.TrimSpace(entry.Path)
+		if path == "" {
+			continue
+		}
+		if _, ok := seen[path]; ok {
+			continue
+		}
+		seen[path] = struct{}{}
+		files = append(files, path)
+	}
+	sort.Strings(files)
+	return files, nil
+}
+
+func (c *Client) MergeAbort() error {
+	_, err := c.run("merge", "--abort")
+	return err
+}
+
+func (c *Client) MergeContinue() error {
+	cmd := exec.Command("git", "merge", "--continue")
+	cmd.Dir = c.WorkDir
+	cmd.Env = append(os.Environ(), "GIT_EDITOR=true")
+	raw, err := cmd.CombinedOutput()
+	trimmed := strings.TrimSpace(string(raw))
+	if err != nil {
+		if trimmed == "" {
+			return fmt.Errorf("git merge --continue: %w", err)
+		}
+		return fmt.Errorf("git merge --continue: %w: %s", err, trimmed)
+	}
+	return nil
+}
+
 func (c *Client) RecentCommits(branch string, limit int) ([]Commit, error) {
 	if limit <= 0 {
 		limit = 100
