@@ -300,7 +300,7 @@ func TestTrustReportAppliesChangeMagnitudePenalties(t *testing.T) {
 	}
 }
 
-func TestTrustReportHighRiskWithoutSpecializedEvidenceNeedsAttention(t *testing.T) {
+func TestTrustReportHighRiskWithoutSpecializedEvidenceAddsAdvisory(t *testing.T) {
 	cr := &model.CR{
 		Contract: validTrustContract(),
 		Subtasks: []model.Subtask{
@@ -321,14 +321,17 @@ func TestTrustReportHighRiskWithoutSpecializedEvidenceNeedsAttention(t *testing.
 		ShortStat: "2 files changed, 20 insertions(+), 3 deletions(-)",
 	})
 
-	if report.Verdict != trustVerdictNeedsAttention {
-		t.Fatalf("expected needs_attention verdict for high-risk without specialized evidence, got %q", report.Verdict)
+	if report.Verdict != trustVerdictTrusted {
+		t.Fatalf("expected trusted verdict for high-risk without specialized evidence, got %q", report.Verdict)
 	}
-	if !containsAny(report.RequiredActions, "specialized high-risk evidence") {
-		t.Fatalf("expected specialized high-risk action, got %#v", report.RequiredActions)
+	if len(report.RequiredActions) > 0 {
+		t.Fatalf("expected no top-level required actions for advisory-only high-risk evidence, got %#v", report.RequiredActions)
 	}
-	if !containsAny(report.RequiredActions, "Spot-check critical scopes") {
-		t.Fatalf("expected spot-check required action, got %#v", report.RequiredActions)
+	if !containsAny(report.Advisories, "specialized high-risk evidence") {
+		t.Fatalf("expected specialized high-risk advisory, got %#v", report.Advisories)
+	}
+	if !containsAny(report.Advisories, "Spot-check critical scopes") {
+		t.Fatalf("expected spot-check advisory, got %#v", report.Advisories)
 	}
 }
 
@@ -355,6 +358,12 @@ func TestTrustReportHighRiskWithSpecializedEvidenceCanBeTrusted(t *testing.T) {
 
 	if report.Verdict != trustVerdictTrusted {
 		t.Fatalf("expected trusted verdict when specialized evidence exists, got %q", report.Verdict)
+	}
+	if !containsAny(report.Advisories, "Spot-check critical scopes") {
+		t.Fatalf("expected spot-check advisory, got %#v", report.Advisories)
+	}
+	if containsAny(report.Advisories, "specialized high-risk evidence") {
+		t.Fatalf("did not expect specialized evidence advisory when evidence exists, got %#v", report.Advisories)
 	}
 }
 

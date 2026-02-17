@@ -310,6 +310,7 @@ type TrustReport struct {
 	HardFailures    []string
 	Dimensions      []TrustDimension
 	RequiredActions []string
+	Advisories      []string
 	Summary         string
 }
 

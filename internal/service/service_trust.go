@@ -30,7 +30,8 @@ func buildTrustReport(cr *model.CR, validation *ValidationReport, diff *diffSumm
 			RequiredActions: []string{
 				"Re-run review on an existing CR.",
 			},
-			Summary: "Trust evidence unavailable because CR metadata is missing.",
+			Advisories: []string{},
+			Summary:    "Trust evidence unavailable because CR metadata is missing.",
 		}
 	}
 	if validation == nil {
@@ -54,6 +55,7 @@ func buildTrustReport(cr *model.CR, validation *ValidationReport, diff *diffSumm
 
 	hardFailures := []string{}
 	requiredActions := []string{}
+	advisories := []string{}
 	if len(validation.Errors) > 0 {
 		hardFailures = append(hardFailures, fmt.Sprintf("validation errors present (%d)", len(validation.Errors)))
 		requiredActions = append(requiredActions, "Resolve all validation errors before trusting review data.")
@@ -84,22 +86,26 @@ func buildTrustReport(cr *model.CR, validation *ValidationReport, diff *diffSumm
 		dimensions[i].RequiredActions = dedupeStrings(dimensions[i].RequiredActions)
 		score += dimensions[i].Score
 		max += dimensions[i].Max
-		requiredActions = append(requiredActions, dimensions[i].RequiredActions...)
+		for _, action := range dimensions[i].RequiredActions {
+			if isTrustGatingAction(action) {
+				continue
+			}
+			advisories = append(advisories, action)
+		}
 	}
 	requiredActions = dedupeStrings(requiredActions)
+	advisories = dedupeStrings(advisories)
 	if strings.EqualFold(strings.TrimSpace(impact.RiskTier), "high") && len(impact.MatchedRiskCriticalScopes) > 0 {
-		requiredActions = append(requiredActions, fmt.Sprintf("Spot-check critical scopes: %s.", strings.Join(impact.MatchedRiskCriticalScopes, ", ")))
+		advisories = append(advisories, fmt.Sprintf("Spot-check critical scopes: %s.", strings.Join(impact.MatchedRiskCriticalScopes, ", ")))
 	}
-	requiredActions = dedupeStrings(requiredActions)
+	advisories = dedupeStrings(advisories)
 
 	verdict, summary := selectTrustVerdict(score, max, hardFailures)
-	if verdict == trustVerdictTrusted &&
-		strings.EqualFold(strings.TrimSpace(impact.RiskTier), "high") &&
+	if strings.EqualFold(strings.TrimSpace(impact.RiskTier), "high") &&
+		len(impact.MatchedRiskCriticalScopes) > 0 &&
 		!hasSpecializedHighRiskEvidence(impact, diff) {
-		verdict = trustVerdictNeedsAttention
-		summary = "Trust evidence has gaps; address required actions before treating diffs as optional."
-		requiredActions = append(requiredActions, "Add specialized high-risk evidence (integration/worktree/doctor/repair coverage) before treating this CR as trusted.")
-		requiredActions = dedupeStrings(requiredActions)
+		advisories = append(advisories, "Add specialized high-risk evidence (integration/worktree/doctor/repair coverage) to increase confidence.")
+		advisories = dedupeStrings(advisories)
 	}
 
 	return &TrustReport{
@@ -110,6 +116,7 @@ func buildTrustReport(cr *model.CR, validation *ValidationReport, diff *diffSumm
 		HardFailures:    dedupeStrings(hardFailures),
 		Dimensions:      dimensions,
 		RequiredActions: requiredActions,
+		Advisories:      advisories,
 		Summary:         summary,
 	}
 }
@@ -131,6 +138,23 @@ func trustScoreRatio(score, max int) float64 {
 		return 0
 	}
 	return float64(score) / float64(max)
+}
+
+func isTrustGatingAction(action string) bool {
+	lower := strings.ToLower(strings.TrimSpace(action))
+	if lower == "" {
+		return false
+	}
+	if strings.Contains(lower, "validation error") {
+		return true
+	}
+	if strings.Contains(lower, "required contract field") {
+		return true
+	}
+	if strings.Contains(lower, "required contract fields") {
+		return true
+	}
+	return false
 }
 
 type shortStatMetrics struct {
