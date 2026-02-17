@@ -24,6 +24,8 @@ var (
 	ErrWorkingTreeDirty       = errors.New("working tree is dirty")
 	ErrNoCRChanges            = errors.New("no CR changes provided")
 	ErrCRValidationFailed     = errors.New("cr validation failed")
+	ErrParentCRNotMerged      = errors.New("parent cr is not merged")
+	ErrParentCRRequired       = errors.New("cr has no parent")
 	ErrAlreadyRedacted        = errors.New("target is already redacted")
 	ErrNoTaskChanges          = errors.New("no task checkpoint changes found")
 	ErrTaskScopeRequired      = errors.New("checkpoint scope is required (use --path or --all)")
@@ -40,6 +42,9 @@ var (
 	legacyPersistPattern = regexp.MustCompile(`^chore:\s*persist CR-\d+\s+merged metadata$`)
 	footerCRIDPattern    = regexp.MustCompile(`(?m)^Sophia-CR:\s*(\d+)\s*$`)
 	footerCRUIDPattern   = regexp.MustCompile(`(?m)^Sophia-CR-UID:\s*(\S+)\s*$`)
+	footerBaseRefPattern = regexp.MustCompile(`(?m)^Sophia-Base-Ref:\s*(.+)\s*$`)
+	footerBaseSHApattern = regexp.MustCompile(`(?m)^Sophia-Base-Commit:\s*(\S+)\s*$`)
+	footerParentPattern  = regexp.MustCompile(`(?m)^Sophia-Parent-CR:\s*(\d+)\s*$`)
 	footerIntentPattern  = regexp.MustCompile(`(?m)^Sophia-Intent:\s*(.+)\s*$`)
 )
 
@@ -85,6 +90,11 @@ type CurrentCRContext struct {
 	CR     *model.CR
 }
 
+type AddCROptions struct {
+	BaseRef    string
+	ParentCRID int
+}
+
 type LogEntry struct {
 	ID           int
 	Title        string
@@ -108,6 +118,9 @@ type RepairReport struct {
 type WhyView struct {
 	CRID              int
 	CRUID             string
+	BaseRef           string
+	BaseCommit        string
+	ParentCRID        int
 	EffectiveWhy      string
 	Source            string
 	Description       string
@@ -122,6 +135,10 @@ type CRStatusView struct {
 	Title                 string
 	Status                string
 	BaseBranch            string
+	BaseRef               string
+	BaseCommit            string
+	ParentCRID            int
+	ParentStatus          string
 	Branch                string
 	CurrentBranch         string
 	BranchMatch           bool
@@ -194,6 +211,9 @@ type RiskSignal struct {
 type ImpactReport struct {
 	CRID                 int
 	CRUID                string
+	BaseRef              string
+	BaseCommit           string
+	ParentCRID           int
 	FilesChanged         int
 	NewFiles             []string
 	ModifiedFiles        []string
@@ -307,13 +327,20 @@ func (s *Service) Init(baseBranch, metadataMode string) (string, error) {
 }
 
 func (s *Service) AddCR(title, description string) (*model.CR, error) {
-	cr, _, err := s.AddCRWithWarnings(title, description)
+	cr, _, err := s.AddCRWithOptionsWithWarnings(title, description, AddCROptions{})
 	return cr, err
 }
 
 func (s *Service) AddCRWithWarnings(title, description string) (*model.CR, []string, error) {
+	return s.AddCRWithOptionsWithWarnings(title, description, AddCROptions{})
+}
+
+func (s *Service) AddCRWithOptionsWithWarnings(title, description string, opts AddCROptions) (*model.CR, []string, error) {
 	if strings.TrimSpace(title) == "" {
 		return nil, nil, errors.New("title cannot be empty")
+	}
+	if strings.TrimSpace(opts.BaseRef) != "" && opts.ParentCRID > 0 {
+		return nil, nil, errors.New("--base and --parent cannot be combined")
 	}
 	if err := s.store.EnsureInitialized(); err != nil {
 		return nil, nil, err
@@ -343,6 +370,33 @@ func (s *Service) AddCRWithWarnings(title, description string) (*model.CR, []str
 		return nil, nil, fmt.Errorf("align cr id sequence: %w", err)
 	}
 
+	baseRef := strings.TrimSpace(opts.BaseRef)
+	baseCommit := ""
+	parentID := 0
+	if opts.ParentCRID > 0 {
+		parent, err := s.store.LoadCR(opts.ParentCRID)
+		if err != nil {
+			return nil, nil, err
+		}
+		ref, commit, err := s.parentBaseAnchor(parent)
+		if err != nil {
+			return nil, nil, err
+		}
+		baseRef = ref
+		baseCommit = commit
+		parentID = parent.ID
+	}
+	if baseRef == "" {
+		baseRef = cfg.BaseBranch
+	}
+	if strings.TrimSpace(baseCommit) == "" {
+		resolved, err := s.git.ResolveRef(baseRef)
+		if err != nil {
+			return nil, nil, fmt.Errorf("resolve base ref %q: %w", baseRef, err)
+		}
+		baseCommit = resolved
+	}
+
 	id, err := s.store.NextCRID()
 	if err != nil {
 		return nil, nil, err
@@ -356,7 +410,7 @@ func (s *Service) AddCRWithWarnings(title, description string) (*model.CR, []str
 	if s.git.BranchExists(branch) {
 		return nil, nil, fmt.Errorf("branch %q already exists", branch)
 	}
-	if err := s.git.CreateBranch(branch); err != nil {
+	if err := s.git.CreateBranchFrom(branch, baseCommit); err != nil {
 		return nil, nil, err
 	}
 
@@ -369,6 +423,9 @@ func (s *Service) AddCRWithWarnings(title, description string) (*model.CR, []str
 		Description: description,
 		Status:      model.StatusInProgress,
 		BaseBranch:  cfg.BaseBranch,
+		BaseRef:     baseRef,
+		BaseCommit:  baseCommit,
+		ParentCRID:  parentID,
 		Branch:      branch,
 		Notes:       []string{},
 		Subtasks:    []model.Subtask{},
@@ -558,9 +615,135 @@ func (s *Service) GetCRContract(id int) (*model.Contract, error) {
 	return &contract, nil
 }
 
+func (s *Service) SetCRBase(id int, ref string, rebase bool) (*model.CR, error) {
+	ref = strings.TrimSpace(ref)
+	if ref == "" {
+		return nil, errors.New("base ref cannot be empty")
+	}
+	cr, err := s.store.LoadCR(id)
+	if err != nil {
+		return nil, err
+	}
+	if cr.Status != model.StatusInProgress {
+		return nil, fmt.Errorf("cr %d is not in progress", id)
+	}
+	baseCommit, err := s.git.ResolveRef(ref)
+	if err != nil {
+		return nil, fmt.Errorf("resolve base ref %q: %w", ref, err)
+	}
+	if rebase {
+		if dirty, summary, err := s.workingTreeDirtySummary(); err != nil {
+			return nil, err
+		} else if dirty {
+			return nil, fmt.Errorf("%w: %s", ErrWorkingTreeDirty, summary)
+		}
+		if !s.git.BranchExists(cr.Branch) {
+			return nil, fmt.Errorf("cr branch %q does not exist", cr.Branch)
+		}
+		if err := s.git.RebaseBranchOnto(cr.Branch, ref); err != nil {
+			return nil, err
+		}
+	}
+
+	now := s.timestamp()
+	actor := s.git.Actor()
+	cr.BaseRef = ref
+	cr.BaseCommit = strings.TrimSpace(baseCommit)
+	cr.ParentCRID = 0
+	cr.UpdatedAt = now
+	cr.Events = append(cr.Events, model.Event{
+		TS:      now,
+		Actor:   actor,
+		Type:    "cr_base_updated",
+		Summary: fmt.Sprintf("Updated CR base to %s", ref),
+		Ref:     fmt.Sprintf("cr:%d", cr.ID),
+		Meta: map[string]string{
+			"base_ref":    cr.BaseRef,
+			"base_commit": cr.BaseCommit,
+			"rebase":      strconv.FormatBool(rebase),
+		},
+	})
+	if err := s.store.SaveCR(cr); err != nil {
+		return nil, err
+	}
+	return cr, nil
+}
+
+func (s *Service) RestackCR(id int) (*model.CR, error) {
+	cr, err := s.store.LoadCR(id)
+	if err != nil {
+		return nil, err
+	}
+	if cr.Status != model.StatusInProgress {
+		return nil, fmt.Errorf("cr %d is not in progress", id)
+	}
+	if cr.ParentCRID <= 0 {
+		return nil, ErrParentCRRequired
+	}
+	if dirty, summary, err := s.workingTreeDirtySummary(); err != nil {
+		return nil, err
+	} else if dirty {
+		return nil, fmt.Errorf("%w: %s", ErrWorkingTreeDirty, summary)
+	}
+	if !s.git.BranchExists(cr.Branch) {
+		return nil, fmt.Errorf("cr branch %q does not exist", cr.Branch)
+	}
+
+	parent, err := s.store.LoadCR(cr.ParentCRID)
+	if err != nil {
+		return nil, err
+	}
+	targetRef := ""
+	switch {
+	case parent.Status == model.StatusInProgress && s.git.BranchExists(parent.Branch):
+		targetRef = parent.Branch
+	case parent.Status == model.StatusMerged && strings.TrimSpace(parent.MergedCommit) != "":
+		targetRef = strings.TrimSpace(parent.MergedCommit)
+	default:
+		return nil, fmt.Errorf("parent CR %d has no restack anchor", parent.ID)
+	}
+
+	if err := s.git.RebaseBranchOnto(cr.Branch, targetRef); err != nil {
+		return nil, err
+	}
+	targetCommit, err := s.git.ResolveRef(targetRef)
+	if err != nil {
+		return nil, err
+	}
+
+	cr.BaseCommit = strings.TrimSpace(targetCommit)
+	if parent.Status == model.StatusMerged {
+		cr.BaseRef = cr.BaseBranch
+	} else {
+		cr.BaseRef = parent.Branch
+	}
+	now := s.timestamp()
+	cr.UpdatedAt = now
+	cr.Events = append(cr.Events, model.Event{
+		TS:      now,
+		Actor:   s.git.Actor(),
+		Type:    "cr_restacked",
+		Summary: fmt.Sprintf("Restacked CR %d onto parent CR %d", cr.ID, parent.ID),
+		Ref:     fmt.Sprintf("cr:%d", cr.ID),
+		Meta: map[string]string{
+			"parent_cr":   strconv.Itoa(parent.ID),
+			"target_ref":  targetRef,
+			"base_ref":    cr.BaseRef,
+			"base_commit": cr.BaseCommit,
+		},
+	})
+	if err := s.store.SaveCR(cr); err != nil {
+		return nil, err
+	}
+	return cr, nil
+}
+
 func (s *Service) WhyCR(id int) (*WhyView, error) {
 	cr, err := s.store.LoadCR(id)
 	if err != nil {
+		return nil, err
+	}
+	if _, err := s.ensureCRBaseFields(cr, true); err != nil {
 		return nil, err
 	}
 
@@ -580,6 +763,9 @@ func (s *Service) WhyCR(id int) (*WhyView, error) {
 	return &WhyView{
 		CRID:              cr.ID,
 		CRUID:             strings.TrimSpace(cr.UID),
+		BaseRef:           strings.TrimSpace(cr.BaseRef),
+		BaseCommit:        strings.TrimSpace(cr.BaseCommit),
+		ParentCRID:        cr.ParentCRID,
 		EffectiveWhy:      effectiveWhy,
 		Source:            source,
 		Description:       description,
@@ -592,6 +778,9 @@ func (s *Service) WhyCR(id int) (*WhyView, error) {
 func (s *Service) StatusCR(id int) (*CRStatusView, error) {
 	cr, err := s.store.LoadCR(id)
 	if err != nil {
+		return nil, err
+	}
+	if _, err := s.ensureCRBaseFields(cr, true); err != nil {
 		return nil, err
 	}
 
@@ -628,6 +817,9 @@ func (s *Service) StatusCR(id int) (*CRStatusView, error) {
 		Title:                 cr.Title,
 		Status:                cr.Status,
 		BaseBranch:            cr.BaseBranch,
+		BaseRef:               strings.TrimSpace(cr.BaseRef),
+		BaseCommit:            strings.TrimSpace(cr.BaseCommit),
+		ParentCRID:            cr.ParentCRID,
 		Branch:                cr.Branch,
 		CurrentBranch:         currentBranch,
 		BranchMatch:           strings.TrimSpace(currentBranch) != "" && currentBranch == cr.Branch,
@@ -641,6 +833,14 @@ func (s *Service) StatusCR(id int) (*CRStatusView, error) {
 		ContractMissingFields: missingFields,
 		ValidationValid:       true,
 		RiskTier:              "-",
+	}
+	if cr.ParentCRID > 0 {
+		parent, parentErr := s.store.LoadCR(cr.ParentCRID)
+		if parentErr != nil {
+			view.ParentStatus = "missing"
+		} else {
+			view.ParentStatus = parent.Status
+		}
 	}
 
 	if cr.Status == model.StatusInProgress {
@@ -1010,6 +1210,9 @@ func (s *Service) DoneTaskWithCheckpoint(crID, taskID int, opts DoneTaskOptions)
 	if _, err := ensureCRUID(cr); err != nil {
 		return "", err
 	}
+	if _, err := s.ensureCRBaseFields(cr, true); err != nil {
+		return "", err
+	}
 	if cr.Status != model.StatusInProgress {
 		return "", fmt.Errorf("cr %d is not in progress", crID)
 	}
@@ -1204,6 +1407,9 @@ func (s *Service) MergeCR(id int, keepBranch bool, overrideReason string) (strin
 	if _, err := ensureCRUID(cr); err != nil {
 		return "", err
 	}
+	if _, err := s.ensureCRBaseFields(cr, true); err != nil {
+		return "", err
+	}
 	if cr.Status == model.StatusMerged {
 		return "", ErrCRAlreadyMerged
 	}
@@ -1212,6 +1418,15 @@ func (s *Service) MergeCR(id int, keepBranch bool, overrideReason string) (strin
 		return "", err
 	}
 	overrideReason = strings.TrimSpace(overrideReason)
+	if cr.ParentCRID > 0 {
+		parent, parentErr := s.store.LoadCR(cr.ParentCRID)
+		if parentErr != nil {
+			return "", fmt.Errorf("parent cr %d not found: %w", cr.ParentCRID, parentErr)
+		}
+		if parent.Status != model.StatusMerged && overrideReason == "" {
+			return "", fmt.Errorf("%w: CR %d depends on parent CR %d (%s)", ErrParentCRNotMerged, cr.ID, parent.ID, parent.Status)
+		}
+	}
 	if !validation.Valid && overrideReason == "" {
 		return "", fmt.Errorf("%w: %s", ErrCRValidationFailed, strings.Join(validation.Errors, "; "))
 	}
@@ -1227,7 +1442,7 @@ func (s *Service) MergeCR(id int, keepBranch bool, overrideReason string) (strin
 		return "", fmt.Errorf("cr branch %q does not exist", cr.Branch)
 	}
 
-	files, err := s.git.DiffNames(cr.BaseBranch, cr.Branch)
+	files, err := s.diffNamesForCR(cr)
 	if err != nil {
 		return "", err
 	}
@@ -1278,6 +1493,9 @@ func (s *Service) MergeCR(id int, keepBranch bool, overrideReason string) (strin
 		Ref:     fmt.Sprintf("cr:%d", cr.ID),
 	})
 	if err := s.store.SaveCR(cr); err != nil {
+		return "", err
+	}
+	if err := s.backfillChildrenAfterParentMerge(cr); err != nil {
 		return "", err
 	}
 
@@ -1402,6 +1620,9 @@ func (s *Service) CurrentCR() (*CurrentCRContext, error) {
 	if err != nil {
 		return nil, err
 	}
+	if _, err := s.ensureCRBaseFields(cr, true); err != nil {
+		return nil, err
+	}
 	return &CurrentCRContext{Branch: branch, CR: cr}, nil
 }
 
@@ -1416,6 +1637,9 @@ func (s *Service) SwitchCR(id int) (*model.CR, error) {
 	if err != nil {
 		return nil, err
 	}
+	if _, err := s.ensureCRBaseFields(cr, true); err != nil {
+		return nil, err
+	}
 	if s.git.BranchExists(cr.Branch) {
 		if err := s.git.CheckoutBranch(cr.Branch); err != nil {
 			return nil, err
@@ -1426,10 +1650,11 @@ func (s *Service) SwitchCR(id int) (*model.CR, error) {
 	if cr.Status != model.StatusInProgress {
 		return nil, fmt.Errorf("branch %q is missing for merged CR %d; run sophia cr reopen %d", cr.Branch, cr.ID, cr.ID)
 	}
-	if err := s.git.EnsureBaseBranch(cr.BaseBranch); err != nil {
+	baseAnchor, err := s.resolveCRBaseAnchor(cr)
+	if err != nil {
 		return nil, err
 	}
-	if err := s.git.CreateBranch(cr.Branch); err != nil {
+	if err := s.git.CreateBranchFrom(cr.Branch, baseAnchor); err != nil {
 		return nil, err
 	}
 	return cr, nil
@@ -1446,6 +1671,9 @@ func (s *Service) ReopenCR(id int) (*model.CR, error) {
 	if err != nil {
 		return nil, err
 	}
+	if _, err := s.ensureCRBaseFields(cr, true); err != nil {
+		return nil, err
+	}
 	if cr.Status != model.StatusMerged {
 		return nil, fmt.Errorf("cr %d is not merged", id)
 	}
@@ -1454,10 +1682,11 @@ func (s *Service) ReopenCR(id int) (*model.CR, error) {
 			return nil, err
 		}
 	} else {
-		if err := s.git.EnsureBaseBranch(cr.BaseBranch); err != nil {
+		baseAnchor, err := s.resolveCRBaseAnchor(cr)
+		if err != nil {
 			return nil, err
 		}
-		if err := s.git.CreateBranch(cr.Branch); err != nil {
+		if err := s.git.CreateBranchFrom(cr.Branch, baseAnchor); err != nil {
 			return nil, err
 		}
 	}
@@ -1638,11 +1867,15 @@ func (s *Service) RepairFromGit(baseBranch string, refresh bool) (*RepairReport,
 
 	uidBackfilledSet := map[int]struct{}{}
 	for id, existing := range existingMap {
-		changed, uidErr := ensureCRUID(existing)
+		changedUID, uidErr := ensureCRUID(existing)
 		if uidErr != nil {
 			return nil, uidErr
 		}
-		if !changed {
+		changedBase, baseErr := s.ensureCRBaseFields(existing, false)
+		if baseErr != nil {
+			return nil, baseErr
+		}
+		if !changedUID && !changedBase {
 			continue
 		}
 		if strings.TrimSpace(existing.CreatedAt) == "" {
@@ -1686,6 +1919,9 @@ func (s *Service) RepairFromGit(baseBranch string, refresh bool) (*RepairReport,
 			Description:       description,
 			Status:            model.StatusMerged,
 			BaseBranch:        targetBase,
+			BaseRef:           baseRefFromBody(commit.Body),
+			BaseCommit:        baseCommitFromBody(commit.Body),
+			ParentCRID:        parentCRIDFromBody(commit.Body),
 			Branch:            fmt.Sprintf("sophia/cr-%d", id),
 			Notes:             notes,
 			Subtasks:          subtasks,
@@ -1702,6 +1938,15 @@ func (s *Service) RepairFromGit(baseBranch string, refresh bool) (*RepairReport,
 			if strings.TrimSpace(cr.UID) == "" {
 				cr.UID = strings.TrimSpace(existing.UID)
 			}
+			if strings.TrimSpace(cr.BaseRef) == "" {
+				cr.BaseRef = strings.TrimSpace(existing.BaseRef)
+			}
+			if strings.TrimSpace(cr.BaseCommit) == "" {
+				cr.BaseCommit = strings.TrimSpace(existing.BaseCommit)
+			}
+			if cr.ParentCRID <= 0 {
+				cr.ParentCRID = existing.ParentCRID
+			}
 			cr.CreatedAt = existing.CreatedAt
 			if strings.TrimSpace(cr.CreatedAt) == "" {
 				cr.CreatedAt = when
@@ -1715,6 +1960,9 @@ func (s *Service) RepairFromGit(baseBranch string, refresh bool) (*RepairReport,
 		}
 		if _, uidErr := ensureCRUID(cr); uidErr != nil {
 			return nil, uidErr
+		}
+		if _, baseErr := s.ensureCRBaseFields(cr, false); baseErr != nil {
+			return nil, baseErr
 		}
 		cr.Events = append(cr.Events, model.Event{
 			TS:      s.timestamp(),
@@ -1821,6 +2069,11 @@ func buildMergeCommitMessage(cr *model.CR, actor, mergedAt string) string {
 	b.WriteString("\n")
 	fmt.Fprintf(&b, "Sophia-CR: %d\n", cr.ID)
 	fmt.Fprintf(&b, "Sophia-CR-UID: %s\n", strings.TrimSpace(cr.UID))
+	fmt.Fprintf(&b, "Sophia-Base-Ref: %s\n", nonEmptyTrimmed(cr.BaseRef, cr.BaseBranch))
+	fmt.Fprintf(&b, "Sophia-Base-Commit: %s\n", strings.TrimSpace(cr.BaseCommit))
+	if cr.ParentCRID > 0 {
+		fmt.Fprintf(&b, "Sophia-Parent-CR: %d\n", cr.ParentCRID)
+	}
 	fmt.Fprintf(&b, "Sophia-Intent: %s\n", cr.Title)
 	fmt.Fprintf(&b, "Sophia-Tasks: %d completed\n", completedTasks(cr.Subtasks))
 	return b.String()
@@ -1846,6 +2099,11 @@ func buildTaskCheckpointMessage(cr *model.CR, task *model.Subtask) string {
 	fmt.Fprintf(&b, "CR: %d %s\n\n", cr.ID, strings.TrimSpace(cr.Title))
 	fmt.Fprintf(&b, "Sophia-CR: %d\n", cr.ID)
 	fmt.Fprintf(&b, "Sophia-CR-UID: %s\n", strings.TrimSpace(cr.UID))
+	fmt.Fprintf(&b, "Sophia-Base-Ref: %s\n", nonEmptyTrimmed(cr.BaseRef, cr.BaseBranch))
+	fmt.Fprintf(&b, "Sophia-Base-Commit: %s\n", strings.TrimSpace(cr.BaseCommit))
+	if cr.ParentCRID > 0 {
+		fmt.Fprintf(&b, "Sophia-Parent-CR: %d\n", cr.ParentCRID)
+	}
 	fmt.Fprintf(&b, "Sophia-Task: %d\n", task.ID)
 	fmt.Fprintf(&b, "Sophia-Intent: %s\n", strings.TrimSpace(cr.Title))
 	return b.String()
@@ -1864,18 +2122,21 @@ func inferTaskCommitType(taskTitle string) string {
 }
 
 func (s *Service) summarizeCRDiff(cr *model.CR) (*diffSummary, error) {
+	if _, err := s.ensureCRBaseFields(cr, true); err != nil {
+		return nil, err
+	}
 	var (
 		changes   []gitx.FileChange
 		shortStat string
 		err       error
 	)
 	switch {
-	case s.git.BranchExists(cr.BaseBranch) && s.git.BranchExists(cr.Branch):
-		changes, err = s.git.DiffNameStatus(cr.BaseBranch, cr.Branch)
+	case s.git.BranchExists(cr.Branch):
+		changes, err = s.diffNameStatusForCR(cr)
 		if err != nil {
 			return nil, err
 		}
-		shortStat, err = s.git.DiffShortStat(cr.BaseBranch, cr.Branch)
+		shortStat, err = s.diffShortStatForCR(cr)
 		if err != nil {
 			return nil, err
 		}
@@ -1972,6 +2233,173 @@ func (s *Service) summarizeMergedCRDiff(cr *model.CR) ([]gitx.FileChange, string
 	return nil, "", fmt.Errorf("unable to summarize merged CR %d diff: merged commit and task checkpoint scope are unavailable", cr.ID)
 }
 
+func (s *Service) ensureCRBaseFields(cr *model.CR, persist bool) (bool, error) {
+	if cr == nil {
+		return false, errors.New("cr cannot be nil")
+	}
+	changed := false
+	if strings.TrimSpace(cr.BaseBranch) == "" {
+		cfg, err := s.store.LoadConfig()
+		if err != nil {
+			return false, err
+		}
+		cr.BaseBranch = cfg.BaseBranch
+		changed = true
+	}
+	if strings.TrimSpace(cr.BaseRef) == "" {
+		cr.BaseRef = cr.BaseBranch
+		changed = true
+	}
+	if strings.TrimSpace(cr.BaseCommit) == "" && strings.TrimSpace(cr.BaseRef) != "" {
+		if resolved, err := s.git.ResolveRef(cr.BaseRef); err == nil && strings.TrimSpace(resolved) != "" {
+			cr.BaseCommit = strings.TrimSpace(resolved)
+			changed = true
+		}
+	}
+	if changed && persist {
+		cr.UpdatedAt = s.timestamp()
+		if err := s.store.SaveCR(cr); err != nil {
+			return false, err
+		}
+	}
+	return changed, nil
+}
+
+func (s *Service) resolveCRBaseAnchor(cr *model.CR) (string, error) {
+	if strings.TrimSpace(cr.BaseCommit) != "" {
+		return strings.TrimSpace(cr.BaseCommit), nil
+	}
+	if strings.TrimSpace(cr.BaseRef) != "" {
+		resolved, err := s.git.ResolveRef(cr.BaseRef)
+		if err != nil {
+			return "", fmt.Errorf("resolve base ref %q: %w", cr.BaseRef, err)
+		}
+		return strings.TrimSpace(resolved), nil
+	}
+	if strings.TrimSpace(cr.BaseBranch) != "" {
+		resolved, err := s.git.ResolveRef(cr.BaseBranch)
+		if err != nil {
+			return "", fmt.Errorf("resolve base branch %q: %w", cr.BaseBranch, err)
+		}
+		return strings.TrimSpace(resolved), nil
+	}
+	return "", errors.New("cr has no base anchor")
+}
+
+func (s *Service) diffNameStatusForCR(cr *model.CR) ([]gitx.FileChange, error) {
+	if strings.TrimSpace(cr.BaseCommit) != "" {
+		return s.git.DiffNameStatusBetween(strings.TrimSpace(cr.BaseCommit), cr.Branch)
+	}
+	baseRef := nonEmptyTrimmed(cr.BaseRef, cr.BaseBranch)
+	return s.git.DiffNameStatus(baseRef, cr.Branch)
+}
+
+func (s *Service) diffShortStatForCR(cr *model.CR) (string, error) {
+	if strings.TrimSpace(cr.BaseCommit) != "" {
+		return s.git.DiffShortStatBetween(strings.TrimSpace(cr.BaseCommit), cr.Branch)
+	}
+	baseRef := nonEmptyTrimmed(cr.BaseRef, cr.BaseBranch)
+	return s.git.DiffShortStat(baseRef, cr.Branch)
+}
+
+func (s *Service) diffNamesForCR(cr *model.CR) ([]string, error) {
+	if strings.TrimSpace(cr.BaseCommit) != "" {
+		return s.git.DiffNamesBetween(strings.TrimSpace(cr.BaseCommit), cr.Branch)
+	}
+	baseRef := nonEmptyTrimmed(cr.BaseRef, cr.BaseBranch)
+	return s.git.DiffNames(baseRef, cr.Branch)
+}
+
+func (s *Service) parentBaseAnchor(parent *model.CR) (string, string, error) {
+	if parent == nil {
+		return "", "", errors.New("parent cr is required")
+	}
+	if _, err := s.ensureCRBaseFields(parent, true); err != nil {
+		return "", "", err
+	}
+
+	if parent.Status == model.StatusInProgress && s.git.BranchExists(parent.Branch) {
+		sha, err := s.git.ResolveRef(parent.Branch)
+		if err != nil {
+			return "", "", err
+		}
+		return parent.Branch, strings.TrimSpace(sha), nil
+	}
+	if parent.Status == model.StatusMerged {
+		if strings.TrimSpace(parent.MergedCommit) != "" {
+			sha, err := s.git.ResolveRef(parent.MergedCommit)
+			if err == nil {
+				return parent.BaseBranch, strings.TrimSpace(sha), nil
+			}
+			return parent.BaseBranch, strings.TrimSpace(parent.MergedCommit), nil
+		}
+		if strings.TrimSpace(parent.BaseCommit) != "" {
+			return nonEmptyTrimmed(parent.BaseRef, parent.BaseBranch), strings.TrimSpace(parent.BaseCommit), nil
+		}
+	}
+	anchorRef := nonEmptyTrimmed(parent.BaseRef, parent.BaseBranch)
+	if strings.TrimSpace(anchorRef) == "" {
+		return "", "", fmt.Errorf("parent CR %d has no base ref", parent.ID)
+	}
+	sha, err := s.git.ResolveRef(anchorRef)
+	if err != nil {
+		return "", "", err
+	}
+	return anchorRef, strings.TrimSpace(sha), nil
+}
+
+func (s *Service) backfillChildrenAfterParentMerge(parent *model.CR) error {
+	if parent == nil || parent.ID <= 0 {
+		return nil
+	}
+	crs, err := s.store.ListCRs()
+	if err != nil {
+		return err
+	}
+	resolvedMergeCommit := strings.TrimSpace(parent.MergedCommit)
+	if resolvedMergeCommit != "" {
+		if resolved, resolveErr := s.git.ResolveRef(resolvedMergeCommit); resolveErr == nil {
+			resolvedMergeCommit = strings.TrimSpace(resolved)
+		}
+	}
+	for i := range crs {
+		child := crs[i]
+		if child.ParentCRID != parent.ID || child.Status != model.StatusInProgress {
+			continue
+		}
+		changed := false
+		if strings.TrimSpace(child.BaseRef) != strings.TrimSpace(child.BaseBranch) {
+			child.BaseRef = child.BaseBranch
+			changed = true
+		}
+		if strings.TrimSpace(resolvedMergeCommit) != "" && strings.TrimSpace(child.BaseCommit) != resolvedMergeCommit {
+			child.BaseCommit = resolvedMergeCommit
+			changed = true
+		}
+		if !changed {
+			continue
+		}
+		now := s.timestamp()
+		child.UpdatedAt = now
+		child.Events = append(child.Events, model.Event{
+			TS:      now,
+			Actor:   s.git.Actor(),
+			Type:    "cr_parent_merged",
+			Summary: fmt.Sprintf("Updated base anchor from merged parent CR %d", parent.ID),
+			Ref:     fmt.Sprintf("cr:%d", child.ID),
+			Meta: map[string]string{
+				"parent_cr":   strconv.Itoa(parent.ID),
+				"base_ref":    child.BaseRef,
+				"base_commit": child.BaseCommit,
+			},
+		})
+		if err := s.store.SaveCR(&child); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func buildImpactReport(cr *model.CR, diff *diffSummary) *ImpactReport {
 	scope := append([]string(nil), cr.Contract.Scope...)
 	scopeDrift := findScopeDrift(diff.Files, scope)
@@ -2030,6 +2458,9 @@ func buildImpactReport(cr *model.CR, diff *diffSummary) *ImpactReport {
 	return &ImpactReport{
 		CRID:                 cr.ID,
 		CRUID:                strings.TrimSpace(cr.UID),
+		BaseRef:              strings.TrimSpace(cr.BaseRef),
+		BaseCommit:           strings.TrimSpace(cr.BaseCommit),
+		ParentCRID:           cr.ParentCRID,
 		FilesChanged:         len(diff.Files),
 		NewFiles:             append([]string(nil), diff.NewFiles...),
 		ModifiedFiles:        append([]string(nil), diff.ModifiedFiles...),
@@ -2330,6 +2761,34 @@ func crUIDFromBody(body string) string {
 		return ""
 	}
 	return strings.TrimSpace(matches[1])
+}
+
+func baseRefFromBody(body string) string {
+	matches := footerBaseRefPattern.FindStringSubmatch(body)
+	if len(matches) != 2 {
+		return ""
+	}
+	return strings.TrimSpace(matches[1])
+}
+
+func baseCommitFromBody(body string) string {
+	matches := footerBaseSHApattern.FindStringSubmatch(body)
+	if len(matches) != 2 {
+		return ""
+	}
+	return strings.TrimSpace(matches[1])
+}
+
+func parentCRIDFromBody(body string) int {
+	matches := footerParentPattern.FindStringSubmatch(body)
+	if len(matches) != 2 {
+		return 0
+	}
+	id, err := strconv.Atoi(strings.TrimSpace(matches[1]))
+	if err != nil || id <= 0 {
+		return 0
+	}
+	return id
 }
 
 func titleFromSubjectOrBody(subject, body string) string {

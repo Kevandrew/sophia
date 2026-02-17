@@ -122,14 +122,34 @@ sophia init [--base-branch <name>] [--metadata-mode local|tracked]
 
 ```
 sophia cr add "Add billing retries"
+sophia cr add "Add billing retries" --base release/2026-q1
+sophia cr add "Add billing retries" --parent 12
 ```
 
 Behavior:
 
 * Generate new CR ID
 * Create branch `sophia/cr-<id>`
+* Supports per-CR base refs via `--base <git-ref>`
+* Supports stacked child CR creation via `--parent <cr-id>` (mutually exclusive with `--base`)
 * Write CR YAML file
 * Checkout branch
+
+---
+
+### Base + Restack Management
+
+```
+sophia cr base set <id> --ref <git-ref> [--rebase]
+sophia cr restack <id>
+```
+
+Behavior:
+
+* `cr base set` retargets a CR onto a new base ref and stores resolved base commit metadata
+* `--rebase` performs an immediate Git rebase of the CR branch onto the new base
+* `cr restack` rebases a child CR onto its parent effective head (parent branch when open, merged commit when closed)
+* Parent-child metadata is preserved for deterministic review/validate diffs
 
 ---
 
@@ -257,7 +277,7 @@ sophia cr status <id>
 Behavior:
 
 * `why` returns the effective rationale (`contract why` fallback to CR description)
-* `status` returns CR identity (`id` + immutable `uid`), branch context, workspace dirtiness, task progress, contract completeness, validation summary, and `merge_blocked`
+* `status` returns CR identity (`id` + immutable `uid`), per-CR base metadata (`base_ref`, `base_commit`), parent metadata, branch context, workspace dirtiness, task progress, contract completeness, validation summary, and `merge_blocked`
 * Both commands support `--json`
 
 ---
@@ -313,6 +333,8 @@ Metadata:
 
 Sophia-CR: 1
 Sophia-CR-UID: cr_4fd8bc65-9360-48b5-912d-95f8a03a2d6d
+Sophia-Base-Ref: main
+Sophia-Base-Commit: 2f4a9f0b6e78d9f2e6fbe2f3f31d42c676f3b1b1
 Sophia-Intent: Add billing retries
 Sophia-Tasks: 2 completed
 ```
@@ -339,6 +361,8 @@ sophia cr status <id>
 sophia cr current
 sophia cr switch <id>
 sophia cr reopen <id>
+sophia cr base set <id> --ref <git-ref>
+sophia cr restack <id>
 sophia cr task contract set <cr-id> <task-id> --intent "..."
 sophia cr task contract show <cr-id> <task-id>
 sophia cr edit <id> --title "..."
@@ -355,11 +379,11 @@ sophia cr history <id>
 * `log` shows intent-first CR history and can reconstruct merged CRs from Git commit metadata
 * `repair` rebuilds missing local CR metadata from Git history and realigns CR IDs
 * `hook install` adds a pre-commit guard against direct commits on the base branch
-* `current/switch/reopen` supports quick branch context moves
+* `current/switch/reopen/base/restack` supports deterministic branch and stack context moves
 * `task contract` enforces subtask intent + acceptance + scope before completion
 * `contract/impact/validate` provide intent integrity and blast-radius review context
 * `--json` on read/check commands provides stable machine-readable envelopes for agents
-* JSON read/check outputs include immutable CR uid fields to support stable identity across environments
+* JSON read/check outputs include immutable CR uid fields and per-CR base/parent metadata for stacked workflows
 * `edit/redact/history` supports retroactive metadata hygiene with audit-safe events
 
 ---

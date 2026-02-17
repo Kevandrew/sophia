@@ -430,7 +430,7 @@ func TestRepairFromGitRebuildsCRsAndRealignsIndex(t *testing.T) {
 
 	runGit(t, dir, "commit", "--allow-empty",
 		"-m", "[CR-2] Existing intent",
-		"-m", "Intent:\nRecovered why\n\nSubtasks:\n- [x] #1 Do thing\n\nNotes:\n- recovered note\n\nMetadata:\n- actor: Test User <test@example.com>\n- merged_at: 2026-02-17T00:00:00Z\n\nSophia-CR: 2\nSophia-CR-UID: cr_fixture-uid-2\nSophia-Intent: Existing intent\nSophia-Tasks: 1 completed",
+		"-m", "Intent:\nRecovered why\n\nSubtasks:\n- [x] #1 Do thing\n\nNotes:\n- recovered note\n\nMetadata:\n- actor: Test User <test@example.com>\n- merged_at: 2026-02-17T00:00:00Z\n\nSophia-CR: 2\nSophia-CR-UID: cr_fixture-uid-2\nSophia-Base-Ref: release/2026-q1\nSophia-Base-Commit: deadbeefcafebabe\nSophia-Parent-CR: 1\nSophia-Intent: Existing intent\nSophia-Tasks: 1 completed",
 	)
 
 	if err := svc.store.SaveIndex(model.Index{NextID: 1}); err != nil {
@@ -460,6 +460,9 @@ func TestRepairFromGitRebuildsCRsAndRealignsIndex(t *testing.T) {
 	}
 	if repaired.UID != "cr_fixture-uid-2" {
 		t.Fatalf("expected repaired UID from footer, got %#v", repaired.UID)
+	}
+	if repaired.BaseRef != "release/2026-q1" || repaired.BaseCommit != "deadbeefcafebabe" || repaired.ParentCRID != 1 {
+		t.Fatalf("expected repaired base/parent metadata from footers, got %#v", repaired)
 	}
 	if len(repaired.Notes) != 1 || repaired.Notes[0] != "recovered note" {
 		t.Fatalf("unexpected repaired notes: %#v", repaired.Notes)
@@ -496,8 +499,10 @@ func TestRepairBackfillsMissingUIDOnExistingCRMetadata(t *testing.T) {
 		t.Fatalf("LoadCR() error = %v", err)
 	}
 	loaded.UID = ""
+	loaded.BaseRef = ""
+	loaded.BaseCommit = ""
 	if err := svc.store.SaveCR(loaded); err != nil {
-		t.Fatalf("SaveCR(clear uid) error = %v", err)
+		t.Fatalf("SaveCR(clear uid/base) error = %v", err)
 	}
 
 	if _, err := svc.RepairFromGit("main", false); err != nil {
@@ -510,6 +515,9 @@ func TestRepairBackfillsMissingUIDOnExistingCRMetadata(t *testing.T) {
 	}
 	if strings.TrimSpace(repaired.UID) == "" {
 		t.Fatalf("expected repair to backfill uid, got %#v", repaired)
+	}
+	if strings.TrimSpace(repaired.BaseRef) == "" || strings.TrimSpace(repaired.BaseCommit) == "" {
+		t.Fatalf("expected repair to backfill base metadata, got %#v", repaired)
 	}
 }
 

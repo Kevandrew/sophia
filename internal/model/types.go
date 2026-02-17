@@ -75,6 +75,9 @@ type CR struct {
 	Description       string    `yaml:"description"`
 	Status            string    `yaml:"status"`
 	BaseBranch        string    `yaml:"base_branch"`
+	BaseRef           string    `yaml:"base_ref,omitempty"`
+	BaseCommit        string    `yaml:"base_commit,omitempty"`
+	ParentCRID        int       `yaml:"parent_cr_id,omitempty"`
 	Branch            string    `yaml:"branch"`
 	Notes             []string  `yaml:"notes"`
 	Contract          Contract  `yaml:"contract,omitempty"`
