@@ -32,6 +32,7 @@ func newRootCmd() *cobra.Command {
 
 func newInitCmd() *cobra.Command {
 	var baseBranch string
+	var metadataMode string
 
 	cmd := &cobra.Command{
 		Use:   "init",
@@ -41,7 +42,7 @@ func newInitCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			base, err := svc.Init(baseBranch)
+			base, err := svc.Init(baseBranch, metadataMode)
 			if err != nil {
 				return err
 			}
@@ -51,6 +52,7 @@ func newInitCmd() *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&baseBranch, "base-branch", "", "Base branch to use for CR merges")
+	cmd.Flags().StringVar(&metadataMode, "metadata-mode", "", "Metadata mode: local or tracked (default: local)")
 	return cmd
 }
 

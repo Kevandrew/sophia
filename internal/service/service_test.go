@@ -12,7 +12,7 @@ func TestInitInNonGitDirectoryInitializesGitAndSophia(t *testing.T) {
 	dir := t.TempDir()
 	svc := New(dir)
 
-	base, err := svc.Init("main")
+	base, err := svc.Init("main", "")
 	if err != nil {
 		t.Fatalf("Init() error = %v", err)
 	}
@@ -33,10 +33,10 @@ func TestInitIsIdempotentInExistingRepo(t *testing.T) {
 	runGit(t, dir, "init")
 
 	svc := New(dir)
-	if _, err := svc.Init("main"); err != nil {
+	if _, err := svc.Init("main", ""); err != nil {
 		t.Fatalf("first Init() error = %v", err)
 	}
-	if _, err := svc.Init("main"); err != nil {
+	if _, err := svc.Init("main", ""); err != nil {
 		t.Fatalf("second Init() error = %v", err)
 	}
 
@@ -49,10 +49,44 @@ func TestInitIsIdempotentInExistingRepo(t *testing.T) {
 	}
 }
 
+func TestInitDefaultsToLocalMetadataAndGitIgnoreEntry(t *testing.T) {
+	dir := t.TempDir()
+	svc := New(dir)
+
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	cfg, err := svc.store.LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	if cfg.MetadataMode != "local" {
+		t.Fatalf("expected metadata_mode local, got %q", cfg.MetadataMode)
+	}
+	gitignore, err := os.ReadFile(filepath.Join(dir, ".gitignore"))
+	if err != nil {
+		t.Fatalf("read .gitignore: %v", err)
+	}
+	if !strings.Contains(string(gitignore), ".sophia/") {
+		t.Fatalf("expected .gitignore to include .sophia/")
+	}
+
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("second Init() error = %v", err)
+	}
+	gitignore2, err := os.ReadFile(filepath.Join(dir, ".gitignore"))
+	if err != nil {
+		t.Fatalf("read .gitignore after second init: %v", err)
+	}
+	if strings.Count(string(gitignore2), ".sophia/") != 1 {
+		t.Fatalf("expected single .sophia/ entry, got:\n%s", string(gitignore2))
+	}
+}
+
 func TestAddCRCreatesBranchAndCRFile(t *testing.T) {
 	dir := t.TempDir()
 	svc := New(dir)
-	if _, err := svc.Init("main"); err != nil {
+	if _, err := svc.Init("main", ""); err != nil {
 		t.Fatalf("Init() error = %v", err)
 	}
 
@@ -87,7 +121,7 @@ func TestAddCRCreatesBranchAndCRFile(t *testing.T) {
 func TestNoteAppendsAndUpdatesCR(t *testing.T) {
 	dir := t.TempDir()
 	svc := New(dir)
-	if _, err := svc.Init("main"); err != nil {
+	if _, err := svc.Init("main", ""); err != nil {
 		t.Fatalf("Init() error = %v", err)
 	}
 	if _, err := svc.AddCR("Bootstrap", "Scaffold CLI"); err != nil {
@@ -113,7 +147,7 @@ func TestNoteAppendsAndUpdatesCR(t *testing.T) {
 func TestTaskAddAndDonePreservesOrderAndStatus(t *testing.T) {
 	dir := t.TempDir()
 	svc := New(dir)
-	if _, err := svc.Init("main"); err != nil {
+	if _, err := svc.Init("main", ""); err != nil {
 		t.Fatalf("Init() error = %v", err)
 	}
 	if _, err := svc.AddCR("Bootstrap", "Scaffold CLI"); err != nil {
@@ -158,7 +192,7 @@ func TestTaskAddAndDonePreservesOrderAndStatus(t *testing.T) {
 func TestReviewShowsChangedFilesAndShortStat(t *testing.T) {
 	dir := t.TempDir()
 	svc := New(dir)
-	if _, err := svc.Init("main"); err != nil {
+	if _, err := svc.Init("main", ""); err != nil {
 		t.Fatalf("Init() error = %v", err)
 	}
 	if _, err := svc.AddCR("Bootstrap", "Scaffold CLI"); err != nil {
@@ -195,7 +229,7 @@ func TestReviewShowsChangedFilesAndShortStat(t *testing.T) {
 func TestMergeCreatesIntentCommitAndMarksMerged(t *testing.T) {
 	dir := t.TempDir()
 	svc := New(dir)
-	if _, err := svc.Init("main"); err != nil {
+	if _, err := svc.Init("main", ""); err != nil {
 		t.Fatalf("Init() error = %v", err)
 	}
 	cr, err := svc.AddCR("Bootstrap", "Scaffold CLI")
@@ -254,6 +288,36 @@ func TestMergeCreatesIntentCommitAndMarksMerged(t *testing.T) {
 	if mergedCR.FilesTouchedCount != 1 {
 		t.Fatalf("expected files_touched_count=1, got %d", mergedCR.FilesTouchedCount)
 	}
+	if svc.git.BranchExists(cr.Branch) {
+		t.Fatalf("expected branch %q to be deleted by default merge", cr.Branch)
+	}
+}
+
+func TestMergeKeepBranchPreservesCRBranch(t *testing.T) {
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	runGit(t, dir, "config", "user.name", "Test User")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+
+	cr, err := svc.AddCR("Keep branch", "preserve branch")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "keep.txt"), []byte("x\n"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+	runGit(t, dir, "add", "keep.txt")
+	runGit(t, dir, "commit", "-m", "feat: keep branch")
+
+	if _, err := svc.MergeCR(cr.ID, true); err != nil {
+		t.Fatalf("MergeCR(keepBranch=true) error = %v", err)
+	}
+	if !svc.git.BranchExists(cr.Branch) {
+		t.Fatalf("expected branch %q to remain after keep-branch merge", cr.Branch)
+	}
 }
 
 func TestActorFallbackIsUnknownWhenGitIdentityMissing(t *testing.T) {
@@ -264,7 +328,7 @@ func TestActorFallbackIsUnknownWhenGitIdentityMissing(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", configHome)
 
 	svc := New(dir)
-	if _, err := svc.Init("main"); err != nil {
+	if _, err := svc.Init("main", ""); err != nil {
 		t.Fatalf("Init() error = %v", err)
 	}
 	if _, err := svc.AddCR("Bootstrap", "Scaffold CLI"); err != nil {

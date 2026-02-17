@@ -509,11 +509,12 @@ func newCRReviewCmd() *cobra.Command {
 }
 
 func newCRMergeCmd() *cobra.Command {
+	var keepBranch bool
 	var deleteBranch bool
 
 	cmd := &cobra.Command{
 		Use:   "merge <id>",
-		Short: "Squash merge a CR into its base branch",
+		Short: "Squash a CR to one commit and fast-forward merge into base",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id, err := parsePositiveIntArg(args[0], "id")
@@ -524,7 +525,10 @@ func newCRMergeCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			sha, err := svc.MergeCR(id, deleteBranch)
+			if deleteBranch {
+				keepBranch = false
+			}
+			sha, err := svc.MergeCR(id, keepBranch)
 			if err != nil {
 				return err
 			}
@@ -533,7 +537,8 @@ func newCRMergeCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().BoolVar(&deleteBranch, "delete-branch", false, "Delete CR branch after merge")
+	cmd.Flags().BoolVar(&keepBranch, "keep-branch", false, "Keep CR branch after merge (default deletes merged branch)")
+	cmd.Flags().BoolVar(&deleteBranch, "delete-branch", false, "Deprecated: branch deletion is now the default")
 	return cmd
 }
 

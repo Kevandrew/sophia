@@ -11,7 +11,7 @@ import (
 func TestEditCRMergedAndNoOpValidation(t *testing.T) {
 	dir := t.TempDir()
 	svc := New(dir)
-	if _, err := svc.Init("main"); err != nil {
+	if _, err := svc.Init("main", ""); err != nil {
 		t.Fatalf("Init() error = %v", err)
 	}
 	runGit(t, dir, "config", "user.name", "Test User")
@@ -63,7 +63,7 @@ func TestEditCRMergedAndNoOpValidation(t *testing.T) {
 func TestRedactNoteAndEventWithAuditTrail(t *testing.T) {
 	dir := t.TempDir()
 	svc := New(dir)
-	if _, err := svc.Init("main"); err != nil {
+	if _, err := svc.Init("main", ""); err != nil {
 		t.Fatalf("Init() error = %v", err)
 	}
 	if _, err := svc.AddCR("Redact", "redaction"); err != nil {
@@ -122,7 +122,7 @@ func TestRedactNoteAndEventWithAuditTrail(t *testing.T) {
 func TestHistoryCRIndexesAndRedactionVisibility(t *testing.T) {
 	dir := t.TempDir()
 	svc := New(dir)
-	if _, err := svc.Init("main"); err != nil {
+	if _, err := svc.Init("main", ""); err != nil {
 		t.Fatalf("Init() error = %v", err)
 	}
 	if _, err := svc.AddCR("History", "history flow"); err != nil {

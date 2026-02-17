@@ -6,11 +6,15 @@ const (
 
 	TaskStatusOpen = "open"
 	TaskStatusDone = "done"
+
+	MetadataModeLocal   = "local"
+	MetadataModeTracked = "tracked"
 )
 
 type Config struct {
-	Version    string `yaml:"version"`
-	BaseBranch string `yaml:"base_branch"`
+	Version      string `yaml:"version"`
+	BaseBranch   string `yaml:"base_branch"`
+	MetadataMode string `yaml:"metadata_mode,omitempty"`
 }
 
 type Index struct {

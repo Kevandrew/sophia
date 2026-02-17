@@ -8,7 +8,7 @@ import (
 
 func TestInitCreatesLayout(t *testing.T) {
 	s := New(t.TempDir())
-	if err := s.Init("main"); err != nil {
+	if err := s.Init("main", model.MetadataModeLocal); err != nil {
 		t.Fatalf("Init() error = %v", err)
 	}
 
@@ -23,6 +23,9 @@ func TestInitCreatesLayout(t *testing.T) {
 	if cfg.BaseBranch != "main" {
 		t.Fatalf("expected base branch main, got %q", cfg.BaseBranch)
 	}
+	if cfg.MetadataMode != model.MetadataModeLocal {
+		t.Fatalf("expected metadata mode %q, got %q", model.MetadataModeLocal, cfg.MetadataMode)
+	}
 
 	idx, err := s.LoadIndex()
 	if err != nil {
@@ -35,7 +38,7 @@ func TestInitCreatesLayout(t *testing.T) {
 
 func TestNextCRIDDeterministic(t *testing.T) {
 	s := New(t.TempDir())
-	if err := s.Init("main"); err != nil {
+	if err := s.Init("main", model.MetadataModeLocal); err != nil {
 		t.Fatalf("Init() error = %v", err)
 	}
 
@@ -63,7 +66,7 @@ func TestNextCRIDDeterministic(t *testing.T) {
 
 func TestCRReadWriteRoundTrip(t *testing.T) {
 	s := New(t.TempDir())
-	if err := s.Init("main"); err != nil {
+	if err := s.Init("main", model.MetadataModeLocal); err != nil {
 		t.Fatalf("Init() error = %v", err)
 	}
 
@@ -104,7 +107,7 @@ func TestCRReadWriteRoundTrip(t *testing.T) {
 
 func TestListCRsSortedByID(t *testing.T) {
 	s := New(t.TempDir())
-	if err := s.Init("main"); err != nil {
+	if err := s.Init("main", model.MetadataModeLocal); err != nil {
 		t.Fatalf("Init() error = %v", err)
 	}
 

@@ -29,6 +29,8 @@ type StatusEntry struct {
 
 type Commit struct {
 	Hash    string
+	Author  string
+	When    string
 	Subject string
 	Body    string
 }
@@ -53,6 +55,16 @@ func (c *Client) CurrentBranch() (string, error) {
 		return "", err
 	}
 	return strings.TrimSpace(out), nil
+}
+
+func (c *Client) DefaultBranch() string {
+	if c.BranchExists("main") {
+		return "main"
+	}
+	if c.BranchExists("master") {
+		return "master"
+	}
+	return "main"
 }
 
 func (c *Client) HasCommit() bool {
@@ -184,7 +196,7 @@ func (c *Client) RecentCommits(branch string, limit int) ([]Commit, error) {
 	if limit <= 0 {
 		limit = 100
 	}
-	out, err := c.run("log", branch, "-n", strconv.Itoa(limit), "--pretty=format:%H%x1f%s%x1f%b%x1e")
+	out, err := c.run("log", branch, "-n", strconv.Itoa(limit), "--pretty=format:%H%x1f%aN <%aE>%x1f%aI%x1f%s%x1f%b%x1e")
 	if err != nil {
 		return nil, err
 	}
@@ -200,16 +212,109 @@ func (c *Client) RecentCommits(branch string, limit int) ([]Commit, error) {
 			continue
 		}
 		parts := strings.Split(record, "\x1f")
-		if len(parts) < 3 {
+		if len(parts) < 5 {
 			continue
 		}
 		commits = append(commits, Commit{
 			Hash:    strings.TrimSpace(parts[0]),
-			Subject: strings.TrimSpace(parts[1]),
-			Body:    strings.TrimSpace(parts[2]),
+			Author:  strings.TrimSpace(parts[1]),
+			When:    strings.TrimSpace(parts[2]),
+			Subject: strings.TrimSpace(parts[3]),
+			Body:    strings.TrimSpace(parts[4]),
 		})
 	}
 	return commits, nil
+}
+
+func (c *Client) MergeBase(baseBranch, branch string) (string, error) {
+	out, err := c.run("merge-base", baseBranch, branch)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(out), nil
+}
+
+func (c *Client) ResetSoft(target string) error {
+	_, err := c.run("reset", "--soft", target)
+	return err
+}
+
+func (c *Client) Commit(message string) error {
+	args := c.identityFlags()
+	args = append(args, "commit", "-m", message)
+	_, err := c.run(args...)
+	return err
+}
+
+func (c *Client) MergeFFOnly(baseBranch, branch string) error {
+	if err := c.CheckoutBranch(baseBranch); err != nil {
+		return err
+	}
+	_, err := c.run("merge", "--ff-only", branch)
+	return err
+}
+
+func (c *Client) TrackedFiles(pathspec string) ([]string, error) {
+	args := []string{"ls-files"}
+	if strings.TrimSpace(pathspec) != "" {
+		args = append(args, "--", pathspec)
+	}
+	out, err := c.run(args...)
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(out) == "" {
+		return []string{}, nil
+	}
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	paths := make([]string, 0, len(lines))
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			paths = append(paths, line)
+		}
+	}
+	sort.Strings(paths)
+	return paths, nil
+}
+
+func (c *Client) LocalBranches(prefix string) ([]string, error) {
+	out, err := c.run("for-each-ref", "--format=%(refname:short)", "refs/heads/"+prefix+"*")
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(out) == "" {
+		return []string{}, nil
+	}
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	branches := make([]string, 0, len(lines))
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			branches = append(branches, line)
+		}
+	}
+	sort.Strings(branches)
+	return branches, nil
+}
+
+func (c *Client) ChangedFileCount(hash string) (int, error) {
+	out, err := c.run("show", "--pretty=format:", "--name-only", hash)
+	if err != nil {
+		return 0, err
+	}
+	if strings.TrimSpace(out) == "" {
+		return 0, nil
+	}
+	seen := map[string]struct{}{}
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		seen[line] = struct{}{}
+	}
+	return len(seen), nil
 }
 
 func (c *Client) GitDir() (string, error) {

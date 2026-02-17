@@ -41,7 +41,7 @@ Sophia CLI is a thin Git wrapper that:
 
 1. Creates and manages Change Requests (CRs)
 2. Maps each CR to a dedicated branch
-3. Stores structured intent metadata inside the repo
+3. Stores structured intent metadata locally in `.sophia/`
 4. Generates clean, structured commits on merge
 5. Formats review output around intent, not diffs
 
@@ -67,7 +67,7 @@ Each CR:
 * Lives in `.sophia/cr/<id>.yaml`
 * Maps to a branch `sophia/cr-<id>`
 
-CRs are tracked in Git like any other file.
+By default, `.sophia/` is local metadata and ignored in Git.
 
 ---
 
@@ -104,13 +104,14 @@ subtasks: []
 ### Initialize Repository
 
 ```
-sophia init
+sophia init [--base-branch <name>] [--metadata-mode local|tracked]
 ```
 
 * Creates `.sophia/`
 * Writes config
 * Ensures git repo exists
 * Sets default base branch
+* Defaults to local metadata mode (`.sophia/` ignored)
 
 ---
 
@@ -182,7 +183,8 @@ sophia cr merge <id>
 
 Behavior:
 
-* Squash merge branch into base
+* Squash CR branch to one intent commit
+* Fast-forward merge into base branch
 * Generate structured commit message:
 
 ```
@@ -192,8 +194,23 @@ Behavior:
 - Added exponential backoff
 ```
 
-* Mark CR as merged
-* Delete branch (optional)
+* Mark CR as merged in local metadata
+* Delete branch by default (`--keep-branch` to retain)
+
+---
+
+### Workflow Integrity + Visibility
+
+```
+sophia doctor
+sophia log
+sophia cr current
+sophia cr switch <id>
+```
+
+* `doctor` flags workflow drift (dirty tree, non-CR branch, stale merged CR branches)
+* `log` shows intent-first CR history and can reconstruct merged CRs from Git commit metadata
+* `current/switch` supports quick branch context moves
 
 ---
 
@@ -244,7 +261,7 @@ If it feels heavier than plain Git, it has failed.
 
 Future capabilities may include:
 
-* Sophia Hub (hosted CR coordination)
+* Hosted CR coordination
 * Duplicate detection
 * Semantic summarization
 * Multi-agent coordination
@@ -279,4 +296,3 @@ The tool must justify its own existence inside this repository.
 
 If you stop using `git commit -m "WIP"`,
 Sophia is working.
-

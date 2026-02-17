@@ -3,6 +3,8 @@ package service
 import (
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
@@ -23,9 +25,12 @@ var (
 )
 
 var (
-	crBranchPattern  = regexp.MustCompile(`^sophia/cr-(\d+)$`)
-	crSubjectPattern = regexp.MustCompile(`^\[CR-(\d+)\]`)
-	crFooterPattern  = regexp.MustCompile(`(?m)^Sophia-CR:\s*\d+\s*$`)
+	crBranchPattern      = regexp.MustCompile(`^sophia/cr-(\d+)$`)
+	crSubjectPattern     = regexp.MustCompile(`^\[CR-(\d+)\]\s*(.*)$`)
+	crFooterPattern      = regexp.MustCompile(`(?m)^Sophia-CR:\s*\d+\s*$`)
+	legacyPersistPattern = regexp.MustCompile(`^chore:\s*persist CR-\d+\s+merged metadata$`)
+	footerCRIDPattern    = regexp.MustCompile(`(?m)^Sophia-CR:\s*(\d+)\s*$`)
+	footerIntentPattern  = regexp.MustCompile(`(?m)^Sophia-Intent:\s*(.+)\s*$`)
 )
 
 const redactedPlaceholder = "[REDACTED]"
@@ -110,7 +115,7 @@ func New(root string) *Service {
 	}
 }
 
-func (s *Service) Init(baseBranch string) (string, error) {
+func (s *Service) Init(baseBranch, metadataMode string) (string, error) {
 	if !s.git.InRepo() {
 		if err := s.git.InitRepo(); err != nil {
 			return "", fmt.Errorf("initialize git repository: %w", err)
@@ -118,12 +123,26 @@ func (s *Service) Init(baseBranch string) (string, error) {
 	}
 
 	wasInitialized := s.store.IsInitialized()
+	existingMode := ""
 	effectiveBase := strings.TrimSpace(baseBranch)
 	if effectiveBase == "" && wasInitialized {
 		cfg, err := s.store.LoadConfig()
-		if err == nil && strings.TrimSpace(cfg.BaseBranch) != "" {
-			effectiveBase = cfg.BaseBranch
+		if err == nil {
+			if strings.TrimSpace(cfg.BaseBranch) != "" {
+				effectiveBase = cfg.BaseBranch
+			}
+			existingMode = cfg.MetadataMode
 		}
+	}
+	effectiveMode := strings.TrimSpace(metadataMode)
+	if effectiveMode == "" {
+		effectiveMode = strings.TrimSpace(existingMode)
+	}
+	if effectiveMode == "" {
+		effectiveMode = model.MetadataModeLocal
+	}
+	if !isValidMetadataMode(effectiveMode) {
+		return "", fmt.Errorf("invalid metadata mode %q (expected local or tracked)", effectiveMode)
 	}
 	if effectiveBase == "" {
 		currentBranch, err := s.git.CurrentBranch()
@@ -145,8 +164,19 @@ func (s *Service) Init(baseBranch string) (string, error) {
 	} else if strings.TrimSpace(baseBranch) != "" {
 		configBase = effectiveBase
 	}
-	if err := s.store.Init(configBase); err != nil {
+	configMode := ""
+	if !wasInitialized {
+		configMode = effectiveMode
+	} else if strings.TrimSpace(metadataMode) != "" {
+		configMode = effectiveMode
+	}
+	if err := s.store.Init(configBase, configMode); err != nil {
 		return "", err
+	}
+	if effectiveMode == model.MetadataModeLocal {
+		if err := ensureGitIgnoreEntry(s.git.WorkDir, ".sophia/"); err != nil {
+			return "", err
+		}
 	}
 
 	return effectiveBase, nil
@@ -591,13 +621,24 @@ func (s *Service) ReviewCR(id int) (*Review, error) {
 	}, nil
 }
 
-func (s *Service) MergeCR(id int, deleteBranch bool) (string, error) {
+func (s *Service) MergeCR(id int, keepBranch bool) (string, error) {
 	cr, err := s.store.LoadCR(id)
 	if err != nil {
 		return "", err
 	}
 	if cr.Status == model.StatusMerged {
 		return "", ErrCRAlreadyMerged
+	}
+	if dirty, summary, err := s.workingTreeDirtySummary(); err != nil {
+		return "", err
+	} else if dirty {
+		return "", fmt.Errorf("%w: %s", ErrWorkingTreeDirty, summary)
+	}
+	if !s.git.BranchExists(cr.BaseBranch) {
+		return "", fmt.Errorf("base branch %q does not exist", cr.BaseBranch)
+	}
+	if !s.git.BranchExists(cr.Branch) {
+		return "", fmt.Errorf("cr branch %q does not exist", cr.Branch)
 	}
 
 	files, err := s.git.DiffNames(cr.BaseBranch, cr.Branch)
@@ -608,11 +649,24 @@ func (s *Service) MergeCR(id int, deleteBranch bool) (string, error) {
 	actor := s.git.Actor()
 	mergedAt := s.timestamp()
 	msg := buildMergeCommitMessage(cr, actor, mergedAt)
-	if err := s.git.SquashMerge(cr.BaseBranch, cr.Branch, msg); err != nil {
+	mergeBase, err := s.git.MergeBase(cr.BaseBranch, cr.Branch)
+	if err != nil {
+		return "", err
+	}
+	if err := s.git.CheckoutBranch(cr.Branch); err != nil {
+		return "", err
+	}
+	if err := s.git.ResetSoft(mergeBase); err != nil {
+		return "", err
+	}
+	if err := s.git.Commit(msg); err != nil {
+		return "", err
+	}
+	if err := s.git.MergeFFOnly(cr.BaseBranch, cr.Branch); err != nil {
 		return "", err
 	}
 
-	if deleteBranch {
+	if !keepBranch {
 		if err := s.git.DeleteBranch(cr.Branch, true); err != nil {
 			return "", err
 		}
@@ -685,6 +739,37 @@ func (s *Service) Doctor(limit int) (*DoctorReport, error) {
 		})
 	}
 
+	if cfg.MetadataMode == model.MetadataModeLocal {
+		trackedSophia, trackedErr := s.git.TrackedFiles(".sophia")
+		if trackedErr == nil && len(trackedSophia) > 0 {
+			report.Findings = append(report.Findings, DoctorFinding{
+				Code:    "tracked_sophia_metadata",
+				Message: fmt.Sprintf("%d tracked path(s) found under .sophia in local metadata mode", len(trackedSophia)),
+			})
+		}
+	}
+
+	crs, err := s.store.ListCRs()
+	if err != nil {
+		return nil, err
+	}
+	stale := make([]string, 0)
+	for _, cr := range crs {
+		if cr.Status == model.StatusMerged && s.git.BranchExists(cr.Branch) {
+			stale = append(stale, cr.Branch)
+		}
+	}
+	if len(stale) > 0 {
+		preview := stale
+		if len(preview) > 5 {
+			preview = preview[:5]
+		}
+		report.Findings = append(report.Findings, DoctorFinding{
+			Code:    "stale_merged_branches",
+			Message: fmt.Sprintf("%d merged CR branch(es) still present (latest: %s)", len(stale), strings.Join(preview, ", ")),
+		})
+	}
+
 	commits, err := s.git.RecentCommits(cfg.BaseBranch, limit)
 	if err != nil {
 		return nil, err
@@ -693,6 +778,9 @@ func (s *Service) Doctor(limit int) (*DoctorReport, error) {
 	untied := make([]string, 0)
 	for _, commit := range commits {
 		if strings.HasPrefix(commit.Subject, "chore: bootstrap base branch for Sophia") {
+			continue
+		}
+		if legacyPersistPattern.MatchString(strings.TrimSpace(commit.Subject)) {
 			continue
 		}
 		if commitTiedToCR(commit.Subject, commit.Body) {
@@ -807,10 +895,16 @@ func (s *Service) ReopenCR(id int) (*model.CR, error) {
 
 func (s *Service) Log() ([]LogEntry, error) {
 	crs, err := s.store.ListCRs()
-	if err != nil {
+	if err == nil && len(crs) > 0 {
+		return buildLogEntriesFromCRs(crs), nil
+	}
+	if err != nil && !errors.Is(err, store.ErrNotInitialized) {
 		return nil, err
 	}
+	return s.logFromGit(200)
+}
 
+func buildLogEntriesFromCRs(crs []model.CR) []LogEntry {
 	type stampedEntry struct {
 		entry LogEntry
 		ts    time.Time
@@ -870,7 +964,42 @@ func (s *Service) Log() ([]LogEntry, error) {
 	for _, item := range active {
 		res = append(res, item.entry)
 	}
-	return res, nil
+	return res
+}
+
+func (s *Service) logFromGit(limit int) ([]LogEntry, error) {
+	branch := s.git.DefaultBranch()
+	commits, err := s.git.RecentCommits(branch, limit)
+	if err != nil {
+		return nil, err
+	}
+	entries := make([]LogEntry, 0)
+	seen := map[int]struct{}{}
+	for _, commit := range commits {
+		id, ok := crIDFromSubjectOrBody(commit.Subject, commit.Body)
+		if !ok {
+			continue
+		}
+		if _, exists := seen[id]; exists {
+			continue
+		}
+		seen[id] = struct{}{}
+
+		filesCount, countErr := s.git.ChangedFileCount(commit.Hash)
+		filesTouched := "-"
+		if countErr == nil {
+			filesTouched = strconv.Itoa(filesCount)
+		}
+		entries = append(entries, LogEntry{
+			ID:           id,
+			Title:        titleFromSubjectOrBody(commit.Subject, commit.Body),
+			Status:       model.StatusMerged,
+			Who:          nonEmptyTrimmed(commit.Author, "-"),
+			When:         nonEmptyTrimmed(commit.When, "-"),
+			FilesTouched: filesTouched,
+		})
+	}
+	return entries, nil
 }
 
 func (s *Service) InstallHook(forceOverwrite bool) (string, error) {
@@ -1045,6 +1174,40 @@ func commitTiedToCR(subject, body string) bool {
 	return crFooterPattern.MatchString(body)
 }
 
+func crIDFromSubjectOrBody(subject, body string) (int, bool) {
+	if matches := crSubjectPattern.FindStringSubmatch(strings.TrimSpace(subject)); len(matches) >= 2 {
+		id, err := strconv.Atoi(strings.TrimSpace(matches[1]))
+		if err == nil && id > 0 {
+			return id, true
+		}
+	}
+	matches := footerCRIDPattern.FindStringSubmatch(body)
+	if len(matches) != 2 {
+		return 0, false
+	}
+	id, err := strconv.Atoi(strings.TrimSpace(matches[1]))
+	if err != nil || id <= 0 {
+		return 0, false
+	}
+	return id, true
+}
+
+func titleFromSubjectOrBody(subject, body string) string {
+	if matches := crSubjectPattern.FindStringSubmatch(strings.TrimSpace(subject)); len(matches) >= 3 {
+		title := strings.TrimSpace(matches[2])
+		if title != "" {
+			return title
+		}
+	}
+	if matches := footerIntentPattern.FindStringSubmatch(body); len(matches) == 2 {
+		title := strings.TrimSpace(matches[1])
+		if title != "" {
+			return title
+		}
+	}
+	return "(unknown)"
+}
+
 func parseCRBranchID(branch string) (int, bool) {
 	matches := crBranchPattern.FindStringSubmatch(strings.TrimSpace(branch))
 	if len(matches) != 2 {
@@ -1119,11 +1282,17 @@ func (s *Service) workingTreeDirtySummary() (bool, string, error) {
 	untracked := 0
 	changed := 0
 	for _, entry := range entries {
+		if s.isIgnorableWorktreeEntry(entry) {
+			continue
+		}
 		if entry.Code == "??" {
 			untracked++
 		} else {
 			changed++
 		}
+	}
+	if changed == 0 && untracked == 0 {
+		return false, "", nil
 	}
 	return true, fmt.Sprintf("%d modified/staged and %d untracked paths; commit or stash before switching", changed, untracked), nil
 }
@@ -1135,6 +1304,70 @@ func nonEmptyTrimmed(value, fallback string) string {
 	return strings.TrimSpace(value)
 }
 
+func isValidMetadataMode(mode string) bool {
+	switch strings.TrimSpace(mode) {
+	case model.MetadataModeLocal, model.MetadataModeTracked:
+		return true
+	default:
+		return false
+	}
+}
+
+func ensureGitIgnoreEntry(root, entry string) error {
+	entry = strings.TrimSpace(entry)
+	if entry == "" {
+		return nil
+	}
+
+	path := filepath.Join(root, ".gitignore")
+	content, err := os.ReadFile(path)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("read .gitignore: %w", err)
+	}
+
+	existing := string(content)
+	lines := strings.Split(existing, "\n")
+	for _, line := range lines {
+		if strings.TrimSpace(line) == entry {
+			return nil
+		}
+	}
+
+	var b strings.Builder
+	if strings.TrimSpace(existing) != "" {
+		b.WriteString(strings.TrimRight(existing, "\n"))
+		b.WriteString("\n")
+	}
+	b.WriteString(entry)
+	b.WriteString("\n")
+
+	if err := os.WriteFile(path, []byte(b.String()), 0o644); err != nil {
+		return fmt.Errorf("write .gitignore: %w", err)
+	}
+	return nil
+}
+
 func (s *Service) timestamp() string {
 	return s.now().UTC().Format(time.RFC3339)
+}
+
+func (s *Service) isIgnorableWorktreeEntry(entry gitx.StatusEntry) bool {
+	if entry.Code != "??" {
+		return false
+	}
+	if strings.TrimSpace(entry.Path) != ".gitignore" {
+		return false
+	}
+	data, err := os.ReadFile(filepath.Join(s.git.WorkDir, ".gitignore"))
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") || line == ".sophia/" {
+			continue
+		}
+		return false
+	}
+	return true
 }

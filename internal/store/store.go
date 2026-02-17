@@ -54,7 +54,7 @@ func (s *Store) EnsureInitialized() error {
 	return ErrNotInitialized
 }
 
-func (s *Store) Init(baseBranch string) error {
+func (s *Store) Init(baseBranch, metadataMode string) error {
 	if err := os.MkdirAll(s.CRDir(), 0o755); err != nil {
 		return fmt.Errorf("create .sophia layout: %w", err)
 	}
@@ -75,12 +75,22 @@ func (s *Store) Init(baseBranch string) error {
 		if cfg.BaseBranch == "" {
 			cfg.BaseBranch = "main"
 		}
+		if metadataMode != "" {
+			cfg.MetadataMode = metadataMode
+		}
+		if cfg.MetadataMode == "" {
+			cfg.MetadataMode = model.MetadataModeLocal
+		}
 	} else {
 		cfg.Version = "v0"
 		if baseBranch == "" {
 			baseBranch = "main"
 		}
 		cfg.BaseBranch = baseBranch
+		if metadataMode == "" {
+			metadataMode = model.MetadataModeLocal
+		}
+		cfg.MetadataMode = metadataMode
 	}
 	if err := s.writeYAMLAtomic(s.ConfigPath(), cfg); err != nil {
 		return err
@@ -107,6 +117,15 @@ func (s *Store) LoadConfig() (model.Config, error) {
 	if err := s.readYAML(s.ConfigPath(), &cfg); err != nil {
 		return model.Config{}, err
 	}
+	if cfg.Version == "" {
+		cfg.Version = "v0"
+	}
+	if cfg.BaseBranch == "" {
+		cfg.BaseBranch = "main"
+	}
+	if cfg.MetadataMode == "" {
+		cfg.MetadataMode = model.MetadataModeLocal
+	}
 	return cfg, nil
 }
 
@@ -119,6 +138,9 @@ func (s *Store) SaveConfig(cfg model.Config) error {
 	}
 	if cfg.BaseBranch == "" {
 		cfg.BaseBranch = "main"
+	}
+	if cfg.MetadataMode == "" {
+		cfg.MetadataMode = model.MetadataModeLocal
 	}
 	return s.writeYAMLAtomic(s.ConfigPath(), cfg)
 }
