@@ -1,7 +1,7 @@
 id: 2
 title: 'Plan 2: intent integrity and visibility'
 description: Add discipline guardrails, CR context switching, intent-first log, richer review scoping, merge metadata footer, CR reopen, and cheap overlap warnings.
-status: in_progress
+status: merged
 base_branch: master
 branch: sophia/cr-2
 notes:
@@ -144,5 +144,14 @@ events:
       type: task_done
       summary: Add hook install command and tests
       ref: task:7
+    - ts: "2026-02-17T06:55:52Z"
+      actor: Kevandrew <143258544+Kevandrew@users.noreply.github.com>
+      type: cr_merged
+      summary: Merged CR 2
+      ref: cr:2
+merged_at: "2026-02-17T06:55:52Z"
+merged_by: Kevandrew <143258544+Kevandrew@users.noreply.github.com>
+merged_commit: 87aa35f
+files_touched_count: 12
 created_at: "2026-02-17T06:43:27Z"
-updated_at: "2026-02-17T06:54:58Z"
+updated_at: "2026-02-17T06:55:52Z"
