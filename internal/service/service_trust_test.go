@@ -77,8 +77,9 @@ func TestTrustReportWarningHeavyNeedsAttention(t *testing.T) {
 	if report.Verdict != trustVerdictNeedsAttention {
 		t.Fatalf("expected needs_attention verdict, got %q (score=%d)", report.Verdict, report.Score)
 	}
-	if report.Score < 60 || report.Score > 84 {
-		t.Fatalf("expected needs_attention score in [60,84], got %d", report.Score)
+	ratio := trustScoreRatio(report.Score, report.Max)
+	if ratio < trustAttentionMinRatio || ratio >= trustTrustedMinRatio {
+		t.Fatalf("expected needs_attention ratio in [%.2f, %.2f), got %.3f (score=%d max=%d)", trustAttentionMinRatio, trustTrustedMinRatio, ratio, report.Score, report.Max)
 	}
 	if len(report.HardFailures) != 0 {
 		t.Fatalf("expected no hard failures, got %#v", report.HardFailures)
