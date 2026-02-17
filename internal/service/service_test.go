@@ -776,6 +776,131 @@ func TestDoneTaskWithCheckpointFromContractNoMatchesFails(t *testing.T) {
 	}
 }
 
+func TestDoneTaskWithCheckpointPatchFileScopesToSelectedHunks(t *testing.T) {
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	runGit(t, dir, "config", "user.name", "Test User")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+
+	if err := os.WriteFile(filepath.Join(dir, "chunked.txt"), []byte("l1\nl2\nl3\nl4\nl5\nl6\nl7\nl8\n"), 0o644); err != nil {
+		t.Fatalf("write seed file: %v", err)
+	}
+	runGit(t, dir, "add", "chunked.txt")
+	runGit(t, dir, "commit", "-m", "chore: seed chunk file")
+
+	cr, err := svc.AddCR("Patch scoped checkpoint", "stage selected hunks")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	task, err := svc.AddTask(cr.ID, "feat: patch-scoped staging")
+	if err != nil {
+		t.Fatalf("AddTask() error = %v", err)
+	}
+	setValidTaskContract(t, svc, cr.ID, task.ID)
+
+	if err := os.WriteFile(filepath.Join(dir, "chunked.txt"), []byte("l1\nl2-edited\nl3\nl4\nl5\nl6\nl7-edited\nl8\n"), 0o644); err != nil {
+		t.Fatalf("write modified file: %v", err)
+	}
+
+	fullPatch := runGit(t, dir, "diff", "--unified=0", "chunked.txt")
+	partialPatch := firstHunkPatchFromDiff(t, fullPatch)
+	patchPath := filepath.Join(dir, "task.patch")
+	if err := os.WriteFile(patchPath, []byte(partialPatch), 0o644); err != nil {
+		t.Fatalf("write patch file: %v", err)
+	}
+
+	sha, err := svc.DoneTaskWithCheckpoint(cr.ID, task.ID, DoneTaskOptions{
+		Checkpoint: true,
+		PatchFile:  patchPath,
+	})
+	if err != nil {
+		t.Fatalf("DoneTaskWithCheckpoint() error = %v", err)
+	}
+	if sha == "" {
+		t.Fatalf("expected checkpoint sha")
+	}
+
+	msg := runGit(t, dir, "log", "-1", "--pretty=%B")
+	if !strings.Contains(msg, "Sophia-Task-Scope-Mode: patch_manifest") {
+		t.Fatalf("expected patch scope footer in checkpoint message: %q", msg)
+	}
+	if !strings.Contains(msg, "Sophia-Task-Chunk-Count: 1") {
+		t.Fatalf("expected patch chunk count footer in checkpoint message: %q", msg)
+	}
+
+	remaining := runGit(t, dir, "diff", "--unified=0", "chunked.txt")
+	if !strings.Contains(remaining, "+l7-edited") {
+		t.Fatalf("expected second hunk to remain unstaged/uncommitted, diff=%q", remaining)
+	}
+	if strings.Contains(remaining, "+l2-edited") {
+		t.Fatalf("expected first hunk to be committed, diff=%q", remaining)
+	}
+
+	loaded, err := svc.store.LoadCR(cr.ID)
+	if err != nil {
+		t.Fatalf("LoadCR() error = %v", err)
+	}
+	if len(loaded.Subtasks[0].CheckpointScope) != 1 || loaded.Subtasks[0].CheckpointScope[0] != "chunked.txt" {
+		t.Fatalf("expected checkpoint scope [chunked.txt], got %#v", loaded.Subtasks[0].CheckpointScope)
+	}
+	if len(loaded.Subtasks[0].CheckpointChunks) != 1 {
+		t.Fatalf("expected one checkpoint chunk, got %#v", loaded.Subtasks[0].CheckpointChunks)
+	}
+	chunk := loaded.Subtasks[0].CheckpointChunks[0]
+	if chunk.ID == "" || chunk.Path != "chunked.txt" {
+		t.Fatalf("expected chunk metadata with id/path, got %#v", chunk)
+	}
+	lastTwo := loaded.Events[len(loaded.Events)-2:]
+	if got := lastTwo[0].Meta["scope_source"]; got != "patch_manifest" {
+		t.Fatalf("expected scope_source patch_manifest, got %q", got)
+	}
+	if got := lastTwo[0].Meta["chunk_count"]; got != "1" {
+		t.Fatalf("expected chunk_count 1, got %q", got)
+	}
+}
+
+func TestDoneTaskWithCheckpointPatchFileMalformedFails(t *testing.T) {
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	runGit(t, dir, "config", "user.name", "Test User")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+
+	if err := os.WriteFile(filepath.Join(dir, "chunked.txt"), []byte("l1\n"), 0o644); err != nil {
+		t.Fatalf("write seed file: %v", err)
+	}
+	runGit(t, dir, "add", "chunked.txt")
+	runGit(t, dir, "commit", "-m", "chore: seed chunk file")
+
+	cr, err := svc.AddCR("Patch malformed", "reject malformed patch input")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	task, err := svc.AddTask(cr.ID, "feat: reject malformed patch")
+	if err != nil {
+		t.Fatalf("AddTask() error = %v", err)
+	}
+	setValidTaskContract(t, svc, cr.ID, task.ID)
+
+	patchPath := filepath.Join(dir, "broken.patch")
+	if err := os.WriteFile(patchPath, []byte("not a valid patch\n"), 0o644); err != nil {
+		t.Fatalf("write patch file: %v", err)
+	}
+
+	_, err = svc.DoneTaskWithCheckpoint(cr.ID, task.ID, DoneTaskOptions{
+		Checkpoint: true,
+		PatchFile:  patchPath,
+	})
+	if err == nil {
+		t.Fatalf("expected malformed patch failure")
+	}
+}
+
 func TestDoneTaskWithCheckpointRequiresExplicitScope(t *testing.T) {
 	dir := t.TempDir()
 	svc := New(dir)
@@ -826,9 +951,13 @@ func TestDoneTaskWithCheckpointRejectsInvalidScopePaths(t *testing.T) {
 		{Checkpoint: true, Paths: []string{"dup.txt", "dup.txt"}},
 		{Checkpoint: true, StageAll: true, FromContract: true},
 		{Checkpoint: true, FromContract: true, Paths: []string{"x.txt"}},
+		{Checkpoint: true, StageAll: true, PatchFile: "task.patch"},
+		{Checkpoint: true, FromContract: true, PatchFile: "task.patch"},
+		{Checkpoint: true, Paths: []string{"x.txt"}, PatchFile: "task.patch"},
 		{Checkpoint: false, Paths: []string{"x.txt"}},
 		{Checkpoint: false, StageAll: true},
 		{Checkpoint: false, FromContract: true},
+		{Checkpoint: false, PatchFile: "task.patch"},
 	}
 
 	for _, tc := range cases {
@@ -1069,6 +1198,30 @@ func TestActorFallbackIsUnknownWhenGitIdentityMissing(t *testing.T) {
 	if cr.Events[0].Actor != "unknown" {
 		t.Fatalf("expected actor unknown, got %q", cr.Events[0].Actor)
 	}
+}
+
+func firstHunkPatchFromDiff(t *testing.T, diff string) string {
+	t.Helper()
+	diff = strings.TrimSpace(diff)
+	if diff == "" {
+		t.Fatalf("expected non-empty diff")
+	}
+	lines := strings.Split(diff, "\n")
+	out := make([]string, 0, len(lines))
+	hunks := 0
+	for _, line := range lines {
+		if strings.HasPrefix(line, "@@ ") {
+			hunks++
+			if hunks > 1 {
+				break
+			}
+		}
+		out = append(out, line)
+	}
+	if hunks == 0 {
+		t.Fatalf("expected at least one hunk in diff: %q", diff)
+	}
+	return strings.Join(out, "\n") + "\n"
 }
 
 func runGit(t *testing.T, dir string, args ...string) string {
