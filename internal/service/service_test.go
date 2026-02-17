@@ -240,7 +240,7 @@ func TestDoneTaskWithCheckpointCreatesCommit(t *testing.T) {
 		t.Fatalf("write checkpoint file: %v", err)
 	}
 
-	sha, err := svc.DoneTaskWithCheckpoint(cr.ID, task.ID, true)
+	sha, err := svc.DoneTaskWithCheckpoint(cr.ID, task.ID, DoneTaskOptions{Checkpoint: true, StageAll: true})
 	if err != nil {
 		t.Fatalf("DoneTaskWithCheckpoint() error = %v", err)
 	}
@@ -289,7 +289,7 @@ func TestDoneTaskWithCheckpointNoChangesKeepsTaskOpen(t *testing.T) {
 		t.Fatalf("AddTask() error = %v", err)
 	}
 
-	if _, err := svc.DoneTaskWithCheckpoint(cr.ID, task.ID, true); !errors.Is(err, ErrNoTaskChanges) {
+	if _, err := svc.DoneTaskWithCheckpoint(cr.ID, task.ID, DoneTaskOptions{Checkpoint: true, StageAll: true}); !errors.Is(err, ErrNoTaskChanges) {
 		t.Fatalf("expected ErrNoTaskChanges, got %v", err)
 	}
 
@@ -317,7 +317,7 @@ func TestDoneTaskWithNoCheckpointIsMetadataOnly(t *testing.T) {
 		t.Fatalf("AddTask() error = %v", err)
 	}
 
-	sha, err := svc.DoneTaskWithCheckpoint(cr.ID, task.ID, false)
+	sha, err := svc.DoneTaskWithCheckpoint(cr.ID, task.ID, DoneTaskOptions{Checkpoint: false})
 	if err != nil {
 		t.Fatalf("DoneTaskWithCheckpoint(checkpoint=false) error = %v", err)
 	}
@@ -355,8 +355,194 @@ func TestDoneTaskWithCheckpointRequiresCRBranch(t *testing.T) {
 		t.Fatalf("write file: %v", err)
 	}
 
-	if _, err := svc.DoneTaskWithCheckpoint(cr.ID, task.ID, true); err == nil {
+	if _, err := svc.DoneTaskWithCheckpoint(cr.ID, task.ID, DoneTaskOptions{Checkpoint: true, StageAll: true}); err == nil {
 		t.Fatalf("expected branch context error")
+	}
+}
+
+func TestDoneTaskWithCheckpointScopesToSelectedPaths(t *testing.T) {
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	runGit(t, dir, "config", "user.name", "Test User")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+
+	cr, err := svc.AddCR("Scoped checkpoint", "scope only selected files")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	task, err := svc.AddTask(cr.ID, "feat: scoped staging")
+	if err != nil {
+		t.Fatalf("AddTask() error = %v", err)
+	}
+
+	if err := os.WriteFile(filepath.Join(dir, "scoped.txt"), []byte("scoped\n"), 0o644); err != nil {
+		t.Fatalf("write scoped file: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "unscoped.txt"), []byte("unscoped\n"), 0o644); err != nil {
+		t.Fatalf("write unscoped file: %v", err)
+	}
+
+	sha, err := svc.DoneTaskWithCheckpoint(cr.ID, task.ID, DoneTaskOptions{
+		Checkpoint: true,
+		Paths:      []string{"scoped.txt"},
+	})
+	if err != nil {
+		t.Fatalf("DoneTaskWithCheckpoint() error = %v", err)
+	}
+	if sha == "" {
+		t.Fatalf("expected checkpoint sha")
+	}
+
+	commitFiles := runGit(t, dir, "show", "--pretty=format:", "--name-only", "-1")
+	if !strings.Contains(commitFiles, "scoped.txt") {
+		t.Fatalf("expected scoped.txt in checkpoint commit, got %q", commitFiles)
+	}
+	if strings.Contains(commitFiles, "unscoped.txt") {
+		t.Fatalf("did not expect unscoped.txt in checkpoint commit, got %q", commitFiles)
+	}
+
+	status := runGit(t, dir, "status", "--porcelain")
+	if !strings.Contains(status, "?? unscoped.txt") {
+		t.Fatalf("expected unscoped.txt to remain uncommitted, status=%q", status)
+	}
+
+	loaded, err := svc.store.LoadCR(cr.ID)
+	if err != nil {
+		t.Fatalf("LoadCR() error = %v", err)
+	}
+	if len(loaded.Subtasks[0].CheckpointScope) != 1 || loaded.Subtasks[0].CheckpointScope[0] != "scoped.txt" {
+		t.Fatalf("expected checkpoint_scope [scoped.txt], got %#v", loaded.Subtasks[0].CheckpointScope)
+	}
+}
+
+func TestDoneTaskWithCheckpointRequiresExplicitScope(t *testing.T) {
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	cr, err := svc.AddCR("Scope required", "checkpoint scope required")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	task, err := svc.AddTask(cr.ID, "feat: scope required")
+	if err != nil {
+		t.Fatalf("AddTask() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "file.txt"), []byte("x\n"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	_, err = svc.DoneTaskWithCheckpoint(cr.ID, task.ID, DoneTaskOptions{Checkpoint: true})
+	if !errors.Is(err, ErrTaskScopeRequired) {
+		t.Fatalf("expected ErrTaskScopeRequired, got %v", err)
+	}
+}
+
+func TestDoneTaskWithCheckpointRejectsInvalidScopePaths(t *testing.T) {
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	cr, err := svc.AddCR("Invalid scope", "reject invalid paths")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	task, err := svc.AddTask(cr.ID, "feat: validate scope")
+	if err != nil {
+		t.Fatalf("AddTask() error = %v", err)
+	}
+
+	cases := []DoneTaskOptions{
+		{Checkpoint: true, Paths: []string{""}},
+		{Checkpoint: true, Paths: []string{"/tmp/a.txt"}},
+		{Checkpoint: true, Paths: []string{"../escape.txt"}},
+		{Checkpoint: true, Paths: []string{"a/../b.txt"}},
+		{Checkpoint: true, Paths: []string{"*.go"}},
+		{Checkpoint: true, Paths: []string{"dup.txt", "dup.txt"}},
+		{Checkpoint: false, Paths: []string{"x.txt"}},
+		{Checkpoint: false, StageAll: true},
+	}
+
+	for _, tc := range cases {
+		_, gotErr := svc.DoneTaskWithCheckpoint(cr.ID, task.ID, tc)
+		if !errors.Is(gotErr, ErrInvalidTaskScope) {
+			t.Fatalf("expected ErrInvalidTaskScope for options %#v, got %v", tc, gotErr)
+		}
+	}
+}
+
+func TestDoneTaskWithCheckpointRejectsPreStagedChanges(t *testing.T) {
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	runGit(t, dir, "config", "user.name", "Test User")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+
+	cr, err := svc.AddCR("Pre-staged guard", "fail on existing staged changes")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	task, err := svc.AddTask(cr.ID, "feat: pre-staged guard")
+	if err != nil {
+		t.Fatalf("AddTask() error = %v", err)
+	}
+
+	if err := os.WriteFile(filepath.Join(dir, "already-staged.txt"), []byte("staged\n"), 0o644); err != nil {
+		t.Fatalf("write already-staged file: %v", err)
+	}
+	runGit(t, dir, "add", "already-staged.txt")
+	if err := os.WriteFile(filepath.Join(dir, "scoped.txt"), []byte("scoped\n"), 0o644); err != nil {
+		t.Fatalf("write scoped file: %v", err)
+	}
+
+	_, err = svc.DoneTaskWithCheckpoint(cr.ID, task.ID, DoneTaskOptions{
+		Checkpoint: true,
+		Paths:      []string{"scoped.txt"},
+	})
+	if !errors.Is(err, ErrPreStagedChanges) {
+		t.Fatalf("expected ErrPreStagedChanges, got %v", err)
+	}
+
+	loaded, err := svc.store.LoadCR(cr.ID)
+	if err != nil {
+		t.Fatalf("LoadCR() error = %v", err)
+	}
+	if loaded.Subtasks[0].Status != model.TaskStatusOpen {
+		t.Fatalf("expected task to remain open, got %q", loaded.Subtasks[0].Status)
+	}
+}
+
+func TestDoneTaskWithCheckpointScopedPathWithoutChangesFails(t *testing.T) {
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	cr, err := svc.AddCR("No scoped changes", "scope has no changes")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	task, err := svc.AddTask(cr.ID, "feat: scoped no changes")
+	if err != nil {
+		t.Fatalf("AddTask() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "other.txt"), []byte("other\n"), 0o644); err != nil {
+		t.Fatalf("write other file: %v", err)
+	}
+
+	_, err = svc.DoneTaskWithCheckpoint(cr.ID, task.ID, DoneTaskOptions{
+		Checkpoint: true,
+		Paths:      []string{"target.txt"},
+	})
+	if !errors.Is(err, ErrNoTaskChanges) {
+		t.Fatalf("expected ErrNoTaskChanges, got %v", err)
 	}
 }
 
