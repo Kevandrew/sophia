@@ -18,15 +18,16 @@ import (
 )
 
 var (
-	ErrCRAlreadyMerged   = errors.New("cr is already merged")
-	ErrNoActiveCRContext = errors.New("current branch is not a CR branch")
-	ErrWorkingTreeDirty  = errors.New("working tree is dirty")
-	ErrNoCRChanges       = errors.New("no CR changes provided")
-	ErrAlreadyRedacted   = errors.New("target is already redacted")
-	ErrNoTaskChanges     = errors.New("no task checkpoint changes found")
-	ErrTaskScopeRequired = errors.New("checkpoint scope is required (use --path or --all)")
-	ErrInvalidTaskScope  = errors.New("invalid task checkpoint scope")
-	ErrPreStagedChanges  = errors.New("staged changes already exist before checkpoint")
+	ErrCRAlreadyMerged    = errors.New("cr is already merged")
+	ErrNoActiveCRContext  = errors.New("current branch is not a CR branch")
+	ErrWorkingTreeDirty   = errors.New("working tree is dirty")
+	ErrNoCRChanges        = errors.New("no CR changes provided")
+	ErrCRValidationFailed = errors.New("cr validation failed")
+	ErrAlreadyRedacted    = errors.New("target is already redacted")
+	ErrNoTaskChanges      = errors.New("no task checkpoint changes found")
+	ErrTaskScopeRequired  = errors.New("checkpoint scope is required (use --path or --all)")
+	ErrInvalidTaskScope   = errors.New("invalid task checkpoint scope")
+	ErrPreStagedChanges   = errors.New("staged changes already exist before checkpoint")
 )
 
 var (
@@ -47,14 +48,18 @@ type Service struct {
 }
 
 type Review struct {
-	CR              *model.CR
-	Files           []string
-	ShortStat       string
-	NewFiles        []string
-	ModifiedFiles   []string
-	DeletedFiles    []string
-	TestFiles       []string
-	DependencyFiles []string
+	CR                 *model.CR
+	Contract           model.Contract
+	Impact             *ImpactReport
+	ValidationErrors   []string
+	ValidationWarnings []string
+	Files              []string
+	ShortStat          string
+	NewFiles           []string
+	ModifiedFiles      []string
+	DeletedFiles       []string
+	TestFiles          []string
+	DependencyFiles    []string
 }
 
 type DoctorFinding struct {
@@ -127,6 +132,54 @@ type DoneTaskOptions struct {
 	Checkpoint bool
 	StageAll   bool
 	Paths      []string
+}
+
+type ContractPatch struct {
+	Why          *string
+	Scope        *[]string
+	NonGoals     *[]string
+	Invariants   *[]string
+	BlastRadius  *string
+	TestPlan     *string
+	RollbackPlan *string
+}
+
+type RiskSignal struct {
+	Code    string
+	Summary string
+	Points  int
+}
+
+type ImpactReport struct {
+	CRID              int
+	FilesChanged      int
+	NewFiles          []string
+	ModifiedFiles     []string
+	DeletedFiles      []string
+	TestFiles         []string
+	DependencyFiles   []string
+	ScopeDrift        []string
+	TaskScopeWarnings []string
+	Signals           []RiskSignal
+	RiskScore         int
+	RiskTier          string
+}
+
+type ValidationReport struct {
+	Valid    bool
+	Errors   []string
+	Warnings []string
+	Impact   *ImpactReport
+}
+
+type diffSummary struct {
+	Files           []string
+	ShortStat       string
+	NewFiles        []string
+	ModifiedFiles   []string
+	DeletedFiles    []string
+	TestFiles       []string
+	DependencyFiles []string
 }
 
 func New(root string) *Service {
@@ -355,6 +408,193 @@ func (s *Service) EditCR(id int, newTitle, newDescription *string) ([]string, er
 		return nil, err
 	}
 	return changedFields, nil
+}
+
+func (s *Service) SetCRContract(id int, patch ContractPatch) ([]string, error) {
+	cr, err := s.store.LoadCR(id)
+	if err != nil {
+		return nil, err
+	}
+	changed := []string{}
+	if patch.Why != nil {
+		if cr.Contract.Why != strings.TrimSpace(*patch.Why) {
+			cr.Contract.Why = strings.TrimSpace(*patch.Why)
+			changed = append(changed, "why")
+		}
+	}
+	if patch.Scope != nil {
+		scope, scopeErr := s.normalizeContractScopePrefixes(*patch.Scope)
+		if scopeErr != nil {
+			return nil, scopeErr
+		}
+		if !equalStringSlices(cr.Contract.Scope, scope) {
+			cr.Contract.Scope = scope
+			changed = append(changed, "scope")
+		}
+	}
+	if patch.NonGoals != nil {
+		normalized := normalizeNonEmptyStringList(*patch.NonGoals)
+		if !equalStringSlices(cr.Contract.NonGoals, normalized) {
+			cr.Contract.NonGoals = normalized
+			changed = append(changed, "non_goals")
+		}
+	}
+	if patch.Invariants != nil {
+		normalized := normalizeNonEmptyStringList(*patch.Invariants)
+		if !equalStringSlices(cr.Contract.Invariants, normalized) {
+			cr.Contract.Invariants = normalized
+			changed = append(changed, "invariants")
+		}
+	}
+	if patch.BlastRadius != nil {
+		normalized := strings.TrimSpace(*patch.BlastRadius)
+		if cr.Contract.BlastRadius != normalized {
+			cr.Contract.BlastRadius = normalized
+			changed = append(changed, "blast_radius")
+		}
+	}
+	if patch.TestPlan != nil {
+		normalized := strings.TrimSpace(*patch.TestPlan)
+		if cr.Contract.TestPlan != normalized {
+			cr.Contract.TestPlan = normalized
+			changed = append(changed, "test_plan")
+		}
+	}
+	if patch.RollbackPlan != nil {
+		normalized := strings.TrimSpace(*patch.RollbackPlan)
+		if cr.Contract.RollbackPlan != normalized {
+			cr.Contract.RollbackPlan = normalized
+			changed = append(changed, "rollback_plan")
+		}
+	}
+	if len(changed) == 0 {
+		return nil, ErrNoCRChanges
+	}
+
+	now := s.timestamp()
+	actor := s.git.Actor()
+	cr.Contract.UpdatedAt = now
+	cr.Contract.UpdatedBy = actor
+	cr.UpdatedAt = now
+	cr.Events = append(cr.Events, model.Event{
+		TS:      now,
+		Actor:   actor,
+		Type:    "contract_updated",
+		Summary: fmt.Sprintf("Updated contract fields: %s", strings.Join(changed, ",")),
+		Ref:     fmt.Sprintf("cr:%d", id),
+		Meta: map[string]string{
+			"fields": strings.Join(changed, ","),
+		},
+	})
+	if err := s.store.SaveCR(cr); err != nil {
+		return nil, err
+	}
+	return changed, nil
+}
+
+func (s *Service) GetCRContract(id int) (*model.Contract, error) {
+	cr, err := s.store.LoadCR(id)
+	if err != nil {
+		return nil, err
+	}
+	contract := cr.Contract
+	contract.Scope = append([]string(nil), contract.Scope...)
+	contract.NonGoals = append([]string(nil), contract.NonGoals...)
+	contract.Invariants = append([]string(nil), contract.Invariants...)
+	return &contract, nil
+}
+
+func (s *Service) ImpactCR(id int) (*ImpactReport, error) {
+	cr, err := s.store.LoadCR(id)
+	if err != nil {
+		return nil, err
+	}
+	diff, err := s.summarizeCRDiff(cr)
+	if err != nil {
+		return nil, err
+	}
+	impact := buildImpactReport(cr, diff)
+	return impact, nil
+}
+
+func (s *Service) ValidateCR(id int) (*ValidationReport, error) {
+	cr, err := s.store.LoadCR(id)
+	if err != nil {
+		return nil, err
+	}
+	diff, err := s.summarizeCRDiff(cr)
+	if err != nil {
+		return nil, err
+	}
+	impact := buildImpactReport(cr, diff)
+
+	errorsOut := []string{}
+	if strings.TrimSpace(cr.Contract.Why) == "" {
+		errorsOut = append(errorsOut, "missing required contract field: why")
+	}
+	if len(cr.Contract.Scope) == 0 {
+		errorsOut = append(errorsOut, "missing required contract field: scope")
+	}
+	if len(normalizeNonEmptyStringList(cr.Contract.NonGoals)) == 0 {
+		errorsOut = append(errorsOut, "missing required contract field: non_goals")
+	}
+	if len(normalizeNonEmptyStringList(cr.Contract.Invariants)) == 0 {
+		errorsOut = append(errorsOut, "missing required contract field: invariants")
+	}
+	if strings.TrimSpace(cr.Contract.BlastRadius) == "" {
+		errorsOut = append(errorsOut, "missing required contract field: blast_radius")
+	}
+	if strings.TrimSpace(cr.Contract.TestPlan) == "" {
+		errorsOut = append(errorsOut, "missing required contract field: test_plan")
+	}
+	if strings.TrimSpace(cr.Contract.RollbackPlan) == "" {
+		errorsOut = append(errorsOut, "missing required contract field: rollback_plan")
+	}
+	for _, driftPath := range impact.ScopeDrift {
+		errorsOut = append(errorsOut, fmt.Sprintf("scope drift: changed path %q is outside declared contract scope", driftPath))
+	}
+
+	warnings := append([]string(nil), impact.TaskScopeWarnings...)
+	return &ValidationReport{
+		Valid:    len(errorsOut) == 0,
+		Errors:   errorsOut,
+		Warnings: warnings,
+		Impact:   impact,
+	}, nil
+}
+
+func (s *Service) RecordCRValidation(id int, report *ValidationReport) error {
+	if report == nil {
+		return errors.New("validation report is required")
+	}
+	cr, err := s.store.LoadCR(id)
+	if err != nil {
+		return err
+	}
+	now := s.timestamp()
+	actor := s.git.Actor()
+	status := "passed"
+	if !report.Valid {
+		status = "failed"
+	}
+	meta := map[string]string{
+		"risk_tier":           "-",
+		"validation_errors":   strconv.Itoa(len(report.Errors)),
+		"validation_warnings": strconv.Itoa(len(report.Warnings)),
+	}
+	if report.Impact != nil {
+		meta["risk_tier"] = nonEmptyTrimmed(report.Impact.RiskTier, "-")
+	}
+	cr.UpdatedAt = now
+	cr.Events = append(cr.Events, model.Event{
+		TS:      now,
+		Actor:   actor,
+		Type:    "cr_validated",
+		Summary: fmt.Sprintf("Validation %s with %d error(s) and %d warning(s)", status, len(report.Errors), len(report.Warnings)),
+		Ref:     fmt.Sprintf("cr:%d", id),
+		Meta:    meta,
+	})
+	return s.store.SaveCR(cr)
 }
 
 func (s *Service) RedactCRNote(id, noteIndex int, reason string) error {
@@ -691,78 +931,46 @@ func (s *Service) ReviewCR(id int) (*Review, error) {
 	if err != nil {
 		return nil, err
 	}
-	changes, err := s.git.DiffNameStatus(cr.BaseBranch, cr.Branch)
+	diff, err := s.summarizeCRDiff(cr)
 	if err != nil {
 		return nil, err
 	}
-	shortStat, err := s.git.DiffShortStat(cr.BaseBranch, cr.Branch)
+	validation, err := s.ValidateCR(id)
 	if err != nil {
 		return nil, err
 	}
-
-	files := make([]string, 0, len(changes))
-	newFiles := []string{}
-	modifiedFiles := []string{}
-	deletedFiles := []string{}
-	testFiles := []string{}
-	depFiles := []string{}
-	seenTest := map[string]struct{}{}
-	seenDep := map[string]struct{}{}
-
-	for _, change := range changes {
-		path := change.Path
-		if path == "" {
-			continue
-		}
-		files = append(files, path)
-		switch change.Status {
-		case "A":
-			newFiles = append(newFiles, path)
-		case "D":
-			deletedFiles = append(deletedFiles, path)
-		default:
-			modifiedFiles = append(modifiedFiles, path)
-		}
-		if isTestFile(path) {
-			if _, ok := seenTest[path]; !ok {
-				seenTest[path] = struct{}{}
-				testFiles = append(testFiles, path)
-			}
-		}
-		if isDependencyFile(path) {
-			if _, ok := seenDep[path]; !ok {
-				seenDep[path] = struct{}{}
-				depFiles = append(depFiles, path)
-			}
-		}
-	}
-
-	sort.Strings(files)
-	sort.Strings(newFiles)
-	sort.Strings(modifiedFiles)
-	sort.Strings(deletedFiles)
-	sort.Strings(testFiles)
-	sort.Strings(depFiles)
 
 	return &Review{
-		CR:              cr,
-		Files:           files,
-		ShortStat:       shortStat,
-		NewFiles:        newFiles,
-		ModifiedFiles:   modifiedFiles,
-		DeletedFiles:    deletedFiles,
-		TestFiles:       testFiles,
-		DependencyFiles: depFiles,
+		CR:                 cr,
+		Contract:           cr.Contract,
+		Impact:             validation.Impact,
+		ValidationErrors:   append([]string(nil), validation.Errors...),
+		ValidationWarnings: append([]string(nil), validation.Warnings...),
+		Files:              diff.Files,
+		ShortStat:          diff.ShortStat,
+		NewFiles:           diff.NewFiles,
+		ModifiedFiles:      diff.ModifiedFiles,
+		DeletedFiles:       diff.DeletedFiles,
+		TestFiles:          diff.TestFiles,
+		DependencyFiles:    diff.DependencyFiles,
 	}, nil
 }
 
-func (s *Service) MergeCR(id int, keepBranch bool) (string, error) {
+func (s *Service) MergeCR(id int, keepBranch bool, overrideReason string) (string, error) {
 	cr, err := s.store.LoadCR(id)
 	if err != nil {
 		return "", err
 	}
 	if cr.Status == model.StatusMerged {
 		return "", ErrCRAlreadyMerged
+	}
+	validation, err := s.ValidateCR(id)
+	if err != nil {
+		return "", err
+	}
+	overrideReason = strings.TrimSpace(overrideReason)
+	if !validation.Valid && overrideReason == "" {
+		return "", fmt.Errorf("%w: %s", ErrCRValidationFailed, strings.Join(validation.Errors, "; "))
 	}
 	if dirty, summary, err := s.workingTreeDirtySummary(); err != nil {
 		return "", err
@@ -805,6 +1013,20 @@ func (s *Service) MergeCR(id int, keepBranch bool) (string, error) {
 	cr.MergedBy = actor
 	cr.MergedCommit = sha
 	cr.FilesTouchedCount = len(files)
+	if overrideReason != "" {
+		cr.Events = append(cr.Events, model.Event{
+			TS:      mergedAt,
+			Actor:   actor,
+			Type:    "cr_merge_overridden",
+			Summary: fmt.Sprintf("Merged with validation override: %s", overrideReason),
+			Ref:     fmt.Sprintf("cr:%d", cr.ID),
+			Meta: map[string]string{
+				"override_reason":   overrideReason,
+				"risk_tier":         nonEmptyTrimmed(validation.Impact.RiskTier, "-"),
+				"validation_errors": strconv.Itoa(len(validation.Errors)),
+			},
+		})
+	}
 	cr.Events = append(cr.Events, model.Event{
 		TS:      mergedAt,
 		Actor:   actor,
@@ -1358,6 +1580,209 @@ func inferTaskCommitType(taskTitle string) string {
 	return "chore"
 }
 
+func (s *Service) summarizeCRDiff(cr *model.CR) (*diffSummary, error) {
+	changes, err := s.git.DiffNameStatus(cr.BaseBranch, cr.Branch)
+	if err != nil {
+		return nil, err
+	}
+	shortStat, err := s.git.DiffShortStat(cr.BaseBranch, cr.Branch)
+	if err != nil {
+		return nil, err
+	}
+
+	files := make([]string, 0, len(changes))
+	newFiles := []string{}
+	modifiedFiles := []string{}
+	deletedFiles := []string{}
+	testFiles := []string{}
+	depFiles := []string{}
+	seenTest := map[string]struct{}{}
+	seenDep := map[string]struct{}{}
+
+	for _, change := range changes {
+		changePath := strings.TrimSpace(change.Path)
+		if changePath == "" {
+			continue
+		}
+		files = append(files, changePath)
+		switch change.Status {
+		case "A":
+			newFiles = append(newFiles, changePath)
+		case "D":
+			deletedFiles = append(deletedFiles, changePath)
+		default:
+			modifiedFiles = append(modifiedFiles, changePath)
+		}
+		if isTestFile(changePath) {
+			if _, ok := seenTest[changePath]; !ok {
+				seenTest[changePath] = struct{}{}
+				testFiles = append(testFiles, changePath)
+			}
+		}
+		if isDependencyFile(changePath) {
+			if _, ok := seenDep[changePath]; !ok {
+				seenDep[changePath] = struct{}{}
+				depFiles = append(depFiles, changePath)
+			}
+		}
+	}
+
+	sort.Strings(files)
+	sort.Strings(newFiles)
+	sort.Strings(modifiedFiles)
+	sort.Strings(deletedFiles)
+	sort.Strings(testFiles)
+	sort.Strings(depFiles)
+
+	return &diffSummary{
+		Files:           files,
+		ShortStat:       shortStat,
+		NewFiles:        newFiles,
+		ModifiedFiles:   modifiedFiles,
+		DeletedFiles:    deletedFiles,
+		TestFiles:       testFiles,
+		DependencyFiles: depFiles,
+	}, nil
+}
+
+func buildImpactReport(cr *model.CR, diff *diffSummary) *ImpactReport {
+	scope := append([]string(nil), cr.Contract.Scope...)
+	scopeDrift := findScopeDrift(diff.Files, scope)
+	warnings := findTaskScopeWarnings(cr.Subtasks, scope)
+
+	signals := []RiskSignal{}
+	riskScore := 0
+	addSignal := func(code, summary string, points int) {
+		if points <= 0 {
+			return
+		}
+		signals = append(signals, RiskSignal{Code: code, Summary: summary, Points: points})
+		riskScore += points
+	}
+
+	criticalPrefixes := []string{"internal/service/", "internal/store/", "internal/gitx/", "cmd/"}
+	criticalTouched := []string{}
+	for _, file := range diff.Files {
+		for _, prefix := range criticalPrefixes {
+			if strings.HasPrefix(file, prefix) {
+				criticalTouched = append(criticalTouched, prefix)
+				break
+			}
+		}
+	}
+	criticalTouched = dedupeStrings(criticalTouched)
+	if len(criticalTouched) > 0 {
+		addSignal("critical_paths", fmt.Sprintf("critical paths touched: %s", strings.Join(criticalTouched, ", ")), 3)
+	}
+	if len(diff.DependencyFiles) > 0 {
+		addSignal("dependency_changes", fmt.Sprintf("%d dependency file(s) changed", len(diff.DependencyFiles)), 2)
+	}
+	if len(diff.DeletedFiles) > 0 {
+		addSignal("deletions", fmt.Sprintf("%d deleted file(s)", len(diff.DeletedFiles)), 2)
+	}
+	if len(diff.Files) > 20 {
+		addSignal("large_change_set", fmt.Sprintf("%d files changed", len(diff.Files)), 2)
+	}
+	nonTestChanges := len(diff.Files) > len(diff.TestFiles)
+	if nonTestChanges && len(diff.TestFiles) == 0 {
+		addSignal("no_test_changes", "non-test changes detected without test file updates", 1)
+	}
+	if len(scopeDrift) > 0 {
+		addSignal("scope_drift", fmt.Sprintf("%d file(s) outside declared scope", len(scopeDrift)), 2)
+	}
+
+	riskTier := "low"
+	switch {
+	case riskScore >= 7:
+		riskTier = "high"
+	case riskScore >= 3:
+		riskTier = "medium"
+	}
+
+	return &ImpactReport{
+		CRID:              cr.ID,
+		FilesChanged:      len(diff.Files),
+		NewFiles:          append([]string(nil), diff.NewFiles...),
+		ModifiedFiles:     append([]string(nil), diff.ModifiedFiles...),
+		DeletedFiles:      append([]string(nil), diff.DeletedFiles...),
+		TestFiles:         append([]string(nil), diff.TestFiles...),
+		DependencyFiles:   append([]string(nil), diff.DependencyFiles...),
+		ScopeDrift:        scopeDrift,
+		TaskScopeWarnings: warnings,
+		Signals:           signals,
+		RiskScore:         riskScore,
+		RiskTier:          riskTier,
+	}
+}
+
+func findScopeDrift(changedFiles, scopePrefixes []string) []string {
+	if len(changedFiles) == 0 {
+		return []string{}
+	}
+	if len(scopePrefixes) == 0 {
+		return append([]string(nil), changedFiles...)
+	}
+	drift := []string{}
+	for _, changedPath := range changedFiles {
+		inScope := false
+		for _, scopePrefix := range scopePrefixes {
+			if pathMatchesScopePrefix(changedPath, scopePrefix) {
+				inScope = true
+				break
+			}
+		}
+		if !inScope {
+			drift = append(drift, changedPath)
+		}
+	}
+	sort.Strings(drift)
+	return drift
+}
+
+func findTaskScopeWarnings(tasks []model.Subtask, scopePrefixes []string) []string {
+	if len(scopePrefixes) == 0 {
+		return []string{}
+	}
+	warnings := []string{}
+	for _, task := range tasks {
+		if task.Status != model.TaskStatusDone || len(task.CheckpointScope) == 0 {
+			continue
+		}
+		for _, scopedPath := range task.CheckpointScope {
+			if strings.TrimSpace(scopedPath) == "" || scopedPath == "*" {
+				continue
+			}
+			inScope := false
+			for _, scopePrefix := range scopePrefixes {
+				if pathMatchesScopePrefix(scopedPath, scopePrefix) {
+					inScope = true
+					break
+				}
+			}
+			if !inScope {
+				warnings = append(warnings, fmt.Sprintf("task #%d checkpoint scope %q is outside contract scope", task.ID, scopedPath))
+			}
+		}
+	}
+	sort.Strings(warnings)
+	return dedupeStrings(warnings)
+}
+
+func pathMatchesScopePrefix(candidatePath, scopePrefix string) bool {
+	candidatePath = strings.TrimSpace(candidatePath)
+	scopePrefix = strings.TrimSpace(scopePrefix)
+	if candidatePath == "" || scopePrefix == "" {
+		return false
+	}
+	if scopePrefix == "." {
+		return true
+	}
+	if candidatePath == scopePrefix {
+		return true
+	}
+	return strings.HasPrefix(candidatePath, scopePrefix+"/")
+}
+
 func (s *Service) computeOverlapWarnings(referenceDirs map[string]struct{}, skipCRID int) []string {
 	if len(referenceDirs) == 0 {
 		return nil
@@ -1674,6 +2099,62 @@ func (s *Service) normalizeTaskScopePaths(paths []string) ([]string, error) {
 		normalized = append(normalized, cleaned)
 	}
 	return normalized, nil
+}
+
+func (s *Service) normalizeContractScopePrefixes(prefixes []string) ([]string, error) {
+	normalized := make([]string, 0, len(prefixes))
+	seen := map[string]struct{}{}
+	for _, raw := range prefixes {
+		trimmed := strings.TrimSpace(raw)
+		if trimmed == "" {
+			return nil, fmt.Errorf("%w: empty scope prefix", ErrInvalidTaskScope)
+		}
+		slashPath := strings.ReplaceAll(trimmed, "\\", "/")
+		if filepath.IsAbs(trimmed) || strings.HasPrefix(slashPath, "/") {
+			return nil, fmt.Errorf("%w: scope prefix %q must be repo-relative", ErrInvalidTaskScope, raw)
+		}
+		if strings.ContainsAny(slashPath, "*?[]{}") {
+			return nil, fmt.Errorf("%w: scope prefix %q must be exact prefix (no glob patterns)", ErrInvalidTaskScope, raw)
+		}
+		cleaned := path.Clean(slashPath)
+		if cleaned == ".." || strings.HasPrefix(cleaned, "../") {
+			return nil, fmt.Errorf("%w: scope prefix %q escapes repository root", ErrInvalidTaskScope, raw)
+		}
+		if cleaned != slashPath {
+			return nil, fmt.Errorf("%w: scope prefix %q must be normalized", ErrInvalidTaskScope, raw)
+		}
+		if _, ok := seen[cleaned]; ok {
+			return nil, fmt.Errorf("%w: duplicate scope prefix %q", ErrInvalidTaskScope, raw)
+		}
+		seen[cleaned] = struct{}{}
+		normalized = append(normalized, cleaned)
+	}
+	sort.Strings(normalized)
+	return normalized, nil
+}
+
+func normalizeNonEmptyStringList(values []string) []string {
+	res := make([]string, 0, len(values))
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			continue
+		}
+		res = append(res, trimmed)
+	}
+	return dedupeStrings(res)
+}
+
+func equalStringSlices(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func oneBasedIndex(input, length int, label string) (int, error) {

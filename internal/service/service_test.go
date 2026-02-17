@@ -608,8 +608,9 @@ func TestMergeCreatesIntentCommitAndMarksMerged(t *testing.T) {
 	}
 	runGit(t, dir, "add", "app.txt")
 	runGit(t, dir, "commit", "-m", "feat: app")
+	setValidContract(t, svc, cr.ID)
 
-	sha, err := svc.MergeCR(cr.ID, false)
+	sha, err := svc.MergeCR(cr.ID, false, "")
 	if err != nil {
 		t.Fatalf("MergeCR() error = %v", err)
 	}
@@ -668,8 +669,9 @@ func TestMergeKeepBranchPreservesCRBranch(t *testing.T) {
 	}
 	runGit(t, dir, "add", "keep.txt")
 	runGit(t, dir, "commit", "-m", "feat: keep branch")
+	setValidContract(t, svc, cr.ID)
 
-	if _, err := svc.MergeCR(cr.ID, true); err != nil {
+	if _, err := svc.MergeCR(cr.ID, true, ""); err != nil {
 		t.Fatalf("MergeCR(keepBranch=true) error = %v", err)
 	}
 	if !svc.git.BranchExists(cr.Branch) {
