@@ -70,6 +70,7 @@ type Contract struct {
 
 type CR struct {
 	ID                int       `yaml:"id"`
+	UID               string    `yaml:"uid,omitempty"`
 	Title             string    `yaml:"title"`
 	Description       string    `yaml:"description"`
 	Status            string    `yaml:"status"`
