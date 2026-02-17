@@ -153,6 +153,7 @@ func trustToJSONMap(trust *service.TrustReport) map[string]any {
 		"hard_failures":    trust.HardFailures,
 		"dimensions":       dimensions,
 		"required_actions": trust.RequiredActions,
+		"advisories":       trust.Advisories,
 		"summary":          trust.Summary,
 	}
 }
