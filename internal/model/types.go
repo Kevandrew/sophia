@@ -32,20 +32,30 @@ type Event struct {
 	Meta            map[string]string `yaml:"meta,omitempty"`
 }
 
+type CheckpointChunk struct {
+	ID       string `yaml:"id"`
+	Path     string `yaml:"path"`
+	OldStart int    `yaml:"old_start"`
+	OldLines int    `yaml:"old_lines"`
+	NewStart int    `yaml:"new_start"`
+	NewLines int    `yaml:"new_lines"`
+}
+
 type Subtask struct {
-	ID                int          `yaml:"id"`
-	Title             string       `yaml:"title"`
-	Status            string       `yaml:"status"`
-	CreatedAt         string       `yaml:"created_at"`
-	UpdatedAt         string       `yaml:"updated_at"`
-	CompletedAt       string       `yaml:"completed_at,omitempty"`
-	CreatedBy         string       `yaml:"created_by"`
-	CompletedBy       string       `yaml:"completed_by,omitempty"`
-	CheckpointCommit  string       `yaml:"checkpoint_commit,omitempty"`
-	CheckpointAt      string       `yaml:"checkpoint_at,omitempty"`
-	CheckpointMessage string       `yaml:"checkpoint_message,omitempty"`
-	CheckpointScope   []string     `yaml:"checkpoint_scope,omitempty"`
-	Contract          TaskContract `yaml:"contract,omitempty"`
+	ID                int               `yaml:"id"`
+	Title             string            `yaml:"title"`
+	Status            string            `yaml:"status"`
+	CreatedAt         string            `yaml:"created_at"`
+	UpdatedAt         string            `yaml:"updated_at"`
+	CompletedAt       string            `yaml:"completed_at,omitempty"`
+	CreatedBy         string            `yaml:"created_by"`
+	CompletedBy       string            `yaml:"completed_by,omitempty"`
+	CheckpointCommit  string            `yaml:"checkpoint_commit,omitempty"`
+	CheckpointAt      string            `yaml:"checkpoint_at,omitempty"`
+	CheckpointMessage string            `yaml:"checkpoint_message,omitempty"`
+	CheckpointScope   []string          `yaml:"checkpoint_scope,omitempty"`
+	CheckpointChunks  []CheckpointChunk `yaml:"checkpoint_chunks,omitempty"`
+	Contract          TaskContract      `yaml:"contract,omitempty"`
 }
 
 type TaskContract struct {
