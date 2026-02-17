@@ -1815,13 +1815,28 @@ func inferTaskCommitType(taskTitle string) string {
 }
 
 func (s *Service) summarizeCRDiff(cr *model.CR) (*diffSummary, error) {
-	changes, err := s.git.DiffNameStatus(cr.BaseBranch, cr.Branch)
-	if err != nil {
-		return nil, err
-	}
-	shortStat, err := s.git.DiffShortStat(cr.BaseBranch, cr.Branch)
-	if err != nil {
-		return nil, err
+	var (
+		changes   []gitx.FileChange
+		shortStat string
+		err       error
+	)
+	switch {
+	case s.git.BranchExists(cr.BaseBranch) && s.git.BranchExists(cr.Branch):
+		changes, err = s.git.DiffNameStatus(cr.BaseBranch, cr.Branch)
+		if err != nil {
+			return nil, err
+		}
+		shortStat, err = s.git.DiffShortStat(cr.BaseBranch, cr.Branch)
+		if err != nil {
+			return nil, err
+		}
+	case cr.Status == model.StatusMerged:
+		changes, shortStat, err = s.summarizeMergedCRDiff(cr)
+		if err != nil {
+			return nil, err
+		}
+	default:
+		return nil, fmt.Errorf("unable to summarize CR %d diff: missing branch context (%q, %q)", cr.ID, cr.BaseBranch, cr.Branch)
 	}
 
 	files := make([]string, 0, len(changes))
@@ -1877,6 +1892,35 @@ func (s *Service) summarizeCRDiff(cr *model.CR) (*diffSummary, error) {
 		TestFiles:       testFiles,
 		DependencyFiles: depFiles,
 	}, nil
+}
+
+func (s *Service) summarizeMergedCRDiff(cr *model.CR) ([]gitx.FileChange, string, error) {
+	mergedCommit := strings.TrimSpace(cr.MergedCommit)
+	var mergeDiffErr error
+	if mergedCommit != "" {
+		baseRef := mergedCommit + "^1"
+		changes, err := s.git.DiffNameStatusBetween(baseRef, mergedCommit)
+		if err != nil {
+			mergeDiffErr = err
+		} else {
+			shortStat, statErr := s.git.DiffShortStatBetween(baseRef, mergedCommit)
+			if statErr == nil {
+				return changes, shortStat, nil
+			}
+			mergeDiffErr = statErr
+		}
+	}
+
+	derivedChanges := deriveChangesFromTaskCheckpointScopes(cr.Subtasks)
+	if len(derivedChanges) > 0 {
+		shortStat := fmt.Sprintf("%d file(s) changed (derived from task checkpoint scope)", len(derivedChanges))
+		return derivedChanges, shortStat, nil
+	}
+
+	if mergeDiffErr != nil {
+		return nil, "", fmt.Errorf("unable to summarize merged CR %d diff: %w", cr.ID, mergeDiffErr)
+	}
+	return nil, "", fmt.Errorf("unable to summarize merged CR %d diff: merged commit and task checkpoint scope are unavailable", cr.ID)
 }
 
 func buildImpactReport(cr *model.CR, diff *diffSummary) *ImpactReport {
@@ -2035,6 +2079,31 @@ func findTaskContractWarnings(tasks []model.Subtask) []string {
 	}
 	sort.Strings(warnings)
 	return dedupeStrings(warnings)
+}
+
+func deriveChangesFromTaskCheckpointScopes(tasks []model.Subtask) []gitx.FileChange {
+	seen := map[string]struct{}{}
+	changes := make([]gitx.FileChange, 0)
+	for _, task := range tasks {
+		for _, scopedPath := range task.CheckpointScope {
+			scopedPath = strings.TrimSpace(scopedPath)
+			if scopedPath == "" || scopedPath == "*" {
+				continue
+			}
+			if _, ok := seen[scopedPath]; ok {
+				continue
+			}
+			seen[scopedPath] = struct{}{}
+			changes = append(changes, gitx.FileChange{
+				Status: "M",
+				Path:   scopedPath,
+			})
+		}
+	}
+	sort.Slice(changes, func(i, j int) bool {
+		return changes[i].Path < changes[j].Path
+	})
+	return changes
 }
 
 func missingCRContractFields(contract model.Contract) []string {
