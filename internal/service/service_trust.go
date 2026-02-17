@@ -87,8 +87,20 @@ func buildTrustReport(cr *model.CR, validation *ValidationReport, diff *diffSumm
 		requiredActions = append(requiredActions, dimensions[i].RequiredActions...)
 	}
 	requiredActions = dedupeStrings(requiredActions)
+	if strings.EqualFold(strings.TrimSpace(impact.RiskTier), "high") && len(impact.MatchedRiskCriticalScopes) > 0 {
+		requiredActions = append(requiredActions, fmt.Sprintf("Spot-check critical scopes: %s.", strings.Join(impact.MatchedRiskCriticalScopes, ", ")))
+	}
+	requiredActions = dedupeStrings(requiredActions)
 
 	verdict, summary := selectTrustVerdict(score, max, hardFailures)
+	if verdict == trustVerdictTrusted &&
+		strings.EqualFold(strings.TrimSpace(impact.RiskTier), "high") &&
+		!hasSpecializedHighRiskEvidence(impact, diff) {
+		verdict = trustVerdictNeedsAttention
+		summary = "Trust evidence has gaps; address required actions before treating diffs as optional."
+		requiredActions = append(requiredActions, "Add specialized high-risk evidence (integration/worktree/doctor/repair coverage) before treating this CR as trusted.")
+		requiredActions = dedupeStrings(requiredActions)
+	}
 
 	return &TrustReport{
 		Verdict:         verdict,
@@ -421,6 +433,42 @@ func buildTestEvidenceDimension(contract model.Contract, diff *diffSummary) Trus
 		dimension.RequiredActions = append(dimension.RequiredActions, "Provide test evidence when dependency files change.")
 	}
 	return dimension
+}
+
+func hasSpecializedHighRiskEvidence(impact *ImpactReport, diff *diffSummary) bool {
+	testPaths := map[string]struct{}{}
+	if impact != nil {
+		for _, path := range impact.TestFiles {
+			trimmed := strings.TrimSpace(path)
+			if trimmed != "" {
+				testPaths[trimmed] = struct{}{}
+			}
+		}
+	}
+	if diff != nil {
+		for _, path := range diff.TestFiles {
+			trimmed := strings.TrimSpace(path)
+			if trimmed != "" {
+				testPaths[trimmed] = struct{}{}
+			}
+		}
+	}
+	for path := range testPaths {
+		normalized := strings.ToLower(strings.ReplaceAll(strings.TrimSpace(path), "\\", "/"))
+		switch {
+		case strings.Contains(normalized, "/integration/"):
+			return true
+		case strings.HasSuffix(normalized, "_integration_test.go"):
+			return true
+		case strings.Contains(normalized, "worktree"):
+			return true
+		case strings.Contains(normalized, "doctor"):
+			return true
+		case strings.Contains(normalized, "repair"):
+			return true
+		}
+	}
+	return false
 }
 
 func hasDependencyOrTestEvidence(impact *ImpactReport, diff *diffSummary) bool {

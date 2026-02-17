@@ -299,6 +299,64 @@ func TestTrustReportAppliesChangeMagnitudePenalties(t *testing.T) {
 	}
 }
 
+func TestTrustReportHighRiskWithoutSpecializedEvidenceNeedsAttention(t *testing.T) {
+	cr := &model.CR{
+		Contract: validTrustContract(),
+		Subtasks: []model.Subtask{
+			{ID: 1, Status: model.TaskStatusDone, CheckpointCommit: "abc1234"},
+		},
+	}
+	report := buildTrustReport(cr, &ValidationReport{
+		Impact: &ImpactReport{
+			FilesChanged:              4,
+			RiskTier:                  "high",
+			MatchedRiskCriticalScopes: []string{"internal/service/service_trust.go"},
+			Signals:                   []RiskSignal{{Code: "critical_scope_hint", Points: 3}},
+			TestFiles:                 []string{"internal/service/service_trust_test.go"},
+		},
+	}, &diffSummary{
+		Files:     []string{"internal/service/service_trust.go", "internal/service/service_trust_test.go"},
+		TestFiles: []string{"internal/service/service_trust_test.go"},
+		ShortStat: "2 files changed, 20 insertions(+), 3 deletions(-)",
+	})
+
+	if report.Verdict != trustVerdictNeedsAttention {
+		t.Fatalf("expected needs_attention verdict for high-risk without specialized evidence, got %q", report.Verdict)
+	}
+	if !containsAny(report.RequiredActions, "specialized high-risk evidence") {
+		t.Fatalf("expected specialized high-risk action, got %#v", report.RequiredActions)
+	}
+	if !containsAny(report.RequiredActions, "Spot-check critical scopes") {
+		t.Fatalf("expected spot-check required action, got %#v", report.RequiredActions)
+	}
+}
+
+func TestTrustReportHighRiskWithSpecializedEvidenceCanBeTrusted(t *testing.T) {
+	cr := &model.CR{
+		Contract: validTrustContract(),
+		Subtasks: []model.Subtask{
+			{ID: 1, Status: model.TaskStatusDone, CheckpointCommit: "abc1234"},
+		},
+	}
+	report := buildTrustReport(cr, &ValidationReport{
+		Impact: &ImpactReport{
+			FilesChanged:              4,
+			RiskTier:                  "high",
+			MatchedRiskCriticalScopes: []string{"internal/service/service_trust.go"},
+			Signals:                   []RiskSignal{{Code: "critical_scope_hint", Points: 3}},
+			TestFiles:                 []string{"internal/service/worktree_integration_test.go"},
+		},
+	}, &diffSummary{
+		Files:     []string{"internal/service/service_trust.go", "internal/service/worktree_integration_test.go"},
+		TestFiles: []string{"internal/service/worktree_integration_test.go"},
+		ShortStat: "2 files changed, 20 insertions(+), 3 deletions(-)",
+	})
+
+	if report.Verdict != trustVerdictTrusted {
+		t.Fatalf("expected trusted verdict when specialized evidence exists, got %q", report.Verdict)
+	}
+}
+
 func validTrustContract() model.Contract {
 	return model.Contract{
 		Why:          "Deliver deterministic trust evidence so review can be metadata-first.",
