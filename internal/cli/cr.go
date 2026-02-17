@@ -549,7 +549,106 @@ func newCRTaskCmd() *cobra.Command {
 	taskCmd.AddCommand(newCRTaskAddCmd())
 	taskCmd.AddCommand(newCRTaskListCmd())
 	taskCmd.AddCommand(newCRTaskDoneCmd())
+	taskCmd.AddCommand(newCRTaskContractCmd())
 	return taskCmd
+}
+
+func newCRTaskContractCmd() *cobra.Command {
+	contractCmd := &cobra.Command{
+		Use:   "contract",
+		Short: "Manage task-level contract fields",
+	}
+	contractCmd.AddCommand(newCRTaskContractSetCmd())
+	contractCmd.AddCommand(newCRTaskContractShowCmd())
+	return contractCmd
+}
+
+func newCRTaskContractSetCmd() *cobra.Command {
+	var intent string
+	var acceptance []string
+	var scope []string
+
+	cmd := &cobra.Command{
+		Use:   "set <cr-id> <task-id>",
+		Short: "Set/update task contract fields",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			crID, err := parsePositiveIntArg(args[0], "cr-id")
+			if err != nil {
+				return err
+			}
+			taskID, err := parsePositiveIntArg(args[1], "task-id")
+			if err != nil {
+				return err
+			}
+
+			patch := service.TaskContractPatch{}
+			if cmd.Flags().Changed("intent") {
+				v := intent
+				patch.Intent = &v
+			}
+			if cmd.Flags().Changed("acceptance") {
+				v := append([]string(nil), acceptance...)
+				patch.AcceptanceCriteria = &v
+			}
+			if cmd.Flags().Changed("scope") {
+				v := append([]string(nil), scope...)
+				patch.Scope = &v
+			}
+			if patch.Intent == nil && patch.AcceptanceCriteria == nil && patch.Scope == nil {
+				return fmt.Errorf("provide at least one of --intent, --acceptance, or --scope")
+			}
+
+			svc, err := newService()
+			if err != nil {
+				return err
+			}
+			changed, err := svc.SetTaskContract(crID, taskID, patch)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "Updated CR %d task %d contract fields: %s\n", crID, taskID, strings.Join(changed, ", "))
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&intent, "intent", "", "Task intent statement")
+	cmd.Flags().StringArrayVar(&acceptance, "acceptance", nil, "Task acceptance criterion (repeatable)")
+	cmd.Flags().StringArrayVar(&scope, "scope", nil, "Task scope prefix (repeatable)")
+	return cmd
+}
+
+func newCRTaskContractShowCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "show <cr-id> <task-id>",
+		Short: "Show task contract fields",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			crID, err := parsePositiveIntArg(args[0], "cr-id")
+			if err != nil {
+				return err
+			}
+			taskID, err := parsePositiveIntArg(args[1], "task-id")
+			if err != nil {
+				return err
+			}
+			svc, err := newService()
+			if err != nil {
+				return err
+			}
+			contract, err := svc.GetTaskContract(crID, taskID)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintln(cmd.OutOrStdout(), "Task Contract:")
+			fmt.Fprintf(cmd.OutOrStdout(), "- intent: %s\n", nonEmpty(strings.TrimSpace(contract.Intent), "(missing)"))
+			printValueList(cmd, "acceptance_criteria", contract.AcceptanceCriteria)
+			printValueList(cmd, "scope", contract.Scope)
+			fmt.Fprintf(cmd.OutOrStdout(), "- updated_at: %s\n", nonEmpty(strings.TrimSpace(contract.UpdatedAt), "(never)"))
+			fmt.Fprintf(cmd.OutOrStdout(), "- updated_by: %s\n", nonEmpty(strings.TrimSpace(contract.UpdatedBy), "(never)"))
+			return nil
+		},
+	}
 }
 
 func newCRTaskAddCmd() *cobra.Command {
@@ -826,6 +925,7 @@ func printImpactSection(cmd *cobra.Command, impact *service.ImpactReport) {
 	fmt.Fprintf(cmd.OutOrStdout(), "Files Changed: %d\n", impact.FilesChanged)
 	printListSection(cmd, "Scope Drift", impact.ScopeDrift)
 	printListSection(cmd, "Task Scope Warnings", impact.TaskScopeWarnings)
+	printListSection(cmd, "Task Contract Warnings", impact.TaskContractWarnings)
 	fmt.Fprintln(cmd.OutOrStdout(), "\nRisk Signals:")
 	if len(impact.Signals) == 0 {
 		fmt.Fprintln(cmd.OutOrStdout(), "- (none)")
