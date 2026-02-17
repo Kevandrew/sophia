@@ -199,7 +199,9 @@ func readCRPlanFile(path string) (*crPlanSpec, error) {
 		return nil, fmt.Errorf("parse plan file %q: %w", cleanPath, err)
 	}
 	var extra any
-	if err := dec.Decode(&extra); err != nil && err != io.EOF {
+	if err := dec.Decode(&extra); err == nil {
+		return nil, fmt.Errorf("parse plan file %q: multiple YAML documents are not supported", cleanPath)
+	} else if err != io.EOF {
 		return nil, fmt.Errorf("parse plan file %q: %w", cleanPath, err)
 	}
 	return &plan, nil
