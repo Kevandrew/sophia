@@ -43,7 +43,7 @@ func (s *Service) AddCRWithOptionsWithWarnings(title, description string, opts A
 		}
 	}
 
-	if err := s.git.EnsureBaseBranch(cfg.BaseBranch); err != nil {
+	if err := s.git.EnsureBranchExists(cfg.BaseBranch); err != nil {
 		return nil, nil, fmt.Errorf("ensure base branch: %w", err)
 	}
 	if err := s.git.EnsureBootstrapCommit("chore: bootstrap base branch for Sophia"); err != nil {
@@ -343,15 +343,10 @@ func (s *Service) SetCRBase(id int, ref string, rebase bool) (*model.CR, error) 
 		return nil, fmt.Errorf("resolve base ref %q: %w", ref, err)
 	}
 	if rebase {
-		if dirty, summary, err := s.workingTreeDirtySummary(); err != nil {
-			return nil, err
-		} else if dirty {
-			return nil, fmt.Errorf("%w: %s", ErrWorkingTreeDirty, summary)
-		}
 		if !s.git.BranchExists(cr.Branch) {
 			return nil, fmt.Errorf("cr branch %q does not exist", cr.Branch)
 		}
-		if err := s.git.RebaseBranchOnto(cr.Branch, ref); err != nil {
+		if err := s.rebaseBranchOnto(cr.Branch, ref); err != nil {
 			return nil, err
 		}
 	}
@@ -391,11 +386,6 @@ func (s *Service) RestackCR(id int) (*model.CR, error) {
 	if cr.ParentCRID <= 0 {
 		return nil, ErrParentCRRequired
 	}
-	if dirty, summary, err := s.workingTreeDirtySummary(); err != nil {
-		return nil, err
-	} else if dirty {
-		return nil, fmt.Errorf("%w: %s", ErrWorkingTreeDirty, summary)
-	}
 	if !s.git.BranchExists(cr.Branch) {
 		return nil, fmt.Errorf("cr branch %q does not exist", cr.Branch)
 	}
@@ -414,7 +404,7 @@ func (s *Service) RestackCR(id int) (*model.CR, error) {
 		return nil, fmt.Errorf("parent CR %d has no restack anchor", parent.ID)
 	}
 
-	if err := s.git.RebaseBranchOnto(cr.Branch, targetRef); err != nil {
+	if err := s.rebaseBranchOnto(cr.Branch, targetRef); err != nil {
 		return nil, err
 	}
 	targetCommit, err := s.git.ResolveRef(targetRef)

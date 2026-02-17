@@ -139,7 +139,14 @@ func cloneStringMap(src map[string]string) map[string]string {
 }
 
 func (s *Service) workingTreeDirtySummary() (bool, string, error) {
-	entries, err := s.git.WorkingTreeStatus()
+	return s.workingTreeDirtySummaryFor(s.git)
+}
+
+func (s *Service) workingTreeDirtySummaryFor(gitClient *gitx.Client) (bool, string, error) {
+	if gitClient == nil {
+		return false, "", nil
+	}
+	entries, err := gitClient.WorkingTreeStatus()
 	if err != nil {
 		return false, "", err
 	}
