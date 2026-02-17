@@ -64,12 +64,6 @@ func New(workDir string) *Client {
 	return &Client{WorkDir: workDir}
 }
 
-func (c *Client) InRepo() bool {
-	out, err := c.run("rev-parse", "--is-inside-work-tree")
-	return err == nil && strings.TrimSpace(out) == "true"
-}
-
-func (c *Client) InitRepo() error {
 func (c *Client) RepoRoot() (string, error) {
 	out, err := c.run("rev-parse", "--show-toplevel")
 	if err != nil {
@@ -97,6 +91,12 @@ func (c *Client) GitCommonDirAbs() (string, error) {
 	return filepath.Join(c.WorkDir, gitCommonDir), nil
 }
 
+func (c *Client) InRepo() bool {
+	out, err := c.run("rev-parse", "--is-inside-work-tree")
+	return err == nil && strings.TrimSpace(out) == "true"
+}
+
+func (c *Client) InitRepo() error {
 	_, err := c.run("init")
 	return err
 }
@@ -647,30 +647,6 @@ func (c *Client) LocalBranches(prefix string) ([]string, error) {
 	return branches, nil
 }
 
-func (c *Client) ChangedFileCount(hash string) (int, error) {
-	out, err := c.run("show", "--pretty=format:", "--name-only", hash)
-	if err != nil {
-		return 0, err
-	}
-	if strings.TrimSpace(out) == "" {
-		return 0, nil
-	}
-	seen := map[string]struct{}{}
-	for _, line := range strings.Split(out, "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		seen[line] = struct{}{}
-	}
-	return len(seen), nil
-}
-
-func (c *Client) GitDir() (string, error) {
-	out, err := c.run("rev-parse", "--git-dir")
-	if err != nil {
-		return "", err
-	}
 func (c *Client) ListWorktrees() ([]Worktree, error) {
 	out, err := c.run("worktree", "list", "--porcelain")
 	if err != nil {
@@ -733,6 +709,30 @@ func parseWorktreeListPorcelain(workDir, raw string) []Worktree {
 	return res
 }
 
+func (c *Client) ChangedFileCount(hash string) (int, error) {
+	out, err := c.run("show", "--pretty=format:", "--name-only", hash)
+	if err != nil {
+		return 0, err
+	}
+	if strings.TrimSpace(out) == "" {
+		return 0, nil
+	}
+	seen := map[string]struct{}{}
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		seen[line] = struct{}{}
+	}
+	return len(seen), nil
+}
+
+func (c *Client) GitDir() (string, error) {
+	out, err := c.run("rev-parse", "--git-dir")
+	if err != nil {
+		return "", err
+	}
 	gitDir := strings.TrimSpace(out)
 	if filepath.IsAbs(gitDir) {
 		return gitDir, nil
