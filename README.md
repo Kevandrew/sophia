@@ -162,15 +162,16 @@ Agents should also be instructed to append notes.
 ### Complete Task (Checkpoint by Default)
 
 ```
-sophia cr task done <cr-id> <task-id>
+sophia cr task done <cr-id> <task-id> --path internal/service/service.go --path internal/cli/cr.go
 ```
 
 Behavior:
 
-* Creates a checkpoint commit for current CR branch changes (`git add -A` + commit)
-* Stages all current repo changes before committing (not hunk/line scoped yet)
+* Requires explicit checkpoint scope: `--path <file>` (repeatable) or `--all`
+* Stages only selected paths by default (or all changes when `--all` is explicitly set)
+* Fails fast if staged changes already exist before checkpointing
 * Marks task done only if checkpoint commit succeeds
-* Records checkpoint metadata on the task (`commit`, `timestamp`, message)
+* Records checkpoint metadata on the task (`commit`, `timestamp`, message, `checkpoint_scope`)
 * Requires active branch to match the CR branch
 
 Optional metadata-only completion:
@@ -178,6 +179,14 @@ Optional metadata-only completion:
 ```
 sophia cr task done <cr-id> <task-id> --no-checkpoint
 ```
+
+Explicit legacy stage-all behavior:
+
+```
+sophia cr task done <cr-id> <task-id> --all
+```
+
+Chunk/hunk scoping is planned for CR-8.
 
 ---
 

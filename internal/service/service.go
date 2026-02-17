@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -23,6 +24,9 @@ var (
 	ErrNoCRChanges       = errors.New("no CR changes provided")
 	ErrAlreadyRedacted   = errors.New("target is already redacted")
 	ErrNoTaskChanges     = errors.New("no task checkpoint changes found")
+	ErrTaskScopeRequired = errors.New("checkpoint scope is required (use --path or --all)")
+	ErrInvalidTaskScope  = errors.New("invalid task checkpoint scope")
+	ErrPreStagedChanges  = errors.New("staged changes already exist before checkpoint")
 )
 
 var (
@@ -117,6 +121,12 @@ type CRHistory struct {
 	Description string
 	Notes       []HistoryNote
 	Events      []HistoryEvent
+}
+
+type DoneTaskOptions struct {
+	Checkpoint bool
+	StageAll   bool
+	Paths      []string
 }
 
 func New(root string) *Service {
@@ -531,17 +541,20 @@ func (s *Service) ListTasks(crID int) ([]model.Subtask, error) {
 }
 
 func (s *Service) DoneTask(crID, taskID int) error {
-	_, err := s.DoneTaskWithCheckpoint(crID, taskID, false)
+	_, err := s.DoneTaskWithCheckpoint(crID, taskID, DoneTaskOptions{Checkpoint: false})
 	return err
 }
 
-func (s *Service) DoneTaskWithCheckpoint(crID, taskID int, checkpoint bool) (string, error) {
+func (s *Service) DoneTaskWithCheckpoint(crID, taskID int, opts DoneTaskOptions) (string, error) {
 	cr, err := s.store.LoadCR(crID)
 	if err != nil {
 		return "", err
 	}
 	if cr.Status != model.StatusInProgress {
 		return "", fmt.Errorf("cr %d is not in progress", crID)
+	}
+	if err := validateDoneTaskOptions(opts); err != nil {
+		return "", err
 	}
 
 	now := s.timestamp()
@@ -562,7 +575,7 @@ func (s *Service) DoneTaskWithCheckpoint(crID, taskID int, checkpoint bool) (str
 	}
 
 	commitSHA := ""
-	if checkpoint {
+	if opts.Checkpoint {
 		currentBranch, branchErr := s.git.CurrentBranch()
 		if branchErr != nil {
 			return "", branchErr
@@ -570,16 +583,62 @@ func (s *Service) DoneTaskWithCheckpoint(crID, taskID int, checkpoint bool) (str
 		if currentBranch != cr.Branch {
 			return "", fmt.Errorf("checkpoint requires active CR branch %q, current branch is %q", cr.Branch, currentBranch)
 		}
-		dirty, _, dirtyErr := s.workingTreeDirtySummary()
-		if dirtyErr != nil {
-			return "", dirtyErr
+
+		preStaged, stagedErr := s.git.HasStagedChanges()
+		if stagedErr != nil {
+			return "", stagedErr
 		}
-		if !dirty {
-			return "", fmt.Errorf("%w: task %d has no working tree changes", ErrNoTaskChanges, taskID)
+		if preStaged {
+			return "", fmt.Errorf("%w: unstage changes before running task checkpoint", ErrPreStagedChanges)
 		}
-		if err := s.git.StageAll(); err != nil {
-			return "", err
+
+		checkpointScope := []string{}
+		if opts.StageAll {
+			dirty, _, dirtyErr := s.workingTreeDirtySummary()
+			if dirtyErr != nil {
+				return "", dirtyErr
+			}
+			if !dirty {
+				return "", fmt.Errorf("%w: task %d has no working tree changes", ErrNoTaskChanges, taskID)
+			}
+			if err := s.git.StageAll(); err != nil {
+				return "", err
+			}
+			checkpointScope = []string{"*"}
+		} else {
+			normalizedPaths, normalizeErr := s.normalizeTaskScopePaths(opts.Paths)
+			if normalizeErr != nil {
+				return "", normalizeErr
+			}
+
+			changedPathFound := false
+			for _, scopePath := range normalizedPaths {
+				hasChanges, hasErr := s.git.PathHasChanges(scopePath)
+				if hasErr != nil {
+					return "", hasErr
+				}
+				if hasChanges {
+					changedPathFound = true
+					break
+				}
+			}
+			if !changedPathFound {
+				return "", fmt.Errorf("%w: none of the scoped paths have changes", ErrNoTaskChanges)
+			}
+			if err := s.git.StagePaths(normalizedPaths); err != nil {
+				return "", err
+			}
+			checkpointScope = normalizedPaths
 		}
+
+		hasStaged, stagedErr := s.git.HasStagedChanges()
+		if stagedErr != nil {
+			return "", stagedErr
+		}
+		if !hasStaged {
+			return "", fmt.Errorf("%w: no staged changes after applying scope", ErrNoTaskChanges)
+		}
+
 		commitMessage := buildTaskCheckpointMessage(cr, &cr.Subtasks[taskIndex])
 		if err := s.git.Commit(commitMessage); err != nil {
 			return "", err
@@ -592,6 +651,7 @@ func (s *Service) DoneTaskWithCheckpoint(crID, taskID int, checkpoint bool) (str
 		cr.Subtasks[taskIndex].CheckpointCommit = sha
 		cr.Subtasks[taskIndex].CheckpointAt = now
 		cr.Subtasks[taskIndex].CheckpointMessage = commitMessage
+		cr.Subtasks[taskIndex].CheckpointScope = append([]string(nil), checkpointScope...)
 		cr.Events = append(cr.Events, model.Event{
 			TS:      now,
 			Actor:   actor,
@@ -601,6 +661,7 @@ func (s *Service) DoneTaskWithCheckpoint(crID, taskID int, checkpoint bool) (str
 			Meta: map[string]string{
 				"commit":  sha,
 				"message": strings.SplitN(commitMessage, "\n", 2)[0],
+				"scope":   strings.Join(checkpointScope, ","),
 			},
 		})
 	}
@@ -1559,6 +1620,60 @@ func dedupeStrings(values []string) []string {
 		res = append(res, value)
 	}
 	return res
+}
+
+func validateDoneTaskOptions(opts DoneTaskOptions) error {
+	if !opts.Checkpoint {
+		if opts.StageAll || len(opts.Paths) > 0 {
+			return fmt.Errorf("%w: --no-checkpoint cannot be combined with --path or --all", ErrInvalidTaskScope)
+		}
+		return nil
+	}
+	if opts.StageAll && len(opts.Paths) > 0 {
+		return fmt.Errorf("%w: --all cannot be combined with --path", ErrInvalidTaskScope)
+	}
+	if !opts.StageAll && len(opts.Paths) == 0 {
+		return ErrTaskScopeRequired
+	}
+	return nil
+}
+
+func (s *Service) normalizeTaskScopePaths(paths []string) ([]string, error) {
+	normalized := make([]string, 0, len(paths))
+	seen := map[string]struct{}{}
+	for _, raw := range paths {
+		trimmed := strings.TrimSpace(raw)
+		if trimmed == "" {
+			return nil, fmt.Errorf("%w: empty path", ErrInvalidTaskScope)
+		}
+
+		slashPath := strings.ReplaceAll(trimmed, "\\", "/")
+		if filepath.IsAbs(trimmed) || strings.HasPrefix(slashPath, "/") {
+			return nil, fmt.Errorf("%w: path %q must be repo-relative", ErrInvalidTaskScope, raw)
+		}
+		if strings.ContainsAny(slashPath, "*?[]{}") {
+			return nil, fmt.Errorf("%w: path %q must be exact (no glob patterns)", ErrInvalidTaskScope, raw)
+		}
+
+		cleaned := path.Clean(slashPath)
+		if cleaned == "." || cleaned == ".." || strings.HasPrefix(cleaned, "../") {
+			return nil, fmt.Errorf("%w: path %q escapes repository root", ErrInvalidTaskScope, raw)
+		}
+		if cleaned != slashPath {
+			return nil, fmt.Errorf("%w: path %q must be normalized", ErrInvalidTaskScope, raw)
+		}
+
+		absPath := filepath.Join(s.git.WorkDir, filepath.FromSlash(cleaned))
+		if info, statErr := os.Stat(absPath); statErr == nil && info.IsDir() {
+			return nil, fmt.Errorf("%w: path %q is a directory; select files only", ErrInvalidTaskScope, raw)
+		}
+		if _, exists := seen[cleaned]; exists {
+			return nil, fmt.Errorf("%w: duplicate path %q", ErrInvalidTaskScope, raw)
+		}
+		seen[cleaned] = struct{}{}
+		normalized = append(normalized, cleaned)
+	}
+	return normalized, nil
 }
 
 func oneBasedIndex(input, length int, label string) (int, error) {
