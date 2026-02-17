@@ -428,6 +428,8 @@ func newCRTaskListCmd() *cobra.Command {
 
 func newCRTaskDoneCmd() *cobra.Command {
 	var noCheckpoint bool
+	var stageAll bool
+	var scopePaths []string
 
 	cmd := &cobra.Command{
 		Use:   "done <cr-id> <task-id>",
@@ -446,7 +448,23 @@ func newCRTaskDoneCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			sha, err := svc.DoneTaskWithCheckpoint(crID, taskID, !noCheckpoint)
+			if noCheckpoint && (stageAll || len(scopePaths) > 0) {
+				return fmt.Errorf("--no-checkpoint cannot be combined with --path or --all")
+			}
+			if !noCheckpoint {
+				if stageAll && len(scopePaths) > 0 {
+					return fmt.Errorf("--all cannot be combined with --path")
+				}
+				if !stageAll && len(scopePaths) == 0 {
+					return fmt.Errorf("checkpoint scope required: use --path <file> (repeatable) or --all")
+				}
+			}
+			opts := service.DoneTaskOptions{
+				Checkpoint: !noCheckpoint,
+				StageAll:   stageAll,
+				Paths:      append([]string(nil), scopePaths...),
+			}
+			sha, err := svc.DoneTaskWithCheckpoint(crID, taskID, opts)
 			if err != nil {
 				return err
 			}
@@ -460,6 +478,8 @@ func newCRTaskDoneCmd() *cobra.Command {
 	}
 
 	cmd.Flags().BoolVar(&noCheckpoint, "no-checkpoint", false, "Mark task done without creating a checkpoint commit")
+	cmd.Flags().BoolVar(&stageAll, "all", false, "Checkpoint by staging all changes explicitly")
+	cmd.Flags().StringArrayVar(&scopePaths, "path", nil, "Checkpoint scope path (repo-relative file, repeatable)")
 	return cmd
 }
 
