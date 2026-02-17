@@ -133,6 +133,12 @@ func TestAddCRCreatesBranchAndCRFile(t *testing.T) {
 	if strings.TrimSpace(cr.UID) == "" {
 		t.Fatalf("expected CR uid to be assigned, got %#v", cr)
 	}
+	if cr.BaseRef != "main" {
+		t.Fatalf("expected base ref main, got %q", cr.BaseRef)
+	}
+	if strings.TrimSpace(cr.BaseCommit) == "" {
+		t.Fatalf("expected base commit to be assigned, got %#v", cr)
+	}
 
 	branch, err := svc.git.CurrentBranch()
 	if err != nil {
@@ -151,6 +157,9 @@ func TestAddCRCreatesBranchAndCRFile(t *testing.T) {
 	}
 	if loaded.UID != cr.UID {
 		t.Fatalf("expected persisted uid %q, got %q", cr.UID, loaded.UID)
+	}
+	if loaded.BaseRef != cr.BaseRef || loaded.BaseCommit != cr.BaseCommit {
+		t.Fatalf("expected persisted base fields, got %#v", loaded)
 	}
 }
 
@@ -175,6 +184,201 @@ func TestAddCRAssignsDistinctUIDs(t *testing.T) {
 	}
 	if first.UID == second.UID {
 		t.Fatalf("expected distinct uids, got %q", first.UID)
+	}
+}
+
+func TestAddCRWithExplicitBaseRef(t *testing.T) {
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	runGit(t, dir, "config", "user.name", "Test User")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+	runGit(t, dir, "checkout", "-b", "release")
+	if err := os.WriteFile(filepath.Join(dir, "release_base.txt"), []byte("release\n"), 0o644); err != nil {
+		t.Fatalf("write release base file: %v", err)
+	}
+	runGit(t, dir, "add", "release_base.txt")
+	runGit(t, dir, "commit", "-m", "feat: release base")
+	runGit(t, dir, "checkout", "-B", "main")
+
+	cr, _, err := svc.AddCRWithOptionsWithWarnings("Release-based", "base ref", AddCROptions{BaseRef: "release"})
+	if err != nil {
+		t.Fatalf("AddCRWithOptionsWithWarnings() error = %v", err)
+	}
+	if cr.BaseRef != "release" {
+		t.Fatalf("expected base ref release, got %q", cr.BaseRef)
+	}
+	releaseHead, err := svc.git.ResolveRef("release")
+	if err != nil {
+		t.Fatalf("ResolveRef(release) error = %v", err)
+	}
+	if cr.BaseCommit != releaseHead {
+		t.Fatalf("expected base commit %q, got %q", releaseHead, cr.BaseCommit)
+	}
+	if _, statErr := os.Stat(filepath.Join(dir, "release_base.txt")); statErr != nil {
+		t.Fatalf("expected CR branch from release base to contain file: %v", statErr)
+	}
+}
+
+func TestAddChildCRUsesParentAnchor(t *testing.T) {
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	runGit(t, dir, "config", "user.name", "Test User")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+
+	parent, err := svc.AddCR("Parent", "base for child")
+	if err != nil {
+		t.Fatalf("AddCR(parent) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "parent.txt"), []byte("parent\n"), 0o644); err != nil {
+		t.Fatalf("write parent file: %v", err)
+	}
+	runGit(t, dir, "add", "parent.txt")
+	runGit(t, dir, "commit", "-m", "feat: parent work")
+	parentHead, err := svc.git.ResolveRef(parent.Branch)
+	if err != nil {
+		t.Fatalf("ResolveRef(parent branch) error = %v", err)
+	}
+
+	child, _, err := svc.AddCRWithOptionsWithWarnings("Child", "stacked", AddCROptions{ParentCRID: parent.ID})
+	if err != nil {
+		t.Fatalf("AddCRWithOptionsWithWarnings(child) error = %v", err)
+	}
+	if child.ParentCRID != parent.ID {
+		t.Fatalf("expected parent id %d, got %d", parent.ID, child.ParentCRID)
+	}
+	if child.BaseRef != parent.Branch {
+		t.Fatalf("expected child base_ref %q, got %q", parent.Branch, child.BaseRef)
+	}
+	if child.BaseCommit != parentHead {
+		t.Fatalf("expected child base_commit %q, got %q", parentHead, child.BaseCommit)
+	}
+}
+
+func TestMergeChildBlockedUntilParentMergedAndParentMergeBackfillsChildBase(t *testing.T) {
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	runGit(t, dir, "config", "user.name", "Test User")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+
+	parent, err := svc.AddCR("Parent merge", "must merge first")
+	if err != nil {
+		t.Fatalf("AddCR(parent) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "parent_merge.txt"), []byte("parent\n"), 0o644); err != nil {
+		t.Fatalf("write parent file: %v", err)
+	}
+	runGit(t, dir, "add", "parent_merge.txt")
+	runGit(t, dir, "commit", "-m", "feat: parent merge")
+	setValidContract(t, svc, parent.ID)
+
+	child, _, err := svc.AddCRWithOptionsWithWarnings("Child merge", "depends on parent", AddCROptions{ParentCRID: parent.ID})
+	if err != nil {
+		t.Fatalf("AddCRWithOptionsWithWarnings(child) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "child_merge.txt"), []byte("child\n"), 0o644); err != nil {
+		t.Fatalf("write child file: %v", err)
+	}
+	runGit(t, dir, "add", "child_merge.txt")
+	runGit(t, dir, "commit", "-m", "feat: child merge")
+	setValidContract(t, svc, child.ID)
+
+	if _, err := svc.MergeCR(child.ID, false, ""); !errors.Is(err, ErrParentCRNotMerged) {
+		t.Fatalf("expected ErrParentCRNotMerged, got %v", err)
+	}
+
+	if _, err := svc.SwitchCR(parent.ID); err != nil {
+		t.Fatalf("SwitchCR(parent) error = %v", err)
+	}
+	if _, err := svc.MergeCR(parent.ID, false, ""); err != nil {
+		t.Fatalf("MergeCR(parent) error = %v", err)
+	}
+
+	updatedChild, err := svc.store.LoadCR(child.ID)
+	if err != nil {
+		t.Fatalf("LoadCR(child) error = %v", err)
+	}
+	if updatedChild.BaseRef != updatedChild.BaseBranch {
+		t.Fatalf("expected child base_ref to reset to base branch, got %q", updatedChild.BaseRef)
+	}
+	if strings.TrimSpace(updatedChild.BaseCommit) == "" {
+		t.Fatalf("expected child base_commit backfilled from parent merge")
+	}
+}
+
+func TestSetCRBaseAndRestack(t *testing.T) {
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	runGit(t, dir, "config", "user.name", "Test User")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+
+	runGit(t, dir, "checkout", "-b", "release")
+	if err := os.WriteFile(filepath.Join(dir, "release_stack.txt"), []byte("release\n"), 0o644); err != nil {
+		t.Fatalf("write release stack file: %v", err)
+	}
+	runGit(t, dir, "add", "release_stack.txt")
+	runGit(t, dir, "commit", "-m", "feat: release stack")
+	runGit(t, dir, "checkout", "-B", "main")
+
+	cr, err := svc.AddCR("Base set", "retarget base")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	updated, err := svc.SetCRBase(cr.ID, "release", false)
+	if err != nil {
+		t.Fatalf("SetCRBase() error = %v", err)
+	}
+	if updated.BaseRef != "release" || strings.TrimSpace(updated.BaseCommit) == "" {
+		t.Fatalf("unexpected SetCRBase result %#v", updated)
+	}
+
+	parent, err := svc.AddCR("Restack parent", "parent")
+	if err != nil {
+		t.Fatalf("AddCR(parent) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "restack_parent.txt"), []byte("p1\n"), 0o644); err != nil {
+		t.Fatalf("write restack parent file: %v", err)
+	}
+	runGit(t, dir, "add", "restack_parent.txt")
+	runGit(t, dir, "commit", "-m", "feat: restack parent 1")
+
+	child, _, err := svc.AddCRWithOptionsWithWarnings("Restack child", "child", AddCROptions{ParentCRID: parent.ID})
+	if err != nil {
+		t.Fatalf("AddCRWithOptionsWithWarnings(child) error = %v", err)
+	}
+	if _, err := svc.SwitchCR(parent.ID); err != nil {
+		t.Fatalf("SwitchCR(parent) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "restack_parent_2.txt"), []byte("p2\n"), 0o644); err != nil {
+		t.Fatalf("write restack parent second file: %v", err)
+	}
+	runGit(t, dir, "add", "restack_parent_2.txt")
+	runGit(t, dir, "commit", "-m", "feat: restack parent 2")
+
+	if _, err := svc.RestackCR(child.ID); err != nil {
+		t.Fatalf("RestackCR() error = %v", err)
+	}
+	reloadedChild, err := svc.store.LoadCR(child.ID)
+	if err != nil {
+		t.Fatalf("LoadCR(child) error = %v", err)
+	}
+	parentHead, err := svc.git.ResolveRef(parent.Branch)
+	if err != nil {
+		t.Fatalf("ResolveRef(parent branch) error = %v", err)
+	}
+	if reloadedChild.BaseRef != parent.Branch || reloadedChild.BaseCommit != parentHead {
+		t.Fatalf("expected child restacked onto parent head, got %#v", reloadedChild)
 	}
 }
 
@@ -284,7 +488,7 @@ func TestDoneTaskWithCheckpointCreatesCommit(t *testing.T) {
 	if !strings.Contains(msg, "feat(cr-1/task-1): feat: implement checkpoint workflow") {
 		t.Fatalf("unexpected checkpoint subject: %q", msg)
 	}
-	for _, footer := range []string{"Sophia-CR: 1", "Sophia-CR-UID: " + cr.UID, "Sophia-Task: 1", "Sophia-Intent: Checkpoint CR"} {
+	for _, footer := range []string{"Sophia-CR: 1", "Sophia-CR-UID: " + cr.UID, "Sophia-Base-Ref: " + cr.BaseRef, "Sophia-Base-Commit: " + cr.BaseCommit, "Sophia-Task: 1", "Sophia-Intent: Checkpoint CR"} {
 		if !strings.Contains(msg, footer) {
 			t.Fatalf("expected checkpoint footer %q in message: %q", footer, msg)
 		}
@@ -796,7 +1000,7 @@ func TestMergeCreatesIntentCommitAndMarksMerged(t *testing.T) {
 			t.Fatalf("expected section %q in commit message: %q", section, msg)
 		}
 	}
-	for _, footer := range []string{"Sophia-CR: 1", "Sophia-CR-UID: " + cr.UID, "Sophia-Intent: Bootstrap", "Sophia-Tasks: 0 completed"} {
+	for _, footer := range []string{"Sophia-CR: 1", "Sophia-CR-UID: " + cr.UID, "Sophia-Base-Ref: " + cr.BaseRef, "Sophia-Base-Commit: " + cr.BaseCommit, "Sophia-Intent: Bootstrap", "Sophia-Tasks: 0 completed"} {
 		if !strings.Contains(msg, footer) {
 			t.Fatalf("expected footer %q in commit message: %q", footer, msg)
 		}
