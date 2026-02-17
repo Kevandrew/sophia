@@ -74,6 +74,7 @@ func TestCurrentSwitchAndReopenCRWorkflow(t *testing.T) {
 	}
 	runGit(t, dir, "add", "feature.txt")
 	runGit(t, dir, "commit", "-m", "feat: cr1 content")
+	setValidContract(t, svc, cr1.ID)
 
 	runGit(t, dir, "checkout", "-b", "scratch")
 	_, err = svc.CurrentCR()
@@ -94,7 +95,7 @@ func TestCurrentSwitchAndReopenCRWorkflow(t *testing.T) {
 		t.Fatalf("SwitchCR() clean error = %v", err)
 	}
 
-	if _, err := svc.MergeCR(cr1.ID, false); err != nil {
+	if _, err := svc.MergeCR(cr1.ID, false, ""); err != nil {
 		t.Fatalf("MergeCR() error = %v", err)
 	}
 
@@ -132,7 +133,8 @@ func TestLogShowsMergedThenActive(t *testing.T) {
 	}
 	runGit(t, dir, "add", "one.txt")
 	runGit(t, dir, "commit", "-m", "feat: one")
-	if _, err := svc.MergeCR(cr1.ID, false); err != nil {
+	setValidContract(t, svc, cr1.ID)
+	if _, err := svc.MergeCR(cr1.ID, false, ""); err != nil {
 		t.Fatalf("MergeCR() error = %v", err)
 	}
 
@@ -342,7 +344,8 @@ func TestDoctorFlagsStaleMergedBranches(t *testing.T) {
 	}
 	runGit(t, dir, "add", "stale.txt")
 	runGit(t, dir, "commit", "-m", "feat: stale branch")
-	if _, err := svc.MergeCR(cr.ID, true); err != nil {
+	setValidContract(t, svc, cr.ID)
+	if _, err := svc.MergeCR(cr.ID, true, ""); err != nil {
 		t.Fatalf("MergeCR(keep=true) error = %v", err)
 	}
 
@@ -396,7 +399,8 @@ func TestLogFallsBackToGitWhenLocalMetadataMissing(t *testing.T) {
 	}
 	runGit(t, dir, "add", "fallback.txt")
 	runGit(t, dir, "commit", "-m", "feat: fallback")
-	if _, err := svc.MergeCR(cr.ID, false); err != nil {
+	setValidContract(t, svc, cr.ID)
+	if _, err := svc.MergeCR(cr.ID, false, ""); err != nil {
 		t.Fatalf("MergeCR() error = %v", err)
 	}
 

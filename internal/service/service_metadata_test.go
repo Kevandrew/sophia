@@ -26,7 +26,8 @@ func TestEditCRMergedAndNoOpValidation(t *testing.T) {
 	}
 	runGit(t, dir, "add", "f.txt")
 	runGit(t, dir, "commit", "-m", "feat: content")
-	if _, err := svc.MergeCR(cr.ID, false); err != nil {
+	setValidContract(t, svc, cr.ID)
+	if _, err := svc.MergeCR(cr.ID, false, ""); err != nil {
 		t.Fatalf("MergeCR() error = %v", err)
 	}
 

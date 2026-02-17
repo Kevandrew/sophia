@@ -1,6 +1,8 @@
 package store
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"sophia/internal/model"
@@ -127,5 +129,37 @@ func TestListCRsSortedByID(t *testing.T) {
 	}
 	if crs[0].ID != 1 || crs[1].ID != 2 || crs[2].ID != 3 {
 		t.Fatalf("expected sorted IDs [1,2,3], got [%d,%d,%d]", crs[0].ID, crs[1].ID, crs[2].ID)
+	}
+}
+
+func TestLoadOldCRYAMLWithoutContractField(t *testing.T) {
+	dir := t.TempDir()
+	s := New(dir)
+	if err := s.Init("main", model.MetadataModeLocal); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	raw := `id: 1
+title: Legacy
+description: old schema
+status: in_progress
+base_branch: main
+branch: sophia/cr-1
+notes: []
+subtasks: []
+events: []
+created_at: 2026-01-01T00:00:00Z
+updated_at: 2026-01-01T00:00:00Z
+`
+	if err := os.WriteFile(filepath.Join(dir, ".sophia", "cr", "1.yaml"), []byte(raw), 0o644); err != nil {
+		t.Fatalf("write legacy cr yaml: %v", err)
+	}
+
+	cr, err := s.LoadCR(1)
+	if err != nil {
+		t.Fatalf("LoadCR() error = %v", err)
+	}
+	if cr.Contract.Why != "" || len(cr.Contract.Scope) != 0 {
+		t.Fatalf("expected empty contract defaults, got %#v", cr.Contract)
 	}
 }
