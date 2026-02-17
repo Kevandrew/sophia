@@ -170,10 +170,17 @@ func (c *Client) DiffShortStat(baseBranch, branch string) (string, error) {
 }
 
 func (c *Client) WorkingTreeStatus() ([]StatusEntry, error) {
-	out, err := c.run("status", "--porcelain=v1", "--untracked-files=all")
+	cmd := exec.Command("git", "status", "--porcelain=v1", "--untracked-files=all")
+	cmd.Dir = c.WorkDir
+	raw, err := cmd.CombinedOutput()
 	if err != nil {
-		return nil, err
+		trimmed := strings.TrimSpace(string(raw))
+		if trimmed == "" {
+			return nil, fmt.Errorf("git status --porcelain=v1 --untracked-files=all: %w", err)
+		}
+		return nil, fmt.Errorf("git status --porcelain=v1 --untracked-files=all: %w: %s", err, trimmed)
 	}
+	out := string(raw)
 	if strings.TrimSpace(out) == "" {
 		return []StatusEntry{}, nil
 	}
