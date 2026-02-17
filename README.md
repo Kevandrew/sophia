@@ -71,6 +71,7 @@ Each CR:
 * Maps to a branch `sophia/cr-<id>`
 
 By default, `.sophia/` is local metadata and ignored in Git.
+When running inside a Git worktree, Sophia also auto-discovers shared local metadata at `<git-common-dir>/sophia-local` when `.sophia/` is absent.
 
 ---
 
@@ -115,6 +116,8 @@ sophia init [--base-branch <name>] [--metadata-mode local|tracked]
 * Ensures git repo exists
 * Sets default base branch
 * Defaults to local metadata mode (`.sophia/` ignored)
+* Resolves repository root from any nested subdirectory before loading metadata
+* Falls back to shared local metadata (`<git-common-dir>/sophia-local`) when legacy `.sophia/` is not initialized
 * Seeds `.sophia/cr-plan.sample.yaml` when missing
 
 ---

@@ -58,6 +58,33 @@ func New(workDir string) *Client {
 	return &Client{WorkDir: workDir}
 }
 
+func (c *Client) RepoRoot() (string, error) {
+	out, err := c.run("rev-parse", "--show-toplevel")
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(out), nil
+}
+
+func (c *Client) GitCommonDir() (string, error) {
+	out, err := c.run("rev-parse", "--git-common-dir")
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(out), nil
+}
+
+func (c *Client) GitCommonDirAbs() (string, error) {
+	gitCommonDir, err := c.GitCommonDir()
+	if err != nil {
+		return "", err
+	}
+	if filepath.IsAbs(gitCommonDir) {
+		return gitCommonDir, nil
+	}
+	return filepath.Join(c.WorkDir, gitCommonDir), nil
+}
+
 func (c *Client) InRepo() bool {
 	out, err := c.run("rev-parse", "--is-inside-work-tree")
 	return err == nil && strings.TrimSpace(out) == "true"

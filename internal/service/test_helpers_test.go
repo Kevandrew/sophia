@@ -1,6 +1,9 @@
 package service
 
-import "testing"
+import (
+	"path/filepath"
+	"testing"
+)
 
 func setValidContract(t *testing.T, svc *Service, crID int) {
 	t.Helper()
@@ -40,4 +43,13 @@ func setValidTaskContract(t *testing.T, svc *Service, crID, taskID int) {
 	if err != nil {
 		t.Fatalf("SetTaskContract() error = %v", err)
 	}
+}
+
+func localMetadataDir(t *testing.T, dir string) string {
+	t.Helper()
+	commonDir := runGit(t, dir, "rev-parse", "--git-common-dir")
+	if !filepath.IsAbs(commonDir) {
+		commonDir = filepath.Join(dir, commonDir)
+	}
+	return filepath.Join(commonDir, "sophia-local")
 }
