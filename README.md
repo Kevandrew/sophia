@@ -242,6 +242,7 @@ Behavior:
 * `validate` enforces required contract fields and scope-drift policy
 * `validate` emits blocking `Errors` and non-blocking `Warnings`
 * `validate` records a `cr_validated` audit event
+* For merged CRs whose branch was deleted, `validate` derives diff context from the merge commit (with task-checkpoint scope fallback)
 * Both commands support machine-readable output via `--json`
 
 ---
@@ -274,6 +275,7 @@ Displays:
 * Files changed (`git diff --name-only`)
 * Insertions/deletions
 * Test file changes (basic detection)
+* For merged CRs whose branch was deleted, review diff context is derived from merge metadata instead of live branch diff
 * Supports machine-readable output via `--json`
 
 This is formatting around Git — not replacing it.

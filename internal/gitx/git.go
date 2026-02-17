@@ -117,7 +117,16 @@ func (c *Client) DiffNames(baseBranch, branch string) ([]string, error) {
 }
 
 func (c *Client) DiffNameStatus(baseBranch, branch string) ([]FileChange, error) {
-	out, err := c.run("diff", "--name-status", baseBranch+"..."+branch)
+	return c.diffNameStatusWithArgs(baseBranch + "..." + branch)
+}
+
+func (c *Client) DiffNameStatusBetween(fromRef, toRef string) ([]FileChange, error) {
+	return c.diffNameStatusWithArgs(fromRef, toRef)
+}
+
+func (c *Client) diffNameStatusWithArgs(revs ...string) ([]FileChange, error) {
+	args := append([]string{"diff", "--name-status"}, revs...)
+	out, err := c.run(args...)
 	if err != nil {
 		return nil, err
 	}
@@ -158,7 +167,16 @@ func (c *Client) DiffNameStatus(baseBranch, branch string) ([]FileChange, error)
 }
 
 func (c *Client) DiffShortStat(baseBranch, branch string) (string, error) {
-	out, err := c.run("diff", "--shortstat", baseBranch+"..."+branch)
+	return c.diffShortStatWithArgs(baseBranch + "..." + branch)
+}
+
+func (c *Client) DiffShortStatBetween(fromRef, toRef string) (string, error) {
+	return c.diffShortStatWithArgs(fromRef, toRef)
+}
+
+func (c *Client) diffShortStatWithArgs(revs ...string) (string, error) {
+	args := append([]string{"diff", "--shortstat"}, revs...)
+	out, err := c.run(args...)
 	if err != nil {
 		return "", err
 	}
