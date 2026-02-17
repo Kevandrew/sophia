@@ -77,15 +77,18 @@ type TaskContract struct {
 }
 
 type Contract struct {
-	Why          string   `yaml:"why,omitempty"`
-	Scope        []string `yaml:"scope,omitempty"`
-	NonGoals     []string `yaml:"non_goals,omitempty"`
-	Invariants   []string `yaml:"invariants,omitempty"`
-	BlastRadius  string   `yaml:"blast_radius,omitempty"`
-	TestPlan     string   `yaml:"test_plan,omitempty"`
-	RollbackPlan string   `yaml:"rollback_plan,omitempty"`
-	UpdatedAt    string   `yaml:"updated_at,omitempty"`
-	UpdatedBy    string   `yaml:"updated_by,omitempty"`
+	Why                string   `yaml:"why,omitempty"`
+	Scope              []string `yaml:"scope,omitempty"`
+	NonGoals           []string `yaml:"non_goals,omitempty"`
+	Invariants         []string `yaml:"invariants,omitempty"`
+	BlastRadius        string   `yaml:"blast_radius,omitempty"`
+	RiskCriticalScopes []string `yaml:"risk_critical_scopes,omitempty"`
+	RiskTierHint       string   `yaml:"risk_tier_hint,omitempty"`
+	RiskRationale      string   `yaml:"risk_rationale,omitempty"`
+	TestPlan           string   `yaml:"test_plan,omitempty"`
+	RollbackPlan       string   `yaml:"rollback_plan,omitempty"`
+	UpdatedAt          string   `yaml:"updated_at,omitempty"`
+	UpdatedBy          string   `yaml:"updated_by,omitempty"`
 }
 
 type CR struct {

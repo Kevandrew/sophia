@@ -56,6 +56,9 @@ func newCRReviewCmd() *cobra.Command {
 			printInlineList(cmd, "non_goals", review.Contract.NonGoals)
 			printInlineList(cmd, "invariants", review.Contract.Invariants)
 			fmt.Fprintf(cmd.OutOrStdout(), "- blast_radius: %s\n", nonEmpty(strings.TrimSpace(review.Contract.BlastRadius), "(missing)"))
+			printInlineList(cmd, "risk_critical_scopes", review.Contract.RiskCriticalScopes)
+			fmt.Fprintf(cmd.OutOrStdout(), "- risk_tier_hint: %s\n", nonEmpty(strings.TrimSpace(review.Contract.RiskTierHint), "(none)"))
+			fmt.Fprintf(cmd.OutOrStdout(), "- risk_rationale: %s\n", nonEmpty(strings.TrimSpace(review.Contract.RiskRationale), "(none)"))
 			fmt.Fprintf(cmd.OutOrStdout(), "- test_plan: %s\n", nonEmpty(strings.TrimSpace(review.Contract.TestPlan), "(missing)"))
 			fmt.Fprintf(cmd.OutOrStdout(), "- rollback_plan: %s\n", nonEmpty(strings.TrimSpace(review.Contract.RollbackPlan), "(missing)"))
 
