@@ -27,6 +27,7 @@ var (
 	ErrTaskContractIncomplete = errors.New("task contract is incomplete")
 	ErrNoTaskScopeMatches     = errors.New("no changed files match task contract scope")
 	ErrTaskDelegated          = errors.New("task is delegated")
+	ErrTaskNotDone            = errors.New("task is not done")
 )
 
 var (
@@ -236,6 +237,10 @@ type DoneTaskOptions struct {
 	Paths        []string
 	FromContract bool
 	PatchFile    string
+}
+
+type ReopenTaskOptions struct {
+	ClearCheckpoint bool
 }
 
 type ContractPatch struct {

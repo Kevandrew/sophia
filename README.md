@@ -275,6 +275,22 @@ Optional metadata-only completion:
 sophia cr task done <cr-id> <task-id> --no-checkpoint
 ```
 
+Reopen a completed task (metadata-only):
+
+```
+sophia cr task reopen <cr-id> <task-id>
+sophia cr task reopen <cr-id> <task-id> --clear-checkpoint
+```
+
+Behavior:
+
+* Reopen requires task status `done` and CR status `in_progress`
+* Reopen transitions task status `done -> open`
+* Reopen always clears completion identity fields (`completed_at`, `completed_by`)
+* Reopen preserves checkpoint metadata by default for audit continuity
+* `--clear-checkpoint` explicitly clears checkpoint fields (`commit`, `timestamp`, message, scope, chunks)
+* Reopen appends a deterministic `task_reopened` audit event
+
 Explicit legacy stage-all behavior:
 
 ```
@@ -500,6 +516,7 @@ sophia cr task contract set <cr-id> <task-id> --intent "..."
 sophia cr task contract show <cr-id> <task-id>
 sophia cr task chunk list <cr-id> <task-id> [--path <file>] [--json]
 sophia cr task done <cr-id> <task-id> --patch-file <patch-file>
+sophia cr task reopen <cr-id> <task-id> [--clear-checkpoint] [--json]
 sophia cr task delegate <parent-cr-id> <task-id> --child <child-cr-id>
 sophia cr task undelegate <parent-cr-id> <task-id> --child <child-cr-id>
 sophia cr child add "<title>" --description "..."
@@ -523,6 +540,7 @@ sophia cr history <id>
 * `task contract` enforces subtask intent + acceptance + scope before completion
 * `task chunk list` provides deterministic hunk discovery from current working-tree diff
 * `task done --patch-file` checkpoints selected hunks from a patch manifest
+* `task reopen` reopens done tasks without rewriting Git history and can optionally clear checkpoint metadata
 * `contract/impact/validate` provide intent integrity and blast-radius review context
 * `--json` on read/check commands provides stable machine-readable envelopes for agents
 * JSON read/check outputs include immutable CR uid fields and per-CR base/parent metadata for stacked workflows

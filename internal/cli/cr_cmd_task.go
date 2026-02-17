@@ -17,6 +17,7 @@ func newCRTaskCmd() *cobra.Command {
 	taskCmd.AddCommand(newCRTaskAddCmd())
 	taskCmd.AddCommand(newCRTaskListCmd())
 	taskCmd.AddCommand(newCRTaskDoneCmd())
+	taskCmd.AddCommand(newCRTaskReopenCmd())
 	taskCmd.AddCommand(newCRTaskDelegateCmd())
 	taskCmd.AddCommand(newCRTaskUndelegateCmd())
 	taskCmd.AddCommand(newCRTaskChunkCmd())
@@ -452,5 +453,67 @@ func newCRTaskDoneCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&fromContract, "from-contract", false, "Checkpoint by staging changed files that match task contract scope")
 	cmd.Flags().StringArrayVar(&scopePaths, "path", nil, "Checkpoint scope path (repo-relative file, repeatable)")
 	cmd.Flags().StringVar(&patchFile, "patch-file", "", "Checkpoint scope patch manifest file")
+	return cmd
+}
+
+func newCRTaskReopenCmd() *cobra.Command {
+	var clearCheckpoint bool
+	var asJSON bool
+
+	cmd := &cobra.Command{
+		Use:   "reopen <cr-id> <task-id>",
+		Short: "Reopen a completed subtask",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			crID, err := parsePositiveIntArg(args[0], "cr-id")
+			if err != nil {
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
+				return err
+			}
+			taskID, err := parsePositiveIntArg(args[1], "task-id")
+			if err != nil {
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
+				return err
+			}
+			svc, err := newService()
+			if err != nil {
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
+				return err
+			}
+			task, err := svc.ReopenTask(crID, taskID, service.ReopenTaskOptions{
+				ClearCheckpoint: clearCheckpoint,
+			})
+			if err != nil {
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
+				return err
+			}
+			if asJSON {
+				return writeJSONSuccess(cmd, map[string]any{
+					"cr_id":              crID,
+					"task_id":            taskID,
+					"status":             task.Status,
+					"checkpoint_commit":  strings.TrimSpace(task.CheckpointCommit),
+					"checkpoint_cleared": clearCheckpoint,
+				})
+			}
+			if clearCheckpoint {
+				fmt.Fprintf(cmd.OutOrStdout(), "Reopened task %d in CR %d and cleared checkpoint metadata\n", taskID, crID)
+				return nil
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "Reopened task %d in CR %d\n", taskID, crID)
+			return nil
+		},
+	}
+
+	cmd.Flags().BoolVar(&clearCheckpoint, "clear-checkpoint", false, "Clear checkpoint metadata while reopening task")
+	cmd.Flags().BoolVar(&asJSON, "json", false, "Output in JSON format")
 	return cmd
 }
