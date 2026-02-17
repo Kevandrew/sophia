@@ -29,6 +29,7 @@ var (
 	ErrInvalidTaskScope       = errors.New("invalid task checkpoint scope")
 	ErrPreStagedChanges       = errors.New("staged changes already exist before checkpoint")
 	ErrTaskContractIncomplete = errors.New("task contract is incomplete")
+	ErrNoTaskScopeMatches     = errors.New("no changed files match task contract scope")
 )
 
 var (
@@ -102,6 +103,40 @@ type RepairReport struct {
 	RepairedCRIDs []int
 }
 
+type WhyView struct {
+	CRID              int
+	EffectiveWhy      string
+	Source            string
+	Description       string
+	ContractWhy       string
+	ContractUpdatedAt string
+	ContractUpdatedBy string
+}
+
+type CRStatusView struct {
+	ID                    int
+	Title                 string
+	Status                string
+	BaseBranch            string
+	Branch                string
+	CurrentBranch         string
+	BranchMatch           bool
+	ModifiedStagedCount   int
+	UntrackedCount        int
+	Dirty                 bool
+	TasksTotal            int
+	TasksOpen             int
+	TasksDone             int
+	ContractComplete      bool
+	ContractMissingFields []string
+	ValidationValid       bool
+	ValidationErrors      int
+	ValidationWarnings    int
+	RiskTier              string
+	RiskScore             int
+	MergeBlocked          bool
+}
+
 type HistoryNote struct {
 	Index    int
 	Text     string
@@ -130,9 +165,10 @@ type CRHistory struct {
 }
 
 type DoneTaskOptions struct {
-	Checkpoint bool
-	StageAll   bool
-	Paths      []string
+	Checkpoint   bool
+	StageAll     bool
+	Paths        []string
+	FromContract bool
 }
 
 type ContractPatch struct {
@@ -512,6 +548,107 @@ func (s *Service) GetCRContract(id int) (*model.Contract, error) {
 	return &contract, nil
 }
 
+func (s *Service) WhyCR(id int) (*WhyView, error) {
+	cr, err := s.store.LoadCR(id)
+	if err != nil {
+		return nil, err
+	}
+
+	description := strings.TrimSpace(cr.Description)
+	contractWhy := strings.TrimSpace(cr.Contract.Why)
+	effectiveWhy := ""
+	source := "missing"
+	switch {
+	case contractWhy != "":
+		effectiveWhy = contractWhy
+		source = "contract_why"
+	case description != "":
+		effectiveWhy = description
+		source = "description"
+	}
+
+	return &WhyView{
+		CRID:              cr.ID,
+		EffectiveWhy:      effectiveWhy,
+		Source:            source,
+		Description:       description,
+		ContractWhy:       contractWhy,
+		ContractUpdatedAt: strings.TrimSpace(cr.Contract.UpdatedAt),
+		ContractUpdatedBy: strings.TrimSpace(cr.Contract.UpdatedBy),
+	}, nil
+}
+
+func (s *Service) StatusCR(id int) (*CRStatusView, error) {
+	cr, err := s.store.LoadCR(id)
+	if err != nil {
+		return nil, err
+	}
+
+	currentBranch, _ := s.git.CurrentBranch()
+	statusEntries, err := s.git.WorkingTreeStatus()
+	if err != nil {
+		return nil, err
+	}
+
+	modifiedStagedCount := 0
+	untrackedCount := 0
+	for _, entry := range statusEntries {
+		if entry.Code == "??" {
+			untrackedCount++
+			continue
+		}
+		modifiedStagedCount++
+	}
+
+	tasksOpen := 0
+	tasksDone := 0
+	for _, task := range cr.Subtasks {
+		if task.Status == model.TaskStatusDone {
+			tasksDone++
+			continue
+		}
+		tasksOpen++
+	}
+
+	missingFields := missingCRContractFields(cr.Contract)
+	view := &CRStatusView{
+		ID:                    cr.ID,
+		Title:                 cr.Title,
+		Status:                cr.Status,
+		BaseBranch:            cr.BaseBranch,
+		Branch:                cr.Branch,
+		CurrentBranch:         currentBranch,
+		BranchMatch:           strings.TrimSpace(currentBranch) != "" && currentBranch == cr.Branch,
+		ModifiedStagedCount:   modifiedStagedCount,
+		UntrackedCount:        untrackedCount,
+		Dirty:                 modifiedStagedCount > 0 || untrackedCount > 0,
+		TasksTotal:            len(cr.Subtasks),
+		TasksOpen:             tasksOpen,
+		TasksDone:             tasksDone,
+		ContractComplete:      len(missingFields) == 0,
+		ContractMissingFields: missingFields,
+		ValidationValid:       true,
+		RiskTier:              "-",
+	}
+
+	if cr.Status == model.StatusInProgress {
+		report, validateErr := s.ValidateCR(id)
+		if validateErr != nil {
+			return nil, validateErr
+		}
+		view.ValidationValid = report.Valid
+		view.ValidationErrors = len(report.Errors)
+		view.ValidationWarnings = len(report.Warnings)
+		view.MergeBlocked = !report.Valid
+		if report.Impact != nil {
+			view.RiskTier = nonEmptyTrimmed(report.Impact.RiskTier, "-")
+			view.RiskScore = report.Impact.RiskScore
+		}
+	}
+
+	return view, nil
+}
+
 func (s *Service) ImpactCR(id int) (*ImpactReport, error) {
 	cr, err := s.store.LoadCR(id)
 	if err != nil {
@@ -536,27 +673,9 @@ func (s *Service) ValidateCR(id int) (*ValidationReport, error) {
 	}
 	impact := buildImpactReport(cr, diff)
 
-	errorsOut := []string{}
-	if strings.TrimSpace(cr.Contract.Why) == "" {
-		errorsOut = append(errorsOut, "missing required contract field: why")
-	}
-	if len(cr.Contract.Scope) == 0 {
-		errorsOut = append(errorsOut, "missing required contract field: scope")
-	}
-	if len(normalizeNonEmptyStringList(cr.Contract.NonGoals)) == 0 {
-		errorsOut = append(errorsOut, "missing required contract field: non_goals")
-	}
-	if len(normalizeNonEmptyStringList(cr.Contract.Invariants)) == 0 {
-		errorsOut = append(errorsOut, "missing required contract field: invariants")
-	}
-	if strings.TrimSpace(cr.Contract.BlastRadius) == "" {
-		errorsOut = append(errorsOut, "missing required contract field: blast_radius")
-	}
-	if strings.TrimSpace(cr.Contract.TestPlan) == "" {
-		errorsOut = append(errorsOut, "missing required contract field: test_plan")
-	}
-	if strings.TrimSpace(cr.Contract.RollbackPlan) == "" {
-		errorsOut = append(errorsOut, "missing required contract field: rollback_plan")
+	errorsOut := make([]string, 0)
+	for _, field := range missingCRContractFields(cr.Contract) {
+		errorsOut = append(errorsOut, fmt.Sprintf("missing required contract field: %s", field))
 	}
 	for _, driftPath := range impact.ScopeDrift {
 		errorsOut = append(errorsOut, fmt.Sprintf("scope drift: changed path %q is outside declared contract scope", driftPath))
@@ -935,6 +1054,19 @@ func (s *Service) DoneTaskWithCheckpoint(crID, taskID int, opts DoneTaskOptions)
 				return "", err
 			}
 			checkpointScope = []string{"*"}
+		} else if opts.FromContract {
+			normalizedScope, normalizeErr := s.normalizeContractScopePrefixes(cr.Subtasks[taskIndex].Contract.Scope)
+			if normalizeErr != nil {
+				return "", normalizeErr
+			}
+			paths, resolveErr := s.resolveTaskCheckpointPathsFromContract(normalizedScope)
+			if resolveErr != nil {
+				return "", resolveErr
+			}
+			if err := s.git.StagePaths(paths); err != nil {
+				return "", err
+			}
+			checkpointScope = paths
 		} else {
 			normalizedPaths, normalizeErr := s.normalizeTaskScopePaths(opts.Paths)
 			if normalizeErr != nil {
@@ -994,6 +1126,9 @@ func (s *Service) DoneTaskWithCheckpoint(crID, taskID int, opts DoneTaskOptions)
 				"scope":   strings.Join(checkpointScope, ","),
 			},
 		})
+		if opts.FromContract {
+			cr.Events[len(cr.Events)-1].Meta["scope_source"] = "task_contract"
+		}
 	}
 
 	cr.Subtasks[taskIndex].Status = model.TaskStatusDone
@@ -1902,6 +2037,32 @@ func findTaskContractWarnings(tasks []model.Subtask) []string {
 	return dedupeStrings(warnings)
 }
 
+func missingCRContractFields(contract model.Contract) []string {
+	missing := []string{}
+	if strings.TrimSpace(contract.Why) == "" {
+		missing = append(missing, "why")
+	}
+	if len(contract.Scope) == 0 {
+		missing = append(missing, "scope")
+	}
+	if len(normalizeNonEmptyStringList(contract.NonGoals)) == 0 {
+		missing = append(missing, "non_goals")
+	}
+	if len(normalizeNonEmptyStringList(contract.Invariants)) == 0 {
+		missing = append(missing, "invariants")
+	}
+	if strings.TrimSpace(contract.BlastRadius) == "" {
+		missing = append(missing, "blast_radius")
+	}
+	if strings.TrimSpace(contract.TestPlan) == "" {
+		missing = append(missing, "test_plan")
+	}
+	if strings.TrimSpace(contract.RollbackPlan) == "" {
+		missing = append(missing, "rollback_plan")
+	}
+	return missing
+}
+
 func missingTaskContractFields(contract model.TaskContract) []string {
 	missing := []string{}
 	if strings.TrimSpace(contract.Intent) == "" {
@@ -2197,18 +2358,63 @@ func dedupeStrings(values []string) []string {
 
 func validateDoneTaskOptions(opts DoneTaskOptions) error {
 	if !opts.Checkpoint {
-		if opts.StageAll || len(opts.Paths) > 0 {
-			return fmt.Errorf("%w: --no-checkpoint cannot be combined with --path or --all", ErrInvalidTaskScope)
+		if opts.StageAll || opts.FromContract || len(opts.Paths) > 0 {
+			return fmt.Errorf("%w: --no-checkpoint cannot be combined with --from-contract, --path, or --all", ErrInvalidTaskScope)
 		}
 		return nil
 	}
-	if opts.StageAll && len(opts.Paths) > 0 {
-		return fmt.Errorf("%w: --all cannot be combined with --path", ErrInvalidTaskScope)
+	modes := 0
+	if opts.StageAll {
+		modes++
 	}
-	if !opts.StageAll && len(opts.Paths) == 0 {
+	if opts.FromContract {
+		modes++
+	}
+	if len(opts.Paths) > 0 {
+		modes++
+	}
+	if modes > 1 {
+		return fmt.Errorf("%w: exactly one of --all, --from-contract, or --path must be provided", ErrInvalidTaskScope)
+	}
+	if modes == 0 {
 		return ErrTaskScopeRequired
 	}
 	return nil
+}
+
+func (s *Service) resolveTaskCheckpointPathsFromContract(scopePrefixes []string) ([]string, error) {
+	statusEntries, err := s.git.WorkingTreeStatus()
+	if err != nil {
+		return nil, err
+	}
+	matches := make([]string, 0)
+	seen := map[string]struct{}{}
+	for _, entry := range statusEntries {
+		candidate := strings.TrimSpace(entry.Path)
+		if candidate == "" {
+			continue
+		}
+		inScope := false
+		for _, prefix := range scopePrefixes {
+			if pathMatchesScopePrefix(candidate, prefix) {
+				inScope = true
+				break
+			}
+		}
+		if !inScope {
+			continue
+		}
+		if _, ok := seen[candidate]; ok {
+			continue
+		}
+		seen[candidate] = struct{}{}
+		matches = append(matches, candidate)
+	}
+	if len(matches) == 0 {
+		return nil, ErrNoTaskScopeMatches
+	}
+	sort.Strings(matches)
+	return matches, nil
 }
 
 func (s *Service) normalizeTaskScopePaths(paths []string) ([]string, error) {

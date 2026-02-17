@@ -424,6 +424,124 @@ func TestDoneTaskWithCheckpointScopesToSelectedPaths(t *testing.T) {
 	}
 }
 
+func TestDoneTaskWithCheckpointFromContractScopesToChangedFiles(t *testing.T) {
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	runGit(t, dir, "config", "user.name", "Test User")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+
+	cr, err := svc.AddCR("Contract-scoped checkpoint", "scope from task contract")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	task, err := svc.AddTask(cr.ID, "feat: contract scoped staging")
+	if err != nil {
+		t.Fatalf("AddTask() error = %v", err)
+	}
+	intent := "Scope checkpoint to task contract prefixes."
+	acceptance := []string{"Only in-scope files are checkpointed."}
+	scope := []string{"scoped"}
+	if _, err := svc.SetTaskContract(cr.ID, task.ID, TaskContractPatch{
+		Intent:             &intent,
+		AcceptanceCriteria: &acceptance,
+		Scope:              &scope,
+	}); err != nil {
+		t.Fatalf("SetTaskContract() error = %v", err)
+	}
+
+	if err := os.MkdirAll(filepath.Join(dir, "scoped"), 0o755); err != nil {
+		t.Fatalf("mkdir scoped: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "unscoped"), 0o755); err != nil {
+		t.Fatalf("mkdir unscoped: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "scoped", "in.txt"), []byte("in\n"), 0o644); err != nil {
+		t.Fatalf("write scoped file: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "unscoped", "out.txt"), []byte("out\n"), 0o644); err != nil {
+		t.Fatalf("write unscoped file: %v", err)
+	}
+
+	sha, err := svc.DoneTaskWithCheckpoint(cr.ID, task.ID, DoneTaskOptions{
+		Checkpoint:   true,
+		FromContract: true,
+	})
+	if err != nil {
+		t.Fatalf("DoneTaskWithCheckpoint() error = %v", err)
+	}
+	if sha == "" {
+		t.Fatalf("expected checkpoint sha")
+	}
+
+	commitFiles := runGit(t, dir, "show", "--pretty=format:", "--name-only", "-1")
+	if !strings.Contains(commitFiles, "scoped/in.txt") {
+		t.Fatalf("expected scoped/in.txt in checkpoint commit, got %q", commitFiles)
+	}
+	if strings.Contains(commitFiles, "unscoped/out.txt") {
+		t.Fatalf("did not expect unscoped/out.txt in checkpoint commit, got %q", commitFiles)
+	}
+
+	status := runGit(t, dir, "status", "--porcelain")
+	if !strings.Contains(status, "?? unscoped/") {
+		t.Fatalf("expected unscoped changes to remain uncommitted, status=%q", status)
+	}
+
+	loaded, err := svc.store.LoadCR(cr.ID)
+	if err != nil {
+		t.Fatalf("LoadCR() error = %v", err)
+	}
+	if len(loaded.Subtasks[0].CheckpointScope) != 1 || loaded.Subtasks[0].CheckpointScope[0] != "scoped/in.txt" {
+		t.Fatalf("expected checkpoint scope from contract path, got %#v", loaded.Subtasks[0].CheckpointScope)
+	}
+	lastTwo := loaded.Events[len(loaded.Events)-2:]
+	if lastTwo[0].Type != "task_checkpointed" {
+		t.Fatalf("expected task_checkpointed event, got %#v", lastTwo)
+	}
+	if lastTwo[0].Meta["scope_source"] != "task_contract" {
+		t.Fatalf("expected scope_source=task_contract, got %#v", lastTwo[0].Meta)
+	}
+}
+
+func TestDoneTaskWithCheckpointFromContractNoMatchesFails(t *testing.T) {
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	cr, err := svc.AddCR("No contract matches", "contract scope has no matching changes")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	task, err := svc.AddTask(cr.ID, "feat: no matching in-scope files")
+	if err != nil {
+		t.Fatalf("AddTask() error = %v", err)
+	}
+	intent := "Require contract-scoped file matches."
+	acceptance := []string{"Fail when no changed files match scope."}
+	scope := []string{"scoped"}
+	if _, err := svc.SetTaskContract(cr.ID, task.ID, TaskContractPatch{
+		Intent:             &intent,
+		AcceptanceCriteria: &acceptance,
+		Scope:              &scope,
+	}); err != nil {
+		t.Fatalf("SetTaskContract() error = %v", err)
+	}
+
+	if err := os.WriteFile(filepath.Join(dir, "outside.txt"), []byte("outside\n"), 0o644); err != nil {
+		t.Fatalf("write outside file: %v", err)
+	}
+	_, err = svc.DoneTaskWithCheckpoint(cr.ID, task.ID, DoneTaskOptions{
+		Checkpoint:   true,
+		FromContract: true,
+	})
+	if !errors.Is(err, ErrNoTaskScopeMatches) {
+		t.Fatalf("expected ErrNoTaskScopeMatches, got %v", err)
+	}
+}
+
 func TestDoneTaskWithCheckpointRequiresExplicitScope(t *testing.T) {
 	dir := t.TempDir()
 	svc := New(dir)
@@ -472,8 +590,11 @@ func TestDoneTaskWithCheckpointRejectsInvalidScopePaths(t *testing.T) {
 		{Checkpoint: true, Paths: []string{"a/../b.txt"}},
 		{Checkpoint: true, Paths: []string{"*.go"}},
 		{Checkpoint: true, Paths: []string{"dup.txt", "dup.txt"}},
+		{Checkpoint: true, StageAll: true, FromContract: true},
+		{Checkpoint: true, FromContract: true, Paths: []string{"x.txt"}},
 		{Checkpoint: false, Paths: []string{"x.txt"}},
 		{Checkpoint: false, StageAll: true},
+		{Checkpoint: false, FromContract: true},
 	}
 
 	for _, tc := range cases {

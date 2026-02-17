@@ -97,6 +97,103 @@ func TestSetCRContractPartialUpdateOnlyMutatesTargetFields(t *testing.T) {
 	}
 }
 
+func TestWhyCRUsesContractThenDescriptionThenMissing(t *testing.T) {
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	cr, err := svc.AddCR("Why precedence", "fallback description")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+
+	view, err := svc.WhyCR(cr.ID)
+	if err != nil {
+		t.Fatalf("WhyCR() error = %v", err)
+	}
+	if view.Source != "description" || view.EffectiveWhy != "fallback description" {
+		t.Fatalf("expected description fallback, got %#v", view)
+	}
+
+	why := "contract why wins"
+	if _, err := svc.SetCRContract(cr.ID, ContractPatch{Why: &why}); err != nil {
+		t.Fatalf("SetCRContract(why) error = %v", err)
+	}
+	view, err = svc.WhyCR(cr.ID)
+	if err != nil {
+		t.Fatalf("WhyCR() error = %v", err)
+	}
+	if view.Source != "contract_why" || view.EffectiveWhy != why {
+		t.Fatalf("expected contract why precedence, got %#v", view)
+	}
+
+	emptyDescCR, err := svc.AddCR("No why", "")
+	if err != nil {
+		t.Fatalf("AddCR(empty desc) error = %v", err)
+	}
+	view, err = svc.WhyCR(emptyDescCR.ID)
+	if err != nil {
+		t.Fatalf("WhyCR(empty) error = %v", err)
+	}
+	if view.Source != "missing" || view.EffectiveWhy != "" {
+		t.Fatalf("expected missing why source, got %#v", view)
+	}
+}
+
+func TestStatusCRReflectsReadinessAndWorkspaceState(t *testing.T) {
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	cr, err := svc.AddCR("Status view", "status details")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	setValidContract(t, svc, cr.ID)
+
+	task1, err := svc.AddTask(cr.ID, "feat: complete one task")
+	if err != nil {
+		t.Fatalf("AddTask() #1 error = %v", err)
+	}
+	task2, err := svc.AddTask(cr.ID, "feat: leave one open")
+	if err != nil {
+		t.Fatalf("AddTask() #2 error = %v", err)
+	}
+	setValidTaskContract(t, svc, cr.ID, task1.ID)
+	setValidTaskContract(t, svc, cr.ID, task2.ID)
+	if err := svc.DoneTask(cr.ID, task1.ID); err != nil {
+		t.Fatalf("DoneTask() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "untracked.txt"), []byte("x\n"), 0o644); err != nil {
+		t.Fatalf("write untracked file: %v", err)
+	}
+
+	status, err := svc.StatusCR(cr.ID)
+	if err != nil {
+		t.Fatalf("StatusCR() error = %v", err)
+	}
+	if status.ID != cr.ID || status.Title != cr.Title {
+		t.Fatalf("unexpected status identity: %#v", status)
+	}
+	if !status.BranchMatch {
+		t.Fatalf("expected branch match on active CR branch, got %#v", status)
+	}
+	if !status.Dirty || status.UntrackedCount == 0 {
+		t.Fatalf("expected dirty workspace with untracked file, got %#v", status)
+	}
+	if status.TasksTotal != 2 || status.TasksDone != 1 || status.TasksOpen != 1 {
+		t.Fatalf("unexpected task progress counts: %#v", status)
+	}
+	if !status.ContractComplete || len(status.ContractMissingFields) != 0 {
+		t.Fatalf("expected complete contract, got %#v", status)
+	}
+	if !status.ValidationValid || status.ValidationErrors != 0 || status.MergeBlocked {
+		t.Fatalf("expected merge-ready validation summary, got %#v", status)
+	}
+}
+
 func TestSetAndGetTaskContractRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	svc := New(dir)
