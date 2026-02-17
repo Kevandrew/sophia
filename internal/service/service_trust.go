@@ -2,7 +2,9 @@ package service
 
 import (
 	"fmt"
+	"regexp"
 	"sophia/internal/model"
+	"strconv"
 	"strings"
 )
 
@@ -10,7 +12,11 @@ const (
 	trustVerdictTrusted        = "trusted"
 	trustVerdictNeedsAttention = "needs_attention"
 	trustVerdictUntrusted      = "untrusted"
+	trustTrustedMinRatio       = 0.85
+	trustAttentionMinRatio     = 0.60
 )
+
+var leadingIntPattern = regexp.MustCompile(`^\d+`)
 
 func buildTrustReport(cr *model.CR, validation *ValidationReport, diff *diffSummary) *TrustReport {
 	if cr == nil {
@@ -24,7 +30,8 @@ func buildTrustReport(cr *model.CR, validation *ValidationReport, diff *diffSumm
 			RequiredActions: []string{
 				"Re-run review on an existing CR.",
 			},
-			Summary: "Trust evidence unavailable because CR metadata is missing.",
+			Advisories: []string{},
+			Summary:    "Trust evidence unavailable because CR metadata is missing.",
 		}
 	}
 	if validation == nil {
@@ -33,13 +40,22 @@ func buildTrustReport(cr *model.CR, validation *ValidationReport, diff *diffSumm
 	if diff == nil {
 		diff = &diffSummary{}
 	}
+	shortStat := parseShortStatMetrics(diff.ShortStat)
 	impact := validation.Impact
 	if impact == nil {
 		impact = &ImpactReport{FilesChanged: len(diff.Files)}
 	}
+	if impact.FilesChanged == 0 {
+		if len(diff.Files) > 0 {
+			impact.FilesChanged = len(diff.Files)
+		} else if shortStat.FilesChanged > 0 {
+			impact.FilesChanged = shortStat.FilesChanged
+		}
+	}
 
 	hardFailures := []string{}
 	requiredActions := []string{}
+	advisories := []string{}
 	if len(validation.Errors) > 0 {
 		hardFailures = append(hardFailures, fmt.Sprintf("validation errors present (%d)", len(validation.Errors)))
 		requiredActions = append(requiredActions, "Resolve all validation errors before trusting review data.")
@@ -54,6 +70,7 @@ func buildTrustReport(cr *model.CR, validation *ValidationReport, diff *diffSumm
 		buildScopeDisciplineDimension(impact),
 		buildTaskProofChainDimension(cr.Subtasks),
 		buildRiskAccountabilityDimension(cr.Contract, impact, diff),
+		buildChangeMagnitudeDimension(impact, shortStat),
 		buildValidationHealthDimension(validation),
 		buildTestEvidenceDimension(cr.Contract, diff),
 	}
@@ -69,19 +86,26 @@ func buildTrustReport(cr *model.CR, validation *ValidationReport, diff *diffSumm
 		dimensions[i].RequiredActions = dedupeStrings(dimensions[i].RequiredActions)
 		score += dimensions[i].Score
 		max += dimensions[i].Max
-		requiredActions = append(requiredActions, dimensions[i].RequiredActions...)
+		for _, action := range dimensions[i].RequiredActions {
+			if isTrustGatingAction(action) {
+				continue
+			}
+			advisories = append(advisories, action)
+		}
 	}
 	requiredActions = dedupeStrings(requiredActions)
+	advisories = dedupeStrings(advisories)
+	if strings.EqualFold(strings.TrimSpace(impact.RiskTier), "high") && len(impact.MatchedRiskCriticalScopes) > 0 {
+		advisories = append(advisories, fmt.Sprintf("Spot-check critical scopes: %s.", strings.Join(impact.MatchedRiskCriticalScopes, ", ")))
+	}
+	advisories = dedupeStrings(advisories)
 
-	verdict := trustVerdictNeedsAttention
-	summary := "Trust evidence has gaps; address required actions before treating diffs as optional."
-	switch {
-	case len(hardFailures) > 0 || score < 60:
-		verdict = trustVerdictUntrusted
-		summary = "Trust evidence is insufficient; perform deeper review and resolve required actions."
-	case score >= 85:
-		verdict = trustVerdictTrusted
-		summary = "Trust evidence is strong; diff deep-dive can be optional."
+	verdict, summary := selectTrustVerdict(score, max, hardFailures)
+	if strings.EqualFold(strings.TrimSpace(impact.RiskTier), "high") &&
+		len(impact.MatchedRiskCriticalScopes) > 0 &&
+		!hasSpecializedHighRiskEvidence(impact, diff) {
+		advisories = append(advisories, "Add specialized high-risk evidence (integration/worktree/doctor/repair coverage) to increase confidence.")
+		advisories = dedupeStrings(advisories)
 	}
 
 	return &TrustReport{
@@ -92,14 +116,106 @@ func buildTrustReport(cr *model.CR, validation *ValidationReport, diff *diffSumm
 		HardFailures:    dedupeStrings(hardFailures),
 		Dimensions:      dimensions,
 		RequiredActions: requiredActions,
+		Advisories:      advisories,
 		Summary:         summary,
 	}
+}
+
+func selectTrustVerdict(score, max int, hardFailures []string) (string, string) {
+	ratio := trustScoreRatio(score, max)
+	switch {
+	case len(hardFailures) > 0 || ratio < trustAttentionMinRatio:
+		return trustVerdictUntrusted, "Trust evidence is insufficient; perform deeper review and resolve required actions."
+	case ratio >= trustTrustedMinRatio:
+		return trustVerdictTrusted, "Trust evidence is strong; diff deep-dive can be optional."
+	default:
+		return trustVerdictNeedsAttention, "Trust evidence has gaps; address required actions before treating diffs as optional."
+	}
+}
+
+func trustScoreRatio(score, max int) float64 {
+	if max <= 0 {
+		return 0
+	}
+	return float64(score) / float64(max)
+}
+
+func isTrustGatingAction(action string) bool {
+	lower := strings.ToLower(strings.TrimSpace(action))
+	if lower == "" {
+		return false
+	}
+	if strings.Contains(lower, "validation error") {
+		return true
+	}
+	if strings.Contains(lower, "required contract field") {
+		return true
+	}
+	if strings.Contains(lower, "required contract fields") {
+		return true
+	}
+	return false
+}
+
+type shortStatMetrics struct {
+	FilesChanged int
+	Insertions   int
+	Deletions    int
+}
+
+func parseShortStatMetrics(shortStat string) shortStatMetrics {
+	metrics := shortStatMetrics{}
+	trimmed := strings.TrimSpace(shortStat)
+	if trimmed == "" {
+		return metrics
+	}
+	for _, rawPart := range strings.Split(trimmed, ",") {
+		part := strings.ToLower(strings.TrimSpace(rawPart))
+		if part == "" {
+			continue
+		}
+		value := parseLeadingInt(part)
+		switch {
+		case strings.Contains(part, "file") && strings.Contains(part, "changed"):
+			metrics.FilesChanged = value
+		case strings.Contains(part, "insertion"):
+			metrics.Insertions = value
+		case strings.Contains(part, "deletion"):
+			metrics.Deletions = value
+		}
+	}
+	return metrics
+}
+
+func parseLeadingInt(input string) int {
+	match := leadingIntPattern.FindString(strings.TrimSpace(input))
+	if strings.TrimSpace(match) == "" {
+		return 0
+	}
+	value, err := strconv.Atoi(match)
+	if err != nil {
+		return 0
+	}
+	return value
+}
+
+func effectiveFilesChanged(impact *ImpactReport, diff *diffSummary, shortStat shortStatMetrics) int {
+	if impact != nil && impact.FilesChanged > 0 {
+		return impact.FilesChanged
+	}
+	if diff != nil && len(diff.Files) > 0 {
+		return len(diff.Files)
+	}
+	if shortStat.FilesChanged > 0 {
+		return shortStat.FilesChanged
+	}
+	return 0
 }
 
 func buildContractQualityDimension(contract model.Contract) TrustDimension {
 	dimension := TrustDimension{
 		Code:            "contract_quality",
-		Label:           "Contract Quality",
+		Label:           "Contract Completeness",
 		Score:           20,
 		Max:             20,
 		Reasons:         []string{},
@@ -137,7 +253,7 @@ func buildContractQualityDimension(contract model.Contract) TrustDimension {
 func buildScopeDisciplineDimension(impact *ImpactReport) TrustDimension {
 	dimension := TrustDimension{
 		Code:            "scope_discipline",
-		Label:           "Scope Discipline",
+		Label:           "Scope Alignment",
 		Score:           20,
 		Max:             20,
 		Reasons:         []string{},
@@ -171,7 +287,7 @@ func buildScopeDisciplineDimension(impact *ImpactReport) TrustDimension {
 func buildTaskProofChainDimension(tasks []model.Subtask) TrustDimension {
 	dimension := TrustDimension{
 		Code:            "task_proof_chain",
-		Label:           "Task Proof Chain",
+		Label:           "Checkpoint Coverage",
 		Score:           20,
 		Max:             20,
 		Reasons:         []string{},
@@ -220,7 +336,7 @@ func buildTaskProofChainDimension(tasks []model.Subtask) TrustDimension {
 func buildRiskAccountabilityDimension(contract model.Contract, impact *ImpactReport, diff *diffSummary) TrustDimension {
 	dimension := TrustDimension{
 		Code:            "risk_accountability",
-		Label:           "Risk Accountability",
+		Label:           "Risk Declaration",
 		Score:           15,
 		Max:             15,
 		Reasons:         []string{},
@@ -240,10 +356,7 @@ func buildRiskAccountabilityDimension(contract model.Contract, impact *ImpactRep
 		dimension.Reasons = append(dimension.Reasons, "high risk tier lacks dependency/test evidence")
 		dimension.RequiredActions = append(dimension.RequiredActions, "Document or include dependency/test evidence supporting high-risk changes.")
 	}
-	filesChanged := impact.FilesChanged
-	if filesChanged == 0 && diff != nil {
-		filesChanged = len(diff.Files)
-	}
+	filesChanged := effectiveFilesChanged(impact, diff, shortStatMetrics{})
 	if filesChanged > 0 && len(impact.Signals) == 0 {
 		dimension.Score -= 2
 		dimension.Reasons = append(dimension.Reasons, "files changed but no risk signals")
@@ -255,7 +368,7 @@ func buildRiskAccountabilityDimension(contract model.Contract, impact *ImpactRep
 func buildValidationHealthDimension(validation *ValidationReport) TrustDimension {
 	dimension := TrustDimension{
 		Code:            "validation_health",
-		Label:           "Validation Health",
+		Label:           "Validation Status",
 		Score:           15,
 		Max:             15,
 		Reasons:         []string{},
@@ -279,10 +392,52 @@ func buildValidationHealthDimension(validation *ValidationReport) TrustDimension
 	return dimension
 }
 
+func buildChangeMagnitudeDimension(impact *ImpactReport, shortStat shortStatMetrics) TrustDimension {
+	dimension := TrustDimension{
+		Code:            "change_magnitude",
+		Label:           "Change Magnitude",
+		Score:           10,
+		Max:             10,
+		Reasons:         []string{},
+		RequiredActions: []string{},
+	}
+	riskTier := ""
+	if impact != nil {
+		riskTier = strings.TrimSpace(impact.RiskTier)
+	}
+	filesChanged := effectiveFilesChanged(impact, nil, shortStat)
+	if filesChanged >= 15 {
+		dimension.Score -= 2
+		dimension.Reasons = append(dimension.Reasons, fmt.Sprintf("large file surface (%d files changed)", filesChanged))
+		dimension.RequiredActions = append(dimension.RequiredActions, "Split or justify broad change surface for reviewer confidence.")
+	}
+	if filesChanged >= 25 {
+		dimension.Score -= 2
+		dimension.Reasons = append(dimension.Reasons, "very large file surface (>=25 files changed)")
+		dimension.RequiredActions = append(dimension.RequiredActions, "Consider splitting intent into stacked CRs for reviewability.")
+	}
+	if shortStat.Insertions >= 500 {
+		dimension.Score -= 2
+		dimension.Reasons = append(dimension.Reasons, fmt.Sprintf("high insertion volume (%d)", shortStat.Insertions))
+		dimension.RequiredActions = append(dimension.RequiredActions, "Provide explicit rationale for high insertion volume.")
+	}
+	if shortStat.Deletions >= 200 {
+		dimension.Score -= 1
+		dimension.Reasons = append(dimension.Reasons, fmt.Sprintf("high deletion volume (%d)", shortStat.Deletions))
+		dimension.RequiredActions = append(dimension.RequiredActions, "Call out rollback considerations for high deletion volume.")
+	}
+	if strings.EqualFold(riskTier, "high") && filesChanged >= 15 {
+		dimension.Score -= 2
+		dimension.Reasons = append(dimension.Reasons, "high-risk tier with broad change surface")
+		dimension.RequiredActions = append(dimension.RequiredActions, "Add focused reviewer notes for high-risk broad-surface changes.")
+	}
+	return dimension
+}
+
 func buildTestEvidenceDimension(contract model.Contract, diff *diffSummary) TrustDimension {
 	dimension := TrustDimension{
 		Code:            "test_evidence",
-		Label:           "Test Evidence",
+		Label:           "Test Touch Signals",
 		Score:           10,
 		Max:             10,
 		Reasons:         []string{},
@@ -308,6 +463,42 @@ func buildTestEvidenceDimension(contract model.Contract, diff *diffSummary) Trus
 		dimension.RequiredActions = append(dimension.RequiredActions, "Provide test evidence when dependency files change.")
 	}
 	return dimension
+}
+
+func hasSpecializedHighRiskEvidence(impact *ImpactReport, diff *diffSummary) bool {
+	testPaths := map[string]struct{}{}
+	if impact != nil {
+		for _, path := range impact.TestFiles {
+			trimmed := strings.TrimSpace(path)
+			if trimmed != "" {
+				testPaths[trimmed] = struct{}{}
+			}
+		}
+	}
+	if diff != nil {
+		for _, path := range diff.TestFiles {
+			trimmed := strings.TrimSpace(path)
+			if trimmed != "" {
+				testPaths[trimmed] = struct{}{}
+			}
+		}
+	}
+	for path := range testPaths {
+		normalized := strings.ToLower(strings.ReplaceAll(strings.TrimSpace(path), "\\", "/"))
+		switch {
+		case strings.Contains(normalized, "/integration/"):
+			return true
+		case strings.HasSuffix(normalized, "_integration_test.go"):
+			return true
+		case strings.Contains(normalized, "worktree"):
+			return true
+		case strings.Contains(normalized, "doctor"):
+			return true
+		case strings.Contains(normalized, "repair"):
+			return true
+		}
+	}
+	return false
 }
 
 func hasDependencyOrTestEvidence(impact *ImpactReport, diff *diffSummary) bool {

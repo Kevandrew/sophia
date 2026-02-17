@@ -101,6 +101,7 @@ func printTrustSection(cmd *cobra.Command, trust *service.TrustReport) {
 		}
 	}
 	printStringSection(cmd, "Required Actions", trust.RequiredActions)
+	printStringSection(cmd, "Advisories", trust.Advisories)
 	if strings.TrimSpace(trust.Summary) != "" {
 		fmt.Fprintf(cmd.OutOrStdout(), "\nSummary:\n%s\n", trust.Summary)
 	}
