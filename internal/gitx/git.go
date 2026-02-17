@@ -64,6 +64,33 @@ func (c *Client) InRepo() bool {
 }
 
 func (c *Client) InitRepo() error {
+func (c *Client) RepoRoot() (string, error) {
+	out, err := c.run("rev-parse", "--show-toplevel")
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(out), nil
+}
+
+func (c *Client) GitCommonDir() (string, error) {
+	out, err := c.run("rev-parse", "--git-common-dir")
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(out), nil
+}
+
+func (c *Client) GitCommonDirAbs() (string, error) {
+	gitCommonDir, err := c.GitCommonDir()
+	if err != nil {
+		return "", err
+	}
+	if filepath.IsAbs(gitCommonDir) {
+		return gitCommonDir, nil
+	}
+	return filepath.Join(c.WorkDir, gitCommonDir), nil
+}
+
 	_, err := c.run("init")
 	return err
 }
