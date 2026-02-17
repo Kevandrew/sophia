@@ -128,6 +128,7 @@ func newCRWhyCmd() *cobra.Command {
 			if asJSON {
 				return writeJSONSuccess(cmd, map[string]any{
 					"cr_id":               why.CRID,
+					"cr_uid":              why.CRUID,
 					"effective_why":       why.EffectiveWhy,
 					"source":              why.Source,
 					"description":         why.Description,
@@ -184,6 +185,7 @@ func newCRStatusCmd() *cobra.Command {
 			if asJSON {
 				return writeJSONSuccess(cmd, map[string]any{
 					"id":     status.ID,
+					"uid":    status.UID,
 					"title":  status.Title,
 					"status": status.Status,
 					"base":   status.BaseBranch,
@@ -661,6 +663,7 @@ func newCRCurrentCmd() *cobra.Command {
 					"branch": ctx.Branch,
 					"cr": map[string]any{
 						"id":          ctx.CR.ID,
+						"uid":         ctx.CR.UID,
 						"title":       ctx.CR.Title,
 						"status":      ctx.CR.Status,
 						"base_branch": ctx.CR.BaseBranch,
@@ -1247,6 +1250,7 @@ func impactToJSONMap(impact *service.ImpactReport) map[string]any {
 	}
 	return map[string]any{
 		"cr_id":                  impact.CRID,
+		"cr_uid":                 impact.CRUID,
 		"files_changed":          impact.FilesChanged,
 		"new_files":              impact.NewFiles,
 		"modified_files":         impact.ModifiedFiles,
@@ -1280,6 +1284,7 @@ func reviewToJSONMap(review *service.Review) map[string]any {
 	return map[string]any{
 		"cr": map[string]any{
 			"id":          review.CR.ID,
+			"uid":         review.CR.UID,
 			"title":       review.CR.Title,
 			"status":      review.CR.Status,
 			"base_branch": review.CR.BaseBranch,

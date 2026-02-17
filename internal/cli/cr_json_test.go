@@ -74,9 +74,9 @@ func TestCRJSONCommandsReturnEnvelope(t *testing.T) {
 		{args: []string{"cr", "current", "--json"}, keys: []string{"branch", "cr"}},
 		{args: []string{"cr", "task", "list", "1", "--json"}, keys: []string{"cr_id", "tasks"}},
 		{args: []string{"cr", "task", "contract", "show", "1", "1", "--json"}, keys: []string{"cr_id", "task_id", "task_contract"}},
-		{args: []string{"cr", "why", "1", "--json"}, keys: []string{"effective_why", "source"}},
-		{args: []string{"cr", "status", "1", "--json"}, keys: []string{"id", "title", "working_tree", "validation", "merge_blocked"}},
-		{args: []string{"cr", "impact", "1", "--json"}, keys: []string{"cr_id", "risk_tier", "risk_score"}},
+		{args: []string{"cr", "why", "1", "--json"}, keys: []string{"cr_uid", "effective_why", "source"}},
+		{args: []string{"cr", "status", "1", "--json"}, keys: []string{"id", "uid", "title", "working_tree", "validation", "merge_blocked"}},
+		{args: []string{"cr", "impact", "1", "--json"}, keys: []string{"cr_id", "cr_uid", "risk_tier", "risk_score"}},
 		{args: []string{"cr", "review", "1", "--json"}, keys: []string{"cr", "impact", "validation_errors", "validation_warnings"}},
 		{args: []string{"cr", "validate", "1", "--json"}, keys: []string{"valid", "errors", "warnings", "impact"}},
 	}
@@ -95,6 +95,34 @@ func TestCRJSONCommandsReturnEnvelope(t *testing.T) {
 				t.Fatalf("%q expected data key %q in %#v", strings.Join(tc.args, " "), key, env.Data)
 			}
 		}
+	}
+
+	out, _, runErr := runCLI(t, dir, "cr", "current", "--json")
+	if runErr != nil {
+		t.Fatalf("cr current --json error = %v\noutput=%s", runErr, out)
+	}
+	currentEnv := decodeEnvelope(t, out)
+	crData, ok := currentEnv.Data["cr"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected current.cr object, got %#v", currentEnv.Data["cr"])
+	}
+	uid, _ := crData["uid"].(string)
+	if strings.TrimSpace(uid) == "" {
+		t.Fatalf("expected current.cr.uid to be non-empty, got %#v", crData)
+	}
+
+	out, _, runErr = runCLI(t, dir, "cr", "review", "1", "--json")
+	if runErr != nil {
+		t.Fatalf("cr review --json error = %v\noutput=%s", runErr, out)
+	}
+	reviewEnv := decodeEnvelope(t, out)
+	reviewCR, ok := reviewEnv.Data["cr"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected review.cr object, got %#v", reviewEnv.Data["cr"])
+	}
+	reviewUID, _ := reviewCR["uid"].(string)
+	if strings.TrimSpace(reviewUID) == "" {
+		t.Fatalf("expected review.cr.uid to be non-empty, got %#v", reviewCR)
 	}
 }
 
