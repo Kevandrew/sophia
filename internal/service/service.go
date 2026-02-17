@@ -18,6 +18,9 @@ var (
 	ErrWorkingTreeDirty       = errors.New("working tree is dirty")
 	ErrNoCRChanges            = errors.New("no CR changes provided")
 	ErrCRValidationFailed     = errors.New("cr validation failed")
+	ErrMergeConflict          = errors.New("merge conflict")
+	ErrMergeInProgress        = errors.New("merge in progress")
+	ErrNoMergeInProgress      = errors.New("no merge in progress")
 	ErrParentCRNotMerged      = errors.New("parent cr is not merged")
 	ErrParentCRRequired       = errors.New("cr has no parent")
 	ErrAlreadyRedacted        = errors.New("target is already redacted")
@@ -70,6 +73,26 @@ type Review struct {
 	DeletedFiles       []string
 	TestFiles          []string
 	DependencyFiles    []string
+}
+
+type MergeConflictError struct {
+	CRID          int
+	BaseBranch    string
+	CRBranch      string
+	WorktreePath  string
+	ConflictFiles []string
+	Cause         error
+}
+
+type MergeInProgressError struct {
+	WorktreePath  string
+	ConflictFiles []string
+	Summary       string
+}
+
+type NoMergeInProgressError struct {
+	WorktreePath string
+	Summary      string
 }
 
 type DoctorFinding struct {
@@ -160,6 +183,19 @@ type CRStatusView struct {
 	RiskScore             int
 	MergeBlocked          bool
 	MergeBlockers         []string
+}
+
+type MergeStatusView struct {
+	CRID          int
+	CRUID         string
+	BaseBranch    string
+	CRBranch      string
+	WorktreePath  string
+	InProgress    bool
+	ConflictFiles []string
+	TargetMatches bool
+	MergeHead     string
+	Advice        []string
 }
 
 type TaskDelegationView struct {
