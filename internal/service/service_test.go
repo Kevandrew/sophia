@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"sophia/internal/model"
 )
 
 func TestInitInNonGitDirectoryInitializesGitAndSophia(t *testing.T) {
@@ -80,6 +82,33 @@ func TestInitDefaultsToLocalMetadataAndGitIgnoreEntry(t *testing.T) {
 	}
 	if strings.Count(string(gitignore2), ".sophia/") != 1 {
 		t.Fatalf("expected single .sophia/ entry, got:\n%s", string(gitignore2))
+	}
+}
+
+func TestAddCRAlignsNextIDWithHistory(t *testing.T) {
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	runGit(t, dir, "config", "user.name", "Test User")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+
+	// Simulate existing merged CR history in Git while local index is stale.
+	runGit(t, dir, "commit", "--allow-empty", "-m", "[CR-4] Existing merged intent", "-m", "Sophia-CR: 4\nSophia-Intent: Existing merged intent\nSophia-Tasks: 0 completed")
+	if err := svc.store.SaveIndex(model.Index{NextID: 1}); err != nil {
+		t.Fatalf("SaveIndex() error = %v", err)
+	}
+
+	cr, err := svc.AddCR("New intent", "should pick id 5")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	if cr.ID != 5 {
+		t.Fatalf("expected CR id 5, got %d", cr.ID)
+	}
+	if cr.Branch != "sophia/cr-5" {
+		t.Fatalf("expected branch sophia/cr-5, got %q", cr.Branch)
 	}
 }
 

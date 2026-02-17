@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"sophia/internal/model"
 )
 
 func TestDoctorFindingsForUntiedBaseCommitAndDirtyWorktree(t *testing.T) {
@@ -410,6 +412,61 @@ func TestLogFallsBackToGitWhenLocalMetadataMissing(t *testing.T) {
 	}
 	if entries[0].ID != cr.ID || entries[0].Status != "merged" {
 		t.Fatalf("unexpected fallback entry: %#v", entries[0])
+	}
+}
+
+func TestRepairFromGitRebuildsCRsAndRealignsIndex(t *testing.T) {
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	runGit(t, dir, "config", "user.name", "Test User")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+
+	runGit(t, dir, "commit", "--allow-empty",
+		"-m", "[CR-2] Existing intent",
+		"-m", "Intent:\nRecovered why\n\nSubtasks:\n- [x] #1 Do thing\n\nNotes:\n- recovered note\n\nMetadata:\n- actor: Test User <test@example.com>\n- merged_at: 2026-02-17T00:00:00Z\n\nSophia-CR: 2\nSophia-Intent: Existing intent\nSophia-Tasks: 1 completed",
+	)
+
+	if err := svc.store.SaveIndex(model.Index{NextID: 1}); err != nil {
+		t.Fatalf("SaveIndex() error = %v", err)
+	}
+	if err := os.RemoveAll(filepath.Join(dir, ".sophia", "cr")); err != nil {
+		t.Fatalf("remove cr dir: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, ".sophia", "cr"), 0o755); err != nil {
+		t.Fatalf("recreate cr dir: %v", err)
+	}
+
+	report, err := svc.RepairFromGit("main", false)
+	if err != nil {
+		t.Fatalf("RepairFromGit() error = %v", err)
+	}
+	if report.Imported < 1 || report.HighestCRID < 2 || report.NextID < 3 {
+		t.Fatalf("unexpected repair report: %#v", report)
+	}
+
+	repaired, err := svc.store.LoadCR(2)
+	if err != nil {
+		t.Fatalf("LoadCR(2) error = %v", err)
+	}
+	if repaired.Status != "merged" || repaired.Title != "Existing intent" {
+		t.Fatalf("unexpected repaired CR: %#v", repaired)
+	}
+	if len(repaired.Notes) != 1 || repaired.Notes[0] != "recovered note" {
+		t.Fatalf("unexpected repaired notes: %#v", repaired.Notes)
+	}
+	if len(repaired.Subtasks) != 1 || repaired.Subtasks[0].Status != model.TaskStatusDone {
+		t.Fatalf("unexpected repaired subtasks: %#v", repaired.Subtasks)
+	}
+
+	nextCR, err := svc.AddCR("Next intent", "after repair")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	if nextCR.ID != 3 {
+		t.Fatalf("expected next CR id 3, got %d", nextCR.ID)
 	}
 }
 
