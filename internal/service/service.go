@@ -384,11 +384,11 @@ type parsedPatchChunk struct {
 }
 
 func New(root string) *Service {
-	return &Service{
-		store: store.New(root),
-		git:   gitx.New(root),
-		now:   time.Now,
+	svc := &Service{
+		now: time.Now,
 	}
+	svc.bootstrapRepoContext(root)
+	return svc
 }
 
 func (s *Service) Init(baseBranch, metadataMode string) (string, error) {
