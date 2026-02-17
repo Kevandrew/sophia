@@ -1086,6 +1086,7 @@ func newCRTaskDoneCmd() *cobra.Command {
 	var stageAll bool
 	var fromContract bool
 	var scopePaths []string
+	var patchFile string
 
 	cmd := &cobra.Command{
 		Use:   "done <cr-id> <task-id>",
@@ -1104,8 +1105,8 @@ func newCRTaskDoneCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if noCheckpoint && (stageAll || fromContract || len(scopePaths) > 0) {
-				return fmt.Errorf("--no-checkpoint cannot be combined with --from-contract, --path, or --all")
+			if noCheckpoint && (stageAll || fromContract || len(scopePaths) > 0 || strings.TrimSpace(patchFile) != "") {
+				return fmt.Errorf("--no-checkpoint cannot be combined with --from-contract, --path, --patch-file, or --all")
 			}
 			if !noCheckpoint {
 				modeCount := 0
@@ -1118,11 +1119,14 @@ func newCRTaskDoneCmd() *cobra.Command {
 				if len(scopePaths) > 0 {
 					modeCount++
 				}
+				if strings.TrimSpace(patchFile) != "" {
+					modeCount++
+				}
 				if modeCount > 1 {
-					return fmt.Errorf("exactly one checkpoint scope mode is required: --from-contract, --path <file> (repeatable), or --all")
+					return fmt.Errorf("exactly one checkpoint scope mode is required: --from-contract, --path <file> (repeatable), --patch-file <file>, or --all")
 				}
 				if modeCount == 0 {
-					return fmt.Errorf("checkpoint scope required: use --from-contract, --path <file> (repeatable), or --all")
+					return fmt.Errorf("checkpoint scope required: use --from-contract, --path <file> (repeatable), --patch-file <file>, or --all")
 				}
 			}
 			opts := service.DoneTaskOptions{
@@ -1130,6 +1134,7 @@ func newCRTaskDoneCmd() *cobra.Command {
 				StageAll:     stageAll,
 				FromContract: fromContract,
 				Paths:        append([]string(nil), scopePaths...),
+				PatchFile:    strings.TrimSpace(patchFile),
 			}
 			sha, err := svc.DoneTaskWithCheckpoint(crID, taskID, opts)
 			if err != nil {
@@ -1148,6 +1153,7 @@ func newCRTaskDoneCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&stageAll, "all", false, "Checkpoint by staging all changes explicitly")
 	cmd.Flags().BoolVar(&fromContract, "from-contract", false, "Checkpoint by staging changed files that match task contract scope")
 	cmd.Flags().StringArrayVar(&scopePaths, "path", nil, "Checkpoint scope path (repo-relative file, repeatable)")
+	cmd.Flags().StringVar(&patchFile, "patch-file", "", "Checkpoint scope patch manifest file")
 	return cmd
 }
 
