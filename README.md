@@ -238,7 +238,36 @@ Shows:
 * ID
 * Title
 * Status
+* Risk tier
 * Branch
+
+Filter options:
+
+```
+sophia cr list --status in_progress
+sophia cr list --risk-tier high
+sophia cr list --scope internal/
+sophia cr list --text "search term"
+sophia cr list --json
+```
+
+---
+
+### Search CRs
+
+```
+sophia cr search <query>
+```
+
+Full-text search across CR title, description, notes, and contract fields. Supports the same filters as `cr list`.
+
+Examples:
+
+```
+sophia cr search "billing"
+sophia cr search --status in_progress --risk-tier high
+sophia cr search "index" --json
+```
 
 ---
 
