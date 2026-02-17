@@ -51,6 +51,103 @@ func newCRAddCmd() *cobra.Command {
 	return cmd
 }
 
+func newCRApplyCmd() *cobra.Command {
+	var filePath string
+	var dryRun bool
+	var keepFile bool
+	var asJSON bool
+
+	cmd := &cobra.Command{
+		Use:   "apply",
+		Short: "Apply a strict YAML CR plan",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if strings.TrimSpace(filePath) == "" {
+				err := fmt.Errorf("--file is required")
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
+				return err
+			}
+			svc, err := newService()
+			if err != nil {
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
+				return err
+			}
+			result, err := svc.ApplyCRPlan(service.ApplyCRPlanOptions{
+				FilePath: filePath,
+				DryRun:   dryRun,
+				KeepFile: keepFile,
+			})
+			if err != nil {
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
+				return err
+			}
+			if asJSON {
+				return writeJSONSuccess(cmd, applyPlanToJSONMap(result))
+			}
+
+			mode := "apply"
+			if dryRun {
+				mode = "dry-run"
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "CR plan %s completed for %s\n", mode, result.FilePath)
+			fmt.Fprintf(cmd.OutOrStdout(), "Consumed: %t\n", result.Consumed)
+			fmt.Fprintln(cmd.OutOrStdout(), "\nPlanned Operations:")
+			if len(result.PlannedOperations) == 0 {
+				fmt.Fprintln(cmd.OutOrStdout(), "- (none)")
+			} else {
+				for _, op := range result.PlannedOperations {
+					fmt.Fprintf(cmd.OutOrStdout(), "- %s\n", op)
+				}
+			}
+			fmt.Fprintln(cmd.OutOrStdout(), "\nCreated CRs:")
+			if len(result.CreatedCRs) == 0 {
+				fmt.Fprintln(cmd.OutOrStdout(), "- (none)")
+			} else {
+				for _, created := range result.CreatedCRs {
+					fmt.Fprintf(cmd.OutOrStdout(), "- key=%s id=%d uid=%s branch=%s parent_cr_id=%d\n", created.Key, created.ID, nonEmpty(created.UID, "-"), created.Branch, created.ParentCRID)
+				}
+			}
+			fmt.Fprintln(cmd.OutOrStdout(), "\nCreated Tasks:")
+			if len(result.CreatedTasks) == 0 {
+				fmt.Fprintln(cmd.OutOrStdout(), "- (none)")
+			} else {
+				for _, created := range result.CreatedTasks {
+					fmt.Fprintf(cmd.OutOrStdout(), "- cr_key=%s task_key=%s task_id=%d\n", created.CRKey, created.TaskKey, created.TaskID)
+				}
+			}
+			fmt.Fprintln(cmd.OutOrStdout(), "\nDelegations:")
+			if len(result.Delegations) == 0 {
+				fmt.Fprintln(cmd.OutOrStdout(), "- (none)")
+			} else {
+				for _, delegation := range result.Delegations {
+					fmt.Fprintf(cmd.OutOrStdout(), "- parent_cr_key=%s parent_task_key=%s child_cr_key=%s child_task_id=%d\n", delegation.ParentCRKey, delegation.ParentTaskKey, delegation.ChildCRKey, delegation.ChildTaskID)
+				}
+			}
+			fmt.Fprintln(cmd.OutOrStdout(), "\nWarnings:")
+			if len(result.Warnings) == 0 {
+				fmt.Fprintln(cmd.OutOrStdout(), "- (none)")
+			} else {
+				for _, warning := range result.Warnings {
+					fmt.Fprintf(cmd.OutOrStdout(), "- %s\n", warning)
+				}
+			}
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&filePath, "file", "", "Path to YAML plan file")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Validate and preview plan without mutating repository state")
+	cmd.Flags().BoolVar(&keepFile, "keep-file", false, "Keep source plan file after successful apply")
+	cmd.Flags().BoolVar(&asJSON, "json", false, "Output in JSON format")
+	return cmd
+}
+
 func newCRChildCmd() *cobra.Command {
 	childCmd := &cobra.Command{
 		Use:   "child",
