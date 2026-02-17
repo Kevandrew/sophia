@@ -44,8 +44,9 @@ Sophia CLI is a thin Git wrapper that:
 3. Stores structured intent metadata locally in `.sophia/`
 4. Tracks task-level progress and checkpoint commits
 5. Generates intent-rich CR commits and task checkpoint commits
-6. Supports auditable metadata amendment/redaction and history inspection
-7. Formats review/log output around intent, not diffs
+6. Enforces structured intent contracts and deterministic impact validation
+7. Supports auditable metadata amendment/redaction and history inspection
+8. Formats review/log output around intent, not diffs
 
 It does **not**:
 
@@ -187,6 +188,38 @@ sophia cr task done <cr-id> <task-id> --all
 ```
 
 Chunk/hunk scoping is planned for CR-8.
+Chunk/hunk scoping is planned for CR-9.
+
+---
+
+### Contract Management
+
+```
+sophia cr contract set <id> --why "..." --scope internal/service --scope cmd --non-goal "..." --invariant "..." --blast-radius "..." --test-plan "..." --rollback-plan "..."
+sophia cr contract show <id>
+```
+
+Behavior:
+
+* Stores structured intent contract fields in CR metadata
+* Supports partial updates and records `contract_updated` audit events
+* Uses contract scope prefixes for drift checks during validation/merge
+
+---
+
+### Impact and Validation
+
+```
+sophia cr impact <id>
+sophia cr validate <id>
+```
+
+Behavior:
+
+* `impact` computes deterministic risk tier/score and blast-radius signals from diff metadata
+* `validate` enforces required contract fields and scope-drift policy
+* `validate` emits blocking `Errors` and non-blocking `Warnings`
+* `validate` records a `cr_validated` audit event
 
 ---
 
@@ -217,6 +250,7 @@ sophia cr merge <id>
 Behavior:
 
 * Creates an intent-rich merge commit into base (non-linear Git graph)
+* Runs CR validation first and blocks merge on validation errors by default
 * Generates a structured commit message:
 
 ```
@@ -243,6 +277,11 @@ Sophia-Tasks: 2 completed
 
 * Mark CR as merged in local metadata
 * Delete branch by default (`--keep-branch` to retain)
+* Supports emergency audited bypass:
+
+```
+sophia cr merge <id> --override-reason "hotfix required for production outage"
+```
 
 ---
 
@@ -257,6 +296,10 @@ sophia cr current
 sophia cr switch <id>
 sophia cr reopen <id>
 sophia cr edit <id> --title "..."
+sophia cr contract set <id> --why "..."
+sophia cr contract show <id>
+sophia cr impact <id>
+sophia cr validate <id>
 sophia cr redact <id> --note-index 1 --reason "..."
 sophia cr history <id>
 ```
@@ -266,6 +309,7 @@ sophia cr history <id>
 * `repair` rebuilds missing local CR metadata from Git history and realigns CR IDs
 * `hook install` adds a pre-commit guard against direct commits on the base branch
 * `current/switch/reopen` supports quick branch context moves
+* `contract/impact/validate` provide intent integrity and blast-radius review context
 * `edit/redact/history` supports retroactive metadata hygiene with audit-safe events
 
 ---

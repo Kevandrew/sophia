@@ -8,11 +8,13 @@
 
 Recommended daily flow (intent-first):
 1. `sophia cr add "<title>" --description "<why>"`
-2. `sophia cr task add <id> "<subtask>"`
-3. implement on `sophia/cr-<id>`
-4. `sophia cr task done <id> <task-id> --path <file> [--path <file>...]` (default checkpoint commit with explicit scope)
-5. `sophia cr review <id>`
-6. `sophia cr merge <id>`
+2. `sophia cr contract set <id> --why "..." --scope <prefix> ...`
+3. `sophia cr task add <id> "<subtask>"`
+4. implement on `sophia/cr-<id>`
+5. `sophia cr task done <id> <task-id> --path <file> [--path <file>...]` (default checkpoint commit with explicit scope)
+6. `sophia cr validate <id>`
+7. `sophia cr review <id>`
+8. `sophia cr merge <id>`
 
 ## Coding Style & Naming Conventions
 - Language: Go (module `sophia`).
@@ -38,9 +40,11 @@ Recommended daily flow (intent-first):
   - Maintenance commits: `chore: ...`
   - Feature commits: `feat: ...`
 - Use Sophia as the primary workflow interface (`cr`, `task`, `note`, `review`, `merge`, `repair`).
+- Use contract and risk commands (`cr contract`, `cr impact`, `cr validate`) before merge.
 - Task completion creates checkpoint commits via `sophia cr task done` and now requires explicit scope (`--path` or `--all`).
 - Use `--no-checkpoint` for metadata-only completion; use `--all` only when full-stage behavior is intended.
 - Pre-staged index changes are rejected before checkpointing to prevent accidental scope drift.
+- Merge is validation-gated; use `--override-reason` only for audited emergency bypasses.
 - PRs should include:
   - intent summary (what/why)
   - key command outputs (`go test`, `go vet`, `sophia cr review`)
@@ -50,4 +54,4 @@ Recommended daily flow (intent-first):
 - `.sophia/` is local-first workflow state and is ignored in Git by default.
 - If local metadata is missing/out-of-sync, run `sophia repair`.
 - `_docs/` is local/internal and ignored via `.gitignore`.
-- Current milestone: CR-7 (task-scoped checkpoint staging, file-level).
+- Current milestone: CR-8 (intent contract, impact validation, merge guardrails).
