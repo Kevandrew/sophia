@@ -75,6 +75,37 @@ func printImpactSection(cmd *cobra.Command, impact *service.ImpactReport) {
 	}
 }
 
+func printTrustSection(cmd *cobra.Command, trust *service.TrustReport) {
+	fmt.Fprintln(cmd.OutOrStdout(), "\nTrust:")
+	if trust == nil {
+		fmt.Fprintln(cmd.OutOrStdout(), "- (none)")
+		return
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "Verdict: %s\n", nonEmpty(strings.TrimSpace(trust.Verdict), "-"))
+	fmt.Fprintf(cmd.OutOrStdout(), "Score: %d/%d\n", trust.Score, trust.Max)
+	fmt.Fprintf(cmd.OutOrStdout(), "Advisory Only: %t\n", trust.AdvisoryOnly)
+	printStringSection(cmd, "Hard Failures", trust.HardFailures)
+	fmt.Fprintln(cmd.OutOrStdout(), "\nDimensions:")
+	if len(trust.Dimensions) == 0 {
+		fmt.Fprintln(cmd.OutOrStdout(), "- (none)")
+	} else {
+		for _, dimension := range trust.Dimensions {
+			label := nonEmpty(strings.TrimSpace(dimension.Label), dimension.Code)
+			fmt.Fprintf(cmd.OutOrStdout(), "- [%s] %s: %d/%d\n", dimension.Code, label, dimension.Score, dimension.Max)
+			if len(dimension.Reasons) > 0 {
+				fmt.Fprintf(cmd.OutOrStdout(), "  reasons: %s\n", strings.Join(dimension.Reasons, "; "))
+			}
+			if len(dimension.RequiredActions) > 0 {
+				fmt.Fprintf(cmd.OutOrStdout(), "  required_actions: %s\n", strings.Join(dimension.RequiredActions, "; "))
+			}
+		}
+	}
+	printStringSection(cmd, "Required Actions", trust.RequiredActions)
+	if strings.TrimSpace(trust.Summary) != "" {
+		fmt.Fprintf(cmd.OutOrStdout(), "\nSummary:\n%s\n", trust.Summary)
+	}
+}
+
 func parsePositiveIntArg(raw string, name string) (int, error) {
 	id, err := strconv.Atoi(raw)
 	if err != nil || id <= 0 {
