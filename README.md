@@ -439,12 +439,13 @@ Displays:
 * Files changed (`git diff --name-only`)
 * Insertions/deletions
 * Test file changes (basic detection)
-* Deterministic trust envelope (`trusted | needs_attention | untrusted`) with score, hard-fail reasons, dimension breakdown, and required actions
+* Deterministic trust envelope (`trusted | needs_attention | untrusted`) with score, hard-fail reasons, dimension breakdown, required actions, and advisories
 * Trust is a deterministic review-confidence model, not a semantic correctness proof
 * Trust is advisory-only in v1 (no merge gating change); verdict thresholds use score ratio: `trusted >= 0.85`, `needs_attention 0.60..0.849...`, `untrusted < 0.60` or any hard-fail
 * Hard-fail is defined as either `validation errors > 0` or missing required CR contract fields; the missing-fields check is intentionally listed separately for explicit reviewer consistency, even though it usually overlaps validation errors
 * Evidence signals are derived from scope drift, validation warnings/errors, task checkpoint presence/missing proof commits, tests touched, dependency files touched, delegated-task blockers/pending state, and deterministic change-magnitude penalties
-* High-risk CRs require specialized evidence (integration/worktree/doctor/repair test coverage signals) before `trusted` is allowed
+* `required_actions` are reserved for gating/failure conditions; non-blocking guidance is emitted under `advisories`
+* High-risk specialized evidence (integration/worktree/doctor/repair coverage signals) is advisory-only guidance, not a trust gate
 * For merged CRs whose branch was deleted, review diff context is derived from merge metadata instead of live branch diff
 * Supports machine-readable output via `--json`
 
