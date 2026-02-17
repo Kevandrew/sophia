@@ -2,6 +2,8 @@ package service
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -28,7 +30,7 @@ var (
 	ErrParentCRRequired       = errors.New("cr has no parent")
 	ErrAlreadyRedacted        = errors.New("target is already redacted")
 	ErrNoTaskChanges          = errors.New("no task checkpoint changes found")
-	ErrTaskScopeRequired      = errors.New("checkpoint scope is required (use --path or --all)")
+	ErrTaskScopeRequired      = errors.New("checkpoint scope is required (use --patch-file, --path, --from-contract, or --all)")
 	ErrInvalidTaskScope       = errors.New("invalid task checkpoint scope")
 	ErrPreStagedChanges       = errors.New("staged changes already exist before checkpoint")
 	ErrTaskContractIncomplete = errors.New("task contract is incomplete")
@@ -45,6 +47,7 @@ var (
 	footerBaseRefPattern = regexp.MustCompile(`(?m)^Sophia-Base-Ref:\s*(.+)\s*$`)
 	footerBaseSHApattern = regexp.MustCompile(`(?m)^Sophia-Base-Commit:\s*(\S+)\s*$`)
 	footerParentPattern  = regexp.MustCompile(`(?m)^Sophia-Parent-CR:\s*(\d+)\s*$`)
+	hunkHeaderPattern    = regexp.MustCompile(`^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@`)
 	footerIntentPattern  = regexp.MustCompile(`(?m)^Sophia-Intent:\s*(.+)\s*$`)
 )
 
@@ -190,6 +193,7 @@ type DoneTaskOptions struct {
 	StageAll     bool
 	Paths        []string
 	FromContract bool
+	PatchFile    string
 }
 
 type ContractPatch struct {
@@ -249,6 +253,18 @@ type diffSummary struct {
 	DeletedFiles    []string
 	TestFiles       []string
 	DependencyFiles []string
+}
+
+type parsedPatchChunk struct {
+	ID       string
+	Path     string
+	OldStart int
+	OldLines int
+	NewStart int
+	NewLines int
+	Header   string
+	Body     string
+	Preview  string
 }
 
 func New(root string) *Service {
@@ -1260,6 +1276,8 @@ func (s *Service) DoneTaskWithCheckpoint(crID, taskID int, opts DoneTaskOptions)
 		}
 
 		checkpointScope := []string{}
+		checkpointChunks := []model.CheckpointChunk{}
+		scopeMode := ""
 		if opts.StageAll {
 			dirty, _, dirtyErr := s.workingTreeDirtySummary()
 			if dirtyErr != nil {
@@ -1272,6 +1290,7 @@ func (s *Service) DoneTaskWithCheckpoint(crID, taskID int, opts DoneTaskOptions)
 				return "", err
 			}
 			checkpointScope = []string{"*"}
+			scopeMode = "all"
 		} else if opts.FromContract {
 			normalizedScope, normalizeErr := s.normalizeContractScopePrefixes(cr.Subtasks[taskIndex].Contract.Scope)
 			if normalizeErr != nil {
@@ -1285,6 +1304,39 @@ func (s *Service) DoneTaskWithCheckpoint(crID, taskID int, opts DoneTaskOptions)
 				return "", err
 			}
 			checkpointScope = paths
+			scopeMode = "task_contract"
+		} else if strings.TrimSpace(opts.PatchFile) != "" {
+			patchPath, pathErr := s.normalizePatchFilePath(opts.PatchFile)
+			if pathErr != nil {
+				return "", pathErr
+			}
+			patchContent, readErr := os.ReadFile(patchPath)
+			if readErr != nil {
+				return "", fmt.Errorf("read patch file %q: %w", opts.PatchFile, readErr)
+			}
+			parsedChunks, parseErr := parsePatchChunks(string(patchContent))
+			if parseErr != nil {
+				return "", fmt.Errorf("%w: parse patch file: %v", ErrInvalidTaskScope, parseErr)
+			}
+			if len(parsedChunks) == 0 {
+				return "", fmt.Errorf("%w: patch file %q contains no hunks", ErrNoTaskChanges, opts.PatchFile)
+			}
+			if err := s.git.ApplyPatchToIndex(patchPath); err != nil {
+				return "", err
+			}
+			checkpointScope = checkpointChunkPaths(parsedChunks)
+			checkpointChunks = make([]model.CheckpointChunk, 0, len(parsedChunks))
+			for _, chunk := range parsedChunks {
+				checkpointChunks = append(checkpointChunks, model.CheckpointChunk{
+					ID:       chunk.ID,
+					Path:     chunk.Path,
+					OldStart: chunk.OldStart,
+					OldLines: chunk.OldLines,
+					NewStart: chunk.NewStart,
+					NewLines: chunk.NewLines,
+				})
+			}
+			scopeMode = "patch_manifest"
 		} else {
 			normalizedPaths, normalizeErr := s.normalizeTaskScopePaths(opts.Paths)
 			if normalizeErr != nil {
@@ -1309,6 +1361,7 @@ func (s *Service) DoneTaskWithCheckpoint(crID, taskID int, opts DoneTaskOptions)
 				return "", err
 			}
 			checkpointScope = normalizedPaths
+			scopeMode = "path"
 		}
 
 		hasStaged, stagedErr := s.git.HasStagedChanges()
@@ -1319,7 +1372,7 @@ func (s *Service) DoneTaskWithCheckpoint(crID, taskID int, opts DoneTaskOptions)
 			return "", fmt.Errorf("%w: no staged changes after applying scope", ErrNoTaskChanges)
 		}
 
-		commitMessage := buildTaskCheckpointMessage(cr, &cr.Subtasks[taskIndex])
+		commitMessage := buildTaskCheckpointMessage(cr, &cr.Subtasks[taskIndex], scopeMode, len(checkpointChunks))
 		if err := s.git.Commit(commitMessage); err != nil {
 			return "", err
 		}
@@ -1332,6 +1385,7 @@ func (s *Service) DoneTaskWithCheckpoint(crID, taskID int, opts DoneTaskOptions)
 		cr.Subtasks[taskIndex].CheckpointAt = now
 		cr.Subtasks[taskIndex].CheckpointMessage = commitMessage
 		cr.Subtasks[taskIndex].CheckpointScope = append([]string(nil), checkpointScope...)
+		cr.Subtasks[taskIndex].CheckpointChunks = append([]model.CheckpointChunk(nil), checkpointChunks...)
 		cr.Events = append(cr.Events, model.Event{
 			TS:      now,
 			Actor:   actor,
@@ -1346,6 +1400,10 @@ func (s *Service) DoneTaskWithCheckpoint(crID, taskID int, opts DoneTaskOptions)
 		})
 		if opts.FromContract {
 			cr.Events[len(cr.Events)-1].Meta["scope_source"] = "task_contract"
+		}
+		if strings.TrimSpace(opts.PatchFile) != "" {
+			cr.Events[len(cr.Events)-1].Meta["scope_source"] = "patch_manifest"
+			cr.Events[len(cr.Events)-1].Meta["chunk_count"] = strconv.Itoa(len(checkpointChunks))
 		}
 	}
 
@@ -2089,7 +2147,7 @@ func completedTasks(tasks []model.Subtask) int {
 	return count
 }
 
-func buildTaskCheckpointMessage(cr *model.CR, task *model.Subtask) string {
+func buildTaskCheckpointMessage(cr *model.CR, task *model.Subtask, scopeMode string, chunkCount int) string {
 	taskType := inferTaskCommitType(task.Title)
 	subject := fmt.Sprintf("%s(cr-%d/task-%d): %s", taskType, cr.ID, task.ID, strings.TrimSpace(task.Title))
 	var b strings.Builder
@@ -2103,6 +2161,12 @@ func buildTaskCheckpointMessage(cr *model.CR, task *model.Subtask) string {
 	fmt.Fprintf(&b, "Sophia-Base-Commit: %s\n", strings.TrimSpace(cr.BaseCommit))
 	if cr.ParentCRID > 0 {
 		fmt.Fprintf(&b, "Sophia-Parent-CR: %d\n", cr.ParentCRID)
+	}
+	if strings.TrimSpace(scopeMode) != "" {
+		fmt.Fprintf(&b, "Sophia-Task-Scope-Mode: %s\n", strings.TrimSpace(scopeMode))
+	}
+	if strings.TrimSpace(scopeMode) == "patch_manifest" {
+		fmt.Fprintf(&b, "Sophia-Task-Chunk-Count: %d\n", chunkCount)
 	}
 	fmt.Fprintf(&b, "Sophia-Task: %d\n", task.ID)
 	fmt.Fprintf(&b, "Sophia-Intent: %s\n", strings.TrimSpace(cr.Title))
@@ -2970,8 +3034,8 @@ func dedupeStrings(values []string) []string {
 
 func validateDoneTaskOptions(opts DoneTaskOptions) error {
 	if !opts.Checkpoint {
-		if opts.StageAll || opts.FromContract || len(opts.Paths) > 0 {
-			return fmt.Errorf("%w: --no-checkpoint cannot be combined with --from-contract, --path, or --all", ErrInvalidTaskScope)
+		if opts.StageAll || opts.FromContract || len(opts.Paths) > 0 || strings.TrimSpace(opts.PatchFile) != "" {
+			return fmt.Errorf("%w: --no-checkpoint cannot be combined with --from-contract, --path, --patch-file, or --all", ErrInvalidTaskScope)
 		}
 		return nil
 	}
@@ -2985,8 +3049,11 @@ func validateDoneTaskOptions(opts DoneTaskOptions) error {
 	if len(opts.Paths) > 0 {
 		modes++
 	}
+	if strings.TrimSpace(opts.PatchFile) != "" {
+		modes++
+	}
 	if modes > 1 {
-		return fmt.Errorf("%w: exactly one of --all, --from-contract, or --path must be provided", ErrInvalidTaskScope)
+		return fmt.Errorf("%w: exactly one of --all, --from-contract, --path, or --patch-file must be provided", ErrInvalidTaskScope)
 	}
 	if modes == 0 {
 		return ErrTaskScopeRequired
@@ -3065,6 +3132,202 @@ func (s *Service) normalizeTaskScopePaths(paths []string) ([]string, error) {
 		normalized = append(normalized, cleaned)
 	}
 	return normalized, nil
+}
+
+func (s *Service) normalizePatchFilePath(raw string) (string, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return "", fmt.Errorf("%w: patch file path is required", ErrInvalidTaskScope)
+	}
+	patchPath := trimmed
+	if !filepath.IsAbs(patchPath) {
+		patchPath = filepath.Join(s.git.WorkDir, patchPath)
+	}
+	info, err := os.Stat(patchPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", fmt.Errorf("%w: patch file %q does not exist", ErrInvalidTaskScope, raw)
+		}
+		return "", fmt.Errorf("%w: patch file %q: %v", ErrInvalidTaskScope, raw, err)
+	}
+	if info.IsDir() {
+		return "", fmt.Errorf("%w: patch file %q is a directory", ErrInvalidTaskScope, raw)
+	}
+	return patchPath, nil
+}
+
+func parsePatchChunks(diff string) ([]parsedPatchChunk, error) {
+	diff = strings.ReplaceAll(diff, "\r\n", "\n")
+	if strings.TrimSpace(diff) == "" {
+		return []parsedPatchChunk{}, nil
+	}
+
+	lines := strings.Split(diff, "\n")
+	chunks := make([]parsedPatchChunk, 0)
+	currentPath := ""
+	currentHeader := ""
+	currentBody := []string{}
+
+	flush := func() error {
+		if currentHeader == "" {
+			return nil
+		}
+		if strings.TrimSpace(currentPath) == "" {
+			return fmt.Errorf("chunk header %q is missing file path", currentHeader)
+		}
+		oldStart, oldLines, newStart, newLines, err := parseHunkHeader(currentHeader)
+		if err != nil {
+			return err
+		}
+		body := strings.Join(currentBody, "\n")
+		chunks = append(chunks, parsedPatchChunk{
+			ID:       chunkIDFor(currentPath, currentHeader, body),
+			Path:     currentPath,
+			OldStart: oldStart,
+			OldLines: oldLines,
+			NewStart: newStart,
+			NewLines: newLines,
+			Header:   currentHeader,
+			Body:     body,
+			Preview:  chunkPreview(currentBody),
+		})
+		currentHeader = ""
+		currentBody = nil
+		return nil
+	}
+
+	for _, rawLine := range lines {
+		line := strings.TrimSuffix(rawLine, "\r")
+		switch {
+		case strings.HasPrefix(line, "diff --git "):
+			if err := flush(); err != nil {
+				return nil, err
+			}
+			currentPath = pathFromDiffHeader(line)
+		case strings.HasPrefix(line, "+++ "):
+			nextPath := pathFromPatchLine(line)
+			if nextPath != "" {
+				currentPath = nextPath
+			}
+		case strings.HasPrefix(line, "@@ "):
+			if err := flush(); err != nil {
+				return nil, err
+			}
+			currentHeader = line
+			currentBody = []string{}
+		default:
+			if currentHeader != "" {
+				currentBody = append(currentBody, line)
+			}
+		}
+	}
+	if err := flush(); err != nil {
+		return nil, err
+	}
+	return chunks, nil
+}
+
+func pathFromDiffHeader(line string) string {
+	parts := strings.Fields(strings.TrimSpace(line))
+	if len(parts) < 4 {
+		return ""
+	}
+	return stripDiffPathPrefix(parts[3])
+}
+
+func pathFromPatchLine(line string) string {
+	parts := strings.Fields(strings.TrimSpace(line))
+	if len(parts) < 2 {
+		return ""
+	}
+	if parts[1] == "/dev/null" {
+		return ""
+	}
+	return stripDiffPathPrefix(parts[1])
+}
+
+func stripDiffPathPrefix(raw string) string {
+	raw = strings.Trim(raw, "\"")
+	switch {
+	case strings.HasPrefix(raw, "a/"):
+		return strings.TrimPrefix(raw, "a/")
+	case strings.HasPrefix(raw, "b/"):
+		return strings.TrimPrefix(raw, "b/")
+	default:
+		return raw
+	}
+}
+
+func parseHunkHeader(line string) (int, int, int, int, error) {
+	matches := hunkHeaderPattern.FindStringSubmatch(strings.TrimSpace(line))
+	if len(matches) != 5 {
+		return 0, 0, 0, 0, fmt.Errorf("invalid hunk header %q", line)
+	}
+	oldStart, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return 0, 0, 0, 0, fmt.Errorf("invalid old start in hunk header %q", line)
+	}
+	oldLines := 1
+	if strings.TrimSpace(matches[2]) != "" {
+		oldLines, err = strconv.Atoi(matches[2])
+		if err != nil {
+			return 0, 0, 0, 0, fmt.Errorf("invalid old line count in hunk header %q", line)
+		}
+	}
+	newStart, err := strconv.Atoi(matches[3])
+	if err != nil {
+		return 0, 0, 0, 0, fmt.Errorf("invalid new start in hunk header %q", line)
+	}
+	newLines := 1
+	if strings.TrimSpace(matches[4]) != "" {
+		newLines, err = strconv.Atoi(matches[4])
+		if err != nil {
+			return 0, 0, 0, 0, fmt.Errorf("invalid new line count in hunk header %q", line)
+		}
+	}
+	return oldStart, oldLines, newStart, newLines, nil
+}
+
+func chunkIDFor(path, header, body string) string {
+	sum := sha256.Sum256([]byte(path + "\n" + header + "\n" + body))
+	return "chk_" + hex.EncodeToString(sum[:8])
+}
+
+func chunkPreview(lines []string) string {
+	if len(lines) == 0 {
+		return ""
+	}
+	snippets := make([]string, 0, 2)
+	for _, line := range lines {
+		if strings.HasPrefix(line, "+") || strings.HasPrefix(line, "-") {
+			snippets = append(snippets, strings.TrimSpace(line))
+		}
+		if len(snippets) >= 2 {
+			break
+		}
+	}
+	if len(snippets) == 0 {
+		snippets = append(snippets, strings.TrimSpace(lines[0]))
+	}
+	return strings.Join(snippets, " | ")
+}
+
+func checkpointChunkPaths(chunks []parsedPatchChunk) []string {
+	seen := map[string]struct{}{}
+	paths := make([]string, 0, len(chunks))
+	for _, chunk := range chunks {
+		p := strings.TrimSpace(chunk.Path)
+		if p == "" {
+			continue
+		}
+		if _, ok := seen[p]; ok {
+			continue
+		}
+		seen[p] = struct{}{}
+		paths = append(paths, p)
+	}
+	sort.Strings(paths)
+	return paths
 }
 
 func (s *Service) normalizeContractScopePrefixes(prefixes []string) ([]string, error) {

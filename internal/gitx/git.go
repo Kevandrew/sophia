@@ -133,6 +133,19 @@ func (c *Client) DiffNamesBetween(fromRef, toRef string) ([]string, error) {
 	return parseDiffNames(out), nil
 }
 
+func (c *Client) WorkingTreeUnifiedDiff(paths []string, unified int) (string, error) {
+	args := []string{"diff", fmt.Sprintf("--unified=%d", unified)}
+	if len(paths) > 0 {
+		args = append(args, "--")
+		args = append(args, paths...)
+	}
+	out, err := c.run(args...)
+	if err != nil {
+		return "", err
+	}
+	return out, nil
+}
+
 func parseDiffNames(out string) []string {
 	if strings.TrimSpace(out) == "" {
 		return []string{}
@@ -327,6 +340,11 @@ func (c *Client) StagePaths(paths []string) error {
 	args := []string{"add", "-A", "--"}
 	args = append(args, paths...)
 	_, err := c.run(args...)
+	return err
+}
+
+func (c *Client) ApplyPatchToIndex(patchPath string) error {
+	_, err := c.run("apply", "--cached", "--unidiff-zero", "--recount", patchPath)
 	return err
 }
 
