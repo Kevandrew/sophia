@@ -16,6 +16,9 @@ Recommended daily flow (intent-first):
 4. `sophia cr task contract set <id> <task-id> --intent "..." --acceptance "..." --scope <prefix>`
 5. implement on `sophia/cr-<id>`
 6. `sophia cr task done <id> <task-id> --from-contract` (preferred checkpoint from task contract scope)
+   Optional hunk flow:
+   `sophia cr task chunk list <id> <task-id> [--path <file>] [--json]`
+   `sophia cr task done <id> <task-id> --patch-file <patch-file>`
 7. `sophia cr validate <id>`
 8. `sophia cr review <id>`
 9. optional machine-readable checks: `sophia cr status <id> --json`, `sophia cr validate <id> --json`
@@ -48,7 +51,7 @@ Recommended daily flow (intent-first):
 - Use Sophia as the primary workflow interface (`cr`, `task`, `note`, `review`, `merge`, `repair`).
 - Use contract and risk commands (`cr contract`, `cr impact`, `cr validate`) before merge.
 - Set task contracts (`cr task contract`) before task completion; `task done` is blocked if missing.
-- Task completion creates checkpoint commits via `sophia cr task done` and requires explicit scope mode (`--from-contract`, `--path`, or `--all`).
+- Task completion creates checkpoint commits via `sophia cr task done` and requires explicit scope mode (`--from-contract`, `--path`, `--patch-file`, or `--all`).
 - Prefer `--from-contract` to keep staging aligned with task scope declarations.
 - Use `--no-checkpoint` for metadata-only completion; use `--all` only when full-stage behavior is intended.
 - Pre-staged index changes are rejected before checkpointing to prevent accidental scope drift.
@@ -63,4 +66,4 @@ Recommended daily flow (intent-first):
 - `.sophia/` is local-first workflow state and is ignored in Git by default.
 - If local metadata is missing/out-of-sync, run `sophia repair`.
 - `_docs/` is local/internal and ignored via `.gitignore`.
-- Current milestone: CR-13 (stacked and multi-base change requests: parent/child CRs, per-CR base refs, restack/base-set flows).
+- Current milestone: CR-16 (hunk-scoped checkpoints, chunk discovery, and chunk metadata validation/read hardening).

@@ -227,6 +227,7 @@ type ImpactReport struct {
 	ScopeDrift           []string
 	TaskScopeWarnings    []string
 	TaskContractWarnings []string
+	TaskChunkWarnings    []string
 	Signals              []RiskSignal
 	RiskScore            int
 	RiskTier             string
@@ -921,6 +922,7 @@ func (s *Service) ValidateCR(id int) (*ValidationReport, error) {
 
 	warnings := append([]string(nil), impact.TaskScopeWarnings...)
 	warnings = append(warnings, impact.TaskContractWarnings...)
+	warnings = append(warnings, impact.TaskChunkWarnings...)
 	return &ValidationReport{
 		Valid:    len(errorsOut) == 0,
 		Errors:   errorsOut,
@@ -2540,6 +2542,7 @@ func buildImpactReport(cr *model.CR, diff *diffSummary) *ImpactReport {
 	scopeDrift := findScopeDrift(diff.Files, scope)
 	taskScopeWarnings := findTaskScopeWarnings(cr.Subtasks, scope)
 	taskContractWarnings := findTaskContractWarnings(cr.Subtasks)
+	taskChunkWarnings := findTaskChunkWarnings(cr.Subtasks)
 
 	signals := []RiskSignal{}
 	riskScore := 0
@@ -2605,6 +2608,7 @@ func buildImpactReport(cr *model.CR, diff *diffSummary) *ImpactReport {
 		ScopeDrift:           scopeDrift,
 		TaskScopeWarnings:    taskScopeWarnings,
 		TaskContractWarnings: taskContractWarnings,
+		TaskChunkWarnings:    taskChunkWarnings,
 		Signals:              signals,
 		RiskScore:            riskScore,
 		RiskTier:             riskTier,
@@ -2641,10 +2645,10 @@ func findTaskScopeWarnings(tasks []model.Subtask, scopePrefixes []string) []stri
 	}
 	warnings := []string{}
 	for _, task := range tasks {
-		if task.Status != model.TaskStatusDone || len(task.CheckpointScope) == 0 {
+		if task.Status != model.TaskStatusDone {
 			continue
 		}
-		for _, scopedPath := range task.CheckpointScope {
+		for _, scopedPath := range taskCheckpointPaths(task) {
 			if strings.TrimSpace(scopedPath) == "" || scopedPath == "*" {
 				continue
 			}
@@ -2674,10 +2678,11 @@ func findTaskContractWarnings(tasks []model.Subtask) []string {
 		if len(missing) > 0 {
 			warnings = append(warnings, fmt.Sprintf("task #%d is done but missing contract fields: %s", task.ID, strings.Join(missing, ",")))
 		}
-		if len(task.Contract.Scope) == 0 || len(task.CheckpointScope) == 0 {
+		checkpointPaths := taskCheckpointPaths(task)
+		if len(task.Contract.Scope) == 0 || len(checkpointPaths) == 0 {
 			continue
 		}
-		for _, scopedPath := range task.CheckpointScope {
+		for _, scopedPath := range checkpointPaths {
 			if strings.TrimSpace(scopedPath) == "" || scopedPath == "*" {
 				continue
 			}
@@ -2701,7 +2706,7 @@ func deriveChangesFromTaskCheckpointScopes(tasks []model.Subtask) []gitx.FileCha
 	seen := map[string]struct{}{}
 	changes := make([]gitx.FileChange, 0)
 	for _, task := range tasks {
-		for _, scopedPath := range task.CheckpointScope {
+		for _, scopedPath := range taskCheckpointPaths(task) {
 			scopedPath = strings.TrimSpace(scopedPath)
 			if scopedPath == "" || scopedPath == "*" {
 				continue
@@ -2720,6 +2725,73 @@ func deriveChangesFromTaskCheckpointScopes(tasks []model.Subtask) []gitx.FileCha
 		return changes[i].Path < changes[j].Path
 	})
 	return changes
+}
+
+func findTaskChunkWarnings(tasks []model.Subtask) []string {
+	warnings := []string{}
+	for _, task := range tasks {
+		if task.Status != model.TaskStatusDone || len(task.CheckpointChunks) == 0 {
+			continue
+		}
+		seenChunkIDs := map[string]struct{}{}
+		seenScopePaths := map[string]struct{}{}
+		for _, scopePath := range task.CheckpointScope {
+			trimmed := strings.TrimSpace(scopePath)
+			if trimmed == "" || trimmed == "*" {
+				continue
+			}
+			seenScopePaths[trimmed] = struct{}{}
+		}
+		for _, chunk := range task.CheckpointChunks {
+			if strings.TrimSpace(chunk.ID) == "" {
+				warnings = append(warnings, fmt.Sprintf("task #%d has checkpoint chunk with missing id", task.ID))
+			} else {
+				if _, exists := seenChunkIDs[chunk.ID]; exists {
+					warnings = append(warnings, fmt.Sprintf("task #%d has duplicate checkpoint chunk id %q", task.ID, chunk.ID))
+				}
+				seenChunkIDs[chunk.ID] = struct{}{}
+			}
+			if strings.TrimSpace(chunk.Path) == "" {
+				warnings = append(warnings, fmt.Sprintf("task #%d has checkpoint chunk %q with missing path", task.ID, chunk.ID))
+			} else if len(seenScopePaths) > 0 {
+				if _, inScope := seenScopePaths[chunk.Path]; !inScope {
+					warnings = append(warnings, fmt.Sprintf("task #%d checkpoint chunk %q path %q is not present in checkpoint_scope", task.ID, chunk.ID, chunk.Path))
+				}
+			}
+			if chunk.OldStart <= 0 || chunk.NewStart <= 0 {
+				warnings = append(warnings, fmt.Sprintf("task #%d checkpoint chunk %q has invalid line starts", task.ID, chunk.ID))
+			}
+			if chunk.OldLines < 0 || chunk.NewLines < 0 {
+				warnings = append(warnings, fmt.Sprintf("task #%d checkpoint chunk %q has invalid line counts", task.ID, chunk.ID))
+			}
+		}
+	}
+	sort.Strings(warnings)
+	return dedupeStrings(warnings)
+}
+
+func taskCheckpointPaths(task model.Subtask) []string {
+	if len(task.CheckpointScope) > 0 {
+		return append([]string(nil), task.CheckpointScope...)
+	}
+	if len(task.CheckpointChunks) == 0 {
+		return []string{}
+	}
+	paths := make([]string, 0, len(task.CheckpointChunks))
+	seen := map[string]struct{}{}
+	for _, chunk := range task.CheckpointChunks {
+		path := strings.TrimSpace(chunk.Path)
+		if path == "" {
+			continue
+		}
+		if _, ok := seen[path]; ok {
+			continue
+		}
+		seen[path] = struct{}{}
+		paths = append(paths, path)
+	}
+	sort.Strings(paths)
+	return paths
 }
 
 func missingCRContractFields(contract model.Contract) []string {

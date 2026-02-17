@@ -126,6 +126,17 @@ func TestCRJSONCommandsReturnEnvelope(t *testing.T) {
 	if strings.TrimSpace(reviewUID) == "" {
 		t.Fatalf("expected review.cr.uid to be non-empty, got %#v", reviewCR)
 	}
+	reviewSubtasks, ok := reviewEnv.Data["subtasks"].([]any)
+	if !ok || len(reviewSubtasks) == 0 {
+		t.Fatalf("expected review subtasks array, got %#v", reviewEnv.Data["subtasks"])
+	}
+	firstSubtask, ok := reviewSubtasks[0].(map[string]any)
+	if !ok {
+		t.Fatalf("expected review subtask object, got %#v", reviewSubtasks[0])
+	}
+	if _, ok := firstSubtask["checkpoint_chunks"]; !ok {
+		t.Fatalf("expected review subtask checkpoint_chunks field, got %#v", firstSubtask)
+	}
 }
 
 func TestValidateJSONReturnsStructuredErrorWhenInvalid(t *testing.T) {
@@ -319,6 +330,13 @@ func TestTaskChunkListCommandSupportsTextJSONAndPathFilter(t *testing.T) {
 	rawChunks, ok := env.Data["chunks"].([]any)
 	if !ok || len(rawChunks) != 3 {
 		t.Fatalf("expected 3 chunks in json output, got %#v", env.Data["chunks"])
+	}
+	firstChunk, ok := rawChunks[0].(map[string]any)
+	if !ok {
+		t.Fatalf("expected chunk object, got %#v", rawChunks[0])
+	}
+	if _, ok := firstChunk["chunk_id"]; !ok {
+		t.Fatalf("expected snake_case chunk_id key, got %#v", firstChunk)
 	}
 
 	filterOut, _, filterErr := runCLI(t, dir, "cr", "task", "chunk", "list", "1", "1", "--path", "beta.txt", "--json")
