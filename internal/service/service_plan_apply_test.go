@@ -310,7 +310,7 @@ func TestInitSeedsCRPlanSampleTemplateIdempotently(t *testing.T) {
 	if _, err := svc.Init("main", ""); err != nil {
 		t.Fatalf("Init() first error = %v", err)
 	}
-	samplePath := filepath.Join(dir, ".sophia", "cr-plan.sample.yaml")
+	samplePath := filepath.Join(localMetadataDir(t, dir), "cr-plan.sample.yaml")
 	first, err := os.ReadFile(samplePath)
 	if err != nil {
 		t.Fatalf("read sample template after first init: %v", err)

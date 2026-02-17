@@ -70,13 +70,14 @@ Each CR:
 * Lives in `.sophia/cr/<id>.yaml`
 * Maps to a branch `sophia/cr-<id>`
 
-By default, `.sophia/` is local metadata and ignored in Git.
+By default (`metadata_mode=local`), Sophia metadata is shared per-repository under the Git common dir (`<git-common-dir>/sophia-local`) so all worktrees use the same CR state.
+Tracked mode (`metadata_mode=tracked`) keeps metadata in `.sophia/` inside the worktree.
 
 ---
 
 ## Repository Structure
 
-When initialized, Sophia creates:
+In tracked mode, Sophia creates:
 
 ```
 .sophia/
@@ -110,12 +111,13 @@ subtasks: []
 sophia init [--base-branch <name>] [--metadata-mode local|tracked]
 ```
 
-* Creates `.sophia/`
+* Creates shared local metadata in `<git-common-dir>/sophia-local` by default
+* Creates `.sophia/` when `--metadata-mode tracked` is selected
 * Writes config
 * Ensures git repo exists
 * Sets default base branch
-* Defaults to local metadata mode (`.sophia/` ignored)
-* Seeds `.sophia/cr-plan.sample.yaml` when missing
+* Defaults to local metadata mode (shared across worktrees)
+* Seeds `cr-plan.sample.yaml` in the active metadata root when missing
 
 ---
 
@@ -517,6 +519,7 @@ sophia cr history <id>
 * `doctor` flags workflow drift (dirty tree, non-CR branch, stale merged CR branches)
 * `log` shows intent-first CR history and can reconstruct merged CRs from Git commit metadata
 * `blame` shows Sophia-enriched per-line attribution (`CR`, intent) with fallback to commit summary when CR metadata is unavailable
+* Worktree-safe local metadata keeps CR IDs/state shared across worktrees and avoids branch checkout collisions during init/add/merge flows
 * `repair` rebuilds missing local CR metadata from Git history and realigns CR IDs
 * `hook install` adds a pre-commit guard against direct commits on the base branch
 * `current/switch/reopen/base/restack` supports deterministic branch and stack context moves
