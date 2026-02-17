@@ -163,13 +163,14 @@ Agents should also be instructed to append notes.
 ### Complete Task (Checkpoint by Default)
 
 ```
-sophia cr task done <cr-id> <task-id> --path internal/service/service.go --path internal/cli/cr.go
+sophia cr task done <cr-id> <task-id> --from-contract
 ```
 
 Behavior:
 
-* Requires explicit checkpoint scope: `--path <file>` (repeatable) or `--all`
+* Requires explicit checkpoint scope mode: `--from-contract`, `--path <file>` (repeatable), or `--all`
 * Requires task contract completeness before completion (`intent`, `acceptance_criteria`, `scope`)
+* `--from-contract` stages changed files that match task contract scope prefixes
 * Stages only selected paths by default (or all changes when `--all` is explicitly set)
 * Fails fast if staged changes already exist before checkpointing
 * Marks task done only if checkpoint commit succeeds
@@ -188,7 +189,13 @@ Explicit legacy stage-all behavior:
 sophia cr task done <cr-id> <task-id> --all
 ```
 
-Chunk/hunk scoping is planned for CR-10.
+Explicit file selection behavior:
+
+```
+sophia cr task done <cr-id> <task-id> --path internal/service/service.go --path internal/cli/cr.go
+```
+
+Chunk/hunk scoping is planned for CR-11.
 
 ---
 
@@ -235,6 +242,22 @@ Behavior:
 * `validate` enforces required contract fields and scope-drift policy
 * `validate` emits blocking `Errors` and non-blocking `Warnings`
 * `validate` records a `cr_validated` audit event
+* Both commands support machine-readable output via `--json`
+
+---
+
+### Why and Merge Readiness
+
+```
+sophia cr why <id>
+sophia cr status <id>
+```
+
+Behavior:
+
+* `why` returns the effective rationale (`contract why` fallback to CR description)
+* `status` returns branch context, workspace dirtiness, task progress, contract completeness, validation summary, and `merge_blocked`
+* Both commands support `--json`
 
 ---
 
@@ -251,6 +274,7 @@ Displays:
 * Files changed (`git diff --name-only`)
 * Insertions/deletions
 * Test file changes (basic detection)
+* Supports machine-readable output via `--json`
 
 This is formatting around Git — not replacing it.
 
@@ -307,6 +331,8 @@ sophia doctor
 sophia log
 sophia repair
 sophia hook install
+sophia cr why <id>
+sophia cr status <id>
 sophia cr current
 sophia cr switch <id>
 sophia cr reopen <id>
@@ -317,6 +343,7 @@ sophia cr contract set <id> --why "..."
 sophia cr contract show <id>
 sophia cr impact <id>
 sophia cr validate <id>
+sophia cr review <id> --json
 sophia cr redact <id> --note-index 1 --reason "..."
 sophia cr history <id>
 ```
@@ -328,6 +355,7 @@ sophia cr history <id>
 * `current/switch/reopen` supports quick branch context moves
 * `task contract` enforces subtask intent + acceptance + scope before completion
 * `contract/impact/validate` provide intent integrity and blast-radius review context
+* `--json` on read/check commands provides stable machine-readable envelopes for agents
 * `edit/redact/history` supports retroactive metadata hygiene with audit-safe events
 
 ---
