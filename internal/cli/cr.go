@@ -29,6 +29,8 @@ func newCRCmd() *cobra.Command {
 	crCmd.AddCommand(newCRCurrentCmd())
 	crCmd.AddCommand(newCRSwitchCmd())
 	crCmd.AddCommand(newCRReopenCmd())
+	crCmd.AddCommand(newCRBaseCmd())
+	crCmd.AddCommand(newCRRestackCmd())
 	crCmd.AddCommand(newCREditCmd())
 	crCmd.AddCommand(newCRContractCmd())
 	crCmd.AddCommand(newCRImpactCmd())
@@ -41,6 +43,8 @@ func newCRCmd() *cobra.Command {
 
 func newCRAddCmd() *cobra.Command {
 	var description string
+	var baseRef string
+	var parentID int
 
 	cmd := &cobra.Command{
 		Use:   "add <title>",
@@ -51,7 +55,14 @@ func newCRAddCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			cr, warnings, err := svc.AddCRWithWarnings(args[0], description)
+			if parentID < 0 {
+				return fmt.Errorf("--parent must be >= 1")
+			}
+			opts := service.AddCROptions{
+				BaseRef:    strings.TrimSpace(baseRef),
+				ParentCRID: parentID,
+			}
+			cr, warnings, err := svc.AddCRWithOptionsWithWarnings(args[0], description, opts)
 			if err != nil {
 				return err
 			}
@@ -67,6 +78,8 @@ func newCRAddCmd() *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&description, "description", "", "Description/rationale for the CR")
+	cmd.Flags().StringVar(&baseRef, "base", "", "Base Git ref for this CR")
+	cmd.Flags().IntVar(&parentID, "parent", 0, "Parent CR id for stacked workflow")
 	return cmd
 }
 
@@ -129,6 +142,9 @@ func newCRWhyCmd() *cobra.Command {
 				return writeJSONSuccess(cmd, map[string]any{
 					"cr_id":               why.CRID,
 					"cr_uid":              why.CRUID,
+					"base_ref":            why.BaseRef,
+					"base_commit":         why.BaseCommit,
+					"parent_cr_id":        why.ParentCRID,
 					"effective_why":       why.EffectiveWhy,
 					"source":              why.Source,
 					"description":         why.Description,
@@ -143,6 +159,9 @@ func newCRWhyCmd() *cobra.Command {
 			fmt.Fprintf(cmd.OutOrStdout(), "- source: %s\n", nonEmpty(why.Source, "missing"))
 			fmt.Fprintf(cmd.OutOrStdout(), "- description: %s\n", nonEmpty(why.Description, "(missing)"))
 			fmt.Fprintf(cmd.OutOrStdout(), "- contract_why: %s\n", nonEmpty(why.ContractWhy, "(missing)"))
+			fmt.Fprintf(cmd.OutOrStdout(), "- base_ref: %s\n", nonEmpty(why.BaseRef, "(missing)"))
+			fmt.Fprintf(cmd.OutOrStdout(), "- base_commit: %s\n", nonEmpty(why.BaseCommit, "(missing)"))
+			fmt.Fprintf(cmd.OutOrStdout(), "- parent_cr_id: %d\n", why.ParentCRID)
 			fmt.Fprintf(cmd.OutOrStdout(), "- contract_updated_at: %s\n", nonEmpty(why.ContractUpdatedAt, "(never)"))
 			fmt.Fprintf(cmd.OutOrStdout(), "- contract_updated_by: %s\n", nonEmpty(why.ContractUpdatedBy, "(never)"))
 			return nil
@@ -184,12 +203,16 @@ func newCRStatusCmd() *cobra.Command {
 			}
 			if asJSON {
 				return writeJSONSuccess(cmd, map[string]any{
-					"id":     status.ID,
-					"uid":    status.UID,
-					"title":  status.Title,
-					"status": status.Status,
-					"base":   status.BaseBranch,
-					"branch": status.Branch,
+					"id":            status.ID,
+					"uid":           status.UID,
+					"title":         status.Title,
+					"status":        status.Status,
+					"base":          status.BaseBranch,
+					"base_ref":      status.BaseRef,
+					"base_commit":   status.BaseCommit,
+					"parent_cr_id":  status.ParentCRID,
+					"parent_status": status.ParentStatus,
+					"branch":        status.Branch,
 					"branch_context": map[string]any{
 						"current_branch": status.CurrentBranch,
 						"branch_match":   status.BranchMatch,
@@ -224,6 +247,9 @@ func newCRStatusCmd() *cobra.Command {
 			fmt.Fprintf(cmd.OutOrStdout(), "CR %d: %s\n", status.ID, status.Title)
 			fmt.Fprintf(cmd.OutOrStdout(), "Status: %s\n", status.Status)
 			fmt.Fprintf(cmd.OutOrStdout(), "Base: %s\n", status.BaseBranch)
+			fmt.Fprintf(cmd.OutOrStdout(), "Base Ref: %s\n", nonEmpty(status.BaseRef, "(missing)"))
+			fmt.Fprintf(cmd.OutOrStdout(), "Base Commit: %s\n", nonEmpty(status.BaseCommit, "(missing)"))
+			fmt.Fprintf(cmd.OutOrStdout(), "Parent CR: %d (%s)\n", status.ParentCRID, nonEmpty(status.ParentStatus, "-"))
 			fmt.Fprintf(cmd.OutOrStdout(), "Branch: %s\n", status.Branch)
 			fmt.Fprintf(cmd.OutOrStdout(), "Current Branch: %s\n", nonEmpty(status.CurrentBranch, "(unknown)"))
 			fmt.Fprintf(cmd.OutOrStdout(), "Branch Match: %t\n", status.BranchMatch)
@@ -662,12 +688,15 @@ func newCRCurrentCmd() *cobra.Command {
 				return writeJSONSuccess(cmd, map[string]any{
 					"branch": ctx.Branch,
 					"cr": map[string]any{
-						"id":          ctx.CR.ID,
-						"uid":         ctx.CR.UID,
-						"title":       ctx.CR.Title,
-						"status":      ctx.CR.Status,
-						"base_branch": ctx.CR.BaseBranch,
-						"branch":      ctx.CR.Branch,
+						"id":           ctx.CR.ID,
+						"uid":          ctx.CR.UID,
+						"title":        ctx.CR.Title,
+						"status":       ctx.CR.Status,
+						"base_branch":  ctx.CR.BaseBranch,
+						"base_ref":     ctx.CR.BaseRef,
+						"base_commit":  ctx.CR.BaseCommit,
+						"parent_cr_id": ctx.CR.ParentCRID,
+						"branch":       ctx.CR.Branch,
 					},
 				})
 			}
@@ -676,6 +705,9 @@ func newCRCurrentCmd() *cobra.Command {
 			fmt.Fprintf(cmd.OutOrStdout(), "Title: %s\n", ctx.CR.Title)
 			fmt.Fprintf(cmd.OutOrStdout(), "Status: %s\n", ctx.CR.Status)
 			fmt.Fprintf(cmd.OutOrStdout(), "Base: %s\n", ctx.CR.BaseBranch)
+			fmt.Fprintf(cmd.OutOrStdout(), "Base Ref: %s\n", nonEmpty(ctx.CR.BaseRef, "(missing)"))
+			fmt.Fprintf(cmd.OutOrStdout(), "Base Commit: %s\n", nonEmpty(ctx.CR.BaseCommit, "(missing)"))
+			fmt.Fprintf(cmd.OutOrStdout(), "Parent CR: %d\n", ctx.CR.ParentCRID)
 			return nil
 		},
 	}
@@ -733,6 +765,75 @@ func newCRReopenCmd() *cobra.Command {
 				return err
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "Reopened CR %d on branch %s\n", cr.ID, cr.Branch)
+			return nil
+		},
+	}
+}
+
+func newCRBaseCmd() *cobra.Command {
+	baseCmd := &cobra.Command{
+		Use:   "base",
+		Short: "Manage per-CR base ref settings",
+	}
+	baseCmd.AddCommand(newCRBaseSetCmd())
+	return baseCmd
+}
+
+func newCRBaseSetCmd() *cobra.Command {
+	var ref string
+	var rebase bool
+
+	cmd := &cobra.Command{
+		Use:   "set <id>",
+		Short: "Set a CR base ref with optional immediate rebase",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			id, err := parsePositiveIntArg(args[0], "id")
+			if err != nil {
+				return err
+			}
+			ref = strings.TrimSpace(ref)
+			if ref == "" {
+				return fmt.Errorf("--ref is required")
+			}
+
+			svc, err := newService()
+			if err != nil {
+				return err
+			}
+			cr, err := svc.SetCRBase(id, ref, rebase)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "Updated CR %d base to %s (%s)\n", cr.ID, cr.BaseRef, nonEmpty(cr.BaseCommit, "-"))
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&ref, "ref", "", "Git ref to use as CR base")
+	cmd.Flags().BoolVar(&rebase, "rebase", false, "Rebase CR branch onto the new base ref")
+	return cmd
+}
+
+func newCRRestackCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "restack <id>",
+		Short: "Restack a child CR onto its parent effective head",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			id, err := parsePositiveIntArg(args[0], "id")
+			if err != nil {
+				return err
+			}
+			svc, err := newService()
+			if err != nil {
+				return err
+			}
+			cr, err := svc.RestackCR(id)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "Restacked CR %d onto base %s (%s)\n", cr.ID, nonEmpty(cr.BaseRef, "-"), nonEmpty(cr.BaseCommit, "-"))
 			return nil
 		},
 	}
@@ -1086,6 +1187,9 @@ func newCRReviewCmd() *cobra.Command {
 			fmt.Fprintf(cmd.OutOrStdout(), "CR %d: %s\n", review.CR.ID, review.CR.Title)
 			fmt.Fprintf(cmd.OutOrStdout(), "Status: %s\n", review.CR.Status)
 			fmt.Fprintf(cmd.OutOrStdout(), "Base: %s\n", review.CR.BaseBranch)
+			fmt.Fprintf(cmd.OutOrStdout(), "Base Ref: %s\n", nonEmpty(review.CR.BaseRef, "(missing)"))
+			fmt.Fprintf(cmd.OutOrStdout(), "Base Commit: %s\n", nonEmpty(review.CR.BaseCommit, "(missing)"))
+			fmt.Fprintf(cmd.OutOrStdout(), "Parent CR: %d\n", review.CR.ParentCRID)
 			fmt.Fprintf(cmd.OutOrStdout(), "Branch: %s\n", review.CR.Branch)
 			fmt.Fprintf(cmd.OutOrStdout(), "\nIntent:\n%s\n", nonEmpty(review.CR.Description, "(none)"))
 			fmt.Fprintf(cmd.OutOrStdout(), "\nContract:\n")
@@ -1251,6 +1355,9 @@ func impactToJSONMap(impact *service.ImpactReport) map[string]any {
 	return map[string]any{
 		"cr_id":                  impact.CRID,
 		"cr_uid":                 impact.CRUID,
+		"base_ref":               impact.BaseRef,
+		"base_commit":            impact.BaseCommit,
+		"parent_cr_id":           impact.ParentCRID,
 		"files_changed":          impact.FilesChanged,
 		"new_files":              impact.NewFiles,
 		"modified_files":         impact.ModifiedFiles,
@@ -1283,13 +1390,16 @@ func reviewToJSONMap(review *service.Review) map[string]any {
 	}
 	return map[string]any{
 		"cr": map[string]any{
-			"id":          review.CR.ID,
-			"uid":         review.CR.UID,
-			"title":       review.CR.Title,
-			"status":      review.CR.Status,
-			"base_branch": review.CR.BaseBranch,
-			"branch":      review.CR.Branch,
-			"intent":      review.CR.Description,
+			"id":           review.CR.ID,
+			"uid":          review.CR.UID,
+			"title":        review.CR.Title,
+			"status":       review.CR.Status,
+			"base_branch":  review.CR.BaseBranch,
+			"base_ref":     review.CR.BaseRef,
+			"base_commit":  review.CR.BaseCommit,
+			"parent_cr_id": review.CR.ParentCRID,
+			"branch":       review.CR.Branch,
+			"intent":       review.CR.Description,
 		},
 		"contract": map[string]any{
 			"why":           review.Contract.Why,
