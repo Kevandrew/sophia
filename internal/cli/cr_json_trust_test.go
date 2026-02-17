@@ -65,6 +65,41 @@ func TestCRReviewJSONIncludesTrustEnvelope(t *testing.T) {
 	if _, ok := trust["advisory_only"]; !ok {
 		t.Fatalf("expected advisory_only key, got %#v", trust)
 	}
+	dimensions, ok := trust["dimensions"].([]any)
+	if !ok || len(dimensions) == 0 {
+		t.Fatalf("expected trust dimensions array, got %#v", trust["dimensions"])
+	}
+	gotCodes := map[string]string{}
+	for _, entry := range dimensions {
+		dimension, ok := entry.(map[string]any)
+		if !ok {
+			t.Fatalf("expected dimension object, got %#v", entry)
+		}
+		code, _ := dimension["code"].(string)
+		label, _ := dimension["label"].(string)
+		if strings.TrimSpace(code) != "" {
+			gotCodes[code] = label
+		}
+	}
+	for _, code := range []string{
+		"contract_quality",
+		"scope_discipline",
+		"task_proof_chain",
+		"risk_accountability",
+		"change_magnitude",
+		"validation_health",
+		"test_evidence",
+	} {
+		if _, ok := gotCodes[code]; !ok {
+			t.Fatalf("expected trust dimension code %q, got %#v", code, gotCodes)
+		}
+	}
+	if gotCodes["contract_quality"] != "Contract Completeness" {
+		t.Fatalf("expected updated contract_quality label, got %q", gotCodes["contract_quality"])
+	}
+	if gotCodes["change_magnitude"] != "Change Magnitude" {
+		t.Fatalf("expected change_magnitude label, got %q", gotCodes["change_magnitude"])
+	}
 }
 
 func TestCRReviewTextIncludesTrustSection(t *testing.T) {
