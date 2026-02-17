@@ -144,7 +144,8 @@ func subtasksFromCommitBody(body, when, actor string) []model.Subtask {
 		}
 		open := strings.HasPrefix(line, "- [ ]")
 		done := strings.HasPrefix(line, "- [x]") || strings.HasPrefix(line, "- [X]")
-		if !open && !done {
+		delegated := strings.HasPrefix(line, "- [~]")
+		if !open && !done && !delegated {
 			continue
 		}
 		rest := strings.TrimSpace(line[5:])
@@ -166,6 +167,8 @@ func subtasksFromCommitBody(body, when, actor string) []model.Subtask {
 			status = model.TaskStatusDone
 			completedAt = when
 			completedBy = actor
+		} else if delegated {
+			status = model.TaskStatusDelegated
 		}
 		res = append(res, model.Subtask{
 			ID:          taskID,

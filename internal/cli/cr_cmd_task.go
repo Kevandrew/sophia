@@ -17,6 +17,8 @@ func newCRTaskCmd() *cobra.Command {
 	taskCmd.AddCommand(newCRTaskAddCmd())
 	taskCmd.AddCommand(newCRTaskListCmd())
 	taskCmd.AddCommand(newCRTaskDoneCmd())
+	taskCmd.AddCommand(newCRTaskDelegateCmd())
+	taskCmd.AddCommand(newCRTaskUndelegateCmd())
 	taskCmd.AddCommand(newCRTaskChunkCmd())
 	taskCmd.AddCommand(newCRTaskContractCmd())
 	return taskCmd
@@ -223,6 +225,78 @@ func newCRTaskContractShowCmd() *cobra.Command {
 	}
 
 	cmd.Flags().BoolVar(&asJSON, "json", false, "Output in JSON format")
+	return cmd
+}
+
+func newCRTaskDelegateCmd() *cobra.Command {
+	var childID int
+
+	cmd := &cobra.Command{
+		Use:   "delegate <cr-id> <task-id> --child <child-cr-id>",
+		Short: "Delegate a parent task to a child CR",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			crID, err := parsePositiveIntArg(args[0], "cr-id")
+			if err != nil {
+				return err
+			}
+			taskID, err := parsePositiveIntArg(args[1], "task-id")
+			if err != nil {
+				return err
+			}
+			if childID <= 0 {
+				return fmt.Errorf("--child must be >= 1")
+			}
+			svc, err := newService()
+			if err != nil {
+				return err
+			}
+			result, err := svc.DelegateTaskToChild(crID, taskID, childID)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "Delegated CR %d task %d to child CR %d task %d (parent status: %s)\n", crID, result.ParentTaskID, result.ChildCRID, result.ChildTaskID, result.ParentTaskStatus)
+			return nil
+		},
+	}
+
+	cmd.Flags().IntVar(&childID, "child", 0, "Child CR id")
+	return cmd
+}
+
+func newCRTaskUndelegateCmd() *cobra.Command {
+	var childID int
+
+	cmd := &cobra.Command{
+		Use:   "undelegate <cr-id> <task-id> --child <child-cr-id>",
+		Short: "Remove one delegation link from a parent task",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			crID, err := parsePositiveIntArg(args[0], "cr-id")
+			if err != nil {
+				return err
+			}
+			taskID, err := parsePositiveIntArg(args[1], "task-id")
+			if err != nil {
+				return err
+			}
+			if childID <= 0 {
+				return fmt.Errorf("--child must be >= 1")
+			}
+			svc, err := newService()
+			if err != nil {
+				return err
+			}
+			result, err := svc.UndelegateTaskFromChild(crID, taskID, childID)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "Removed %d delegation(s) from CR %d task %d to child CR %d (parent status: %s)\n", result.RemovedDelegation, crID, result.ParentTaskID, childID, result.ParentTaskStatus)
+			return nil
+		},
+	}
+
+	cmd.Flags().IntVar(&childID, "child", 0, "Child CR id")
 	return cmd
 }
 

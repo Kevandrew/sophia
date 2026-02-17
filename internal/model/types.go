@@ -4,8 +4,9 @@ const (
 	StatusInProgress = "in_progress"
 	StatusMerged     = "merged"
 
-	TaskStatusOpen = "open"
-	TaskStatusDone = "done"
+	TaskStatusOpen      = "open"
+	TaskStatusDone      = "done"
+	TaskStatusDelegated = "delegated"
 
 	MetadataModeLocal   = "local"
 	MetadataModeTracked = "tracked"
@@ -41,6 +42,14 @@ type CheckpointChunk struct {
 	NewLines int    `yaml:"new_lines"`
 }
 
+type TaskDelegation struct {
+	ChildCRID   int    `yaml:"child_cr_id"`
+	ChildCRUID  string `yaml:"child_cr_uid,omitempty"`
+	ChildTaskID int    `yaml:"child_task_id,omitempty"`
+	LinkedAt    string `yaml:"linked_at,omitempty"`
+	LinkedBy    string `yaml:"linked_by,omitempty"`
+}
+
 type Subtask struct {
 	ID                int               `yaml:"id"`
 	Title             string            `yaml:"title"`
@@ -55,6 +64,7 @@ type Subtask struct {
 	CheckpointMessage string            `yaml:"checkpoint_message,omitempty"`
 	CheckpointScope   []string          `yaml:"checkpoint_scope,omitempty"`
 	CheckpointChunks  []CheckpointChunk `yaml:"checkpoint_chunks,omitempty"`
+	Delegations       []TaskDelegation  `yaml:"delegations,omitempty"`
 	Contract          TaskContract      `yaml:"contract,omitempty"`
 }
 

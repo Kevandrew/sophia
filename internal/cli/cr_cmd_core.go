@@ -51,6 +51,46 @@ func newCRAddCmd() *cobra.Command {
 	return cmd
 }
 
+func newCRChildCmd() *cobra.Command {
+	childCmd := &cobra.Command{
+		Use:   "child",
+		Short: "Manage child CRs from the active CR context",
+	}
+	childCmd.AddCommand(newCRChildAddCmd())
+	return childCmd
+}
+
+func newCRChildAddCmd() *cobra.Command {
+	var description string
+
+	cmd := &cobra.Command{
+		Use:   "add <title>",
+		Short: "Create a child CR from the current CR",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			svc, err := newService()
+			if err != nil {
+				return err
+			}
+			cr, warnings, err := svc.AddChildCRFromCurrent(args[0], description)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "Created child CR %d on branch %s\n", cr.ID, cr.Branch)
+			if len(warnings) > 0 {
+				fmt.Fprintln(cmd.OutOrStdout(), "Overlap warnings:")
+				for _, warning := range warnings {
+					fmt.Fprintf(cmd.OutOrStdout(), "- %s\n", warning)
+				}
+			}
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&description, "description", "", "Description/rationale for the child CR")
+	return cmd
+}
+
 func newCRListCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "list",
@@ -75,6 +115,89 @@ func newCRListCmd() *cobra.Command {
 			return nil
 		},
 	}
+}
+
+func newCRStackCmd() *cobra.Command {
+	var asJSON bool
+
+	cmd := &cobra.Command{
+		Use:   "stack [id]",
+		Short: "Show stack topology and merge blockers for related CRs",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			svc, err := newService()
+			if err != nil {
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
+				return err
+			}
+
+			var stack *service.StackView
+			if len(args) == 0 {
+				stack, err = svc.StackCurrentCR()
+			} else {
+				id, parseErr := parsePositiveIntArg(args[0], "id")
+				if parseErr != nil {
+					if asJSON {
+						return writeJSONError(cmd, parseErr)
+					}
+					return parseErr
+				}
+				stack, err = svc.StackCR(id)
+			}
+			if err != nil {
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
+				return err
+			}
+
+			if asJSON {
+				nodes := make([]map[string]any, 0, len(stack.Nodes))
+				for _, node := range stack.Nodes {
+					nodes = append(nodes, map[string]any{
+						"id":                      node.ID,
+						"uid":                     node.UID,
+						"parent_cr_id":            node.ParentCRID,
+						"title":                   node.Title,
+						"status":                  node.Status,
+						"branch":                  node.Branch,
+						"depth":                   node.Depth,
+						"children":                node.Children,
+						"merge_blocked":           node.MergeBlocked,
+						"merge_blockers":          node.MergeBlockers,
+						"tasks_total":             node.TasksTotal,
+						"tasks_open":              node.TasksOpen,
+						"tasks_done":              node.TasksDone,
+						"tasks_delegated":         node.TasksDelegated,
+						"tasks_delegated_pending": node.TasksDelegatedPending,
+					})
+				}
+				return writeJSONSuccess(cmd, map[string]any{
+					"root_cr_id":  stack.RootCRID,
+					"focus_cr_id": stack.FocusCRID,
+					"nodes":       nodes,
+				})
+			}
+
+			fmt.Fprintf(cmd.OutOrStdout(), "CR Stack (root=%d, focus=%d)\n", stack.RootCRID, stack.FocusCRID)
+			for _, node := range stack.Nodes {
+				indent := strings.Repeat("  ", node.Depth)
+				fmt.Fprintf(cmd.OutOrStdout(), "%s- CR %d [%s] %s\n", indent, node.ID, node.Status, node.Title)
+				fmt.Fprintf(cmd.OutOrStdout(), "%s  branch=%s tasks=%d open=%d delegated=%d(%d pending) done=%d merge_blocked=%t\n", indent, node.Branch, node.TasksTotal, node.TasksOpen, node.TasksDelegated, node.TasksDelegatedPending, node.TasksDone, node.MergeBlocked)
+				if len(node.MergeBlockers) > 0 {
+					for _, blocker := range node.MergeBlockers {
+						fmt.Fprintf(cmd.OutOrStdout(), "%s  blocker: %s\n", indent, blocker)
+					}
+				}
+			}
+			return nil
+		},
+	}
+
+	cmd.Flags().BoolVar(&asJSON, "json", false, "Output in JSON format")
+	return cmd
 }
 
 func newCRWhyCmd() *cobra.Command {
@@ -191,9 +314,11 @@ func newCRStatusCmd() *cobra.Command {
 						"dirty":                 status.Dirty,
 					},
 					"tasks": map[string]any{
-						"total": status.TasksTotal,
-						"open":  status.TasksOpen,
-						"done":  status.TasksDone,
+						"total":             status.TasksTotal,
+						"open":              status.TasksOpen,
+						"done":              status.TasksDone,
+						"delegated":         status.TasksDelegated,
+						"delegated_pending": status.TasksDelegatedPending,
 					},
 					"contract": map[string]any{
 						"complete":       status.ContractComplete,
@@ -208,7 +333,8 @@ func newCRStatusCmd() *cobra.Command {
 							"score": status.RiskScore,
 						},
 					},
-					"merge_blocked": status.MergeBlocked,
+					"merge_blocked":  status.MergeBlocked,
+					"merge_blockers": status.MergeBlockers,
 				})
 			}
 
@@ -222,7 +348,7 @@ func newCRStatusCmd() *cobra.Command {
 			fmt.Fprintf(cmd.OutOrStdout(), "Current Branch: %s\n", nonEmpty(status.CurrentBranch, "(unknown)"))
 			fmt.Fprintf(cmd.OutOrStdout(), "Branch Match: %t\n", status.BranchMatch)
 			fmt.Fprintf(cmd.OutOrStdout(), "Working Tree: %d modified/staged, %d untracked (dirty=%t)\n", status.ModifiedStagedCount, status.UntrackedCount, status.Dirty)
-			fmt.Fprintf(cmd.OutOrStdout(), "Tasks: %d total, %d open, %d done\n", status.TasksTotal, status.TasksOpen, status.TasksDone)
+			fmt.Fprintf(cmd.OutOrStdout(), "Tasks: %d total, %d open, %d delegated (%d pending), %d done\n", status.TasksTotal, status.TasksOpen, status.TasksDelegated, status.TasksDelegatedPending, status.TasksDone)
 			fmt.Fprintf(cmd.OutOrStdout(), "Contract Complete: %t\n", status.ContractComplete)
 			if len(status.ContractMissingFields) == 0 {
 				fmt.Fprintln(cmd.OutOrStdout(), "Contract Missing Fields: (none)")
@@ -231,6 +357,14 @@ func newCRStatusCmd() *cobra.Command {
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "Validation: valid=%t errors=%d warnings=%d risk=%s/%d\n", status.ValidationValid, status.ValidationErrors, status.ValidationWarnings, status.RiskTier, status.RiskScore)
 			fmt.Fprintf(cmd.OutOrStdout(), "Merge Blocked: %t\n", status.MergeBlocked)
+			if len(status.MergeBlockers) == 0 {
+				fmt.Fprintln(cmd.OutOrStdout(), "Merge Blockers: (none)")
+			} else {
+				fmt.Fprintln(cmd.OutOrStdout(), "Merge Blockers:")
+				for _, blocker := range status.MergeBlockers {
+					fmt.Fprintf(cmd.OutOrStdout(), "- %s\n", blocker)
+				}
+			}
 			return nil
 		},
 	}

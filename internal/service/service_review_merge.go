@@ -61,12 +61,18 @@ func (s *Service) MergeCR(id int, keepBranch bool, overrideReason string) (strin
 		if parentErr != nil {
 			return "", fmt.Errorf("parent cr %d not found: %w", cr.ParentCRID, parentErr)
 		}
-		if parent.Status != model.StatusMerged && overrideReason == "" {
+		if parent.Status != model.StatusMerged && overrideReason == "" && !childDelegatedFromParent(parent, cr.ID) {
 			return "", fmt.Errorf("%w: CR %d depends on parent CR %d (%s)", ErrParentCRNotMerged, cr.ID, parent.ID, parent.Status)
 		}
 	}
 	if !validation.Valid && overrideReason == "" {
 		return "", fmt.Errorf("%w: %s", ErrCRValidationFailed, strings.Join(validation.Errors, "; "))
+	}
+	if overrideReason == "" {
+		blockers := s.mergeBlockersForCR(cr, validation)
+		if len(blockers) > 0 {
+			return "", fmt.Errorf("merge blocked: %s", strings.Join(blockers, "; "))
+		}
 	}
 	if dirty, summary, err := s.workingTreeDirtySummary(); err != nil {
 		return "", err
@@ -134,6 +140,9 @@ func (s *Service) MergeCR(id int, keepBranch bool, overrideReason string) (strin
 		return "", err
 	}
 	if err := s.backfillChildrenAfterParentMerge(cr); err != nil {
+		return "", err
+	}
+	if err := s.syncDelegatedTasksAfterChildMerge(cr.ID); err != nil {
 		return "", err
 	}
 

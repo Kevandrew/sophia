@@ -233,6 +233,9 @@ func (s *Service) DoneTaskWithCheckpoint(crID, taskID int, opts DoneTaskOptions)
 	if !found {
 		return "", fmt.Errorf("task %d not found in cr %d", taskID, crID)
 	}
+	if cr.Subtasks[taskIndex].Status == model.TaskStatusDelegated {
+		return "", fmt.Errorf("%w: task %d in cr %d is delegated to child CRs", ErrTaskDelegated, taskID, crID)
+	}
 	missingContractFields := missingTaskContractFields(cr.Subtasks[taskIndex].Contract)
 	if len(missingContractFields) > 0 {
 		return "", fmt.Errorf("%w: task %d missing %s", ErrTaskContractIncomplete, taskID, strings.Join(missingContractFields, ","))
