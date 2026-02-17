@@ -28,6 +28,9 @@ func newCRCmd() *cobra.Command {
 	crCmd.AddCommand(newCRSwitchCmd())
 	crCmd.AddCommand(newCRReopenCmd())
 	crCmd.AddCommand(newCREditCmd())
+	crCmd.AddCommand(newCRContractCmd())
+	crCmd.AddCommand(newCRImpactCmd())
+	crCmd.AddCommand(newCRValidateCmd())
 	crCmd.AddCommand(newCRRedactCmd())
 	crCmd.AddCommand(newCRHistoryCmd())
 
@@ -136,6 +139,188 @@ func newCREditCmd() *cobra.Command {
 	cmd.Flags().StringVar(&title, "title", "", "New CR title")
 	cmd.Flags().StringVar(&description, "description", "", "New CR description")
 	return cmd
+}
+
+func newCRContractCmd() *cobra.Command {
+	contractCmd := &cobra.Command{
+		Use:   "contract",
+		Short: "Manage CR intent contract fields",
+	}
+	contractCmd.AddCommand(newCRContractSetCmd())
+	contractCmd.AddCommand(newCRContractShowCmd())
+	return contractCmd
+}
+
+func newCRContractSetCmd() *cobra.Command {
+	var why string
+	var scope []string
+	var nonGoals []string
+	var invariants []string
+	var blastRadius string
+	var testPlan string
+	var rollbackPlan string
+
+	cmd := &cobra.Command{
+		Use:   "set <id>",
+		Short: "Set/update CR intent contract fields",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			id, err := parsePositiveIntArg(args[0], "id")
+			if err != nil {
+				return err
+			}
+
+			patch := service.ContractPatch{}
+			if cmd.Flags().Changed("why") {
+				v := why
+				patch.Why = &v
+			}
+			if cmd.Flags().Changed("scope") {
+				v := append([]string(nil), scope...)
+				patch.Scope = &v
+			}
+			if cmd.Flags().Changed("non-goal") {
+				v := append([]string(nil), nonGoals...)
+				patch.NonGoals = &v
+			}
+			if cmd.Flags().Changed("invariant") {
+				v := append([]string(nil), invariants...)
+				patch.Invariants = &v
+			}
+			if cmd.Flags().Changed("blast-radius") {
+				v := blastRadius
+				patch.BlastRadius = &v
+			}
+			if cmd.Flags().Changed("test-plan") {
+				v := testPlan
+				patch.TestPlan = &v
+			}
+			if cmd.Flags().Changed("rollback-plan") {
+				v := rollbackPlan
+				patch.RollbackPlan = &v
+			}
+			if patch.Why == nil && patch.Scope == nil && patch.NonGoals == nil && patch.Invariants == nil && patch.BlastRadius == nil && patch.TestPlan == nil && patch.RollbackPlan == nil {
+				return fmt.Errorf("provide at least one contract field flag")
+			}
+
+			svc, err := newService()
+			if err != nil {
+				return err
+			}
+			changed, err := svc.SetCRContract(id, patch)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "Updated CR %d contract fields: %s\n", id, strings.Join(changed, ", "))
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&why, "why", "", "Intent rationale")
+	cmd.Flags().StringArrayVar(&scope, "scope", nil, "Repo-relative scope prefix (repeatable)")
+	cmd.Flags().StringArrayVar(&nonGoals, "non-goal", nil, "Explicit non-goal (repeatable)")
+	cmd.Flags().StringArrayVar(&invariants, "invariant", nil, "Invariant that must hold (repeatable)")
+	cmd.Flags().StringVar(&blastRadius, "blast-radius", "", "Expected blast radius")
+	cmd.Flags().StringVar(&testPlan, "test-plan", "", "Planned validation/testing approach")
+	cmd.Flags().StringVar(&rollbackPlan, "rollback-plan", "", "Rollback strategy")
+	return cmd
+}
+
+func newCRContractShowCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "show <id>",
+		Short: "Show CR intent contract fields",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			id, err := parsePositiveIntArg(args[0], "id")
+			if err != nil {
+				return err
+			}
+			svc, err := newService()
+			if err != nil {
+				return err
+			}
+			contract, err := svc.GetCRContract(id)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintln(cmd.OutOrStdout(), "Contract:")
+			fmt.Fprintf(cmd.OutOrStdout(), "- why: %s\n", nonEmpty(strings.TrimSpace(contract.Why), "(missing)"))
+			printValueList(cmd, "scope", contract.Scope)
+			printValueList(cmd, "non_goals", contract.NonGoals)
+			printValueList(cmd, "invariants", contract.Invariants)
+			fmt.Fprintf(cmd.OutOrStdout(), "- blast_radius: %s\n", nonEmpty(strings.TrimSpace(contract.BlastRadius), "(missing)"))
+			fmt.Fprintf(cmd.OutOrStdout(), "- test_plan: %s\n", nonEmpty(strings.TrimSpace(contract.TestPlan), "(missing)"))
+			fmt.Fprintf(cmd.OutOrStdout(), "- rollback_plan: %s\n", nonEmpty(strings.TrimSpace(contract.RollbackPlan), "(missing)"))
+			fmt.Fprintf(cmd.OutOrStdout(), "- updated_at: %s\n", nonEmpty(strings.TrimSpace(contract.UpdatedAt), "(never)"))
+			fmt.Fprintf(cmd.OutOrStdout(), "- updated_by: %s\n", nonEmpty(strings.TrimSpace(contract.UpdatedBy), "(never)"))
+			return nil
+		},
+	}
+}
+
+func newCRImpactCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "impact <id>",
+		Short: "Show deterministic impact and risk summary for a CR",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			id, err := parsePositiveIntArg(args[0], "id")
+			if err != nil {
+				return err
+			}
+			svc, err := newService()
+			if err != nil {
+				return err
+			}
+			impact, err := svc.ImpactCR(id)
+			if err != nil {
+				return err
+			}
+			printImpactSection(cmd, impact)
+			return nil
+		},
+	}
+}
+
+func newCRValidateCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "validate <id>",
+		Short: "Validate CR contract completeness, scope drift, and risk signals",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			id, err := parsePositiveIntArg(args[0], "id")
+			if err != nil {
+				return err
+			}
+			svc, err := newService()
+			if err != nil {
+				return err
+			}
+			report, err := svc.ValidateCR(id)
+			if err != nil {
+				return err
+			}
+			if err := svc.RecordCRValidation(id, report); err != nil {
+				return err
+			}
+
+			fmt.Fprintln(cmd.OutOrStdout(), "Contract:")
+			if report.Valid {
+				fmt.Fprintln(cmd.OutOrStdout(), "- status: complete")
+			} else {
+				fmt.Fprintln(cmd.OutOrStdout(), "- status: incomplete")
+			}
+			printImpactSection(cmd, report.Impact)
+			printStringSection(cmd, "Errors", report.Errors)
+			printStringSection(cmd, "Warnings", report.Warnings)
+			if !report.Valid {
+				return fmt.Errorf("validation failed with %d error(s)", len(report.Errors))
+			}
+			fmt.Fprintln(cmd.OutOrStdout(), "Validation status: OK")
+			return nil
+		},
+	}
 }
 
 func newCRRedactCmd() *cobra.Command {
@@ -507,6 +692,14 @@ func newCRReviewCmd() *cobra.Command {
 			fmt.Fprintf(cmd.OutOrStdout(), "Base: %s\n", review.CR.BaseBranch)
 			fmt.Fprintf(cmd.OutOrStdout(), "Branch: %s\n", review.CR.Branch)
 			fmt.Fprintf(cmd.OutOrStdout(), "\nIntent:\n%s\n", nonEmpty(review.CR.Description, "(none)"))
+			fmt.Fprintf(cmd.OutOrStdout(), "\nContract:\n")
+			fmt.Fprintf(cmd.OutOrStdout(), "- why: %s\n", nonEmpty(strings.TrimSpace(review.Contract.Why), "(missing)"))
+			printInlineList(cmd, "scope", review.Contract.Scope)
+			printInlineList(cmd, "non_goals", review.Contract.NonGoals)
+			printInlineList(cmd, "invariants", review.Contract.Invariants)
+			fmt.Fprintf(cmd.OutOrStdout(), "- blast_radius: %s\n", nonEmpty(strings.TrimSpace(review.Contract.BlastRadius), "(missing)"))
+			fmt.Fprintf(cmd.OutOrStdout(), "- test_plan: %s\n", nonEmpty(strings.TrimSpace(review.Contract.TestPlan), "(missing)"))
+			fmt.Fprintf(cmd.OutOrStdout(), "- rollback_plan: %s\n", nonEmpty(strings.TrimSpace(review.Contract.RollbackPlan), "(missing)"))
 
 			fmt.Fprintf(cmd.OutOrStdout(), "\nSubtasks:\n")
 			if len(review.CR.Subtasks) == 0 {
@@ -537,6 +730,9 @@ func newCRReviewCmd() *cobra.Command {
 			printListSection(cmd, "Dependency Files Touched", review.DependencyFiles)
 			printListSection(cmd, "Files Changed", review.Files)
 			fmt.Fprintf(cmd.OutOrStdout(), "\nDiff Stat:\n%s\n", review.ShortStat)
+			printImpactSection(cmd, review.Impact)
+			printStringSection(cmd, "Errors", review.ValidationErrors)
+			printStringSection(cmd, "Warnings", review.ValidationWarnings)
 			return nil
 		},
 	}
@@ -545,6 +741,7 @@ func newCRReviewCmd() *cobra.Command {
 func newCRMergeCmd() *cobra.Command {
 	var keepBranch bool
 	var deleteBranch bool
+	var overrideReason string
 
 	cmd := &cobra.Command{
 		Use:   "merge <id>",
@@ -562,7 +759,7 @@ func newCRMergeCmd() *cobra.Command {
 			if deleteBranch {
 				keepBranch = false
 			}
-			sha, err := svc.MergeCR(id, keepBranch)
+			sha, err := svc.MergeCR(id, keepBranch, overrideReason)
 			if err != nil {
 				return err
 			}
@@ -573,6 +770,7 @@ func newCRMergeCmd() *cobra.Command {
 
 	cmd.Flags().BoolVar(&keepBranch, "keep-branch", false, "Keep CR branch after merge (default deletes merged branch)")
 	cmd.Flags().BoolVar(&deleteBranch, "delete-branch", false, "Deprecated: branch deletion is now the default")
+	cmd.Flags().StringVar(&overrideReason, "override-reason", "", "Bypass validation failures with an audited reason")
 	return cmd
 }
 
@@ -584,6 +782,57 @@ func printListSection(cmd *cobra.Command, title string, items []string) {
 	}
 	for _, item := range items {
 		fmt.Fprintf(cmd.OutOrStdout(), "- %s\n", item)
+	}
+}
+
+func printStringSection(cmd *cobra.Command, title string, items []string) {
+	fmt.Fprintf(cmd.OutOrStdout(), "\n%s:\n", title)
+	if len(items) == 0 {
+		fmt.Fprintln(cmd.OutOrStdout(), "- (none)")
+		return
+	}
+	for _, item := range items {
+		fmt.Fprintf(cmd.OutOrStdout(), "- %s\n", item)
+	}
+}
+
+func printValueList(cmd *cobra.Command, label string, values []string) {
+	if len(values) == 0 {
+		fmt.Fprintf(cmd.OutOrStdout(), "- %s: (missing)\n", label)
+		return
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "- %s:\n", label)
+	for _, value := range values {
+		fmt.Fprintf(cmd.OutOrStdout(), "  - %s\n", value)
+	}
+}
+
+func printInlineList(cmd *cobra.Command, label string, values []string) {
+	if len(values) == 0 {
+		fmt.Fprintf(cmd.OutOrStdout(), "- %s: (missing)\n", label)
+		return
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "- %s: %s\n", label, strings.Join(values, ", "))
+}
+
+func printImpactSection(cmd *cobra.Command, impact *service.ImpactReport) {
+	fmt.Fprintln(cmd.OutOrStdout(), "\nImpact:")
+	if impact == nil {
+		fmt.Fprintln(cmd.OutOrStdout(), "- (none)")
+		return
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "Risk Tier: %s\n", nonEmpty(strings.TrimSpace(impact.RiskTier), "-"))
+	fmt.Fprintf(cmd.OutOrStdout(), "Risk Score: %d\n", impact.RiskScore)
+	fmt.Fprintf(cmd.OutOrStdout(), "Files Changed: %d\n", impact.FilesChanged)
+	printListSection(cmd, "Scope Drift", impact.ScopeDrift)
+	printListSection(cmd, "Task Scope Warnings", impact.TaskScopeWarnings)
+	fmt.Fprintln(cmd.OutOrStdout(), "\nRisk Signals:")
+	if len(impact.Signals) == 0 {
+		fmt.Fprintln(cmd.OutOrStdout(), "- (none)")
+		return
+	}
+	for _, signal := range impact.Signals {
+		fmt.Fprintf(cmd.OutOrStdout(), "- [%s] +%d %s\n", signal.Code, signal.Points, signal.Summary)
 	}
 }
 
