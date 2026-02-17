@@ -26,6 +26,7 @@ var (
 	ErrPreStagedChanges       = errors.New("staged changes already exist before checkpoint")
 	ErrTaskContractIncomplete = errors.New("task contract is incomplete")
 	ErrNoTaskScopeMatches     = errors.New("no changed files match task contract scope")
+	ErrTaskDelegated          = errors.New("task is delegated")
 )
 
 var (
@@ -142,6 +143,8 @@ type CRStatusView struct {
 	TasksTotal            int
 	TasksOpen             int
 	TasksDone             int
+	TasksDelegated        int
+	TasksDelegatedPending int
 	ContractComplete      bool
 	ContractMissingFields []string
 	ValidationValid       bool
@@ -150,6 +153,53 @@ type CRStatusView struct {
 	RiskTier              string
 	RiskScore             int
 	MergeBlocked          bool
+	MergeBlockers         []string
+}
+
+type TaskDelegationView struct {
+	ChildCRID   int
+	ChildCRUID  string
+	ChildTaskID int
+	ChildStatus string
+	LinkedAt    string
+	LinkedBy    string
+}
+
+type DelegateTaskResult struct {
+	ParentTaskID     int
+	ParentTaskStatus string
+	ChildTaskID      int
+	ChildCRID        int
+}
+
+type UndelegateTaskResult struct {
+	ParentTaskID      int
+	ParentTaskStatus  string
+	RemovedDelegation int
+}
+
+type StackNodeView struct {
+	ID                    int
+	UID                   string
+	ParentCRID            int
+	Title                 string
+	Status                string
+	Branch                string
+	Depth                 int
+	Children              []int
+	MergeBlocked          bool
+	MergeBlockers         []string
+	TasksTotal            int
+	TasksOpen             int
+	TasksDone             int
+	TasksDelegated        int
+	TasksDelegatedPending int
+}
+
+type StackView struct {
+	RootCRID  int
+	FocusCRID int
+	Nodes     []StackNodeView
 }
 
 type HistoryNote struct {

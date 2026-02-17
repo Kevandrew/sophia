@@ -485,12 +485,20 @@ func (s *Service) StatusCR(id int) (*CRStatusView, error) {
 
 	tasksOpen := 0
 	tasksDone := 0
+	tasksDelegated := 0
+	tasksDelegatedPending := 0
 	for _, task := range cr.Subtasks {
-		if task.Status == model.TaskStatusDone {
+		switch task.Status {
+		case model.TaskStatusDone:
 			tasksDone++
-			continue
+		case model.TaskStatusDelegated:
+			tasksDelegated++
+			if len(s.pendingDelegationChildIDs(task)) > 0 {
+				tasksDelegatedPending++
+			}
+		default:
+			tasksOpen++
 		}
-		tasksOpen++
 	}
 
 	missingFields := missingCRContractFields(cr.Contract)
@@ -512,6 +520,8 @@ func (s *Service) StatusCR(id int) (*CRStatusView, error) {
 		TasksTotal:            len(cr.Subtasks),
 		TasksOpen:             tasksOpen,
 		TasksDone:             tasksDone,
+		TasksDelegated:        tasksDelegated,
+		TasksDelegatedPending: tasksDelegatedPending,
 		ContractComplete:      len(missingFields) == 0,
 		ContractMissingFields: missingFields,
 		ValidationValid:       true,
@@ -534,7 +544,8 @@ func (s *Service) StatusCR(id int) (*CRStatusView, error) {
 		view.ValidationValid = report.Valid
 		view.ValidationErrors = len(report.Errors)
 		view.ValidationWarnings = len(report.Warnings)
-		view.MergeBlocked = !report.Valid
+		view.MergeBlockers = s.mergeBlockersForCR(cr, report)
+		view.MergeBlocked = len(view.MergeBlockers) > 0
 		if report.Impact != nil {
 			view.RiskTier = nonEmptyTrimmed(report.Impact.RiskTier, "-")
 			view.RiskScore = report.Impact.RiskScore

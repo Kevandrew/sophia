@@ -42,10 +42,7 @@ func buildMergeCommitMessage(cr *model.CR, actor, mergedAt string) string {
 		b.WriteString("- (none)\n\n")
 	} else {
 		for _, task := range cr.Subtasks {
-			marker := "[ ]"
-			if task.Status == model.TaskStatusDone {
-				marker = "[x]"
-			}
+			marker := taskStatusMarker(task.Status)
 			fmt.Fprintf(&b, "- %s #%d %s\n", marker, task.ID, task.Title)
 		}
 		b.WriteString("\n")
@@ -85,6 +82,17 @@ func completedTasks(tasks []model.Subtask) int {
 		}
 	}
 	return count
+}
+
+func taskStatusMarker(status string) string {
+	switch strings.TrimSpace(status) {
+	case model.TaskStatusDone:
+		return "[x]"
+	case model.TaskStatusDelegated:
+		return "[~]"
+	default:
+		return "[ ]"
+	}
 }
 
 func buildTaskCheckpointMessage(cr *model.CR, task *model.Subtask, scopeMode string, chunkCount int) string {
