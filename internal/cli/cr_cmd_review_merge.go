@@ -65,8 +65,11 @@ func newCRReviewCmd() *cobra.Command {
 			} else {
 				for _, task := range review.CR.Subtasks {
 					marker := "[ ]"
-					if task.Status == model.TaskStatusDone {
+					switch task.Status {
+					case model.TaskStatusDone:
 						marker = "[x]"
+					case model.TaskStatusDelegated:
+						marker = "[~]"
 					}
 					fmt.Fprintf(cmd.OutOrStdout(), "- %s #%d %s\n", marker, task.ID, task.Title)
 				}

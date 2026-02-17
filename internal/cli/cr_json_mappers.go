@@ -65,6 +65,16 @@ func reviewToJSONMap(review *service.Review) map[string]any {
 				"new_lines": chunk.NewLines,
 			})
 		}
+		delegationMaps := make([]map[string]any, 0, len(task.Delegations))
+		for _, delegation := range task.Delegations {
+			delegationMaps = append(delegationMaps, map[string]any{
+				"child_cr_id":   delegation.ChildCRID,
+				"child_cr_uid":  delegation.ChildCRUID,
+				"child_task_id": delegation.ChildTaskID,
+				"linked_at":     delegation.LinkedAt,
+				"linked_by":     delegation.LinkedBy,
+			})
+		}
 		subtasks = append(subtasks, map[string]any{
 			"id":                task.ID,
 			"title":             task.Title,
@@ -73,6 +83,7 @@ func reviewToJSONMap(review *service.Review) map[string]any {
 			"checkpoint_at":     task.CheckpointAt,
 			"checkpoint_scope":  task.CheckpointScope,
 			"checkpoint_chunks": chunkMaps,
+			"delegations":       delegationMaps,
 		})
 	}
 	return map[string]any{
