@@ -124,6 +124,7 @@ sophia init [--base-branch <name>] [--metadata-mode local|tracked]
 sophia cr add "Add billing retries"
 sophia cr add "Add billing retries" --base release/2026-q1
 sophia cr add "Add billing retries" --parent 12
+sophia cr child add "Implement parser split" --description "Delegated from active parent CR."
 ```
 
 Behavior:
@@ -132,8 +133,24 @@ Behavior:
 * Create branch `sophia/cr-<id>`
 * Supports per-CR base refs via `--base <git-ref>`
 * Supports stacked child CR creation via `--parent <cr-id>` (mutually exclusive with `--base`)
+* Supports child CR creation from active CR context via `cr child add`
 * Write CR YAML file
 * Checkout branch
+
+---
+
+### Stack Topology
+
+```
+sophia cr stack
+sophia cr stack 20 --json
+```
+
+Behavior:
+
+* Shows root/focus CR IDs and stack node ordering
+* Includes per-node merge blockers and delegated task counts
+* Provides deterministic JSON fields for machine consumption
 
 ---
 
@@ -196,6 +213,7 @@ Behavior:
 * Marks task done only if checkpoint commit succeeds
 * Records checkpoint metadata on the task (`commit`, `timestamp`, message, `checkpoint_scope`, `checkpoint_chunks`)
 * Requires active branch to match the CR branch
+* Rejects checkpoint completion for delegated tasks until delegation links are resolved
 
 Optional metadata-only completion:
 
@@ -227,6 +245,19 @@ Chunk discovery (read-only):
 sophia cr task chunk list <cr-id> <task-id>
 sophia cr task chunk list <cr-id> <task-id> --path internal/service/service.go --json
 ```
+
+Delegation:
+
+```
+sophia cr task delegate <parent-cr-id> <task-id> --child <child-cr-id>
+sophia cr task undelegate <parent-cr-id> <task-id> --child <child-cr-id>
+```
+
+Behavior:
+
+* Delegation creates a child task and copies parent task contract fields
+* Parent task transitions to `delegated` while links remain
+* Parent task auto-completes when all delegated child CRs are merged
 
 ---
 
@@ -289,7 +320,7 @@ sophia cr status <id>
 Behavior:
 
 * `why` returns the effective rationale (`contract why` fallback to CR description)
-* `status` returns CR identity (`id` + immutable `uid`), per-CR base metadata (`base_ref`, `base_commit`), parent metadata, branch context, workspace dirtiness, task progress, contract completeness, validation summary, and `merge_blocked`
+* `status` returns CR identity (`id` + immutable `uid`), per-CR base metadata (`base_ref`, `base_commit`), parent metadata, branch context, workspace dirtiness, task progress (including delegated counters), contract completeness, validation summary, `merge_blocked`, and `merge_blockers`
 * Both commands support `--json`
 
 ---
@@ -353,6 +384,9 @@ Sophia-Tasks: 2 completed
 
 * Mark CR as merged in local metadata
 * Delete branch by default (`--keep-branch` to retain)
+* Non-delegated stacks keep parent-first merge gating
+* Delegated children may merge before parent when explicitly linked from parent task delegation
+* Parent CR merge blocks while delegated tasks still point to unmerged child CRs
 * Supports emergency audited bypass:
 
 ```
@@ -379,6 +413,10 @@ sophia cr task contract set <cr-id> <task-id> --intent "..."
 sophia cr task contract show <cr-id> <task-id>
 sophia cr task chunk list <cr-id> <task-id> [--path <file>] [--json]
 sophia cr task done <cr-id> <task-id> --patch-file <patch-file>
+sophia cr task delegate <parent-cr-id> <task-id> --child <child-cr-id>
+sophia cr task undelegate <parent-cr-id> <task-id> --child <child-cr-id>
+sophia cr child add "<title>" --description "..."
+sophia cr stack [<id>] [--json]
 sophia cr edit <id> --title "..."
 sophia cr contract set <id> --why "..."
 sophia cr contract show <id>
