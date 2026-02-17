@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"sophia/internal/model"
 )
 
 func TestSetAndGetCRContractRoundTrip(t *testing.T) {
@@ -421,6 +423,138 @@ func TestValidateCRWarnsOnTaskContractScopeDrift(t *testing.T) {
 	}
 	if !containsAny(report.Warnings, "outside task contract scope") {
 		t.Fatalf("expected task contract drift warning, got %#v", report.Warnings)
+	}
+}
+
+func TestValidateCRUsesCheckpointChunksWhenCheckpointScopeMissing(t *testing.T) {
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	runGit(t, dir, "config", "user.name", "Test User")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+
+	cr, err := svc.AddCR("Chunk fallback", "validate chunk-only checkpoint metadata")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	taskLegacy, err := svc.AddTask(cr.ID, "feat: legacy checkpoint task")
+	if err != nil {
+		t.Fatalf("AddTask(legacy) error = %v", err)
+	}
+	taskChunked, err := svc.AddTask(cr.ID, "feat: chunk checkpoint task")
+	if err != nil {
+		t.Fatalf("AddTask(chunked) error = %v", err)
+	}
+	setValidContract(t, svc, cr.ID)
+	setValidTaskContract(t, svc, cr.ID, taskLegacy.ID)
+	setValidTaskContract(t, svc, cr.ID, taskChunked.ID)
+
+	loaded, err := svc.store.LoadCR(cr.ID)
+	if err != nil {
+		t.Fatalf("LoadCR() error = %v", err)
+	}
+	loaded.Subtasks[taskLegacy.ID-1].Status = model.TaskStatusDone
+	loaded.Subtasks[taskLegacy.ID-1].CheckpointScope = []string{"internal/service/legacy.go"}
+
+	loaded.Subtasks[taskChunked.ID-1].Status = model.TaskStatusDone
+	loaded.Subtasks[taskChunked.ID-1].CheckpointScope = nil
+	loaded.Subtasks[taskChunked.ID-1].CheckpointChunks = []model.CheckpointChunk{
+		{
+			ID:       "chk_1",
+			Path:     "outside/chunk.go",
+			OldStart: 2,
+			OldLines: 1,
+			NewStart: 2,
+			NewLines: 1,
+		},
+	}
+	loaded.Subtasks[taskChunked.ID-1].Contract.Scope = []string{"internal/service"}
+	if err := svc.store.SaveCR(loaded); err != nil {
+		t.Fatalf("SaveCR() error = %v", err)
+	}
+
+	report, err := svc.ValidateCR(cr.ID)
+	if err != nil {
+		t.Fatalf("ValidateCR() error = %v", err)
+	}
+	if !containsAny(report.Warnings, "outside task contract scope") {
+		t.Fatalf("expected task contract scope warning from checkpoint_chunks fallback, got %#v", report.Warnings)
+	}
+}
+
+func TestValidateCRWarnsOnInvalidCheckpointChunkMetadata(t *testing.T) {
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	runGit(t, dir, "config", "user.name", "Test User")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+
+	cr, err := svc.AddCR("Chunk validation", "warn on invalid chunk metadata")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	task, err := svc.AddTask(cr.ID, "feat: chunk validation task")
+	if err != nil {
+		t.Fatalf("AddTask() error = %v", err)
+	}
+	setValidContract(t, svc, cr.ID)
+	setValidTaskContract(t, svc, cr.ID, task.ID)
+
+	loaded, err := svc.store.LoadCR(cr.ID)
+	if err != nil {
+		t.Fatalf("LoadCR() error = %v", err)
+	}
+	loaded.Subtasks[task.ID-1].Status = model.TaskStatusDone
+	loaded.Subtasks[task.ID-1].CheckpointScope = []string{"internal/service/chunk.go"}
+	loaded.Subtasks[task.ID-1].CheckpointChunks = []model.CheckpointChunk{
+		{
+			ID:       "",
+			Path:     "internal/service/chunk.go",
+			OldStart: 0,
+			OldLines: 1,
+			NewStart: 1,
+			NewLines: -1,
+		},
+		{
+			ID:       "dup",
+			Path:     "internal/service/chunk.go",
+			OldStart: 2,
+			OldLines: 1,
+			NewStart: 2,
+			NewLines: 1,
+		},
+		{
+			ID:       "dup",
+			Path:     "",
+			OldStart: 3,
+			OldLines: 1,
+			NewStart: 3,
+			NewLines: 1,
+		},
+	}
+	if err := svc.store.SaveCR(loaded); err != nil {
+		t.Fatalf("SaveCR() error = %v", err)
+	}
+
+	report, err := svc.ValidateCR(cr.ID)
+	if err != nil {
+		t.Fatalf("ValidateCR() error = %v", err)
+	}
+	if !containsAny(report.Warnings, "missing id") {
+		t.Fatalf("expected missing-id warning, got %#v", report.Warnings)
+	}
+	if !containsAny(report.Warnings, "duplicate checkpoint chunk id") {
+		t.Fatalf("expected duplicate-id warning, got %#v", report.Warnings)
+	}
+	if !containsAny(report.Warnings, "invalid line starts") {
+		t.Fatalf("expected invalid line starts warning, got %#v", report.Warnings)
+	}
+	if !containsAny(report.Warnings, "invalid line counts") {
+		t.Fatalf("expected invalid line counts warning, got %#v", report.Warnings)
 	}
 }
 
