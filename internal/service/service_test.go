@@ -901,6 +901,69 @@ func TestDoneTaskWithCheckpointPatchFileMalformedFails(t *testing.T) {
 	}
 }
 
+func TestListTaskChunksReturnsSortedChunksAndPathFilter(t *testing.T) {
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	runGit(t, dir, "config", "user.name", "Test User")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+
+	if err := os.WriteFile(filepath.Join(dir, "alpha.txt"), []byte("a1\na2\na3\na4\na5\na6\na7\na8\n"), 0o644); err != nil {
+		t.Fatalf("write alpha file: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "beta.txt"), []byte("b1\nb2\n"), 0o644); err != nil {
+		t.Fatalf("write beta file: %v", err)
+	}
+	runGit(t, dir, "add", "alpha.txt", "beta.txt")
+	runGit(t, dir, "commit", "-m", "chore: seed files")
+
+	cr, err := svc.AddCR("Chunk list", "show chunk candidates")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	task, err := svc.AddTask(cr.ID, "feat: list chunks")
+	if err != nil {
+		t.Fatalf("AddTask() error = %v", err)
+	}
+	setValidTaskContract(t, svc, cr.ID, task.ID)
+
+	if err := os.WriteFile(filepath.Join(dir, "alpha.txt"), []byte("a1\na2-edited\na3\na4\na5\na6\na7-edited\na8\n"), 0o644); err != nil {
+		t.Fatalf("write alpha modifications: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "beta.txt"), []byte("b1\nb2-edited\n"), 0o644); err != nil {
+		t.Fatalf("write beta modifications: %v", err)
+	}
+
+	chunks, err := svc.ListTaskChunks(cr.ID, task.ID, nil)
+	if err != nil {
+		t.Fatalf("ListTaskChunks() error = %v", err)
+	}
+	if len(chunks) != 3 {
+		t.Fatalf("expected 3 chunks, got %#v", chunks)
+	}
+	if chunks[0].Path != "alpha.txt" || chunks[1].Path != "alpha.txt" || chunks[2].Path != "beta.txt" {
+		t.Fatalf("expected path-sorted chunks, got %#v", chunks)
+	}
+	for _, chunk := range chunks {
+		if chunk.ID == "" {
+			t.Fatalf("expected chunk id, got %#v", chunk)
+		}
+		if strings.TrimSpace(chunk.Preview) == "" {
+			t.Fatalf("expected chunk preview, got %#v", chunk)
+		}
+	}
+
+	filtered, err := svc.ListTaskChunks(cr.ID, task.ID, []string{"beta.txt"})
+	if err != nil {
+		t.Fatalf("ListTaskChunks(filtered) error = %v", err)
+	}
+	if len(filtered) != 1 || filtered[0].Path != "beta.txt" {
+		t.Fatalf("expected one beta chunk, got %#v", filtered)
+	}
+}
+
 func TestDoneTaskWithCheckpointRequiresExplicitScope(t *testing.T) {
 	dir := t.TempDir()
 	svc := New(dir)
