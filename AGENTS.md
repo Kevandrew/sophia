@@ -13,6 +13,8 @@ Recommended daily flow (intent-first):
    `sophia cr add "<title>" --parent <cr-id>`
    `sophia cr child add "<title>" --description "<why>"`
 2. `sophia cr contract set <id> --why "..." --scope <prefix> ...`
+   Optional risk hints:
+   `--risk-critical-scope <prefix> --risk-tier-hint <low|medium|high> --risk-rationale "..."`
 3. `sophia cr task add <id> "<subtask>"`
 4. `sophia cr task contract set <id> <task-id> --intent "..." --acceptance "..." --scope <prefix>`
 5. implement on `sophia/cr-<id>`
