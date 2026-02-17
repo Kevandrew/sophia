@@ -80,8 +80,9 @@ type envelope struct {
 }
 
 type envelopeErrorPayload struct {
-	Code    string `json:"code"`
-	Message string `json:"message"`
+	Code    string         `json:"code"`
+	Message string         `json:"message"`
+	Details map[string]any `json:"details,omitempty"`
 }
 
 func decodeEnvelope(t *testing.T, raw string) envelope {
