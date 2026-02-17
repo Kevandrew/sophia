@@ -130,10 +130,26 @@ func (c *Client) BranchExists(branch string) bool {
 }
 
 func (c *Client) EnsureBaseBranch(baseBranch string) error {
-	if c.BranchExists(baseBranch) {
-		return c.CheckoutBranch(baseBranch)
+	baseBranch = strings.TrimSpace(baseBranch)
+	if baseBranch == "" {
+		return fmt.Errorf("base branch cannot be empty")
 	}
-	_, err := c.run("checkout", "-B", baseBranch)
+	return c.EnsureBranchExists(baseBranch)
+}
+
+func (c *Client) EnsureBranchExists(branch string) error {
+	branch = strings.TrimSpace(branch)
+	if branch == "" {
+		return fmt.Errorf("branch cannot be empty")
+	}
+	if c.BranchExists(branch) {
+		return nil
+	}
+	if !c.HasCommit() {
+		_, err := c.run("checkout", "-B", branch)
+		return err
+	}
+	_, err := c.run("branch", branch, "HEAD")
 	return err
 }
 
@@ -164,6 +180,10 @@ func (c *Client) RebaseBranchOnto(branch, ontoRef string) error {
 	if err := c.CheckoutBranch(branch); err != nil {
 		return err
 	}
+	return c.RebaseCurrentBranchOnto(ontoRef)
+}
+
+func (c *Client) RebaseCurrentBranchOnto(ontoRef string) error {
 	_, err := c.run("rebase", ontoRef)
 	return err
 }
@@ -511,6 +531,10 @@ func (c *Client) MergeNoFF(baseBranch, branch, message string) error {
 	if err := c.CheckoutBranch(baseBranch); err != nil {
 		return err
 	}
+	return c.MergeNoFFOnCurrentBranch(branch, message)
+}
+
+func (c *Client) MergeNoFFOnCurrentBranch(branch, message string) error {
 	args := c.identityFlags()
 	args = append(args, "merge", "--no-ff", branch, "-m", message)
 	_, err := c.run(args...)
