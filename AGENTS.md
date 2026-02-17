@@ -10,11 +10,12 @@ Recommended daily flow (intent-first):
 1. `sophia cr add "<title>" --description "<why>"`
 2. `sophia cr contract set <id> --why "..." --scope <prefix> ...`
 3. `sophia cr task add <id> "<subtask>"`
-4. implement on `sophia/cr-<id>`
-5. `sophia cr task done <id> <task-id> --path <file> [--path <file>...]` (default checkpoint commit with explicit scope)
-6. `sophia cr validate <id>`
-7. `sophia cr review <id>`
-8. `sophia cr merge <id>`
+4. `sophia cr task contract set <id> <task-id> --intent "..." --acceptance "..." --scope <prefix>`
+5. implement on `sophia/cr-<id>`
+6. `sophia cr task done <id> <task-id> --path <file> [--path <file>...]` (default checkpoint commit with explicit scope)
+7. `sophia cr validate <id>`
+8. `sophia cr review <id>`
+9. `sophia cr merge <id>`
 
 ## Coding Style & Naming Conventions
 - Language: Go (module `sophia`).
@@ -41,6 +42,7 @@ Recommended daily flow (intent-first):
   - Feature commits: `feat: ...`
 - Use Sophia as the primary workflow interface (`cr`, `task`, `note`, `review`, `merge`, `repair`).
 - Use contract and risk commands (`cr contract`, `cr impact`, `cr validate`) before merge.
+- Set task contracts (`cr task contract`) before task completion; `task done` is blocked if missing.
 - Task completion creates checkpoint commits via `sophia cr task done` and now requires explicit scope (`--path` or `--all`).
 - Use `--no-checkpoint` for metadata-only completion; use `--all` only when full-stage behavior is intended.
 - Pre-staged index changes are rejected before checkpointing to prevent accidental scope drift.
@@ -54,4 +56,4 @@ Recommended daily flow (intent-first):
 - `.sophia/` is local-first workflow state and is ignored in Git by default.
 - If local metadata is missing/out-of-sync, run `sophia repair`.
 - `_docs/` is local/internal and ignored via `.gitignore`.
-- Current milestone: CR-8 (intent contract, impact validation, merge guardrails).
+- Current milestone complete: CR-9 (task-level contract enforcement and drift visibility).
