@@ -357,6 +357,42 @@ func TestTrustReportHighRiskWithSpecializedEvidenceCanBeTrusted(t *testing.T) {
 	}
 }
 
+func TestTrustDimensionsKeepCodesAndUseUpdatedLabels(t *testing.T) {
+	cr := &model.CR{
+		Contract: validTrustContract(),
+		Subtasks: []model.Subtask{
+			{ID: 1, Status: model.TaskStatusDone, CheckpointCommit: "abc1234"},
+		},
+	}
+	report := buildTrustReport(cr, &ValidationReport{
+		Impact: &ImpactReport{
+			FilesChanged: 2,
+			RiskTier:     "low",
+			Signals:      []RiskSignal{{Code: "large_change_set", Points: 2}},
+		},
+	}, &diffSummary{
+		Files:     []string{"internal/service/a.go", "internal/service/a_test.go"},
+		TestFiles: []string{"internal/service/a_test.go"},
+		ShortStat: "2 files changed, 10 insertions(+), 2 deletions(-)",
+	})
+
+	expected := map[string]string{
+		"contract_quality":    "Contract Completeness",
+		"scope_discipline":    "Scope Alignment",
+		"task_proof_chain":    "Checkpoint Coverage",
+		"risk_accountability": "Risk Declaration",
+		"change_magnitude":    "Change Magnitude",
+		"validation_health":   "Validation Status",
+		"test_evidence":       "Test Touch Signals",
+	}
+	for code, label := range expected {
+		dimension := trustDimensionByCode(t, report, code)
+		if dimension.Label != label {
+			t.Fatalf("expected label %q for code %q, got %q", label, code, dimension.Label)
+		}
+	}
+}
+
 func validTrustContract() model.Contract {
 	return model.Contract{
 		Why:          "Deliver deterministic trust evidence so review can be metadata-first.",
