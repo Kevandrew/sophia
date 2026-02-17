@@ -199,6 +199,7 @@ func (s *Service) DoneTask(crID, taskID int) error {
 	return err
 }
 
+// Reopen preserves checkpoint evidence by default unless the caller explicitly clears it.
 func (s *Service) ReopenTask(crID, taskID int, opts ReopenTaskOptions) (*model.Subtask, error) {
 	cr, err := s.store.LoadCR(crID)
 	if err != nil {
