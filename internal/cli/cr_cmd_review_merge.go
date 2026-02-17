@@ -127,11 +127,14 @@ func newCRMergeCmd() *cobra.Command {
 			if deleteBranch {
 				keepBranch = false
 			}
-			sha, err := svc.MergeCR(id, keepBranch, overrideReason)
+			sha, warnings, err := svc.MergeCRWithWarnings(id, keepBranch, overrideReason)
 			if err != nil {
 				return err
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "Merged CR %d as commit %s\n", id, sha)
+			for _, warning := range warnings {
+				fmt.Fprintf(cmd.OutOrStdout(), "Warning: %s\n", warning)
+			}
 			return nil
 		},
 	}

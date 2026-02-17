@@ -48,7 +48,7 @@ func TestServiceNewResolvesRepoRootFromSubdirectory(t *testing.T) {
 	}
 
 	nestedSvc := New(subdir)
-	want := filepath.Join(dir, ".sophia")
+	want := localMetadataDir(t, dir)
 	if !pathsReferToSameLocation(t, nestedSvc.store.SophiaDir(), want) {
 		t.Fatalf("expected nested service metadata path %q, got %q", want, nestedSvc.store.SophiaDir())
 	}
@@ -71,9 +71,9 @@ func TestServiceNewPrefersLegacyMetadataWhenInitialized(t *testing.T) {
 	}
 
 	reloaded := New(dir)
-	want := filepath.Join(dir, ".sophia")
+	want := localMetadataDir(t, dir)
 	if !pathsReferToSameLocation(t, reloaded.store.SophiaDir(), want) {
-		t.Fatalf("expected legacy metadata path %q, got %q", want, reloaded.store.SophiaDir())
+		t.Fatalf("expected shared metadata path %q, got %q", want, reloaded.store.SophiaDir())
 	}
 }
 

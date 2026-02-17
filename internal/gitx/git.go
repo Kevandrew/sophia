@@ -54,6 +54,12 @@ type Commit struct {
 	Body    string
 }
 
+type Worktree struct {
+	Path   string
+	Head   string
+	Branch string
+}
+
 func New(workDir string) *Client {
 	return &Client{WorkDir: workDir}
 }
@@ -124,10 +130,26 @@ func (c *Client) BranchExists(branch string) bool {
 }
 
 func (c *Client) EnsureBaseBranch(baseBranch string) error {
-	if c.BranchExists(baseBranch) {
-		return c.CheckoutBranch(baseBranch)
+	baseBranch = strings.TrimSpace(baseBranch)
+	if baseBranch == "" {
+		return fmt.Errorf("base branch cannot be empty")
 	}
-	_, err := c.run("checkout", "-B", baseBranch)
+	return c.EnsureBranchExists(baseBranch)
+}
+
+func (c *Client) EnsureBranchExists(branch string) error {
+	branch = strings.TrimSpace(branch)
+	if branch == "" {
+		return fmt.Errorf("branch cannot be empty")
+	}
+	if c.BranchExists(branch) {
+		return nil
+	}
+	if !c.HasCommit() {
+		_, err := c.run("checkout", "-B", branch)
+		return err
+	}
+	_, err := c.run("branch", branch, "HEAD")
 	return err
 }
 
@@ -158,6 +180,10 @@ func (c *Client) RebaseBranchOnto(branch, ontoRef string) error {
 	if err := c.CheckoutBranch(branch); err != nil {
 		return err
 	}
+	return c.RebaseCurrentBranchOnto(ontoRef)
+}
+
+func (c *Client) RebaseCurrentBranchOnto(ontoRef string) error {
 	_, err := c.run("rebase", ontoRef)
 	return err
 }
@@ -505,6 +531,10 @@ func (c *Client) MergeNoFF(baseBranch, branch, message string) error {
 	if err := c.CheckoutBranch(baseBranch); err != nil {
 		return err
 	}
+	return c.MergeNoFFOnCurrentBranch(branch, message)
+}
+
+func (c *Client) MergeNoFFOnCurrentBranch(branch, message string) error {
 	args := c.identityFlags()
 	args = append(args, "merge", "--no-ff", branch, "-m", message)
 	_, err := c.run(args...)
@@ -615,6 +645,68 @@ func (c *Client) LocalBranches(prefix string) ([]string, error) {
 	}
 	sort.Strings(branches)
 	return branches, nil
+}
+
+func (c *Client) ListWorktrees() ([]Worktree, error) {
+	out, err := c.run("worktree", "list", "--porcelain")
+	if err != nil {
+		return nil, err
+	}
+	return parseWorktreeListPorcelain(c.WorkDir, out), nil
+}
+
+func (c *Client) WorktreeForBranch(branch string) (*Worktree, error) {
+	branch = strings.TrimSpace(branch)
+	if branch == "" {
+		return nil, fmt.Errorf("branch cannot be empty")
+	}
+	worktrees, err := c.ListWorktrees()
+	if err != nil {
+		return nil, err
+	}
+	for i := range worktrees {
+		if worktrees[i].Branch == branch {
+			wt := worktrees[i]
+			return &wt, nil
+		}
+	}
+	return nil, nil
+}
+
+func parseWorktreeListPorcelain(workDir, raw string) []Worktree {
+	raw = strings.ReplaceAll(raw, "\r\n", "\n")
+	blocks := strings.Split(raw, "\n\n")
+	res := make([]Worktree, 0, len(blocks))
+	for _, block := range blocks {
+		block = strings.TrimSpace(block)
+		if block == "" {
+			continue
+		}
+		wt := Worktree{}
+		for _, line := range strings.Split(block, "\n") {
+			line = strings.TrimSpace(line)
+			switch {
+			case strings.HasPrefix(line, "worktree "):
+				wt.Path = strings.TrimSpace(strings.TrimPrefix(line, "worktree "))
+				if wt.Path != "" && !filepath.IsAbs(wt.Path) {
+					wt.Path = filepath.Join(workDir, wt.Path)
+				}
+			case strings.HasPrefix(line, "HEAD "):
+				wt.Head = strings.TrimSpace(strings.TrimPrefix(line, "HEAD "))
+			case strings.HasPrefix(line, "branch "):
+				rawBranch := strings.TrimSpace(strings.TrimPrefix(line, "branch "))
+				wt.Branch = strings.TrimPrefix(rawBranch, "refs/heads/")
+			}
+		}
+		if strings.TrimSpace(wt.Path) == "" {
+			continue
+		}
+		res = append(res, wt)
+	}
+	sort.Slice(res, func(i, j int) bool {
+		return res[i].Path < res[j].Path
+	})
+	return res
 }
 
 func (c *Client) ChangedFileCount(hash string) (int, error) {

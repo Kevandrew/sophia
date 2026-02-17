@@ -954,6 +954,8 @@ func newCRSwitchCmd() *cobra.Command {
 			if err != nil {
 				if errorsIs(err, service.ErrWorkingTreeDirty) {
 					fmt.Fprintln(cmd.OutOrStdout(), "Working tree is dirty. Commit changes or run `git stash`, then retry.")
+				} else if errorsIs(err, service.ErrBranchInOtherWorktree) {
+					fmt.Fprintln(cmd.OutOrStdout(), "Target branch is already checked out in another worktree. Run this command from that worktree path.")
 				}
 				return err
 			}
@@ -981,6 +983,8 @@ func newCRReopenCmd() *cobra.Command {
 			if err != nil {
 				if errorsIs(err, service.ErrWorkingTreeDirty) {
 					fmt.Fprintln(cmd.OutOrStdout(), "Working tree is dirty. Commit changes or run `git stash`, then retry.")
+				} else if errorsIs(err, service.ErrBranchInOtherWorktree) {
+					fmt.Fprintln(cmd.OutOrStdout(), "Target branch is already checked out in another worktree. Reopen from that worktree path.")
 				}
 				return err
 			}

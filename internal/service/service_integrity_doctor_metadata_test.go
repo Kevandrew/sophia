@@ -14,6 +14,17 @@ func TestDoctorFlagsTrackedSophiaMetadataInLocalMode(t *testing.T) {
 	}
 	runGit(t, dir, "config", "user.name", "Test User")
 	runGit(t, dir, "config", "user.email", "test@example.com")
+	if err := os.MkdirAll(filepath.Join(dir, ".sophia"), 0o755); err != nil {
+		t.Fatalf("mkdir .sophia: %v", err)
+	}
+	sharedConfig := filepath.Join(localMetadataDir(t, dir), "config.yaml")
+	configBytes, readErr := os.ReadFile(sharedConfig)
+	if readErr != nil {
+		t.Fatalf("read shared config: %v", readErr)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".sophia", "config.yaml"), configBytes, 0o644); err != nil {
+		t.Fatalf("write legacy .sophia/config.yaml: %v", err)
+	}
 	runGit(t, dir, "add", "-f", ".sophia/config.yaml")
 	runGit(t, dir, "commit", "-m", "chore: track local metadata")
 
@@ -104,8 +115,8 @@ func TestLogFallsBackToGitWhenLocalMetadataMissing(t *testing.T) {
 		t.Fatalf("MergeCR() error = %v", err)
 	}
 
-	if err := os.RemoveAll(filepath.Join(dir, ".sophia")); err != nil {
-		t.Fatalf("remove .sophia: %v", err)
+	if err := os.RemoveAll(svc.store.SophiaDir()); err != nil {
+		t.Fatalf("remove metadata dir: %v", err)
 	}
 	entries, err := svc.Log()
 	if err != nil {

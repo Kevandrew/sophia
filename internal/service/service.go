@@ -14,6 +14,7 @@ import (
 var (
 	ErrCRAlreadyMerged        = errors.New("cr is already merged")
 	ErrNoActiveCRContext      = errors.New("current branch is not a CR branch")
+	ErrBranchInOtherWorktree  = errors.New("branch is checked out in another worktree")
 	ErrWorkingTreeDirty       = errors.New("working tree is dirty")
 	ErrNoCRChanges            = errors.New("no CR changes provided")
 	ErrCRValidationFailed     = errors.New("cr validation failed")
@@ -47,9 +48,12 @@ var (
 const redactedPlaceholder = "[REDACTED]"
 
 type Service struct {
-	store *store.Store
-	git   *gitx.Client
-	now   func() time.Time
+	store                *store.Store
+	git                  *gitx.Client
+	now                  func() time.Time
+	repoRoot             string
+	legacySophiaDir      string
+	sharedLocalSophiaDir string
 }
 
 type Review struct {
@@ -386,6 +390,7 @@ type parsedPatchChunk struct {
 
 func New(root string) *Service {
 	svc := &Service{
+		git: gitx.New(root),
 		now: time.Now,
 	}
 	svc.bootstrapRepoContext(root)
@@ -396,6 +401,23 @@ func (s *Service) Init(baseBranch, metadataMode string) (string, error) {
 	if !s.git.InRepo() {
 		if err := s.git.InitRepo(); err != nil {
 			return "", fmt.Errorf("initialize git repository: %w", err)
+		}
+	}
+	s.bootstrapRepoContext(s.git.WorkDir)
+
+	requestedMode := strings.TrimSpace(metadataMode)
+	switch requestedMode {
+	case model.MetadataModeTracked:
+		s.setStoreSophiaDir(s.legacySophiaDir)
+	case model.MetadataModeLocal:
+		if strings.TrimSpace(s.sharedLocalSophiaDir) != "" {
+			if err := s.migrateLegacyLocalMetadata(s.sharedLocalSophiaDir, s.legacySophiaDir); err == nil {
+				s.setStoreSophiaDir(s.sharedLocalSophiaDir)
+			} else {
+				s.setStoreSophiaDir(s.legacySophiaDir)
+			}
+		} else {
+			s.setStoreSophiaDir(s.legacySophiaDir)
 		}
 	}
 
@@ -431,7 +453,17 @@ func (s *Service) Init(baseBranch, metadataMode string) (string, error) {
 		effectiveBase = "main"
 	}
 
-	if err := s.git.EnsureBaseBranch(effectiveBase); err != nil {
+	if effectiveMode == model.MetadataModeTracked {
+		s.setStoreSophiaDir(s.legacySophiaDir)
+		wasInitialized = s.store.IsInitialized()
+	} else if strings.TrimSpace(s.sharedLocalSophiaDir) != "" {
+		if err := s.migrateLegacyLocalMetadata(s.sharedLocalSophiaDir, s.legacySophiaDir); err == nil {
+			s.setStoreSophiaDir(s.sharedLocalSophiaDir)
+		}
+		wasInitialized = s.store.IsInitialized()
+	}
+
+	if err := s.git.EnsureBranchExists(effectiveBase); err != nil {
 		return "", fmt.Errorf("prepare base branch %q: %w", effectiveBase, err)
 	}
 
