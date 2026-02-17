@@ -922,10 +922,14 @@ func newCRTaskChunkListCmd() *cobra.Command {
 				return err
 			}
 			if asJSON {
+				chunkMaps := make([]map[string]any, 0, len(chunks))
+				for _, chunk := range chunks {
+					chunkMaps = append(chunkMaps, chunkToJSONMap(chunk))
+				}
 				return writeJSONSuccess(cmd, map[string]any{
 					"cr_id":   crID,
 					"task_id": taskID,
-					"chunks":  chunks,
+					"chunks":  chunkMaps,
 				})
 			}
 			if len(chunks) == 0 {
@@ -1409,6 +1413,7 @@ func printImpactSection(cmd *cobra.Command, impact *service.ImpactReport) {
 	printListSection(cmd, "Scope Drift", impact.ScopeDrift)
 	printListSection(cmd, "Task Scope Warnings", impact.TaskScopeWarnings)
 	printListSection(cmd, "Task Contract Warnings", impact.TaskContractWarnings)
+	printListSection(cmd, "Task Chunk Warnings", impact.TaskChunkWarnings)
 	fmt.Fprintln(cmd.OutOrStdout(), "\nRisk Signals:")
 	if len(impact.Signals) == 0 {
 		fmt.Fprintln(cmd.OutOrStdout(), "- (none)")
@@ -1446,9 +1451,22 @@ func impactToJSONMap(impact *service.ImpactReport) map[string]any {
 		"scope_drift":            impact.ScopeDrift,
 		"task_scope_warnings":    impact.TaskScopeWarnings,
 		"task_contract_warnings": impact.TaskContractWarnings,
+		"task_chunk_warnings":    impact.TaskChunkWarnings,
 		"risk_signals":           signals,
 		"risk_score":             impact.RiskScore,
 		"risk_tier":              impact.RiskTier,
+	}
+}
+
+func chunkToJSONMap(chunk service.TaskChunk) map[string]any {
+	return map[string]any{
+		"chunk_id":  chunk.ID,
+		"path":      chunk.Path,
+		"old_start": chunk.OldStart,
+		"old_lines": chunk.OldLines,
+		"new_start": chunk.NewStart,
+		"new_lines": chunk.NewLines,
+		"preview":   chunk.Preview,
 	}
 }
 
@@ -1458,6 +1476,17 @@ func reviewToJSONMap(review *service.Review) map[string]any {
 	}
 	subtasks := make([]map[string]any, 0, len(review.CR.Subtasks))
 	for _, task := range review.CR.Subtasks {
+		chunkMaps := make([]map[string]any, 0, len(task.CheckpointChunks))
+		for _, chunk := range task.CheckpointChunks {
+			chunkMaps = append(chunkMaps, map[string]any{
+				"chunk_id":  chunk.ID,
+				"path":      chunk.Path,
+				"old_start": chunk.OldStart,
+				"old_lines": chunk.OldLines,
+				"new_start": chunk.NewStart,
+				"new_lines": chunk.NewLines,
+			})
+		}
 		subtasks = append(subtasks, map[string]any{
 			"id":                task.ID,
 			"title":             task.Title,
@@ -1465,6 +1494,7 @@ func reviewToJSONMap(review *service.Review) map[string]any {
 			"checkpoint_commit": task.CheckpointCommit,
 			"checkpoint_at":     task.CheckpointAt,
 			"checkpoint_scope":  task.CheckpointScope,
+			"checkpoint_chunks": chunkMaps,
 		})
 	}
 	return map[string]any{
