@@ -188,13 +188,13 @@ sophia cr task done <cr-id> <task-id> --from-contract
 
 Behavior:
 
-* Requires explicit checkpoint scope mode: `--from-contract`, `--path <file>` (repeatable), or `--all`
+* Requires explicit checkpoint scope mode: `--from-contract`, `--path <file>` (repeatable), `--patch-file <file>`, or `--all`
 * Requires task contract completeness before completion (`intent`, `acceptance_criteria`, `scope`)
 * `--from-contract` stages changed files that match task contract scope prefixes
 * Stages only selected paths by default (or all changes when `--all` is explicitly set)
 * Fails fast if staged changes already exist before checkpointing
 * Marks task done only if checkpoint commit succeeds
-* Records checkpoint metadata on the task (`commit`, `timestamp`, message, `checkpoint_scope`)
+* Records checkpoint metadata on the task (`commit`, `timestamp`, message, `checkpoint_scope`, `checkpoint_chunks`)
 * Requires active branch to match the CR branch
 
 Optional metadata-only completion:
@@ -215,7 +215,18 @@ Explicit file selection behavior:
 sophia cr task done <cr-id> <task-id> --path internal/service/service.go --path internal/cli/cr.go
 ```
 
-Chunk/hunk scoping is planned for CR-11.
+Patch-manifest (hunk-scoped) behavior:
+
+```
+sophia cr task done <cr-id> <task-id> --patch-file /tmp/task.patch
+```
+
+Chunk discovery (read-only):
+
+```
+sophia cr task chunk list <cr-id> <task-id>
+sophia cr task chunk list <cr-id> <task-id> --path internal/service/service.go --json
+```
 
 ---
 
@@ -261,6 +272,7 @@ Behavior:
 * `impact` computes deterministic risk tier/score and blast-radius signals from diff metadata
 * `validate` enforces required contract fields and scope-drift policy
 * `validate` emits blocking `Errors` and non-blocking `Warnings`
+* `validate` includes task chunk metadata warnings (`task_chunk_warnings`) when chunk metadata is malformed/inconsistent
 * `validate` records a `cr_validated` audit event
 * For merged CRs whose branch was deleted, `validate` derives diff context from the merge commit (with task-checkpoint scope fallback)
 * Both commands support machine-readable output via `--json`
@@ -365,6 +377,8 @@ sophia cr base set <id> --ref <git-ref>
 sophia cr restack <id>
 sophia cr task contract set <cr-id> <task-id> --intent "..."
 sophia cr task contract show <cr-id> <task-id>
+sophia cr task chunk list <cr-id> <task-id> [--path <file>] [--json]
+sophia cr task done <cr-id> <task-id> --patch-file <patch-file>
 sophia cr edit <id> --title "..."
 sophia cr contract set <id> --why "..."
 sophia cr contract show <id>
@@ -381,6 +395,8 @@ sophia cr history <id>
 * `hook install` adds a pre-commit guard against direct commits on the base branch
 * `current/switch/reopen/base/restack` supports deterministic branch and stack context moves
 * `task contract` enforces subtask intent + acceptance + scope before completion
+* `task chunk list` provides deterministic hunk discovery from current working-tree diff
+* `task done --patch-file` checkpoints selected hunks from a patch manifest
 * `contract/impact/validate` provide intent integrity and blast-radius review context
 * `--json` on read/check commands provides stable machine-readable envelopes for agents
 * JSON read/check outputs include immutable CR uid fields and per-CR base/parent metadata for stacked workflows
