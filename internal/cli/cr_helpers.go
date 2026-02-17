@@ -1,0 +1,95 @@
+package cli
+
+import (
+	"errors"
+	"fmt"
+	"strconv"
+	"strings"
+
+	"github.com/spf13/cobra"
+
+	"sophia/internal/service"
+)
+
+func printListSection(cmd *cobra.Command, title string, items []string) {
+	fmt.Fprintf(cmd.OutOrStdout(), "\n%s:\n", title)
+	if len(items) == 0 {
+		fmt.Fprintln(cmd.OutOrStdout(), "- (none)")
+		return
+	}
+	for _, item := range items {
+		fmt.Fprintf(cmd.OutOrStdout(), "- %s\n", item)
+	}
+}
+
+func printStringSection(cmd *cobra.Command, title string, items []string) {
+	fmt.Fprintf(cmd.OutOrStdout(), "\n%s:\n", title)
+	if len(items) == 0 {
+		fmt.Fprintln(cmd.OutOrStdout(), "- (none)")
+		return
+	}
+	for _, item := range items {
+		fmt.Fprintf(cmd.OutOrStdout(), "- %s\n", item)
+	}
+}
+
+func printValueList(cmd *cobra.Command, label string, values []string) {
+	if len(values) == 0 {
+		fmt.Fprintf(cmd.OutOrStdout(), "- %s: (missing)\n", label)
+		return
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "- %s:\n", label)
+	for _, value := range values {
+		fmt.Fprintf(cmd.OutOrStdout(), "  - %s\n", value)
+	}
+}
+
+func printInlineList(cmd *cobra.Command, label string, values []string) {
+	if len(values) == 0 {
+		fmt.Fprintf(cmd.OutOrStdout(), "- %s: (missing)\n", label)
+		return
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "- %s: %s\n", label, strings.Join(values, ", "))
+}
+
+func printImpactSection(cmd *cobra.Command, impact *service.ImpactReport) {
+	fmt.Fprintln(cmd.OutOrStdout(), "\nImpact:")
+	if impact == nil {
+		fmt.Fprintln(cmd.OutOrStdout(), "- (none)")
+		return
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "Risk Tier: %s\n", nonEmpty(strings.TrimSpace(impact.RiskTier), "-"))
+	fmt.Fprintf(cmd.OutOrStdout(), "Risk Score: %d\n", impact.RiskScore)
+	fmt.Fprintf(cmd.OutOrStdout(), "Files Changed: %d\n", impact.FilesChanged)
+	printListSection(cmd, "Scope Drift", impact.ScopeDrift)
+	printListSection(cmd, "Task Scope Warnings", impact.TaskScopeWarnings)
+	printListSection(cmd, "Task Contract Warnings", impact.TaskContractWarnings)
+	printListSection(cmd, "Task Chunk Warnings", impact.TaskChunkWarnings)
+	fmt.Fprintln(cmd.OutOrStdout(), "\nRisk Signals:")
+	if len(impact.Signals) == 0 {
+		fmt.Fprintln(cmd.OutOrStdout(), "- (none)")
+		return
+	}
+	for _, signal := range impact.Signals {
+		fmt.Fprintf(cmd.OutOrStdout(), "- [%s] +%d %s\n", signal.Code, signal.Points, signal.Summary)
+	}
+}
+
+func parsePositiveIntArg(raw string, name string) (int, error) {
+	id, err := strconv.Atoi(raw)
+	if err != nil || id <= 0 {
+		return 0, fmt.Errorf("invalid %s %q", name, raw)
+	}
+	return id, nil
+}
+
+func nonEmpty(v, fallback string) string {
+	if strings.TrimSpace(v) == "" {
+		return fallback
+	}
+	return v
+}
+
+func errorsIs(err error, target error) bool {
+	return errors.Is(err, target)
+}
