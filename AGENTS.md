@@ -12,10 +12,11 @@ Recommended daily flow (intent-first):
 3. `sophia cr task add <id> "<subtask>"`
 4. `sophia cr task contract set <id> <task-id> --intent "..." --acceptance "..." --scope <prefix>`
 5. implement on `sophia/cr-<id>`
-6. `sophia cr task done <id> <task-id> --path <file> [--path <file>...]` (default checkpoint commit with explicit scope)
+6. `sophia cr task done <id> <task-id> --from-contract` (preferred checkpoint from task contract scope)
 7. `sophia cr validate <id>`
 8. `sophia cr review <id>`
-9. `sophia cr merge <id>`
+9. optional machine-readable checks: `sophia cr status <id> --json`, `sophia cr validate <id> --json`
+10. `sophia cr merge <id>`
 
 ## Coding Style & Naming Conventions
 - Language: Go (module `sophia`).
@@ -43,7 +44,8 @@ Recommended daily flow (intent-first):
 - Use Sophia as the primary workflow interface (`cr`, `task`, `note`, `review`, `merge`, `repair`).
 - Use contract and risk commands (`cr contract`, `cr impact`, `cr validate`) before merge.
 - Set task contracts (`cr task contract`) before task completion; `task done` is blocked if missing.
-- Task completion creates checkpoint commits via `sophia cr task done` and now requires explicit scope (`--path` or `--all`).
+- Task completion creates checkpoint commits via `sophia cr task done` and requires explicit scope mode (`--from-contract`, `--path`, or `--all`).
+- Prefer `--from-contract` to keep staging aligned with task scope declarations.
 - Use `--no-checkpoint` for metadata-only completion; use `--all` only when full-stage behavior is intended.
 - Pre-staged index changes are rejected before checkpointing to prevent accidental scope drift.
 - Merge is validation-gated; use `--override-reason` only for audited emergency bypasses.
@@ -56,4 +58,4 @@ Recommended daily flow (intent-first):
 - `.sophia/` is local-first workflow state and is ignored in Git by default.
 - If local metadata is missing/out-of-sync, run `sophia repair`.
 - `_docs/` is local/internal and ignored via `.gitignore`.
-- Current milestone complete: CR-9 (task-level contract enforcement and drift visibility).
+- Current milestone: CR-10 (agent-grade git abstraction surfaces: why/status/json/from-contract checkpointing).
