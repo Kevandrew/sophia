@@ -543,6 +543,57 @@ func TestMergeCROverridePersistsAuditEvent(t *testing.T) {
 	}
 }
 
+func TestReviewAndValidateWorkForMergedCRAfterBranchDeletion(t *testing.T) {
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	runGit(t, dir, "config", "user.name", "Test User")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+
+	cr, err := svc.AddCR("Merged fallback", "ensure merged review works")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	setValidContract(t, svc, cr.ID)
+
+	if err := os.WriteFile(filepath.Join(dir, "merged_review.txt"), []byte("ok\n"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+	runGit(t, dir, "add", "merged_review.txt")
+	runGit(t, dir, "commit", "-m", "feat: merged review fallback")
+
+	if _, err := svc.MergeCR(cr.ID, false, ""); err != nil {
+		t.Fatalf("MergeCR() error = %v", err)
+	}
+	if svc.git.BranchExists(cr.Branch) {
+		t.Fatalf("expected branch %q to be deleted by default merge", cr.Branch)
+	}
+
+	review, err := svc.ReviewCR(cr.ID)
+	if err != nil {
+		t.Fatalf("ReviewCR() error = %v", err)
+	}
+	if !containsAny(review.Files, "merged_review.txt") {
+		t.Fatalf("expected merged file in review output, got %#v", review.Files)
+	}
+	if strings.TrimSpace(review.ShortStat) == "" {
+		t.Fatalf("expected non-empty short stat for merged review")
+	}
+
+	report, err := svc.ValidateCR(cr.ID)
+	if err != nil {
+		t.Fatalf("ValidateCR() error = %v", err)
+	}
+	if !report.Valid {
+		t.Fatalf("expected merged CR validation to pass, got errors=%#v", report.Errors)
+	}
+	if report.Impact == nil || report.Impact.FilesChanged == 0 {
+		t.Fatalf("expected impact summary for merged CR, got %#v", report.Impact)
+	}
+}
+
 func containsSignal(signals []RiskSignal, code string) bool {
 	for _, signal := range signals {
 		if signal.Code == code {
