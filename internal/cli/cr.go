@@ -27,6 +27,9 @@ func newCRCmd() *cobra.Command {
 	crCmd.AddCommand(newCRCurrentCmd())
 	crCmd.AddCommand(newCRSwitchCmd())
 	crCmd.AddCommand(newCRReopenCmd())
+	crCmd.AddCommand(newCREditCmd())
+	crCmd.AddCommand(newCRRedactCmd())
+	crCmd.AddCommand(newCRHistoryCmd())
 
 	return crCmd
 }
@@ -86,6 +89,167 @@ func newCRListCmd() *cobra.Command {
 			return nil
 		},
 	}
+}
+
+func newCREditCmd() *cobra.Command {
+	var title string
+	var description string
+
+	cmd := &cobra.Command{
+		Use:   "edit <id>",
+		Short: "Edit CR title/description with audit trail",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			id, err := parsePositiveIntArg(args[0], "id")
+			if err != nil {
+				return err
+			}
+
+			titleChanged := cmd.Flags().Changed("title")
+			descriptionChanged := cmd.Flags().Changed("description")
+			if !titleChanged && !descriptionChanged {
+				return fmt.Errorf("provide at least one of --title or --description")
+			}
+
+			var titlePtr *string
+			var descriptionPtr *string
+			if titleChanged {
+				titlePtr = &title
+			}
+			if descriptionChanged {
+				descriptionPtr = &description
+			}
+
+			svc, err := newService()
+			if err != nil {
+				return err
+			}
+			changedFields, err := svc.EditCR(id, titlePtr, descriptionPtr)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "Updated CR %d fields: %s\n", id, strings.Join(changedFields, ", "))
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&title, "title", "", "New CR title")
+	cmd.Flags().StringVar(&description, "description", "", "New CR description")
+	return cmd
+}
+
+func newCRRedactCmd() *cobra.Command {
+	var noteIndex int
+	var eventIndex int
+	var reason string
+
+	cmd := &cobra.Command{
+		Use:   "redact <id>",
+		Short: "Redact CR note/event payload with audit event",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			id, err := parsePositiveIntArg(args[0], "id")
+			if err != nil {
+				return err
+			}
+			reason = strings.TrimSpace(reason)
+			if reason == "" {
+				return fmt.Errorf("--reason is required")
+			}
+
+			noteChanged := cmd.Flags().Changed("note-index")
+			eventChanged := cmd.Flags().Changed("event-index")
+			if noteChanged == eventChanged {
+				return fmt.Errorf("provide exactly one of --note-index or --event-index")
+			}
+
+			svc, err := newService()
+			if err != nil {
+				return err
+			}
+			if noteChanged {
+				if err := svc.RedactCRNote(id, noteIndex, reason); err != nil {
+					return err
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "Redacted note #%d in CR %d\n", noteIndex, id)
+				return nil
+			}
+			if err := svc.RedactCREvent(id, eventIndex, reason); err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "Redacted event #%d in CR %d\n", eventIndex, id)
+			return nil
+		},
+	}
+
+	cmd.Flags().IntVar(&noteIndex, "note-index", 0, "1-based note index to redact")
+	cmd.Flags().IntVar(&eventIndex, "event-index", 0, "1-based event index to redact")
+	cmd.Flags().StringVar(&reason, "reason", "", "Redaction reason (required)")
+	return cmd
+}
+
+func newCRHistoryCmd() *cobra.Command {
+	var showRedacted bool
+
+	cmd := &cobra.Command{
+		Use:   "history <id>",
+		Short: "Show CR notes/events timeline with indices",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			id, err := parsePositiveIntArg(args[0], "id")
+			if err != nil {
+				return err
+			}
+			svc, err := newService()
+			if err != nil {
+				return err
+			}
+			history, err := svc.HistoryCR(id, showRedacted)
+			if err != nil {
+				return err
+			}
+
+			fmt.Fprintf(cmd.OutOrStdout(), "CR %d: %s\n", history.CRID, history.Title)
+			fmt.Fprintf(cmd.OutOrStdout(), "Status: %s\n", history.Status)
+			fmt.Fprintf(cmd.OutOrStdout(), "Intent: %s\n", nonEmpty(history.Description, "(none)"))
+
+			fmt.Fprintln(cmd.OutOrStdout(), "\nNotes:")
+			if len(history.Notes) == 0 {
+				fmt.Fprintln(cmd.OutOrStdout(), "- (none)")
+			} else {
+				for _, note := range history.Notes {
+					suffix := ""
+					if note.Redacted {
+						suffix = " [redacted]"
+					}
+					fmt.Fprintf(cmd.OutOrStdout(), "- #%d %s%s\n", note.Index, note.Text, suffix)
+				}
+			}
+
+			fmt.Fprintln(cmd.OutOrStdout(), "\nEvents:")
+			if len(history.Events) == 0 {
+				fmt.Fprintln(cmd.OutOrStdout(), "- (none)")
+			} else {
+				for _, event := range history.Events {
+					suffix := ""
+					if event.Redacted {
+						suffix = " [redacted]"
+					}
+					fmt.Fprintf(cmd.OutOrStdout(), "- #%d %s %s %s: %s%s\n", event.Index, event.TS, event.Type, event.Actor, event.Summary, suffix)
+					if strings.TrimSpace(event.Ref) != "" {
+						fmt.Fprintf(cmd.OutOrStdout(), "  ref: %s\n", event.Ref)
+					}
+					if showRedacted && strings.TrimSpace(event.RedactionReason) != "" {
+						fmt.Fprintf(cmd.OutOrStdout(), "  redaction_reason: %s\n", event.RedactionReason)
+					}
+				}
+			}
+			return nil
+		},
+	}
+
+	cmd.Flags().BoolVar(&showRedacted, "show-redacted", false, "Show redaction metadata (payload remains redacted)")
+	return cmd
 }
 
 func newCRCurrentCmd() *cobra.Command {

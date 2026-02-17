@@ -1,5 +1,5 @@
 id: 2
-title: 'Plan 2: intent integrity and visibility'
+title: Intent integrity and visibility layer
 description: Add discipline guardrails, CR context switching, intent-first log, richer review scoping, merge metadata footer, CR reopen, and cheap overlap warnings.
 status: merged
 base_branch: master
@@ -149,9 +149,16 @@ events:
       type: cr_merged
       summary: Merged CR 2
       ref: cr:2
+    - ts: "2026-02-17T07:10:52Z"
+      actor: Kevandrew <143258544+Kevandrew@users.noreply.github.com>
+      type: cr_amended
+      summary: 'Amended CR fields: title'
+      ref: cr:2
+      meta:
+        fields: title
 merged_at: "2026-02-17T06:55:52Z"
 merged_by: Kevandrew <143258544+Kevandrew@users.noreply.github.com>
 merged_commit: 87aa35f
 files_touched_count: 12
 created_at: "2026-02-17T06:43:27Z"
-updated_at: "2026-02-17T06:55:52Z"
+updated_at: "2026-02-17T07:10:52Z"

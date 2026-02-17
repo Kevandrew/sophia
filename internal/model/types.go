@@ -18,11 +18,14 @@ type Index struct {
 }
 
 type Event struct {
-	TS      string `yaml:"ts"`
-	Actor   string `yaml:"actor"`
-	Type    string `yaml:"type"`
-	Summary string `yaml:"summary"`
-	Ref     string `yaml:"ref,omitempty"`
+	TS              string            `yaml:"ts"`
+	Actor           string            `yaml:"actor"`
+	Type            string            `yaml:"type"`
+	Summary         string            `yaml:"summary"`
+	Ref             string            `yaml:"ref,omitempty"`
+	Redacted        bool              `yaml:"redacted,omitempty"`
+	RedactionReason string            `yaml:"redaction_reason,omitempty"`
+	Meta            map[string]string `yaml:"meta,omitempty"`
 }
 
 type Subtask struct {

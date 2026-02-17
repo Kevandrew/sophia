@@ -18,6 +18,8 @@ var (
 	ErrCRAlreadyMerged   = errors.New("cr is already merged")
 	ErrNoActiveCRContext = errors.New("current branch is not a CR branch")
 	ErrWorkingTreeDirty  = errors.New("working tree is dirty")
+	ErrNoCRChanges       = errors.New("no CR changes provided")
+	ErrAlreadyRedacted   = errors.New("target is already redacted")
 )
 
 var (
@@ -25,6 +27,8 @@ var (
 	crSubjectPattern = regexp.MustCompile(`^\[CR-(\d+)\]`)
 	crFooterPattern  = regexp.MustCompile(`(?m)^Sophia-CR:\s*\d+\s*$`)
 )
+
+const redactedPlaceholder = "[REDACTED]"
 
 type Service struct {
 	store *store.Store
@@ -69,6 +73,33 @@ type LogEntry struct {
 	Who          string
 	When         string
 	FilesTouched string
+}
+
+type HistoryNote struct {
+	Index    int
+	Text     string
+	Redacted bool
+}
+
+type HistoryEvent struct {
+	Index           int
+	TS              string
+	Actor           string
+	Type            string
+	Summary         string
+	Ref             string
+	Redacted        bool
+	RedactionReason string
+	Meta            map[string]string
+}
+
+type CRHistory struct {
+	CRID        int
+	Title       string
+	Status      string
+	Description string
+	Notes       []HistoryNote
+	Events      []HistoryEvent
 }
 
 func New(root string) *Service {
@@ -231,6 +262,181 @@ func (s *Service) AddNote(id int, note string) error {
 	})
 	cr.UpdatedAt = now
 	return s.store.SaveCR(cr)
+}
+
+func (s *Service) EditCR(id int, newTitle, newDescription *string) ([]string, error) {
+	cr, err := s.store.LoadCR(id)
+	if err != nil {
+		return nil, err
+	}
+
+	changedFields := make([]string, 0, 2)
+	if newTitle != nil && cr.Title != *newTitle {
+		cr.Title = *newTitle
+		changedFields = append(changedFields, "title")
+	}
+	if newDescription != nil && cr.Description != *newDescription {
+		cr.Description = *newDescription
+		changedFields = append(changedFields, "description")
+	}
+	if len(changedFields) == 0 {
+		return nil, ErrNoCRChanges
+	}
+
+	now := s.timestamp()
+	actor := s.git.Actor()
+	cr.UpdatedAt = now
+	cr.Events = append(cr.Events, model.Event{
+		TS:      now,
+		Actor:   actor,
+		Type:    "cr_amended",
+		Summary: fmt.Sprintf("Amended CR fields: %s", strings.Join(changedFields, ",")),
+		Ref:     fmt.Sprintf("cr:%d", id),
+		Meta: map[string]string{
+			"fields": strings.Join(changedFields, ","),
+		},
+	})
+	if err := s.store.SaveCR(cr); err != nil {
+		return nil, err
+	}
+	return changedFields, nil
+}
+
+func (s *Service) RedactCRNote(id, noteIndex int, reason string) error {
+	if strings.TrimSpace(reason) == "" {
+		return errors.New("redaction reason cannot be empty")
+	}
+	cr, err := s.store.LoadCR(id)
+	if err != nil {
+		return err
+	}
+
+	idx, err := oneBasedIndex(noteIndex, len(cr.Notes), "note")
+	if err != nil {
+		return err
+	}
+	if cr.Notes[idx] == redactedPlaceholder {
+		return ErrAlreadyRedacted
+	}
+	cr.Notes[idx] = redactedPlaceholder
+
+	now := s.timestamp()
+	actor := s.git.Actor()
+	cr.UpdatedAt = now
+	cr.Events = append(cr.Events, model.Event{
+		TS:              now,
+		Actor:           actor,
+		Type:            "cr_redacted",
+		Summary:         fmt.Sprintf("Redacted note #%d", noteIndex),
+		Ref:             fmt.Sprintf("note:%d", noteIndex),
+		RedactionReason: reason,
+		Meta: map[string]string{
+			"target": fmt.Sprintf("note:%d", noteIndex),
+			"reason": reason,
+		},
+	})
+	return s.store.SaveCR(cr)
+}
+
+func (s *Service) RedactCREvent(id, eventIndex int, reason string) error {
+	if strings.TrimSpace(reason) == "" {
+		return errors.New("redaction reason cannot be empty")
+	}
+	cr, err := s.store.LoadCR(id)
+	if err != nil {
+		return err
+	}
+
+	idx, err := oneBasedIndex(eventIndex, len(cr.Events), "event")
+	if err != nil {
+		return err
+	}
+	if cr.Events[idx].Redacted || cr.Events[idx].Summary == redactedPlaceholder {
+		return ErrAlreadyRedacted
+	}
+
+	cr.Events[idx].Summary = redactedPlaceholder
+	cr.Events[idx].Redacted = true
+	cr.Events[idx].RedactionReason = reason
+	if cr.Events[idx].Meta == nil {
+		cr.Events[idx].Meta = map[string]string{}
+	}
+	cr.Events[idx].Meta["redacted_via"] = fmt.Sprintf("event:%d", eventIndex)
+
+	now := s.timestamp()
+	actor := s.git.Actor()
+	cr.UpdatedAt = now
+	cr.Events = append(cr.Events, model.Event{
+		TS:              now,
+		Actor:           actor,
+		Type:            "cr_redacted",
+		Summary:         fmt.Sprintf("Redacted event #%d", eventIndex),
+		Ref:             fmt.Sprintf("event:%d", eventIndex),
+		RedactionReason: reason,
+		Meta: map[string]string{
+			"target": fmt.Sprintf("event:%d", eventIndex),
+			"reason": reason,
+		},
+	})
+	return s.store.SaveCR(cr)
+}
+
+func (s *Service) HistoryCR(id int, showRedacted bool) (*CRHistory, error) {
+	cr, err := s.store.LoadCR(id)
+	if err != nil {
+		return nil, err
+	}
+
+	history := &CRHistory{
+		CRID:        cr.ID,
+		Title:       cr.Title,
+		Status:      cr.Status,
+		Description: cr.Description,
+		Notes:       make([]HistoryNote, 0, len(cr.Notes)),
+		Events:      make([]HistoryEvent, 0, len(cr.Events)),
+	}
+
+	for i, note := range cr.Notes {
+		redacted := note == redactedPlaceholder
+		text := note
+		if redacted {
+			text = redactedPlaceholder
+		}
+		history.Notes = append(history.Notes, HistoryNote{
+			Index:    i + 1,
+			Text:     text,
+			Redacted: redacted,
+		})
+	}
+
+	for i, event := range cr.Events {
+		summary := event.Summary
+		redacted := event.Redacted || summary == redactedPlaceholder
+		if redacted {
+			summary = redactedPlaceholder
+		}
+		reason := ""
+		if showRedacted {
+			reason = event.RedactionReason
+		}
+		meta := map[string]string(nil)
+		if showRedacted && len(event.Meta) > 0 {
+			meta = cloneStringMap(event.Meta)
+		}
+		history.Events = append(history.Events, HistoryEvent{
+			Index:           i + 1,
+			TS:              event.TS,
+			Actor:           event.Actor,
+			Type:            event.Type,
+			Summary:         summary,
+			Ref:             event.Ref,
+			Redacted:        redacted,
+			RedactionReason: reason,
+			Meta:            meta,
+		})
+	}
+
+	return history, nil
 }
 
 func (s *Service) AddTask(crID int, title string) (*model.Subtask, error) {
@@ -878,6 +1084,28 @@ func dedupeStrings(values []string) []string {
 		res = append(res, value)
 	}
 	return res
+}
+
+func oneBasedIndex(input, length int, label string) (int, error) {
+	if input <= 0 {
+		return 0, fmt.Errorf("%s index must be >= 1", label)
+	}
+	idx := input - 1
+	if idx >= length {
+		return 0, fmt.Errorf("%s index %d out of range", label, input)
+	}
+	return idx, nil
+}
+
+func cloneStringMap(src map[string]string) map[string]string {
+	if len(src) == 0 {
+		return nil
+	}
+	dst := make(map[string]string, len(src))
+	for k, v := range src {
+		dst[k] = v
+	}
+	return dst
 }
 
 func (s *Service) workingTreeDirtySummary() (bool, string, error) {
