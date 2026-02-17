@@ -167,3 +167,18 @@ updated_at: 2026-01-01T00:00:00Z
 		t.Fatalf("expected empty contract defaults, got %#v", cr.Contract)
 	}
 }
+
+func TestNewWithSophiaRootUsesExplicitMetadataPath(t *testing.T) {
+	repo := t.TempDir()
+	metadata := filepath.Join(t.TempDir(), "custom-sophia")
+	s := NewWithSophiaRoot(repo, metadata)
+	if err := s.Init("main", model.MetadataModeLocal); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	if got := s.SophiaDir(); got != metadata {
+		t.Fatalf("expected SophiaDir %q, got %q", metadata, got)
+	}
+	if _, err := os.Stat(filepath.Join(metadata, "config.yaml")); err != nil {
+		t.Fatalf("expected config at explicit metadata path: %v", err)
+	}
+}

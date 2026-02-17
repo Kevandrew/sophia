@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 
@@ -15,14 +16,25 @@ import (
 var ErrNotInitialized = errors.New("sophia is not initialized in this repository")
 
 type Store struct {
-	Root string
+	Root       string
+	SophiaRoot string
 }
 
 func New(root string) *Store {
 	return &Store{Root: root}
 }
 
+func NewWithSophiaRoot(root, sophiaRoot string) *Store {
+	return &Store{
+		Root:       root,
+		SophiaRoot: filepath.Clean(sophiaRoot),
+	}
+}
+
 func (s *Store) SophiaDir() string {
+	if strings.TrimSpace(s.SophiaRoot) != "" {
+		return filepath.Clean(s.SophiaRoot)
+	}
 	return filepath.Join(s.Root, ".sophia")
 }
 
