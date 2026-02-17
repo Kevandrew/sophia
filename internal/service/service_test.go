@@ -25,8 +25,9 @@ func TestInitInNonGitDirectoryInitializesGitAndSophia(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dir, ".git")); err != nil {
 		t.Fatalf("expected .git to exist: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(dir, ".sophia", "config.yaml")); err != nil {
-		t.Fatalf("expected .sophia/config.yaml to exist: %v", err)
+	metadataDir := localMetadataDir(t, dir)
+	if _, err := os.Stat(filepath.Join(metadataDir, "config.yaml")); err != nil {
+		t.Fatalf("expected shared metadata config to exist: %v", err)
 	}
 }
 
