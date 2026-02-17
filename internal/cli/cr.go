@@ -20,6 +20,8 @@ func newCRCmd() *cobra.Command {
 
 	crCmd.AddCommand(newCRAddCmd())
 	crCmd.AddCommand(newCRListCmd())
+	crCmd.AddCommand(newCRWhyCmd())
+	crCmd.AddCommand(newCRStatusCmd())
 	crCmd.AddCommand(newCRNoteCmd())
 	crCmd.AddCommand(newCRReviewCmd())
 	crCmd.AddCommand(newCRMergeCmd())
@@ -92,6 +94,153 @@ func newCRListCmd() *cobra.Command {
 			return nil
 		},
 	}
+}
+
+func newCRWhyCmd() *cobra.Command {
+	var asJSON bool
+
+	cmd := &cobra.Command{
+		Use:   "why <id>",
+		Short: "Show the rationale for why a CR exists",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			id, err := parsePositiveIntArg(args[0], "id")
+			if err != nil {
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
+				return err
+			}
+			svc, err := newService()
+			if err != nil {
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
+				return err
+			}
+			why, err := svc.WhyCR(id)
+			if err != nil {
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
+				return err
+			}
+			if asJSON {
+				return writeJSONSuccess(cmd, map[string]any{
+					"cr_id":               why.CRID,
+					"effective_why":       why.EffectiveWhy,
+					"source":              why.Source,
+					"description":         why.Description,
+					"contract_why":        why.ContractWhy,
+					"contract_updated_at": why.ContractUpdatedAt,
+					"contract_updated_by": why.ContractUpdatedBy,
+				})
+			}
+
+			fmt.Fprintf(cmd.OutOrStdout(), "CR %d Why:\n", why.CRID)
+			fmt.Fprintf(cmd.OutOrStdout(), "- effective_why: %s\n", nonEmpty(why.EffectiveWhy, "(missing)"))
+			fmt.Fprintf(cmd.OutOrStdout(), "- source: %s\n", nonEmpty(why.Source, "missing"))
+			fmt.Fprintf(cmd.OutOrStdout(), "- description: %s\n", nonEmpty(why.Description, "(missing)"))
+			fmt.Fprintf(cmd.OutOrStdout(), "- contract_why: %s\n", nonEmpty(why.ContractWhy, "(missing)"))
+			fmt.Fprintf(cmd.OutOrStdout(), "- contract_updated_at: %s\n", nonEmpty(why.ContractUpdatedAt, "(never)"))
+			fmt.Fprintf(cmd.OutOrStdout(), "- contract_updated_by: %s\n", nonEmpty(why.ContractUpdatedBy, "(never)"))
+			return nil
+		},
+	}
+
+	cmd.Flags().BoolVar(&asJSON, "json", false, "Output in JSON format")
+	return cmd
+}
+
+func newCRStatusCmd() *cobra.Command {
+	var asJSON bool
+
+	cmd := &cobra.Command{
+		Use:   "status <id>",
+		Short: "Show CR merge-readiness and workspace status",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			id, err := parsePositiveIntArg(args[0], "id")
+			if err != nil {
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
+				return err
+			}
+			svc, err := newService()
+			if err != nil {
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
+				return err
+			}
+			status, err := svc.StatusCR(id)
+			if err != nil {
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
+				return err
+			}
+			if asJSON {
+				return writeJSONSuccess(cmd, map[string]any{
+					"id":     status.ID,
+					"title":  status.Title,
+					"status": status.Status,
+					"base":   status.BaseBranch,
+					"branch": status.Branch,
+					"branch_context": map[string]any{
+						"current_branch": status.CurrentBranch,
+						"branch_match":   status.BranchMatch,
+					},
+					"working_tree": map[string]any{
+						"modified_staged_count": status.ModifiedStagedCount,
+						"untracked_count":       status.UntrackedCount,
+						"dirty":                 status.Dirty,
+					},
+					"tasks": map[string]any{
+						"total": status.TasksTotal,
+						"open":  status.TasksOpen,
+						"done":  status.TasksDone,
+					},
+					"contract": map[string]any{
+						"complete":       status.ContractComplete,
+						"missing_fields": status.ContractMissingFields,
+					},
+					"validation": map[string]any{
+						"valid":    status.ValidationValid,
+						"errors":   status.ValidationErrors,
+						"warnings": status.ValidationWarnings,
+						"risk": map[string]any{
+							"tier":  status.RiskTier,
+							"score": status.RiskScore,
+						},
+					},
+					"merge_blocked": status.MergeBlocked,
+				})
+			}
+
+			fmt.Fprintf(cmd.OutOrStdout(), "CR %d: %s\n", status.ID, status.Title)
+			fmt.Fprintf(cmd.OutOrStdout(), "Status: %s\n", status.Status)
+			fmt.Fprintf(cmd.OutOrStdout(), "Base: %s\n", status.BaseBranch)
+			fmt.Fprintf(cmd.OutOrStdout(), "Branch: %s\n", status.Branch)
+			fmt.Fprintf(cmd.OutOrStdout(), "Current Branch: %s\n", nonEmpty(status.CurrentBranch, "(unknown)"))
+			fmt.Fprintf(cmd.OutOrStdout(), "Branch Match: %t\n", status.BranchMatch)
+			fmt.Fprintf(cmd.OutOrStdout(), "Working Tree: %d modified/staged, %d untracked (dirty=%t)\n", status.ModifiedStagedCount, status.UntrackedCount, status.Dirty)
+			fmt.Fprintf(cmd.OutOrStdout(), "Tasks: %d total, %d open, %d done\n", status.TasksTotal, status.TasksOpen, status.TasksDone)
+			fmt.Fprintf(cmd.OutOrStdout(), "Contract Complete: %t\n", status.ContractComplete)
+			if len(status.ContractMissingFields) == 0 {
+				fmt.Fprintln(cmd.OutOrStdout(), "Contract Missing Fields: (none)")
+			} else {
+				fmt.Fprintf(cmd.OutOrStdout(), "Contract Missing Fields: %s\n", strings.Join(status.ContractMissingFields, ", "))
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "Validation: valid=%t errors=%d warnings=%d risk=%s/%d\n", status.ValidationValid, status.ValidationErrors, status.ValidationWarnings, status.RiskTier, status.RiskScore)
+			fmt.Fprintf(cmd.OutOrStdout(), "Merge Blocked: %t\n", status.MergeBlocked)
+			return nil
+		},
+	}
+
+	cmd.Flags().BoolVar(&asJSON, "json", false, "Output in JSON format")
+	return cmd
 }
 
 func newCREditCmd() *cobra.Command {
@@ -260,49 +409,91 @@ func newCRContractShowCmd() *cobra.Command {
 }
 
 func newCRImpactCmd() *cobra.Command {
-	return &cobra.Command{
+	var asJSON bool
+
+	cmd := &cobra.Command{
 		Use:   "impact <id>",
 		Short: "Show deterministic impact and risk summary for a CR",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id, err := parsePositiveIntArg(args[0], "id")
 			if err != nil {
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
 				return err
 			}
 			svc, err := newService()
 			if err != nil {
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
 				return err
 			}
 			impact, err := svc.ImpactCR(id)
 			if err != nil {
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
 				return err
+			}
+			if asJSON {
+				return writeJSONSuccess(cmd, impactToJSONMap(impact))
 			}
 			printImpactSection(cmd, impact)
 			return nil
 		},
 	}
+
+	cmd.Flags().BoolVar(&asJSON, "json", false, "Output in JSON format")
+	return cmd
 }
 
 func newCRValidateCmd() *cobra.Command {
-	return &cobra.Command{
+	var asJSON bool
+
+	cmd := &cobra.Command{
 		Use:   "validate <id>",
 		Short: "Validate CR contract completeness, scope drift, and risk signals",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id, err := parsePositiveIntArg(args[0], "id")
 			if err != nil {
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
 				return err
 			}
 			svc, err := newService()
 			if err != nil {
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
 				return err
 			}
 			report, err := svc.ValidateCR(id)
 			if err != nil {
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
 				return err
 			}
 			if err := svc.RecordCRValidation(id, report); err != nil {
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
 				return err
+			}
+			if asJSON {
+				if !report.Valid {
+					return writeJSONError(cmd, fmt.Errorf("validation failed with %d error(s): %s", len(report.Errors), strings.Join(report.Errors, "; ")))
+				}
+				return writeJSONSuccess(cmd, map[string]any{
+					"valid":    report.Valid,
+					"errors":   report.Errors,
+					"warnings": report.Warnings,
+					"impact":   impactToJSONMap(report.Impact),
+				})
 			}
 
 			fmt.Fprintln(cmd.OutOrStdout(), "Contract:")
@@ -321,6 +512,9 @@ func newCRValidateCmd() *cobra.Command {
 			return nil
 		},
 	}
+
+	cmd.Flags().BoolVar(&asJSON, "json", false, "Output in JSON format")
+	return cmd
 }
 
 func newCRRedactCmd() *cobra.Command {
@@ -438,21 +632,41 @@ func newCRHistoryCmd() *cobra.Command {
 }
 
 func newCRCurrentCmd() *cobra.Command {
-	return &cobra.Command{
+	var asJSON bool
+
+	cmd := &cobra.Command{
 		Use:   "current",
 		Short: "Show the active CR context for the current branch",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			svc, err := newService()
 			if err != nil {
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
 				return err
 			}
 			ctx, err := svc.CurrentCR()
 			if err != nil {
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
 				if errorsIs(err, service.ErrNoActiveCRContext) {
 					fmt.Fprintln(cmd.OutOrStdout(), "No active CR context on current branch.")
 					return err
 				}
 				return err
+			}
+			if asJSON {
+				return writeJSONSuccess(cmd, map[string]any{
+					"branch": ctx.Branch,
+					"cr": map[string]any{
+						"id":          ctx.CR.ID,
+						"title":       ctx.CR.Title,
+						"status":      ctx.CR.Status,
+						"base_branch": ctx.CR.BaseBranch,
+						"branch":      ctx.CR.Branch,
+					},
+				})
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "Branch: %s\n", ctx.Branch)
 			fmt.Fprintf(cmd.OutOrStdout(), "CR: %d\n", ctx.CR.ID)
@@ -462,6 +676,9 @@ func newCRCurrentCmd() *cobra.Command {
 			return nil
 		},
 	}
+
+	cmd.Flags().BoolVar(&asJSON, "json", false, "Output in JSON format")
+	return cmd
 }
 
 func newCRSwitchCmd() *cobra.Command {
@@ -619,26 +836,53 @@ func newCRTaskContractSetCmd() *cobra.Command {
 }
 
 func newCRTaskContractShowCmd() *cobra.Command {
-	return &cobra.Command{
+	var asJSON bool
+
+	cmd := &cobra.Command{
 		Use:   "show <cr-id> <task-id>",
 		Short: "Show task contract fields",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			crID, err := parsePositiveIntArg(args[0], "cr-id")
 			if err != nil {
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
 				return err
 			}
 			taskID, err := parsePositiveIntArg(args[1], "task-id")
 			if err != nil {
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
 				return err
 			}
 			svc, err := newService()
 			if err != nil {
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
 				return err
 			}
 			contract, err := svc.GetTaskContract(crID, taskID)
 			if err != nil {
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
 				return err
+			}
+			if asJSON {
+				return writeJSONSuccess(cmd, map[string]any{
+					"cr_id":   crID,
+					"task_id": taskID,
+					"task_contract": map[string]any{
+						"intent":              contract.Intent,
+						"acceptance_criteria": contract.AcceptanceCriteria,
+						"scope":               contract.Scope,
+						"updated_at":          contract.UpdatedAt,
+						"updated_by":          contract.UpdatedBy,
+					},
+				})
 			}
 			fmt.Fprintln(cmd.OutOrStdout(), "Task Contract:")
 			fmt.Fprintf(cmd.OutOrStdout(), "- intent: %s\n", nonEmpty(strings.TrimSpace(contract.Intent), "(missing)"))
@@ -649,6 +893,9 @@ func newCRTaskContractShowCmd() *cobra.Command {
 			return nil
 		},
 	}
+
+	cmd.Flags().BoolVar(&asJSON, "json", false, "Output in JSON format")
+	return cmd
 }
 
 func newCRTaskAddCmd() *cobra.Command {
@@ -676,22 +923,39 @@ func newCRTaskAddCmd() *cobra.Command {
 }
 
 func newCRTaskListCmd() *cobra.Command {
-	return &cobra.Command{
+	var asJSON bool
+
+	cmd := &cobra.Command{
 		Use:   "list <cr-id>",
 		Short: "List subtasks for a CR",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			crID, err := parsePositiveIntArg(args[0], "cr-id")
 			if err != nil {
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
 				return err
 			}
 			svc, err := newService()
 			if err != nil {
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
 				return err
 			}
 			tasks, err := svc.ListTasks(crID)
 			if err != nil {
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
 				return err
+			}
+			if asJSON {
+				return writeJSONSuccess(cmd, map[string]any{
+					"cr_id": crID,
+					"tasks": tasks,
+				})
 			}
 			if len(tasks) == 0 {
 				fmt.Fprintf(cmd.OutOrStdout(), "No tasks found for CR %d.\n", crID)
@@ -708,11 +972,15 @@ func newCRTaskListCmd() *cobra.Command {
 			return nil
 		},
 	}
+
+	cmd.Flags().BoolVar(&asJSON, "json", false, "Output in JSON format")
+	return cmd
 }
 
 func newCRTaskDoneCmd() *cobra.Command {
 	var noCheckpoint bool
 	var stageAll bool
+	var fromContract bool
 	var scopePaths []string
 
 	cmd := &cobra.Command{
@@ -732,21 +1000,32 @@ func newCRTaskDoneCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if noCheckpoint && (stageAll || len(scopePaths) > 0) {
-				return fmt.Errorf("--no-checkpoint cannot be combined with --path or --all")
+			if noCheckpoint && (stageAll || fromContract || len(scopePaths) > 0) {
+				return fmt.Errorf("--no-checkpoint cannot be combined with --from-contract, --path, or --all")
 			}
 			if !noCheckpoint {
-				if stageAll && len(scopePaths) > 0 {
-					return fmt.Errorf("--all cannot be combined with --path")
+				modeCount := 0
+				if stageAll {
+					modeCount++
 				}
-				if !stageAll && len(scopePaths) == 0 {
-					return fmt.Errorf("checkpoint scope required: use --path <file> (repeatable) or --all")
+				if fromContract {
+					modeCount++
+				}
+				if len(scopePaths) > 0 {
+					modeCount++
+				}
+				if modeCount > 1 {
+					return fmt.Errorf("exactly one checkpoint scope mode is required: --from-contract, --path <file> (repeatable), or --all")
+				}
+				if modeCount == 0 {
+					return fmt.Errorf("checkpoint scope required: use --from-contract, --path <file> (repeatable), or --all")
 				}
 			}
 			opts := service.DoneTaskOptions{
-				Checkpoint: !noCheckpoint,
-				StageAll:   stageAll,
-				Paths:      append([]string(nil), scopePaths...),
+				Checkpoint:   !noCheckpoint,
+				StageAll:     stageAll,
+				FromContract: fromContract,
+				Paths:        append([]string(nil), scopePaths...),
 			}
 			sha, err := svc.DoneTaskWithCheckpoint(crID, taskID, opts)
 			if err != nil {
@@ -763,27 +1042,42 @@ func newCRTaskDoneCmd() *cobra.Command {
 
 	cmd.Flags().BoolVar(&noCheckpoint, "no-checkpoint", false, "Mark task done without creating a checkpoint commit")
 	cmd.Flags().BoolVar(&stageAll, "all", false, "Checkpoint by staging all changes explicitly")
+	cmd.Flags().BoolVar(&fromContract, "from-contract", false, "Checkpoint by staging changed files that match task contract scope")
 	cmd.Flags().StringArrayVar(&scopePaths, "path", nil, "Checkpoint scope path (repo-relative file, repeatable)")
 	return cmd
 }
 
 func newCRReviewCmd() *cobra.Command {
-	return &cobra.Command{
+	var asJSON bool
+
+	cmd := &cobra.Command{
 		Use:   "review <id>",
 		Short: "Show intent-first CR review context",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id, err := parsePositiveIntArg(args[0], "id")
 			if err != nil {
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
 				return err
 			}
 			svc, err := newService()
 			if err != nil {
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
 				return err
 			}
 			review, err := svc.ReviewCR(id)
 			if err != nil {
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
 				return err
+			}
+			if asJSON {
+				return writeJSONSuccess(cmd, reviewToJSONMap(review))
 			}
 
 			fmt.Fprintf(cmd.OutOrStdout(), "CR %d: %s\n", review.CR.ID, review.CR.Title)
@@ -835,6 +1129,9 @@ func newCRReviewCmd() *cobra.Command {
 			return nil
 		},
 	}
+
+	cmd.Flags().BoolVar(&asJSON, "json", false, "Output in JSON format")
+	return cmd
 }
 
 func newCRMergeCmd() *cobra.Command {
@@ -933,6 +1230,83 @@ func printImpactSection(cmd *cobra.Command, impact *service.ImpactReport) {
 	}
 	for _, signal := range impact.Signals {
 		fmt.Fprintf(cmd.OutOrStdout(), "- [%s] +%d %s\n", signal.Code, signal.Points, signal.Summary)
+	}
+}
+
+func impactToJSONMap(impact *service.ImpactReport) map[string]any {
+	if impact == nil {
+		return map[string]any{}
+	}
+	signals := make([]map[string]any, 0, len(impact.Signals))
+	for _, signal := range impact.Signals {
+		signals = append(signals, map[string]any{
+			"code":    signal.Code,
+			"summary": signal.Summary,
+			"points":  signal.Points,
+		})
+	}
+	return map[string]any{
+		"cr_id":                  impact.CRID,
+		"files_changed":          impact.FilesChanged,
+		"new_files":              impact.NewFiles,
+		"modified_files":         impact.ModifiedFiles,
+		"deleted_files":          impact.DeletedFiles,
+		"test_files":             impact.TestFiles,
+		"dependency_files":       impact.DependencyFiles,
+		"scope_drift":            impact.ScopeDrift,
+		"task_scope_warnings":    impact.TaskScopeWarnings,
+		"task_contract_warnings": impact.TaskContractWarnings,
+		"risk_signals":           signals,
+		"risk_score":             impact.RiskScore,
+		"risk_tier":              impact.RiskTier,
+	}
+}
+
+func reviewToJSONMap(review *service.Review) map[string]any {
+	if review == nil || review.CR == nil {
+		return map[string]any{}
+	}
+	subtasks := make([]map[string]any, 0, len(review.CR.Subtasks))
+	for _, task := range review.CR.Subtasks {
+		subtasks = append(subtasks, map[string]any{
+			"id":                task.ID,
+			"title":             task.Title,
+			"status":            task.Status,
+			"checkpoint_commit": task.CheckpointCommit,
+			"checkpoint_at":     task.CheckpointAt,
+			"checkpoint_scope":  task.CheckpointScope,
+		})
+	}
+	return map[string]any{
+		"cr": map[string]any{
+			"id":          review.CR.ID,
+			"title":       review.CR.Title,
+			"status":      review.CR.Status,
+			"base_branch": review.CR.BaseBranch,
+			"branch":      review.CR.Branch,
+			"intent":      review.CR.Description,
+		},
+		"contract": map[string]any{
+			"why":           review.Contract.Why,
+			"scope":         review.Contract.Scope,
+			"non_goals":     review.Contract.NonGoals,
+			"invariants":    review.Contract.Invariants,
+			"blast_radius":  review.Contract.BlastRadius,
+			"test_plan":     review.Contract.TestPlan,
+			"rollback_plan": review.Contract.RollbackPlan,
+		},
+		"subtasks":            subtasks,
+		"notes":               review.CR.Notes,
+		"new_files":           review.NewFiles,
+		"modified_files":      review.ModifiedFiles,
+		"deleted_files":       review.DeletedFiles,
+		"test_files_touched":  review.TestFiles,
+		"dependency_files":    review.DependencyFiles,
+		"files_changed":       review.Files,
+		"diff_stat":           review.ShortStat,
+		"impact":              impactToJSONMap(review.Impact),
+		"validation_errors":   review.ValidationErrors,
+		"validation_warnings": review.ValidationWarnings,
 	}
 }
 
