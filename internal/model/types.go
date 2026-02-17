@@ -47,6 +47,18 @@ type Subtask struct {
 	CheckpointScope   []string `yaml:"checkpoint_scope,omitempty"`
 }
 
+type Contract struct {
+	Why          string   `yaml:"why,omitempty"`
+	Scope        []string `yaml:"scope,omitempty"`
+	NonGoals     []string `yaml:"non_goals,omitempty"`
+	Invariants   []string `yaml:"invariants,omitempty"`
+	BlastRadius  string   `yaml:"blast_radius,omitempty"`
+	TestPlan     string   `yaml:"test_plan,omitempty"`
+	RollbackPlan string   `yaml:"rollback_plan,omitempty"`
+	UpdatedAt    string   `yaml:"updated_at,omitempty"`
+	UpdatedBy    string   `yaml:"updated_by,omitempty"`
+}
+
 type CR struct {
 	ID                int       `yaml:"id"`
 	Title             string    `yaml:"title"`
@@ -55,6 +67,7 @@ type CR struct {
 	BaseBranch        string    `yaml:"base_branch"`
 	Branch            string    `yaml:"branch"`
 	Notes             []string  `yaml:"notes"`
+	Contract          Contract  `yaml:"contract,omitempty"`
 	Subtasks          []Subtask `yaml:"subtasks"`
 	Events            []Event   `yaml:"events"`
 	MergedAt          string    `yaml:"merged_at,omitempty"`
