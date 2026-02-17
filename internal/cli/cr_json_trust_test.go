@@ -108,7 +108,7 @@ func TestCRReviewTextIncludesTrustSection(t *testing.T) {
 	if runErr != nil {
 		t.Fatalf("cr review error = %v\noutput=%s", runErr, out)
 	}
-	for _, required := range []string{"Trust:", "Verdict:", "Score:", "Advisory Only:", "Dimensions:"} {
+	for _, required := range []string{"Trust:", "Verdict:", "Score:", "Advisory Only:", "Dimensions:", "Contract Completeness", "Change Magnitude"} {
 		if !strings.Contains(out, required) {
 			t.Fatalf("expected review output to contain %q, got:\n%s", required, out)
 		}

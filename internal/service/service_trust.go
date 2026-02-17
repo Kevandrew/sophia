@@ -178,7 +178,7 @@ func parseLeadingInt(input string) int {
 func buildContractQualityDimension(contract model.Contract) TrustDimension {
 	dimension := TrustDimension{
 		Code:            "contract_quality",
-		Label:           "Contract Quality",
+		Label:           "Contract Completeness",
 		Score:           20,
 		Max:             20,
 		Reasons:         []string{},
@@ -216,7 +216,7 @@ func buildContractQualityDimension(contract model.Contract) TrustDimension {
 func buildScopeDisciplineDimension(impact *ImpactReport) TrustDimension {
 	dimension := TrustDimension{
 		Code:            "scope_discipline",
-		Label:           "Scope Discipline",
+		Label:           "Scope Alignment",
 		Score:           20,
 		Max:             20,
 		Reasons:         []string{},
@@ -250,7 +250,7 @@ func buildScopeDisciplineDimension(impact *ImpactReport) TrustDimension {
 func buildTaskProofChainDimension(tasks []model.Subtask) TrustDimension {
 	dimension := TrustDimension{
 		Code:            "task_proof_chain",
-		Label:           "Task Proof Chain",
+		Label:           "Checkpoint Coverage",
 		Score:           20,
 		Max:             20,
 		Reasons:         []string{},
@@ -299,7 +299,7 @@ func buildTaskProofChainDimension(tasks []model.Subtask) TrustDimension {
 func buildRiskAccountabilityDimension(contract model.Contract, impact *ImpactReport, diff *diffSummary) TrustDimension {
 	dimension := TrustDimension{
 		Code:            "risk_accountability",
-		Label:           "Risk Accountability",
+		Label:           "Risk Declaration",
 		Score:           15,
 		Max:             15,
 		Reasons:         []string{},
@@ -334,7 +334,7 @@ func buildRiskAccountabilityDimension(contract model.Contract, impact *ImpactRep
 func buildValidationHealthDimension(validation *ValidationReport) TrustDimension {
 	dimension := TrustDimension{
 		Code:            "validation_health",
-		Label:           "Validation Health",
+		Label:           "Validation Status",
 		Score:           15,
 		Max:             15,
 		Reasons:         []string{},
@@ -407,7 +407,7 @@ func buildChangeMagnitudeDimension(impact *ImpactReport, shortStat shortStatMetr
 func buildTestEvidenceDimension(contract model.Contract, diff *diffSummary) TrustDimension {
 	dimension := TrustDimension{
 		Code:            "test_evidence",
-		Label:           "Test Evidence",
+		Label:           "Test Touch Signals",
 		Score:           10,
 		Max:             10,
 		Reasons:         []string{},
