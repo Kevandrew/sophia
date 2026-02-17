@@ -592,6 +592,9 @@ func TestReviewAndValidateWorkForMergedCRAfterBranchDeletion(t *testing.T) {
 	if report.Impact == nil || report.Impact.FilesChanged == 0 {
 		t.Fatalf("expected impact summary for merged CR, got %#v", report.Impact)
 	}
+	if strings.TrimSpace(report.Impact.CRUID) == "" {
+		t.Fatalf("expected impact CRUID to be populated, got %#v", report.Impact)
+	}
 }
 
 func containsSignal(signals []RiskSignal, code string) bool {

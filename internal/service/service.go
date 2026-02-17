@@ -1,6 +1,7 @@
 package service
 
 import (
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"os"
@@ -38,6 +39,7 @@ var (
 	crFooterPattern      = regexp.MustCompile(`(?m)^Sophia-CR:\s*\d+\s*$`)
 	legacyPersistPattern = regexp.MustCompile(`^chore:\s*persist CR-\d+\s+merged metadata$`)
 	footerCRIDPattern    = regexp.MustCompile(`(?m)^Sophia-CR:\s*(\d+)\s*$`)
+	footerCRUIDPattern   = regexp.MustCompile(`(?m)^Sophia-CR-UID:\s*(\S+)\s*$`)
 	footerIntentPattern  = regexp.MustCompile(`(?m)^Sophia-Intent:\s*(.+)\s*$`)
 )
 
@@ -105,6 +107,7 @@ type RepairReport struct {
 
 type WhyView struct {
 	CRID              int
+	CRUID             string
 	EffectiveWhy      string
 	Source            string
 	Description       string
@@ -115,6 +118,7 @@ type WhyView struct {
 
 type CRStatusView struct {
 	ID                    int
+	UID                   string
 	Title                 string
 	Status                string
 	BaseBranch            string
@@ -189,6 +193,7 @@ type RiskSignal struct {
 
 type ImpactReport struct {
 	CRID                 int
+	CRUID                string
 	FilesChanged         int
 	NewFiles             []string
 	ModifiedFiles        []string
@@ -342,6 +347,10 @@ func (s *Service) AddCRWithWarnings(title, description string) (*model.CR, []str
 	if err != nil {
 		return nil, nil, err
 	}
+	uid, err := newCRUID()
+	if err != nil {
+		return nil, nil, err
+	}
 
 	branch := fmt.Sprintf("sophia/cr-%d", id)
 	if s.git.BranchExists(branch) {
@@ -355,6 +364,7 @@ func (s *Service) AddCRWithWarnings(title, description string) (*model.CR, []str
 	actor := s.git.Actor()
 	cr := &model.CR{
 		ID:          id,
+		UID:         uid,
 		Title:       title,
 		Description: description,
 		Status:      model.StatusInProgress,
@@ -569,6 +579,7 @@ func (s *Service) WhyCR(id int) (*WhyView, error) {
 
 	return &WhyView{
 		CRID:              cr.ID,
+		CRUID:             strings.TrimSpace(cr.UID),
 		EffectiveWhy:      effectiveWhy,
 		Source:            source,
 		Description:       description,
@@ -613,6 +624,7 @@ func (s *Service) StatusCR(id int) (*CRStatusView, error) {
 	missingFields := missingCRContractFields(cr.Contract)
 	view := &CRStatusView{
 		ID:                    cr.ID,
+		UID:                   strings.TrimSpace(cr.UID),
 		Title:                 cr.Title,
 		Status:                cr.Status,
 		BaseBranch:            cr.BaseBranch,
@@ -995,6 +1007,9 @@ func (s *Service) DoneTaskWithCheckpoint(crID, taskID int, opts DoneTaskOptions)
 	if err != nil {
 		return "", err
 	}
+	if _, err := ensureCRUID(cr); err != nil {
+		return "", err
+	}
 	if cr.Status != model.StatusInProgress {
 		return "", fmt.Errorf("cr %d is not in progress", crID)
 	}
@@ -1184,6 +1199,9 @@ func (s *Service) ReviewCR(id int) (*Review, error) {
 func (s *Service) MergeCR(id int, keepBranch bool, overrideReason string) (string, error) {
 	cr, err := s.store.LoadCR(id)
 	if err != nil {
+		return "", err
+	}
+	if _, err := ensureCRUID(cr); err != nil {
 		return "", err
 	}
 	if cr.Status == model.StatusMerged {
@@ -1618,6 +1636,26 @@ func (s *Service) RepairFromGit(baseBranch string, refresh bool) (*RepairReport,
 		RepairedCRIDs: []int{},
 	}
 
+	uidBackfilledSet := map[int]struct{}{}
+	for id, existing := range existingMap {
+		changed, uidErr := ensureCRUID(existing)
+		if uidErr != nil {
+			return nil, uidErr
+		}
+		if !changed {
+			continue
+		}
+		if strings.TrimSpace(existing.CreatedAt) == "" {
+			existing.CreatedAt = s.timestamp()
+		}
+		existing.UpdatedAt = s.timestamp()
+		if err := s.store.SaveCR(existing); err != nil {
+			return nil, err
+		}
+		report.Updated++
+		uidBackfilledSet[id] = struct{}{}
+	}
+
 	repairedSet := map[int]struct{}{}
 	for _, commit := range commits {
 		id, ok := crIDFromSubjectOrBody(commit.Subject, commit.Body)
@@ -1643,6 +1681,7 @@ func (s *Service) RepairFromGit(baseBranch string, refresh bool) (*RepairReport,
 
 		cr := &model.CR{
 			ID:                id,
+			UID:               crUIDFromBody(commit.Body),
 			Title:             titleFromSubjectOrBody(commit.Subject, commit.Body),
 			Description:       description,
 			Status:            model.StatusMerged,
@@ -1660,14 +1699,22 @@ func (s *Service) RepairFromGit(baseBranch string, refresh bool) (*RepairReport,
 		}
 
 		if exists {
+			if strings.TrimSpace(cr.UID) == "" {
+				cr.UID = strings.TrimSpace(existing.UID)
+			}
 			cr.CreatedAt = existing.CreatedAt
 			if strings.TrimSpace(cr.CreatedAt) == "" {
 				cr.CreatedAt = when
 			}
 			cr.Events = append([]model.Event{}, existing.Events...)
-			report.Updated++
+			if _, backfilled := uidBackfilledSet[id]; !backfilled {
+				report.Updated++
+			}
 		} else {
 			report.Imported++
+		}
+		if _, uidErr := ensureCRUID(cr); uidErr != nil {
+			return nil, uidErr
 		}
 		cr.Events = append(cr.Events, model.Event{
 			TS:      s.timestamp(),
@@ -1773,6 +1820,7 @@ func buildMergeCommitMessage(cr *model.CR, actor, mergedAt string) string {
 	fmt.Fprintf(&b, "- merged_at: %s\n", mergedAt)
 	b.WriteString("\n")
 	fmt.Fprintf(&b, "Sophia-CR: %d\n", cr.ID)
+	fmt.Fprintf(&b, "Sophia-CR-UID: %s\n", strings.TrimSpace(cr.UID))
 	fmt.Fprintf(&b, "Sophia-Intent: %s\n", cr.Title)
 	fmt.Fprintf(&b, "Sophia-Tasks: %d completed\n", completedTasks(cr.Subtasks))
 	return b.String()
@@ -1797,6 +1845,7 @@ func buildTaskCheckpointMessage(cr *model.CR, task *model.Subtask) string {
 	fmt.Fprintf(&b, "Task: #%d %s\n", task.ID, strings.TrimSpace(task.Title))
 	fmt.Fprintf(&b, "CR: %d %s\n\n", cr.ID, strings.TrimSpace(cr.Title))
 	fmt.Fprintf(&b, "Sophia-CR: %d\n", cr.ID)
+	fmt.Fprintf(&b, "Sophia-CR-UID: %s\n", strings.TrimSpace(cr.UID))
 	fmt.Fprintf(&b, "Sophia-Task: %d\n", task.ID)
 	fmt.Fprintf(&b, "Sophia-Intent: %s\n", strings.TrimSpace(cr.Title))
 	return b.String()
@@ -1980,6 +2029,7 @@ func buildImpactReport(cr *model.CR, diff *diffSummary) *ImpactReport {
 
 	return &ImpactReport{
 		CRID:                 cr.ID,
+		CRUID:                strings.TrimSpace(cr.UID),
 		FilesChanged:         len(diff.Files),
 		NewFiles:             append([]string(nil), diff.NewFiles...),
 		ModifiedFiles:        append([]string(nil), diff.ModifiedFiles...),
@@ -2274,6 +2324,14 @@ func crIDFromSubjectOrBody(subject, body string) (int, bool) {
 	return id, true
 }
 
+func crUIDFromBody(body string) string {
+	matches := footerCRUIDPattern.FindStringSubmatch(body)
+	if len(matches) != 2 {
+		return ""
+	}
+	return strings.TrimSpace(matches[1])
+}
+
 func titleFromSubjectOrBody(subject, body string) string {
 	if matches := crSubjectPattern.FindStringSubmatch(strings.TrimSpace(subject)); len(matches) >= 3 {
 		title := strings.TrimSpace(matches[2])
@@ -2402,6 +2460,32 @@ func shortHash(hash string) string {
 		return hash[:7]
 	}
 	return hash
+}
+
+func newCRUID() (string, error) {
+	var raw [16]byte
+	if _, err := rand.Read(raw[:]); err != nil {
+		return "", fmt.Errorf("generate cr uid: %w", err)
+	}
+	// RFC 4122 variant/version bits for compatibility with UUID tooling.
+	raw[6] = (raw[6] & 0x0f) | 0x40
+	raw[8] = (raw[8] & 0x3f) | 0x80
+	return fmt.Sprintf("cr_%x-%x-%x-%x-%x", raw[0:4], raw[4:6], raw[6:8], raw[8:10], raw[10:16]), nil
+}
+
+func ensureCRUID(cr *model.CR) (bool, error) {
+	if cr == nil {
+		return false, errors.New("cr cannot be nil")
+	}
+	if strings.TrimSpace(cr.UID) != "" {
+		return false, nil
+	}
+	uid, err := newCRUID()
+	if err != nil {
+		return false, err
+	}
+	cr.UID = uid
+	return true, nil
 }
 
 func parseRFC3339OrZero(raw string) time.Time {

@@ -74,6 +74,7 @@ func TestCRReadWriteRoundTrip(t *testing.T) {
 
 	cr := &model.CR{
 		ID:          1,
+		UID:         "cr_test-uid",
 		Title:       "Add retries",
 		Description: "Improve resilience",
 		Status:      model.StatusInProgress,
@@ -98,6 +99,9 @@ func TestCRReadWriteRoundTrip(t *testing.T) {
 	}
 	if loaded.Title != cr.Title || loaded.Description != cr.Description {
 		t.Fatalf("loaded CR mismatch: %#v", loaded)
+	}
+	if loaded.UID != cr.UID {
+		t.Fatalf("expected uid %q, got %q", cr.UID, loaded.UID)
 	}
 	if len(loaded.Subtasks) != 1 || loaded.Subtasks[0].Title != "Code" {
 		t.Fatalf("expected one subtask, got %#v", loaded.Subtasks)
