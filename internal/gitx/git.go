@@ -96,13 +96,46 @@ func (c *Client) CreateBranch(branch string) error {
 	return err
 }
 
+func (c *Client) CreateBranchFrom(branch, ref string) error {
+	_, err := c.run("checkout", "-b", branch, ref)
+	return err
+}
+
+func (c *Client) ResolveRef(ref string) (string, error) {
+	out, err := c.run("rev-parse", "--verify", ref)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(out), nil
+}
+
+func (c *Client) RebaseBranchOnto(branch, ontoRef string) error {
+	if err := c.CheckoutBranch(branch); err != nil {
+		return err
+	}
+	_, err := c.run("rebase", ontoRef)
+	return err
+}
+
 func (c *Client) DiffNames(baseBranch, branch string) ([]string, error) {
 	out, err := c.run("diff", "--name-only", baseBranch+"..."+branch)
 	if err != nil {
 		return nil, err
 	}
+	return parseDiffNames(out), nil
+}
+
+func (c *Client) DiffNamesBetween(fromRef, toRef string) ([]string, error) {
+	out, err := c.run("diff", "--name-only", fromRef, toRef)
+	if err != nil {
+		return nil, err
+	}
+	return parseDiffNames(out), nil
+}
+
+func parseDiffNames(out string) []string {
 	if strings.TrimSpace(out) == "" {
-		return []string{}, nil
+		return []string{}
 	}
 	lines := strings.Split(strings.TrimSpace(out), "\n")
 	res := make([]string, 0, len(lines))
@@ -113,7 +146,7 @@ func (c *Client) DiffNames(baseBranch, branch string) ([]string, error) {
 		}
 	}
 	sort.Strings(res)
-	return res, nil
+	return res
 }
 
 func (c *Client) DiffNameStatus(baseBranch, branch string) ([]FileChange, error) {
