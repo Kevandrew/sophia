@@ -3,7 +3,6 @@ package service
 import (
 	"fmt"
 	"path/filepath"
-	"sophia/internal/gitx"
 	"sophia/internal/model"
 	"strconv"
 	"strings"
@@ -58,6 +57,9 @@ func (s *Service) MergeCRWithWarnings(id int, keepBranch bool, overrideReason st
 	if _, err := s.ensureCRBaseFields(cr, true); err != nil {
 		return "", warnings, err
 	}
+	if guardErr := s.ensureNoMergeInProgressForCR(cr); guardErr != nil {
+		return "", warnings, guardErr
+	}
 	if cr.Status == model.StatusMerged {
 		return "", warnings, ErrCRAlreadyMerged
 	}
@@ -91,13 +93,9 @@ func (s *Service) MergeCRWithWarnings(id int, keepBranch bool, overrideReason st
 		return "", warnings, fmt.Errorf("cr branch %q does not exist", cr.Branch)
 	}
 
-	mergeGit := s.git
-	baseOwner, err := s.branchOwnerWorktree(cr.BaseBranch)
+	mergeGit, worktreePath, err := s.effectiveMergeGitForCR(cr)
 	if err != nil {
 		return "", warnings, err
-	}
-	if baseOwner != nil && !s.isCurrentWorktreePath(baseOwner.Path) {
-		mergeGit = gitx.New(baseOwner.Path)
 	}
 	if dirty, summary, err := s.workingTreeDirtySummaryFor(mergeGit); err != nil {
 		return "", warnings, err
@@ -114,15 +112,31 @@ func (s *Service) MergeCRWithWarnings(id int, keepBranch bool, overrideReason st
 		}
 	}
 
-	files, err := s.diffNamesForCR(cr)
-	if err != nil {
-		return "", warnings, err
-	}
-
 	actor := mergeGit.Actor()
 	mergedAt := s.timestamp()
 	msg := buildMergeCommitMessage(cr, actor, mergedAt)
 	if err := mergeGit.MergeNoFFOnCurrentBranch(cr.Branch, msg); err != nil {
+		conflictFiles, conflictErr := mergeGit.MergeConflictFiles()
+		if conflictErr != nil {
+			return "", warnings, err
+		}
+		inProgress, progressErr := mergeGit.IsMergeInProgress()
+		if progressErr != nil {
+			return "", warnings, err
+		}
+		if inProgress {
+			if persistErr := s.recordMergeConflictEvent(cr, actor, worktreePath, conflictFiles, err); persistErr != nil {
+				return "", warnings, persistErr
+			}
+			return "", warnings, &MergeConflictError{
+				CRID:          cr.ID,
+				BaseBranch:    cr.BaseBranch,
+				CRBranch:      cr.Branch,
+				WorktreePath:  worktreePath,
+				ConflictFiles: conflictFiles,
+				Cause:         err,
+			}
+		}
 		return "", warnings, err
 	}
 
@@ -143,13 +157,215 @@ func (s *Service) MergeCRWithWarnings(id int, keepBranch bool, overrideReason st
 		return "", warnings, err
 	}
 
+	if err := s.finalizeCRMergedState(cr, validation, overrideReason, actor, mergedAt, sha, false); err != nil {
+		return "", warnings, err
+	}
+
+	return sha, warnings, nil
+}
+
+func (s *Service) MergeStatusCR(id int) (*MergeStatusView, error) {
+	cr, err := s.store.LoadCR(id)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := s.ensureCRBaseFields(cr, true); err != nil {
+		return nil, err
+	}
+	mergeGit, worktreePath, err := s.effectiveMergeGitForCR(cr)
+	if err != nil {
+		return nil, err
+	}
+	inProgress, err := mergeGit.IsMergeInProgress()
+	if err != nil {
+		return nil, err
+	}
+	mergeHead, err := mergeGit.MergeHeadSHA()
+	if err != nil {
+		return nil, err
+	}
+	conflictFiles, err := mergeGit.MergeConflictFiles()
+	if err != nil {
+		return nil, err
+	}
+
+	targetMatches := false
+	if inProgress && strings.TrimSpace(mergeHead) != "" {
+		targetHead, resolveErr := mergeGit.ResolveRef(cr.Branch)
+		if resolveErr == nil && strings.TrimSpace(targetHead) != "" {
+			targetMatches = strings.TrimSpace(targetHead) == strings.TrimSpace(mergeHead)
+		}
+	}
+	advice := []string{}
+	if inProgress {
+		advice = append(advice, fmt.Sprintf("Resolve conflicted files and run sophia cr merge resume %d.", cr.ID))
+		advice = append(advice, fmt.Sprintf("Run sophia cr merge abort %d to abandon the in-progress merge.", cr.ID))
+		if !targetMatches {
+			advice = append(advice, "Current in-progress merge does not match this CR target branch.")
+		}
+	} else {
+		advice = append(advice, "No merge in progress for this CR.")
+	}
+
+	return &MergeStatusView{
+		CRID:          cr.ID,
+		CRUID:         strings.TrimSpace(cr.UID),
+		BaseBranch:    cr.BaseBranch,
+		CRBranch:      cr.Branch,
+		WorktreePath:  worktreePath,
+		InProgress:    inProgress,
+		ConflictFiles: conflictFiles,
+		TargetMatches: targetMatches,
+		MergeHead:     strings.TrimSpace(mergeHead),
+		Advice:        advice,
+	}, nil
+}
+
+func (s *Service) AbortMergeCR(id int) error {
+	status, err := s.MergeStatusCR(id)
+	if err != nil {
+		return err
+	}
+	if !status.InProgress {
+		return &NoMergeInProgressError{
+			WorktreePath: status.WorktreePath,
+			Summary:      fmt.Sprintf("%s: no merge in progress for CR %d", ErrNoMergeInProgress, id),
+		}
+	}
+	if !status.TargetMatches {
+		return &MergeInProgressError{
+			WorktreePath:  status.WorktreePath,
+			ConflictFiles: status.ConflictFiles,
+			Summary:       fmt.Sprintf("%s: in-progress merge in %s does not target CR %d", ErrMergeInProgress, status.WorktreePath, id),
+		}
+	}
+	cr, err := s.store.LoadCR(id)
+	if err != nil {
+		return err
+	}
+	mergeGit, _, err := s.effectiveMergeGitForCR(cr)
+	if err != nil {
+		return err
+	}
+	if err := mergeGit.MergeAbort(); err != nil {
+		return err
+	}
+	now := s.timestamp()
+	actor := s.git.Actor()
+	cr.UpdatedAt = now
+	cr.Events = append(cr.Events, model.Event{
+		TS:      now,
+		Actor:   actor,
+		Type:    "cr_merge_aborted",
+		Summary: fmt.Sprintf("Aborted in-progress merge for CR %d", cr.ID),
+		Ref:     fmt.Sprintf("cr:%d", cr.ID),
+		Meta: map[string]string{
+			"worktree_path":  status.WorktreePath,
+			"conflict_count": strconv.Itoa(len(status.ConflictFiles)),
+		},
+	})
+	return s.store.SaveCR(cr)
+}
+
+func (s *Service) ResumeMergeCR(id int, keepBranch bool, overrideReason string) (string, []string, error) {
+	status, err := s.MergeStatusCR(id)
+	if err != nil {
+		return "", nil, err
+	}
+	if !status.InProgress {
+		return "", nil, &NoMergeInProgressError{
+			WorktreePath: status.WorktreePath,
+			Summary:      fmt.Sprintf("%s: no merge in progress for CR %d", ErrNoMergeInProgress, id),
+		}
+	}
+	if !status.TargetMatches {
+		return "", nil, &MergeInProgressError{
+			WorktreePath:  status.WorktreePath,
+			ConflictFiles: status.ConflictFiles,
+			Summary:       fmt.Sprintf("%s: in-progress merge in %s does not target CR %d", ErrMergeInProgress, status.WorktreePath, id),
+		}
+	}
+
+	cr, err := s.store.LoadCR(id)
+	if err != nil {
+		return "", nil, err
+	}
+	if cr.Status == model.StatusMerged {
+		return "", nil, ErrCRAlreadyMerged
+	}
+	validation, err := s.ValidateCR(id)
+	if err != nil {
+		return "", nil, err
+	}
+	overrideReason = strings.TrimSpace(overrideReason)
+
+	mergeGit, _, err := s.effectiveMergeGitForCR(cr)
+	if err != nil {
+		return "", nil, err
+	}
+	if err := mergeGit.MergeContinue(); err != nil {
+		return "", nil, err
+	}
+	warnings := []string{}
+	if !keepBranch {
+		crOwner, ownerErr := s.branchOwnerWorktree(cr.Branch)
+		if ownerErr != nil {
+			return "", warnings, ownerErr
+		}
+		if crOwner != nil {
+			warnings = append(warnings, fmt.Sprintf("Kept branch %s because it is checked out in worktree %s", cr.Branch, crOwner.Path))
+		} else if err := s.git.DeleteBranch(cr.Branch, true); err != nil {
+			return "", warnings, err
+		}
+	}
+	sha, err := mergeGit.HeadShortSHA()
+	if err != nil {
+		return "", warnings, err
+	}
+	mergedAt := s.timestamp()
+	actor := mergeGit.Actor()
+	if err := s.finalizeCRMergedState(cr, validation, overrideReason, actor, mergedAt, sha, true); err != nil {
+		return "", warnings, err
+	}
+	return sha, warnings, nil
+}
+
+func (s *Service) finalizeCRMergedState(cr *model.CR, validation *ValidationReport, overrideReason, actor, mergedAt, sha string, resumed bool) error {
+	if count, err := s.git.ChangedFileCount(sha); err == nil && count > 0 {
+		cr.FilesTouchedCount = count
+	} else if validation != nil && validation.Impact != nil && validation.Impact.FilesChanged > 0 {
+		cr.FilesTouchedCount = validation.Impact.FilesChanged
+	} else {
+		files, diffErr := s.diffNamesForCR(cr)
+		if diffErr == nil {
+			cr.FilesTouchedCount = len(files)
+		} else if err != nil {
+			return err
+		}
+	}
 	cr.Status = model.StatusMerged
 	cr.UpdatedAt = mergedAt
 	cr.MergedAt = mergedAt
 	cr.MergedBy = actor
 	cr.MergedCommit = sha
-	cr.FilesTouchedCount = len(files)
-	if overrideReason != "" {
+	if resumed {
+		cr.Events = append(cr.Events, model.Event{
+			TS:      mergedAt,
+			Actor:   actor,
+			Type:    "cr_merge_resumed",
+			Summary: fmt.Sprintf("Resumed in-progress merge for CR %d", cr.ID),
+			Ref:     fmt.Sprintf("cr:%d", cr.ID),
+		})
+	}
+	if strings.TrimSpace(overrideReason) != "" {
+		riskTier := "-"
+		validationErrors := "0"
+		if validation != nil {
+			validationErrors = strconv.Itoa(len(validation.Errors))
+			if validation.Impact != nil {
+				riskTier = nonEmptyTrimmed(validation.Impact.RiskTier, "-")
+			}
+		}
 		cr.Events = append(cr.Events, model.Event{
 			TS:      mergedAt,
 			Actor:   actor,
@@ -158,8 +374,8 @@ func (s *Service) MergeCRWithWarnings(id int, keepBranch bool, overrideReason st
 			Ref:     fmt.Sprintf("cr:%d", cr.ID),
 			Meta: map[string]string{
 				"override_reason":   overrideReason,
-				"risk_tier":         nonEmptyTrimmed(validation.Impact.RiskTier, "-"),
-				"validation_errors": strconv.Itoa(len(validation.Errors)),
+				"risk_tier":         riskTier,
+				"validation_errors": validationErrors,
 			},
 		})
 	}
@@ -171,16 +387,45 @@ func (s *Service) MergeCRWithWarnings(id int, keepBranch bool, overrideReason st
 		Ref:     fmt.Sprintf("cr:%d", cr.ID),
 	})
 	if err := s.store.SaveCR(cr); err != nil {
-		return "", warnings, err
+		return err
 	}
 	if err := s.backfillChildrenAfterParentMerge(cr); err != nil {
-		return "", warnings, err
+		return err
 	}
 	if err := s.syncDelegatedTasksAfterChildMerge(cr.ID); err != nil {
-		return "", warnings, err
+		return err
 	}
+	return nil
+}
 
-	return sha, warnings, nil
+func (s *Service) recordMergeConflictEvent(cr *model.CR, actor, worktreePath string, conflictFiles []string, cause error) error {
+	now := s.timestamp()
+	meta := map[string]string{
+		"worktree_path":  strings.TrimSpace(worktreePath),
+		"base_branch":    strings.TrimSpace(cr.BaseBranch),
+		"cr_branch":      strings.TrimSpace(cr.Branch),
+		"conflict_count": strconv.Itoa(len(conflictFiles)),
+	}
+	if len(conflictFiles) > 0 {
+		limit := conflictFiles
+		if len(limit) > 20 {
+			limit = limit[:20]
+		}
+		meta["conflict_files"] = strings.Join(limit, ",")
+	}
+	if cause != nil {
+		meta["cause"] = strings.TrimSpace(cause.Error())
+	}
+	cr.Events = append(cr.Events, model.Event{
+		TS:      now,
+		Actor:   actor,
+		Type:    "cr_merge_conflict",
+		Summary: fmt.Sprintf("Merge conflict while merging CR %d", cr.ID),
+		Ref:     fmt.Sprintf("cr:%d", cr.ID),
+		Meta:    meta,
+	})
+	cr.UpdatedAt = now
+	return s.store.SaveCR(cr)
 }
 
 func (s *Service) Doctor(limit int) (*DoctorReport, error) {

@@ -457,6 +457,9 @@ This is formatting around Git — not replacing it.
 
 ```
 sophia cr merge <id>
+sophia cr merge status <id> [--json]
+sophia cr merge abort <id> [--json]
+sophia cr merge resume <id> [--keep-branch] [--delete-branch] [--override-reason "..."] [--json]
 ```
 
 Behavior:
@@ -495,6 +498,12 @@ Sophia-Tasks: 2 completed
 * Non-delegated stacks keep parent-first merge gating
 * Delegated children may merge before parent when explicitly linked from parent task delegation
 * Parent CR merge blocks while delegated tasks still point to unmerged child CRs
+* On conflicts, merge returns deterministic `merge_conflict` errors (including conflict file details in JSON)
+* Merge recovery is explicit and deterministic:
+  * `cr merge status` inspects in-progress state and conflicted files for the target CR context
+  * `cr merge abort` aborts unresolved merge state
+  * `cr merge resume` continues after manual conflict resolution and finalizes CR metadata/events
+* While merge state is unresolved in the effective merge worktree, mutating CR commands are blocked with `merge_in_progress` until `abort` or `resume`
 * Supports emergency audited bypass:
 
 ```
@@ -527,6 +536,9 @@ sophia cr task delegate <parent-cr-id> <task-id> --child <child-cr-id>
 sophia cr task undelegate <parent-cr-id> <task-id> --child <child-cr-id>
 sophia cr child add "<title>" --description "..."
 sophia cr stack [<id>] [--json]
+sophia cr merge status <id> [--json]
+sophia cr merge abort <id> [--json]
+sophia cr merge resume <id> [--json]
 sophia cr edit <id> --title "..."
 sophia cr contract set <id> --why "..."
 sophia cr contract show <id>

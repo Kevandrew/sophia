@@ -110,18 +110,32 @@ func newCRMergeCmd() *cobra.Command {
 	var keepBranch bool
 	var deleteBranch bool
 	var overrideReason string
+	var asJSON bool
 
 	cmd := &cobra.Command{
-		Use:   "merge <id>",
-		Short: "Create one intent merge commit and merge CR branch into base",
-		Args:  cobra.ExactArgs(1),
+		Use:   "merge",
+		Short: "Merge a CR and recover from merge conflicts",
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) != 1 {
+				err := fmt.Errorf("merge requires exactly one CR id")
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
+				return err
+			}
 			id, err := parsePositiveIntArg(args[0], "id")
 			if err != nil {
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
 				return err
 			}
 			svc, err := newService()
 			if err != nil {
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
 				return err
 			}
 			if deleteBranch {
@@ -129,7 +143,19 @@ func newCRMergeCmd() *cobra.Command {
 			}
 			sha, warnings, err := svc.MergeCRWithWarnings(id, keepBranch, overrideReason)
 			if err != nil {
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
 				return err
+			}
+			if asJSON {
+				return writeJSONSuccess(cmd, map[string]any{
+					"cr_id":           id,
+					"merged_commit":   sha,
+					"warnings":        warnings,
+					"keep_branch":     keepBranch,
+					"override_reason": strings.TrimSpace(overrideReason),
+				})
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "Merged CR %d as commit %s\n", id, sha)
 			for _, warning := range warnings {
@@ -142,5 +168,161 @@ func newCRMergeCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&keepBranch, "keep-branch", false, "Keep CR branch after merge (default deletes merged branch)")
 	cmd.Flags().BoolVar(&deleteBranch, "delete-branch", false, "Deprecated: branch deletion is now the default")
 	cmd.Flags().StringVar(&overrideReason, "override-reason", "", "Bypass validation failures with an audited reason")
+	cmd.Flags().BoolVar(&asJSON, "json", false, "Output in JSON format")
+	cmd.AddCommand(newCRMergeStatusCmd())
+	cmd.AddCommand(newCRMergeAbortCmd())
+	cmd.AddCommand(newCRMergeResumeCmd())
+	return cmd
+}
+
+func newCRMergeStatusCmd() *cobra.Command {
+	var asJSON bool
+
+	cmd := &cobra.Command{
+		Use:   "status <id>",
+		Short: "Show merge-in-progress status for a CR",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			id, err := parsePositiveIntArg(args[0], "id")
+			if err != nil {
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
+				return err
+			}
+			svc, err := newService()
+			if err != nil {
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
+				return err
+			}
+			status, err := svc.MergeStatusCR(id)
+			if err != nil {
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
+				return err
+			}
+			if asJSON {
+				return writeJSONSuccess(cmd, mergeStatusToJSONMap(status))
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "CR %d merge status\n", status.CRID)
+			fmt.Fprintf(cmd.OutOrStdout(), "CR UID: %s\n", nonEmpty(strings.TrimSpace(status.CRUID), "-"))
+			fmt.Fprintf(cmd.OutOrStdout(), "Base Branch: %s\n", status.BaseBranch)
+			fmt.Fprintf(cmd.OutOrStdout(), "CR Branch: %s\n", status.CRBranch)
+			fmt.Fprintf(cmd.OutOrStdout(), "Worktree: %s\n", status.WorktreePath)
+			fmt.Fprintf(cmd.OutOrStdout(), "In Progress: %t\n", status.InProgress)
+			fmt.Fprintf(cmd.OutOrStdout(), "Target Matches: %t\n", status.TargetMatches)
+			fmt.Fprintf(cmd.OutOrStdout(), "Merge Head: %s\n", nonEmpty(strings.TrimSpace(status.MergeHead), "-"))
+			printListSection(cmd, "Conflict Files", status.ConflictFiles)
+			printListSection(cmd, "Advice", status.Advice)
+			return nil
+		},
+	}
+
+	cmd.Flags().BoolVar(&asJSON, "json", false, "Output in JSON format")
+	return cmd
+}
+
+func newCRMergeAbortCmd() *cobra.Command {
+	var asJSON bool
+
+	cmd := &cobra.Command{
+		Use:   "abort <id>",
+		Short: "Abort an in-progress merge for a CR",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			id, err := parsePositiveIntArg(args[0], "id")
+			if err != nil {
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
+				return err
+			}
+			svc, err := newService()
+			if err != nil {
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
+				return err
+			}
+			if err := svc.AbortMergeCR(id); err != nil {
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
+				return err
+			}
+			if asJSON {
+				return writeJSONSuccess(cmd, map[string]any{
+					"cr_id":   id,
+					"aborted": true,
+				})
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "Aborted in-progress merge for CR %d\n", id)
+			return nil
+		},
+	}
+
+	cmd.Flags().BoolVar(&asJSON, "json", false, "Output in JSON format")
+	return cmd
+}
+
+func newCRMergeResumeCmd() *cobra.Command {
+	var keepBranch bool
+	var deleteBranch bool
+	var overrideReason string
+	var asJSON bool
+
+	cmd := &cobra.Command{
+		Use:   "resume <id>",
+		Short: "Resume an in-progress merge for a CR after resolving conflicts",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			id, err := parsePositiveIntArg(args[0], "id")
+			if err != nil {
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
+				return err
+			}
+			svc, err := newService()
+			if err != nil {
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
+				return err
+			}
+			if deleteBranch {
+				keepBranch = false
+			}
+			sha, warnings, err := svc.ResumeMergeCR(id, keepBranch, overrideReason)
+			if err != nil {
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
+				return err
+			}
+			if asJSON {
+				return writeJSONSuccess(cmd, map[string]any{
+					"cr_id":           id,
+					"merged_commit":   sha,
+					"warnings":        warnings,
+					"keep_branch":     keepBranch,
+					"override_reason": strings.TrimSpace(overrideReason),
+				})
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "Resumed merge for CR %d as commit %s\n", id, sha)
+			for _, warning := range warnings {
+				fmt.Fprintf(cmd.OutOrStdout(), "Warning: %s\n", warning)
+			}
+			return nil
+		},
+	}
+
+	cmd.Flags().BoolVar(&keepBranch, "keep-branch", false, "Keep CR branch after merge (default deletes merged branch)")
+	cmd.Flags().BoolVar(&deleteBranch, "delete-branch", false, "Deprecated: branch deletion is now the default")
+	cmd.Flags().StringVar(&overrideReason, "override-reason", "", "Bypass validation failures with an audited reason")
+	cmd.Flags().BoolVar(&asJSON, "json", false, "Output in JSON format")
 	return cmd
 }

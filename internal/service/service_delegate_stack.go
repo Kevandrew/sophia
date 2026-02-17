@@ -21,12 +21,18 @@ func (s *Service) DelegateTaskToChild(parentCRID, taskID, childCRID int) (*Deleg
 	if err != nil {
 		return nil, err
 	}
+	if guardErr := s.ensureNoMergeInProgressForCR(parent); guardErr != nil {
+		return nil, guardErr
+	}
 	if parent.Status != model.StatusInProgress {
 		return nil, fmt.Errorf("parent cr %d is not in progress", parentCRID)
 	}
 	child, err := s.store.LoadCR(childCRID)
 	if err != nil {
 		return nil, err
+	}
+	if guardErr := s.ensureNoMergeInProgressForCR(child); guardErr != nil {
+		return nil, guardErr
 	}
 	if child.Status != model.StatusInProgress {
 		return nil, fmt.Errorf("child cr %d is not in progress", childCRID)
@@ -123,6 +129,9 @@ func (s *Service) UndelegateTaskFromChild(parentCRID, taskID, childCRID int) (*U
 	parent, err := s.store.LoadCR(parentCRID)
 	if err != nil {
 		return nil, err
+	}
+	if guardErr := s.ensureNoMergeInProgressForCR(parent); guardErr != nil {
+		return nil, guardErr
 	}
 	taskIndex := indexOfTask(parent.Subtasks, taskID)
 	if taskIndex < 0 {

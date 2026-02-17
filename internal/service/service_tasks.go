@@ -18,6 +18,9 @@ func (s *Service) AddTask(crID int, title string) (*model.Subtask, error) {
 	if err != nil {
 		return nil, err
 	}
+	if guardErr := s.ensureNoMergeInProgressForCR(cr); guardErr != nil {
+		return nil, guardErr
+	}
 	newTaskID := nextTaskID(cr.Subtasks)
 	now := s.timestamp()
 	actor := s.git.Actor()
@@ -48,6 +51,9 @@ func (s *Service) SetTaskContract(crID, taskID int, patch TaskContractPatch) ([]
 	cr, err := s.store.LoadCR(crID)
 	if err != nil {
 		return nil, err
+	}
+	if guardErr := s.ensureNoMergeInProgressForCR(cr); guardErr != nil {
+		return nil, guardErr
 	}
 	taskIndex := indexOfTask(cr.Subtasks, taskID)
 	if taskIndex < 0 {
@@ -205,6 +211,9 @@ func (s *Service) ReopenTask(crID, taskID int, opts ReopenTaskOptions) (*model.S
 	if err != nil {
 		return nil, err
 	}
+	if guardErr := s.ensureNoMergeInProgressForCR(cr); guardErr != nil {
+		return nil, guardErr
+	}
 	if cr.Status != model.StatusInProgress {
 		return nil, fmt.Errorf("cr %d is not in progress", crID)
 	}
@@ -260,6 +269,9 @@ func (s *Service) DoneTaskWithCheckpoint(crID, taskID int, opts DoneTaskOptions)
 	cr, err := s.store.LoadCR(crID)
 	if err != nil {
 		return "", err
+	}
+	if guardErr := s.ensureNoMergeInProgressForCR(cr); guardErr != nil {
+		return "", guardErr
 	}
 	if _, err := ensureCRUID(cr); err != nil {
 		return "", err

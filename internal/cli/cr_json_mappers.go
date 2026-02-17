@@ -158,6 +158,24 @@ func trustToJSONMap(trust *service.TrustReport) map[string]any {
 	}
 }
 
+func mergeStatusToJSONMap(status *service.MergeStatusView) map[string]any {
+	if status == nil {
+		return map[string]any{}
+	}
+	return map[string]any{
+		"cr_id":          status.CRID,
+		"cr_uid":         status.CRUID,
+		"base_branch":    status.BaseBranch,
+		"cr_branch":      status.CRBranch,
+		"worktree_path":  status.WorktreePath,
+		"in_progress":    status.InProgress,
+		"conflict_files": status.ConflictFiles,
+		"target_matches": status.TargetMatches,
+		"merge_head":     status.MergeHead,
+		"advice":         status.Advice,
+	}
+}
+
 func applyPlanToJSONMap(result *service.ApplyCRPlanResult) map[string]any {
 	if result == nil {
 		return map[string]any{}

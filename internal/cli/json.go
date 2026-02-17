@@ -49,6 +49,7 @@ type jsonEnvelope struct {
 type jsonError struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
+	Details any    `json:"details,omitempty"`
 }
 
 func writeJSONSuccess(cmd *cobra.Command, payload any) error {
@@ -68,6 +69,7 @@ func writeJSONError(cmd *cobra.Command, err error) error {
 		Error: &jsonError{
 			Code:    jsonErrorCode(err),
 			Message: err.Error(),
+			Details: jsonErrorDetails(err),
 		},
 	})
 	return markHandled(err)
@@ -75,6 +77,12 @@ func writeJSONError(cmd *cobra.Command, err error) error {
 
 func jsonErrorCode(err error) string {
 	switch {
+	case errors.Is(err, service.ErrMergeConflict):
+		return "merge_conflict"
+	case errors.Is(err, service.ErrMergeInProgress):
+		return "merge_in_progress"
+	case errors.Is(err, service.ErrNoMergeInProgress):
+		return "no_merge_in_progress"
 	case errors.Is(err, service.ErrNoActiveCRContext):
 		return "no_active_cr_context"
 	case errors.Is(err, service.ErrBranchInOtherWorktree):
@@ -112,4 +120,18 @@ func jsonErrorCode(err error) string {
 		return "invalid_argument"
 	}
 	return "internal_error"
+}
+
+func jsonErrorDetails(err error) any {
+	type detailer interface {
+		Details() map[string]any
+	}
+	var withDetails detailer
+	if errors.As(err, &withDetails) {
+		details := withDetails.Details()
+		if len(details) > 0 {
+			return details
+		}
+	}
+	return nil
 }

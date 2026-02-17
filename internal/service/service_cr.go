@@ -28,6 +28,9 @@ func (s *Service) AddCRWithOptionsWithWarnings(title, description string, opts A
 	if err := s.store.EnsureInitialized(); err != nil {
 		return nil, nil, err
 	}
+	if err := s.ensureNoMergeInProgressInCurrentWorktree(); err != nil {
+		return nil, nil, err
+	}
 
 	cfg, err := s.store.LoadConfig()
 	if err != nil {
@@ -60,6 +63,9 @@ func (s *Service) AddCRWithOptionsWithWarnings(title, description string, opts A
 		parent, err := s.store.LoadCR(opts.ParentCRID)
 		if err != nil {
 			return nil, nil, err
+		}
+		if guardErr := s.ensureNoMergeInProgressForCR(parent); guardErr != nil {
+			return nil, nil, guardErr
 		}
 		ref, commit, err := s.parentBaseAnchor(parent)
 		if err != nil {
@@ -152,6 +158,9 @@ func (s *Service) AddNote(id int, note string) error {
 	if err != nil {
 		return err
 	}
+	if guardErr := s.ensureNoMergeInProgressForCR(cr); guardErr != nil {
+		return guardErr
+	}
 	now := s.timestamp()
 	actor := s.git.Actor()
 	cr.Notes = append(cr.Notes, note)
@@ -170,6 +179,9 @@ func (s *Service) EditCR(id int, newTitle, newDescription *string) ([]string, er
 	cr, err := s.store.LoadCR(id)
 	if err != nil {
 		return nil, err
+	}
+	if guardErr := s.ensureNoMergeInProgressForCR(cr); guardErr != nil {
+		return nil, guardErr
 	}
 
 	changedFields := make([]string, 0, 2)
@@ -208,6 +220,9 @@ func (s *Service) SetCRContract(id int, patch ContractPatch) ([]string, error) {
 	cr, err := s.store.LoadCR(id)
 	if err != nil {
 		return nil, err
+	}
+	if guardErr := s.ensureNoMergeInProgressForCR(cr); guardErr != nil {
+		return nil, guardErr
 	}
 	changed := []string{}
 	if patch.Why != nil {
@@ -335,6 +350,9 @@ func (s *Service) SetCRBase(id int, ref string, rebase bool) (*model.CR, error) 
 	if err != nil {
 		return nil, err
 	}
+	if guardErr := s.ensureNoMergeInProgressForCR(cr); guardErr != nil {
+		return nil, guardErr
+	}
 	if cr.Status != model.StatusInProgress {
 		return nil, fmt.Errorf("cr %d is not in progress", id)
 	}
@@ -379,6 +397,9 @@ func (s *Service) RestackCR(id int) (*model.CR, error) {
 	cr, err := s.store.LoadCR(id)
 	if err != nil {
 		return nil, err
+	}
+	if guardErr := s.ensureNoMergeInProgressForCR(cr); guardErr != nil {
+		return nil, guardErr
 	}
 	if cr.Status != model.StatusInProgress {
 		return nil, fmt.Errorf("cr %d is not in progress", id)
@@ -658,6 +679,9 @@ func (s *Service) RedactCRNote(id, noteIndex int, reason string) error {
 	if err != nil {
 		return err
 	}
+	if guardErr := s.ensureNoMergeInProgressForCR(cr); guardErr != nil {
+		return guardErr
+	}
 
 	idx, err := oneBasedIndex(noteIndex, len(cr.Notes), "note")
 	if err != nil {
@@ -693,6 +717,9 @@ func (s *Service) RedactCREvent(id, eventIndex int, reason string) error {
 	cr, err := s.store.LoadCR(id)
 	if err != nil {
 		return err
+	}
+	if guardErr := s.ensureNoMergeInProgressForCR(cr); guardErr != nil {
+		return guardErr
 	}
 
 	idx, err := oneBasedIndex(eventIndex, len(cr.Events), "event")
