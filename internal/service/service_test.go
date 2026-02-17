@@ -1,6 +1,7 @@
 package service
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -215,6 +216,147 @@ func TestTaskAddAndDonePreservesOrderAndStatus(t *testing.T) {
 	}
 	if got := cr.Events[len(cr.Events)-1].Type; got != "task_done" {
 		t.Fatalf("expected last event task_done, got %q", got)
+	}
+}
+
+func TestDoneTaskWithCheckpointCreatesCommit(t *testing.T) {
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	runGit(t, dir, "config", "user.name", "Test User")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+
+	cr, err := svc.AddCR("Checkpoint CR", "checkpoint behavior")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	task, err := svc.AddTask(cr.ID, "feat: implement checkpoint workflow")
+	if err != nil {
+		t.Fatalf("AddTask() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "checkpoint.txt"), []byte("checkpoint\n"), 0o644); err != nil {
+		t.Fatalf("write checkpoint file: %v", err)
+	}
+
+	sha, err := svc.DoneTaskWithCheckpoint(cr.ID, task.ID, true)
+	if err != nil {
+		t.Fatalf("DoneTaskWithCheckpoint() error = %v", err)
+	}
+	if sha == "" {
+		t.Fatalf("expected checkpoint sha")
+	}
+
+	msg := runGit(t, dir, "log", "-1", "--pretty=%B")
+	if !strings.Contains(msg, "feat(cr-1/task-1): feat: implement checkpoint workflow") {
+		t.Fatalf("unexpected checkpoint subject: %q", msg)
+	}
+	for _, footer := range []string{"Sophia-CR: 1", "Sophia-Task: 1", "Sophia-Intent: Checkpoint CR"} {
+		if !strings.Contains(msg, footer) {
+			t.Fatalf("expected checkpoint footer %q in message: %q", footer, msg)
+		}
+	}
+
+	loaded, err := svc.store.LoadCR(cr.ID)
+	if err != nil {
+		t.Fatalf("LoadCR() error = %v", err)
+	}
+	if loaded.Subtasks[0].Status != model.TaskStatusDone {
+		t.Fatalf("expected task done, got %q", loaded.Subtasks[0].Status)
+	}
+	if loaded.Subtasks[0].CheckpointCommit == "" || loaded.Subtasks[0].CheckpointAt == "" {
+		t.Fatalf("expected checkpoint metadata on task, got %#v", loaded.Subtasks[0])
+	}
+	lastTwo := loaded.Events[len(loaded.Events)-2:]
+	if lastTwo[0].Type != "task_checkpointed" || lastTwo[1].Type != "task_done" {
+		t.Fatalf("expected checkpoint then done events, got %#v", lastTwo)
+	}
+}
+
+func TestDoneTaskWithCheckpointNoChangesKeepsTaskOpen(t *testing.T) {
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	cr, err := svc.AddCR("No change CR", "no changes")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	task, err := svc.AddTask(cr.ID, "feat: no-op task")
+	if err != nil {
+		t.Fatalf("AddTask() error = %v", err)
+	}
+
+	if _, err := svc.DoneTaskWithCheckpoint(cr.ID, task.ID, true); !errors.Is(err, ErrNoTaskChanges) {
+		t.Fatalf("expected ErrNoTaskChanges, got %v", err)
+	}
+
+	loaded, err := svc.store.LoadCR(cr.ID)
+	if err != nil {
+		t.Fatalf("LoadCR() error = %v", err)
+	}
+	if loaded.Subtasks[0].Status != model.TaskStatusOpen {
+		t.Fatalf("expected task to remain open, got %q", loaded.Subtasks[0].Status)
+	}
+}
+
+func TestDoneTaskWithNoCheckpointIsMetadataOnly(t *testing.T) {
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	cr, err := svc.AddCR("Metadata only", "done without commit")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	task, err := svc.AddTask(cr.ID, "docs: update note")
+	if err != nil {
+		t.Fatalf("AddTask() error = %v", err)
+	}
+
+	sha, err := svc.DoneTaskWithCheckpoint(cr.ID, task.ID, false)
+	if err != nil {
+		t.Fatalf("DoneTaskWithCheckpoint(checkpoint=false) error = %v", err)
+	}
+	if sha != "" {
+		t.Fatalf("expected empty sha for metadata-only completion, got %q", sha)
+	}
+	loaded, err := svc.store.LoadCR(cr.ID)
+	if err != nil {
+		t.Fatalf("LoadCR() error = %v", err)
+	}
+	if loaded.Subtasks[0].Status != model.TaskStatusDone {
+		t.Fatalf("expected task done, got %q", loaded.Subtasks[0].Status)
+	}
+	if loaded.Subtasks[0].CheckpointCommit != "" {
+		t.Fatalf("expected no checkpoint commit metadata, got %#v", loaded.Subtasks[0])
+	}
+}
+
+func TestDoneTaskWithCheckpointRequiresCRBranch(t *testing.T) {
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	cr, err := svc.AddCR("Branch guard", "require branch")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	task, err := svc.AddTask(cr.ID, "fix: branch guard")
+	if err != nil {
+		t.Fatalf("AddTask() error = %v", err)
+	}
+	runGit(t, dir, "checkout", "main")
+	if err := os.WriteFile(filepath.Join(dir, "branch.txt"), []byte("x\n"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	if _, err := svc.DoneTaskWithCheckpoint(cr.ID, task.ID, true); err == nil {
+		t.Fatalf("expected branch context error")
 	}
 }
 

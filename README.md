@@ -157,6 +157,26 @@ Agents should also be instructed to append notes.
 
 ---
 
+### Complete Task (Checkpoint by Default)
+
+```
+sophia cr task done <cr-id> <task-id>
+```
+
+Behavior:
+
+* Creates a checkpoint commit for current CR branch changes (`git add -A` + commit)
+* Marks task done only if checkpoint commit succeeds
+* Records checkpoint metadata on the task (`commit`, `timestamp`, message)
+
+Optional metadata-only completion:
+
+```
+sophia cr task done <cr-id> <task-id> --no-checkpoint
+```
+
+---
+
 ### Review CR
 
 ```
@@ -211,6 +231,7 @@ sophia cr switch <id>
 * `doctor` flags workflow drift (dirty tree, non-CR branch, stale merged CR branches)
 * `log` shows intent-first CR history and can reconstruct merged CRs from Git commit metadata
 * `current/switch` supports quick branch context moves
+* `repair` rebuilds missing local CR metadata from Git commit history
 
 ---
 

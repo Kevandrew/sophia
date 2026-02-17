@@ -256,6 +256,11 @@ func (c *Client) Commit(message string) error {
 	return err
 }
 
+func (c *Client) StageAll() error {
+	_, err := c.run("add", "-A")
+	return err
+}
+
 func (c *Client) MergeFFOnly(baseBranch, branch string) error {
 	if err := c.CheckoutBranch(baseBranch); err != nil {
 		return err

@@ -22,6 +22,7 @@ var (
 	ErrWorkingTreeDirty  = errors.New("working tree is dirty")
 	ErrNoCRChanges       = errors.New("no CR changes provided")
 	ErrAlreadyRedacted   = errors.New("target is already redacted")
+	ErrNoTaskChanges     = errors.New("no task checkpoint changes found")
 )
 
 var (
@@ -530,28 +531,84 @@ func (s *Service) ListTasks(crID int) ([]model.Subtask, error) {
 }
 
 func (s *Service) DoneTask(crID, taskID int) error {
+	_, err := s.DoneTaskWithCheckpoint(crID, taskID, false)
+	return err
+}
+
+func (s *Service) DoneTaskWithCheckpoint(crID, taskID int, checkpoint bool) (string, error) {
 	cr, err := s.store.LoadCR(crID)
 	if err != nil {
-		return err
+		return "", err
 	}
+	if cr.Status != model.StatusInProgress {
+		return "", fmt.Errorf("cr %d is not in progress", crID)
+	}
+
 	now := s.timestamp()
 	actor := s.git.Actor()
 	found := false
 	title := ""
+	taskIndex := -1
 	for i := range cr.Subtasks {
 		if cr.Subtasks[i].ID == taskID {
 			found = true
 			title = cr.Subtasks[i].Title
-			cr.Subtasks[i].Status = model.TaskStatusDone
-			cr.Subtasks[i].UpdatedAt = now
-			cr.Subtasks[i].CompletedAt = now
-			cr.Subtasks[i].CompletedBy = actor
+			taskIndex = i
 			break
 		}
 	}
 	if !found {
-		return fmt.Errorf("task %d not found in cr %d", taskID, crID)
+		return "", fmt.Errorf("task %d not found in cr %d", taskID, crID)
 	}
+
+	commitSHA := ""
+	if checkpoint {
+		currentBranch, branchErr := s.git.CurrentBranch()
+		if branchErr != nil {
+			return "", branchErr
+		}
+		if currentBranch != cr.Branch {
+			return "", fmt.Errorf("checkpoint requires active CR branch %q, current branch is %q", cr.Branch, currentBranch)
+		}
+		dirty, _, dirtyErr := s.workingTreeDirtySummary()
+		if dirtyErr != nil {
+			return "", dirtyErr
+		}
+		if !dirty {
+			return "", fmt.Errorf("%w: task %d has no working tree changes", ErrNoTaskChanges, taskID)
+		}
+		if err := s.git.StageAll(); err != nil {
+			return "", err
+		}
+		commitMessage := buildTaskCheckpointMessage(cr, &cr.Subtasks[taskIndex])
+		if err := s.git.Commit(commitMessage); err != nil {
+			return "", err
+		}
+		sha, shaErr := s.git.HeadShortSHA()
+		if shaErr != nil {
+			return "", shaErr
+		}
+		commitSHA = sha
+		cr.Subtasks[taskIndex].CheckpointCommit = sha
+		cr.Subtasks[taskIndex].CheckpointAt = now
+		cr.Subtasks[taskIndex].CheckpointMessage = commitMessage
+		cr.Events = append(cr.Events, model.Event{
+			TS:      now,
+			Actor:   actor,
+			Type:    "task_checkpointed",
+			Summary: fmt.Sprintf("Checkpointed task %d as %s", taskID, sha),
+			Ref:     fmt.Sprintf("task:%d", taskID),
+			Meta: map[string]string{
+				"commit":  sha,
+				"message": strings.SplitN(commitMessage, "\n", 2)[0],
+			},
+		})
+	}
+
+	cr.Subtasks[taskIndex].Status = model.TaskStatusDone
+	cr.Subtasks[taskIndex].UpdatedAt = now
+	cr.Subtasks[taskIndex].CompletedAt = now
+	cr.Subtasks[taskIndex].CompletedBy = actor
 
 	cr.Events = append(cr.Events, model.Event{
 		TS:      now,
@@ -562,7 +619,10 @@ func (s *Service) DoneTask(crID, taskID int) error {
 	})
 	cr.UpdatedAt = now
 
-	return s.store.SaveCR(cr)
+	if err := s.store.SaveCR(cr); err != nil {
+		return "", err
+	}
+	return commitSHA, nil
 }
 
 func (s *Service) ReviewCR(id int) (*Review, error) {
@@ -1209,6 +1269,32 @@ func completedTasks(tasks []model.Subtask) int {
 		}
 	}
 	return count
+}
+
+func buildTaskCheckpointMessage(cr *model.CR, task *model.Subtask) string {
+	taskType := inferTaskCommitType(task.Title)
+	subject := fmt.Sprintf("%s(cr-%d/task-%d): %s", taskType, cr.ID, task.ID, strings.TrimSpace(task.Title))
+	var b strings.Builder
+	b.WriteString(subject)
+	b.WriteString("\n\n")
+	fmt.Fprintf(&b, "Task: #%d %s\n", task.ID, strings.TrimSpace(task.Title))
+	fmt.Fprintf(&b, "CR: %d %s\n\n", cr.ID, strings.TrimSpace(cr.Title))
+	fmt.Fprintf(&b, "Sophia-CR: %d\n", cr.ID)
+	fmt.Fprintf(&b, "Sophia-Task: %d\n", task.ID)
+	fmt.Fprintf(&b, "Sophia-Intent: %s\n", strings.TrimSpace(cr.Title))
+	return b.String()
+}
+
+func inferTaskCommitType(taskTitle string) string {
+	prefixes := []string{"feat", "fix", "docs", "refactor", "test", "chore", "perf", "build", "ci", "style", "revert"}
+	lower := strings.ToLower(strings.TrimSpace(taskTitle))
+	for _, prefix := range prefixes {
+		token := prefix + ":"
+		if strings.HasPrefix(lower, token) || strings.HasPrefix(lower, prefix+" ") {
+			return prefix
+		}
+	}
+	return "chore"
 }
 
 func (s *Service) computeOverlapWarnings(referenceDirs map[string]struct{}, skipCRID int) []string {

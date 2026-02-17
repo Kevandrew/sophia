@@ -413,9 +413,13 @@ func newCRTaskListCmd() *cobra.Command {
 				fmt.Fprintf(cmd.OutOrStdout(), "No tasks found for CR %d.\n", crID)
 				return nil
 			}
-			fmt.Fprintln(cmd.OutOrStdout(), "TASK_ID\tSTATUS\tTITLE")
+			fmt.Fprintln(cmd.OutOrStdout(), "TASK_ID\tSTATUS\tCHECKPOINT\tTITLE")
 			for _, task := range tasks {
-				fmt.Fprintf(cmd.OutOrStdout(), "%d\t%s\t%s\n", task.ID, task.Status, task.Title)
+				checkpoint := "-"
+				if strings.TrimSpace(task.CheckpointCommit) != "" {
+					checkpoint = task.CheckpointCommit
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "%d\t%s\t%s\t%s\n", task.ID, task.Status, checkpoint, task.Title)
 			}
 			return nil
 		},
@@ -423,7 +427,9 @@ func newCRTaskListCmd() *cobra.Command {
 }
 
 func newCRTaskDoneCmd() *cobra.Command {
-	return &cobra.Command{
+	var noCheckpoint bool
+
+	cmd := &cobra.Command{
 		Use:   "done <cr-id> <task-id>",
 		Short: "Mark a subtask as done",
 		Args:  cobra.ExactArgs(2),
@@ -440,13 +446,21 @@ func newCRTaskDoneCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := svc.DoneTask(crID, taskID); err != nil {
+			sha, err := svc.DoneTaskWithCheckpoint(crID, taskID, !noCheckpoint)
+			if err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Marked task %d done in CR %d\n", taskID, crID)
+			if noCheckpoint {
+				fmt.Fprintf(cmd.OutOrStdout(), "Marked task %d done in CR %d (no checkpoint)\n", taskID, crID)
+				return nil
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "Marked task %d done in CR %d with checkpoint %s\n", taskID, crID, nonEmpty(sha, "-"))
 			return nil
 		},
 	}
+
+	cmd.Flags().BoolVar(&noCheckpoint, "no-checkpoint", false, "Mark task done without creating a checkpoint commit")
+	return cmd
 }
 
 func newCRReviewCmd() *cobra.Command {
