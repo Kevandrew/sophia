@@ -245,6 +245,16 @@ type TaskContractPatch struct {
 	Scope              *[]string
 }
 
+type TaskChunk struct {
+	ID       string
+	Path     string
+	OldStart int
+	OldLines int
+	NewStart int
+	NewLines int
+	Preview  string
+}
+
 type diffSummary struct {
 	Files           []string
 	ShortStat       string
@@ -1211,6 +1221,67 @@ func (s *Service) ListTasks(crID int) ([]model.Subtask, error) {
 		return tasks[i].ID < tasks[j].ID
 	})
 	return tasks, nil
+}
+
+func (s *Service) ListTaskChunks(crID, taskID int, paths []string) ([]TaskChunk, error) {
+	cr, err := s.store.LoadCR(crID)
+	if err != nil {
+		return nil, err
+	}
+	if cr.Status != model.StatusInProgress {
+		return nil, fmt.Errorf("cr %d is not in progress", crID)
+	}
+	if indexOfTask(cr.Subtasks, taskID) < 0 {
+		return nil, fmt.Errorf("task %d not found in cr %d", taskID, crID)
+	}
+	currentBranch, branchErr := s.git.CurrentBranch()
+	if branchErr != nil {
+		return nil, branchErr
+	}
+	if currentBranch != cr.Branch {
+		return nil, fmt.Errorf("chunk list requires active CR branch %q, current branch is %q", cr.Branch, currentBranch)
+	}
+	normalizedPaths := []string{}
+	if len(paths) > 0 {
+		normalized, normalizeErr := s.normalizeTaskScopePaths(paths)
+		if normalizeErr != nil {
+			return nil, normalizeErr
+		}
+		normalizedPaths = normalized
+	}
+	diff, err := s.git.WorkingTreeUnifiedDiff(normalizedPaths, 0)
+	if err != nil {
+		return nil, err
+	}
+	parsed, err := parsePatchChunks(diff)
+	if err != nil {
+		return nil, fmt.Errorf("parse working tree diff chunks: %w", err)
+	}
+	chunks := make([]TaskChunk, 0, len(parsed))
+	for _, chunk := range parsed {
+		chunks = append(chunks, TaskChunk{
+			ID:       chunk.ID,
+			Path:     chunk.Path,
+			OldStart: chunk.OldStart,
+			OldLines: chunk.OldLines,
+			NewStart: chunk.NewStart,
+			NewLines: chunk.NewLines,
+			Preview:  chunk.Preview,
+		})
+	}
+	sort.Slice(chunks, func(i, j int) bool {
+		if chunks[i].Path != chunks[j].Path {
+			return chunks[i].Path < chunks[j].Path
+		}
+		if chunks[i].OldStart != chunks[j].OldStart {
+			return chunks[i].OldStart < chunks[j].OldStart
+		}
+		if chunks[i].NewStart != chunks[j].NewStart {
+			return chunks[i].NewStart < chunks[j].NewStart
+		}
+		return chunks[i].ID < chunks[j].ID
+	})
+	return chunks, nil
 }
 
 func (s *Service) DoneTask(crID, taskID int) error {
