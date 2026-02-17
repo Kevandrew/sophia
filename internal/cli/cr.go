@@ -870,8 +870,81 @@ func newCRTaskCmd() *cobra.Command {
 	taskCmd.AddCommand(newCRTaskAddCmd())
 	taskCmd.AddCommand(newCRTaskListCmd())
 	taskCmd.AddCommand(newCRTaskDoneCmd())
+	taskCmd.AddCommand(newCRTaskChunkCmd())
 	taskCmd.AddCommand(newCRTaskContractCmd())
 	return taskCmd
+}
+
+func newCRTaskChunkCmd() *cobra.Command {
+	chunkCmd := &cobra.Command{
+		Use:   "chunk",
+		Short: "Inspect task checkpoint chunks",
+	}
+	chunkCmd.AddCommand(newCRTaskChunkListCmd())
+	return chunkCmd
+}
+
+func newCRTaskChunkListCmd() *cobra.Command {
+	var asJSON bool
+	var scopePaths []string
+
+	cmd := &cobra.Command{
+		Use:   "list <cr-id> <task-id>",
+		Short: "List chunk candidates for task checkpointing",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			crID, err := parsePositiveIntArg(args[0], "cr-id")
+			if err != nil {
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
+				return err
+			}
+			taskID, err := parsePositiveIntArg(args[1], "task-id")
+			if err != nil {
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
+				return err
+			}
+			svc, err := newService()
+			if err != nil {
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
+				return err
+			}
+			chunks, err := svc.ListTaskChunks(crID, taskID, append([]string(nil), scopePaths...))
+			if err != nil {
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
+				return err
+			}
+			if asJSON {
+				return writeJSONSuccess(cmd, map[string]any{
+					"cr_id":   crID,
+					"task_id": taskID,
+					"chunks":  chunks,
+				})
+			}
+			if len(chunks) == 0 {
+				fmt.Fprintf(cmd.OutOrStdout(), "No chunks found for task %d in CR %d.\n", taskID, crID)
+				return nil
+			}
+			fmt.Fprintln(cmd.OutOrStdout(), "CHUNK_ID\tPATH\tOLD\tNEW\tPREVIEW")
+			for _, chunk := range chunks {
+				oldRange := fmt.Sprintf("%d,%d", chunk.OldStart, chunk.OldLines)
+				newRange := fmt.Sprintf("%d,%d", chunk.NewStart, chunk.NewLines)
+				fmt.Fprintf(cmd.OutOrStdout(), "%s\t%s\t%s\t%s\t%s\n", chunk.ID, chunk.Path, oldRange, newRange, strings.TrimSpace(chunk.Preview))
+			}
+			return nil
+		},
+	}
+
+	cmd.Flags().BoolVar(&asJSON, "json", false, "Output in JSON format")
+	cmd.Flags().StringArrayVar(&scopePaths, "path", nil, "Filter chunk listing to repo-relative file path(s)")
+	return cmd
 }
 
 func newCRTaskContractCmd() *cobra.Command {
