@@ -199,6 +199,62 @@ func (s *Service) DoneTask(crID, taskID int) error {
 	return err
 }
 
+func (s *Service) ReopenTask(crID, taskID int, opts ReopenTaskOptions) (*model.Subtask, error) {
+	cr, err := s.store.LoadCR(crID)
+	if err != nil {
+		return nil, err
+	}
+	if cr.Status != model.StatusInProgress {
+		return nil, fmt.Errorf("cr %d is not in progress", crID)
+	}
+	taskIndex := indexOfTask(cr.Subtasks, taskID)
+	if taskIndex < 0 {
+		return nil, fmt.Errorf("task %d not found in cr %d", taskID, crID)
+	}
+	task := &cr.Subtasks[taskIndex]
+	if task.Status != model.TaskStatusDone {
+		return nil, fmt.Errorf("%w: task %d in cr %d has status %q", ErrTaskNotDone, taskID, crID, task.Status)
+	}
+
+	now := s.timestamp()
+	actor := s.git.Actor()
+	previousCheckpoint := strings.TrimSpace(task.CheckpointCommit)
+
+	task.Status = model.TaskStatusOpen
+	task.UpdatedAt = now
+	task.CompletedAt = ""
+	task.CompletedBy = ""
+	if opts.ClearCheckpoint {
+		task.CheckpointCommit = ""
+		task.CheckpointAt = ""
+		task.CheckpointMessage = ""
+		task.CheckpointScope = nil
+		task.CheckpointChunks = nil
+	}
+
+	meta := map[string]string{
+		"checkpoint_cleared": strconv.FormatBool(opts.ClearCheckpoint),
+	}
+	if previousCheckpoint != "" {
+		meta["previous_checkpoint_commit"] = previousCheckpoint
+	}
+	cr.Events = append(cr.Events, model.Event{
+		TS:      now,
+		Actor:   actor,
+		Type:    "task_reopened",
+		Summary: task.Title,
+		Ref:     fmt.Sprintf("task:%d", taskID),
+		Meta:    meta,
+	})
+	cr.UpdatedAt = now
+	if err := s.store.SaveCR(cr); err != nil {
+		return nil, err
+	}
+
+	reopened := cr.Subtasks[taskIndex]
+	return &reopened, nil
+}
+
 func (s *Service) DoneTaskWithCheckpoint(crID, taskID int, opts DoneTaskOptions) (string, error) {
 	cr, err := s.store.LoadCR(crID)
 	if err != nil {
