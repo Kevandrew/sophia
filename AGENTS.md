@@ -8,9 +8,11 @@
 
 Recommended daily flow (intent-first):
 1. `sophia cr add "<title>" --description "<why>"`
-2. implement + commit on `sophia/cr-<id>`
-3. `sophia cr review <id>`
-4. `sophia cr merge <id>`
+2. `sophia cr task add <id> "<subtask>"`
+3. implement on `sophia/cr-<id>`
+4. `sophia cr task done <id> <task-id>` (default checkpoint commit; stages all current changes)
+5. `sophia cr review <id>`
+6. `sophia cr merge <id>`
 
 ## Coding Style & Naming Conventions
 - Language: Go (module `sophia`).
@@ -35,12 +37,16 @@ Recommended daily flow (intent-first):
   - CR merge commits: `[CR-<id>] <intent title>`
   - Maintenance commits: `chore: ...`
   - Feature commits: `feat: ...`
-- Use Sophia as the interface for work tracking; keep `.sophia/cr/*.yaml` in sync with code changes.
+- Use Sophia as the primary workflow interface (`cr`, `task`, `note`, `review`, `merge`, `repair`).
+- Task completion can create checkpoint commits automatically via `sophia cr task done`; use `--no-checkpoint` only when needed.
+- Checkpoint commits are repo-wide (`git add -A`) in CR-6; no hunk/line-scoped checkpointing yet.
 - PRs should include:
   - intent summary (what/why)
   - key command outputs (`go test`, `go vet`, `sophia cr review`)
   - notable behavior changes and edge cases covered
 
 ## Repository-Specific Notes
-- `.sophia/` is part of the workflow state and should be committed when changed.
+- `.sophia/` is local-first workflow state and is ignored in Git by default.
+- If local metadata is missing/out-of-sync, run `sophia repair`.
 - `_docs/` is local/internal and ignored via `.gitignore`.
+- Current milestone: CR-6 (task-driven checkpoint commits).

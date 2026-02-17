@@ -42,8 +42,10 @@ Sophia CLI is a thin Git wrapper that:
 1. Creates and manages Change Requests (CRs)
 2. Maps each CR to a dedicated branch
 3. Stores structured intent metadata locally in `.sophia/`
-4. Generates clean, structured commits on merge
-5. Formats review output around intent, not diffs
+4. Tracks task-level progress and checkpoint commits
+5. Generates intent-rich CR commits and task checkpoint commits
+6. Supports auditable metadata amendment/redaction and history inspection
+7. Formats review/log output around intent, not diffs
 
 It does **not**:
 
@@ -99,7 +101,7 @@ subtasks: []
 
 ---
 
-## CLI Commands (Initial Implementation Target)
+## CLI Commands (Current)
 
 ### Initialize Repository
 
@@ -166,8 +168,10 @@ sophia cr task done <cr-id> <task-id>
 Behavior:
 
 * Creates a checkpoint commit for current CR branch changes (`git add -A` + commit)
+* Stages all current repo changes before committing (not hunk/line scoped yet)
 * Marks task done only if checkpoint commit succeeds
 * Records checkpoint metadata on the task (`commit`, `timestamp`, message)
+* Requires active branch to match the CR branch
 
 Optional metadata-only completion:
 
@@ -203,15 +207,29 @@ sophia cr merge <id>
 
 Behavior:
 
-* Squash CR branch to one intent commit
-* Fast-forward merge into base branch
-* Generate structured commit message:
+* Creates an intent-rich merge commit into base (non-linear Git graph)
+* Generates a structured commit message:
 
 ```
 [CR-1] Add billing retries
 
+Intent:
+Improve retry behavior in billing client.
+
+Subtasks:
+- [x] #1 Add backoff support
+- [x] #2 Add tests
+
+Notes:
 - Refactored payment client
-- Added exponential backoff
+
+Metadata:
+- actor: Jane <jane@example.com>
+- merged_at: 2026-02-17T08:32:10Z
+
+Sophia-CR: 1
+Sophia-Intent: Add billing retries
+Sophia-Tasks: 2 completed
 ```
 
 * Mark CR as merged in local metadata
@@ -224,14 +242,22 @@ Behavior:
 ```
 sophia doctor
 sophia log
+sophia repair
+sophia hook install
 sophia cr current
 sophia cr switch <id>
+sophia cr reopen <id>
+sophia cr edit <id> --title "..."
+sophia cr redact <id> --note-index 1 --reason "..."
+sophia cr history <id>
 ```
 
 * `doctor` flags workflow drift (dirty tree, non-CR branch, stale merged CR branches)
 * `log` shows intent-first CR history and can reconstruct merged CRs from Git commit metadata
-* `current/switch` supports quick branch context moves
-* `repair` rebuilds missing local CR metadata from Git commit history
+* `repair` rebuilds missing local CR metadata from Git history and realigns CR IDs
+* `hook install` adds a pre-commit guard against direct commits on the base branch
+* `current/switch/reopen` supports quick branch context moves
+* `edit/redact/history` supports retroactive metadata hygiene with audit-safe events
 
 ---
 
@@ -315,5 +341,5 @@ Use Sophia to build Sophia.
 
 The tool must justify its own existence inside this repository.
 
-If you stop using `git commit -m "WIP"`,
+If you stop thinking in `git commit -m "WIP"`,
 Sophia is working.

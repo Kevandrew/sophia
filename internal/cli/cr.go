@@ -528,7 +528,7 @@ func newCRMergeCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "merge <id>",
-		Short: "Squash a CR to one commit and fast-forward merge into base",
+		Short: "Create one intent merge commit and merge CR branch into base",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id, err := parsePositiveIntArg(args[0], "id")
