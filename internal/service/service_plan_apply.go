@@ -110,6 +110,9 @@ func (s *Service) ApplyCRPlan(opts ApplyCRPlanOptions) (*ApplyCRPlanResult, erro
 	if err := s.store.EnsureInitialized(); err != nil {
 		return nil, err
 	}
+	if err := s.ensureNoMergeInProgressInCurrentWorktree(); err != nil {
+		return nil, err
+	}
 
 	plan, err := readCRPlanFile(planPath)
 	if err != nil {
