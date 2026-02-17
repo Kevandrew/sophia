@@ -55,6 +55,7 @@ type Review struct {
 	CR                 *model.CR
 	Contract           model.Contract
 	Impact             *ImpactReport
+	Trust              *TrustReport
 	ValidationErrors   []string
 	ValidationWarnings []string
 	Files              []string
@@ -285,6 +286,26 @@ type ValidationReport struct {
 	Errors   []string
 	Warnings []string
 	Impact   *ImpactReport
+}
+
+type TrustDimension struct {
+	Code            string
+	Label           string
+	Score           int
+	Max             int
+	Reasons         []string
+	RequiredActions []string
+}
+
+type TrustReport struct {
+	Verdict         string
+	Score           int
+	Max             int
+	AdvisoryOnly    bool
+	HardFailures    []string
+	Dimensions      []TrustDimension
+	RequiredActions []string
+	Summary         string
 }
 
 type TaskContractPatch struct {
