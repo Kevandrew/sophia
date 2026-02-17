@@ -7,6 +7,9 @@
 - `go vet ./...`: run static checks before committing.
 
 Recommended daily flow (intent-first):
+0. optional declarative setup for LLMs/humans:
+   `sophia cr apply --file <plan.yaml> [--dry-run] [--json] [--keep-file]`
+   Template seed is available at `.sophia/cr-plan.sample.yaml` after `sophia init`.
 1. `sophia cr add "<title>" --description "<why>"`
    Optional stacked/multi-base forms:
    `sophia cr add "<title>" --base <git-ref>`
@@ -73,4 +76,4 @@ Recommended daily flow (intent-first):
 - `.sophia/` is local-first workflow state and is ignored in Git by default.
 - If local metadata is missing/out-of-sync, run `sophia repair`.
 - `_docs/` is local/internal and ignored via `.gitignore`.
-- Current milestone: CR-20 (CR-native child delegation, stack topology visibility, and delegated merge blockers).
+- Current milestone: CR-22 (YAML plan apply for CR setup, dry-run previews, and init template seeding).

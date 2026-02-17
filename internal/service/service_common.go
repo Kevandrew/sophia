@@ -214,6 +214,78 @@ func ensureGitIgnoreEntry(root, entry string) error {
 	return nil
 }
 
+const crPlanSampleTemplate = `version: v1
+crs:
+  - key: parent_refactor
+    title: "Decouple large service file"
+    description: "Reduce service surface size and isolate responsibilities."
+    base: "main"
+    contract:
+      why: "Define the primary intent and decision boundary."
+      scope:
+        - "internal/service"
+        - "internal/cli"
+      non_goals:
+        - "No unrelated refactors."
+      invariants:
+        - "Existing command behavior remains compatible."
+      blast_radius: "Service and CLI wiring for this refactor scope."
+      risk_critical_scopes:
+        - "internal/service"
+      risk_tier_hint: "medium"
+      risk_rationale: "Core workflow touched."
+      test_plan: "go test ./... && go vet ./..."
+      rollback_plan: "Revert CR merge commit."
+    tasks:
+      - key: split_service
+        title: "Split service responsibilities"
+        contract:
+          intent: "Extract focused service components."
+          acceptance_criteria:
+            - "Responsibilities are separated with passing tests."
+          scope:
+            - "internal/service"
+        delegate_to:
+          - "child_cli"
+  - key: child_cli
+    title: "Split CLI command wiring"
+    description: "Child implementation slice."
+    parent_key: "parent_refactor"
+    contract:
+      why: "Keep CLI command wiring maintainable and testable."
+      scope:
+        - "internal/cli"
+      non_goals:
+        - "No new command semantics."
+      invariants:
+        - "Existing command outputs remain stable."
+      blast_radius: "CLI command constructors and wiring."
+      test_plan: "go test ./internal/cli ./internal/service"
+      rollback_plan: "Revert CR merge commit."
+    tasks:
+      - key: split_cli
+        title: "Split CLI command files"
+        contract:
+          intent: "Move command handlers into focused files."
+          acceptance_criteria:
+            - "CLI tests pass and command wiring remains stable."
+          scope:
+            - "internal/cli"
+`
+
+func ensureCRPlanSample(sophiaDir string) error {
+	path := filepath.Join(sophiaDir, "cr-plan.sample.yaml")
+	if _, err := os.Stat(path); err == nil {
+		return nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("stat %s: %w", path, err)
+	}
+	if err := os.WriteFile(path, []byte(crPlanSampleTemplate), 0o644); err != nil {
+		return fmt.Errorf("write %s: %w", path, err)
+	}
+	return nil
+}
+
 func (s *Service) ensureNextCRIDFloor(baseBranch string) error {
 	idx, err := s.store.LoadIndex()
 	if err != nil {

@@ -128,3 +128,46 @@ func reviewToJSONMap(review *service.Review) map[string]any {
 		"validation_warnings": review.ValidationWarnings,
 	}
 }
+
+func applyPlanToJSONMap(result *service.ApplyCRPlanResult) map[string]any {
+	if result == nil {
+		return map[string]any{}
+	}
+	createdCRs := make([]map[string]any, 0, len(result.CreatedCRs))
+	for _, created := range result.CreatedCRs {
+		createdCRs = append(createdCRs, map[string]any{
+			"key":          created.Key,
+			"id":           created.ID,
+			"uid":          created.UID,
+			"branch":       created.Branch,
+			"parent_cr_id": created.ParentCRID,
+		})
+	}
+	createdTasks := make([]map[string]any, 0, len(result.CreatedTasks))
+	for _, created := range result.CreatedTasks {
+		createdTasks = append(createdTasks, map[string]any{
+			"cr_key":   created.CRKey,
+			"task_key": created.TaskKey,
+			"task_id":  created.TaskID,
+		})
+	}
+	delegations := make([]map[string]any, 0, len(result.Delegations))
+	for _, delegation := range result.Delegations {
+		delegations = append(delegations, map[string]any{
+			"parent_cr_key":   delegation.ParentCRKey,
+			"parent_task_key": delegation.ParentTaskKey,
+			"child_cr_key":    delegation.ChildCRKey,
+			"child_task_id":   delegation.ChildTaskID,
+		})
+	}
+	return map[string]any{
+		"file":               result.FilePath,
+		"dry_run":            result.DryRun,
+		"consumed":           result.Consumed,
+		"planned_operations": result.PlannedOperations,
+		"created_crs":        createdCRs,
+		"created_tasks":      createdTasks,
+		"delegations":        delegations,
+		"warnings":           result.Warnings,
+	}
+}

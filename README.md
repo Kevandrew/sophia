@@ -115,6 +115,7 @@ sophia init [--base-branch <name>] [--metadata-mode local|tracked]
 * Ensures git repo exists
 * Sets default base branch
 * Defaults to local metadata mode (`.sophia/` ignored)
+* Seeds `.sophia/cr-plan.sample.yaml` when missing
 
 ---
 
@@ -136,6 +137,59 @@ Behavior:
 * Supports child CR creation from active CR context via `cr child add`
 * Write CR YAML file
 * Checkout branch
+
+---
+
+### Apply YAML Plan (CR Setup Primitive)
+
+```
+sophia cr apply --file plan.yaml
+sophia cr apply --file plan.yaml --dry-run --json
+sophia cr apply --file plan.yaml --keep-file
+```
+
+Behavior:
+
+* Parses a strict versioned YAML schema (`version: v1`) with unknown-field rejection
+* Validates CR graph semantics before mutation (parent references, cycles, delegation targets)
+* Executes serially: create CR -> set CR contract -> add tasks -> set task contracts -> apply delegations
+* Supports dry-run previews with deterministic planned operations and predicted IDs
+* Deletes source plan file after successful apply by default; `--keep-file` preserves it
+* Restores the starting branch after apply/dry-run when possible
+
+Minimal schema:
+
+```yaml
+version: v1
+crs:
+  - key: parent_refactor
+    title: "Decouple large service file"
+    description: "Reduce service surface size and isolate responsibilities."
+    base: "main"
+    contract:
+      why: "..."
+      scope: ["internal/service"]
+      non_goals: ["..."]
+      invariants: ["..."]
+      blast_radius: "..."
+      test_plan: "go test ./... && go vet ./..."
+      rollback_plan: "Revert CR merge commit."
+    tasks:
+      - key: split_service
+        title: "Split service responsibilities"
+        contract:
+          intent: "..."
+          acceptance_criteria: ["..."]
+          scope: ["internal/service"]
+        delegate_to: ["child_cli"]
+  - key: child_cli
+    title: "Split CLI command wiring"
+    description: "Child implementation slice."
+    parent_key: "parent_refactor"
+    tasks:
+      - key: split_cli
+        title: "Split CLI command files"
+```
 
 ---
 

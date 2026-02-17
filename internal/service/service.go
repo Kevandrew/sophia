@@ -391,6 +391,9 @@ func (s *Service) Init(baseBranch, metadataMode string) (string, error) {
 	if err := s.store.Init(configBase, configMode); err != nil {
 		return "", err
 	}
+	if err := ensureCRPlanSample(s.store.SophiaDir()); err != nil {
+		return "", err
+	}
 	if effectiveMode == model.MetadataModeLocal {
 		if err := ensureGitIgnoreEntry(s.git.WorkDir, ".sophia/"); err != nil {
 			return "", err
