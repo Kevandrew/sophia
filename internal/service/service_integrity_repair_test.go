@@ -26,10 +26,10 @@ func TestRepairFromGitRebuildsCRsAndRealignsIndex(t *testing.T) {
 	if err := svc.store.SaveIndex(model.Index{NextID: 1}); err != nil {
 		t.Fatalf("SaveIndex() error = %v", err)
 	}
-	if err := os.RemoveAll(filepath.Join(dir, ".sophia", "cr")); err != nil {
+	if err := os.RemoveAll(filepath.Join(svc.store.SophiaDir(), "cr")); err != nil {
 		t.Fatalf("remove cr dir: %v", err)
 	}
-	if err := os.MkdirAll(filepath.Join(dir, ".sophia", "cr"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(svc.store.SophiaDir(), "cr"), 0o755); err != nil {
 		t.Fatalf("recreate cr dir: %v", err)
 	}
 
@@ -192,10 +192,10 @@ func TestRepairFromGitLegacyCommitWithoutBaseOrParentFootersStillReconstructs(t 
 		"-m", "[CR-2] Legacy intent",
 		"-m", "Intent:\nLegacy why\n\nSubtasks:\n- [x] #1 Legacy task\n\nNotes:\n- legacy note\n\nMetadata:\n- actor: Test User <test@example.com>\n- merged_at: 2026-02-17T00:00:00Z\n\nSophia-CR: 2\nSophia-Intent: Legacy intent\nSophia-Tasks: 1 completed",
 	)
-	if err := os.RemoveAll(filepath.Join(dir, ".sophia", "cr")); err != nil {
+	if err := os.RemoveAll(filepath.Join(svc.store.SophiaDir(), "cr")); err != nil {
 		t.Fatalf("remove cr dir: %v", err)
 	}
-	if err := os.MkdirAll(filepath.Join(dir, ".sophia", "cr"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(svc.store.SophiaDir(), "cr"), 0o755); err != nil {
 		t.Fatalf("recreate cr dir: %v", err)
 	}
 
