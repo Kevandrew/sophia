@@ -77,6 +77,8 @@ func jsonErrorCode(err error) string {
 	switch {
 	case errors.Is(err, service.ErrNoActiveCRContext):
 		return "no_active_cr_context"
+	case errors.Is(err, service.ErrBranchInOtherWorktree):
+		return "branch_in_other_worktree"
 	case errors.Is(err, service.ErrWorkingTreeDirty):
 		return "working_tree_dirty"
 	case errors.Is(err, service.ErrNoCRChanges):
