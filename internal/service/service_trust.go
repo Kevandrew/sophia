@@ -175,6 +175,19 @@ func parseLeadingInt(input string) int {
 	return value
 }
 
+func effectiveFilesChanged(impact *ImpactReport, diff *diffSummary, shortStat shortStatMetrics) int {
+	if impact != nil && impact.FilesChanged > 0 {
+		return impact.FilesChanged
+	}
+	if diff != nil && len(diff.Files) > 0 {
+		return len(diff.Files)
+	}
+	if shortStat.FilesChanged > 0 {
+		return shortStat.FilesChanged
+	}
+	return 0
+}
+
 func buildContractQualityDimension(contract model.Contract) TrustDimension {
 	dimension := TrustDimension{
 		Code:            "contract_quality",
@@ -319,10 +332,7 @@ func buildRiskAccountabilityDimension(contract model.Contract, impact *ImpactRep
 		dimension.Reasons = append(dimension.Reasons, "high risk tier lacks dependency/test evidence")
 		dimension.RequiredActions = append(dimension.RequiredActions, "Document or include dependency/test evidence supporting high-risk changes.")
 	}
-	filesChanged := impact.FilesChanged
-	if filesChanged == 0 && diff != nil {
-		filesChanged = len(diff.Files)
-	}
+	filesChanged := effectiveFilesChanged(impact, diff, shortStatMetrics{})
 	if filesChanged > 0 && len(impact.Signals) == 0 {
 		dimension.Score -= 2
 		dimension.Reasons = append(dimension.Reasons, "files changed but no risk signals")
@@ -367,15 +377,11 @@ func buildChangeMagnitudeDimension(impact *ImpactReport, shortStat shortStatMetr
 		Reasons:         []string{},
 		RequiredActions: []string{},
 	}
-	filesChanged := 0
 	riskTier := ""
 	if impact != nil {
-		filesChanged = impact.FilesChanged
 		riskTier = strings.TrimSpace(impact.RiskTier)
 	}
-	if filesChanged == 0 {
-		filesChanged = shortStat.FilesChanged
-	}
+	filesChanged := effectiveFilesChanged(impact, nil, shortStat)
 	if filesChanged >= 15 {
 		dimension.Score -= 2
 		dimension.Reasons = append(dimension.Reasons, fmt.Sprintf("large file surface (%d files changed)", filesChanged))
