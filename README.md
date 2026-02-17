@@ -420,6 +420,8 @@ Displays:
 * Files changed (`git diff --name-only`)
 * Insertions/deletions
 * Test file changes (basic detection)
+* Deterministic trust envelope (`trusted | needs_attention | untrusted`) with score, hard-fail reasons, dimension breakdown, and required actions
+* Trust is advisory-only in v1 (no merge gating change); thresholds are `trusted >= 85`, `needs_attention 60..84`, `untrusted < 60` or any hard-fail
 * For merged CRs whose branch was deleted, review diff context is derived from merge metadata instead of live branch diff
 * Supports machine-readable output via `--json`
 

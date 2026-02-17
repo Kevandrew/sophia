@@ -26,7 +26,7 @@ Recommended daily flow (intent-first):
    `sophia cr task chunk list <id> <task-id> [--path <file>] [--json]`
    `sophia cr task done <id> <task-id> --patch-file <patch-file>`
 7. `sophia cr validate <id>`
-8. `sophia cr review <id>`
+8. `sophia cr review <id>` (use Trust verdict/required actions as primary metadata confidence signal; diff deep-dive becomes optional when trust is strong)
 9. optional machine-readable checks: `sophia cr status <id> --json`, `sophia cr validate <id> --json`
 10. `sophia cr merge <id>`
 11. stacked flows when needed: `sophia cr restack <id>` or `sophia cr base set <id> --ref <git-ref> [--rebase]`
