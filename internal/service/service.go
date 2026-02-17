@@ -238,13 +238,16 @@ type DoneTaskOptions struct {
 }
 
 type ContractPatch struct {
-	Why          *string
-	Scope        *[]string
-	NonGoals     *[]string
-	Invariants   *[]string
-	BlastRadius  *string
-	TestPlan     *string
-	RollbackPlan *string
+	Why                *string
+	Scope              *[]string
+	NonGoals           *[]string
+	Invariants         *[]string
+	BlastRadius        *string
+	RiskCriticalScopes *[]string
+	RiskTierHint       *string
+	RiskRationale      *string
+	TestPlan           *string
+	RollbackPlan       *string
 }
 
 type RiskSignal struct {
@@ -254,24 +257,27 @@ type RiskSignal struct {
 }
 
 type ImpactReport struct {
-	CRID                 int
-	CRUID                string
-	BaseRef              string
-	BaseCommit           string
-	ParentCRID           int
-	FilesChanged         int
-	NewFiles             []string
-	ModifiedFiles        []string
-	DeletedFiles         []string
-	TestFiles            []string
-	DependencyFiles      []string
-	ScopeDrift           []string
-	TaskScopeWarnings    []string
-	TaskContractWarnings []string
-	TaskChunkWarnings    []string
-	Signals              []RiskSignal
-	RiskScore            int
-	RiskTier             string
+	CRID                      int
+	CRUID                     string
+	BaseRef                   string
+	BaseCommit                string
+	ParentCRID                int
+	RiskTierHint              string
+	RiskTierFloorApplied      bool
+	MatchedRiskCriticalScopes []string
+	FilesChanged              int
+	NewFiles                  []string
+	ModifiedFiles             []string
+	DeletedFiles              []string
+	TestFiles                 []string
+	DependencyFiles           []string
+	ScopeDrift                []string
+	TaskScopeWarnings         []string
+	TaskContractWarnings      []string
+	TaskChunkWarnings         []string
+	Signals                   []RiskSignal
+	RiskScore                 int
+	RiskTier                  string
 }
 
 type ValidationReport struct {

@@ -247,6 +247,33 @@ func (s *Service) SetCRContract(id int, patch ContractPatch) ([]string, error) {
 			changed = append(changed, "blast_radius")
 		}
 	}
+	if patch.RiskCriticalScopes != nil {
+		scopes, scopeErr := s.normalizeContractScopePrefixes(*patch.RiskCriticalScopes)
+		if scopeErr != nil {
+			return nil, scopeErr
+		}
+		if !equalStringSlices(cr.Contract.RiskCriticalScopes, scopes) {
+			cr.Contract.RiskCriticalScopes = scopes
+			changed = append(changed, "risk_critical_scopes")
+		}
+	}
+	if patch.RiskTierHint != nil {
+		tierHint, hintErr := normalizeRiskTierHint(*patch.RiskTierHint)
+		if hintErr != nil {
+			return nil, hintErr
+		}
+		if strings.TrimSpace(cr.Contract.RiskTierHint) != tierHint {
+			cr.Contract.RiskTierHint = tierHint
+			changed = append(changed, "risk_tier_hint")
+		}
+	}
+	if patch.RiskRationale != nil {
+		normalized := strings.TrimSpace(*patch.RiskRationale)
+		if cr.Contract.RiskRationale != normalized {
+			cr.Contract.RiskRationale = normalized
+			changed = append(changed, "risk_rationale")
+		}
+	}
 	if patch.TestPlan != nil {
 		normalized := strings.TrimSpace(*patch.TestPlan)
 		if cr.Contract.TestPlan != normalized {
@@ -295,6 +322,7 @@ func (s *Service) GetCRContract(id int) (*model.Contract, error) {
 	contract.Scope = append([]string(nil), contract.Scope...)
 	contract.NonGoals = append([]string(nil), contract.NonGoals...)
 	contract.Invariants = append([]string(nil), contract.Invariants...)
+	contract.RiskCriticalScopes = append([]string(nil), contract.RiskCriticalScopes...)
 	return &contract, nil
 }
 

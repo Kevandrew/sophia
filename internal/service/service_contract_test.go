@@ -24,23 +24,29 @@ func TestSetAndGetCRContractRoundTrip(t *testing.T) {
 	nonGoals := []string{"No cloud sync"}
 	invariants := []string{"Git remains source of truth"}
 	blastRadius := "CLI and service layer only."
+	riskCriticalScopes := []string{"cmd", "internal/service"}
+	riskTierHint := "high"
+	riskRationale := "Touches parser + merge behavior."
 	testPlan := "go test ./... && go vet ./..."
 	rollback := "Revert CR merge commit."
 
 	changed, err := svc.SetCRContract(cr.ID, ContractPatch{
-		Why:          &why,
-		Scope:        &scope,
-		NonGoals:     &nonGoals,
-		Invariants:   &invariants,
-		BlastRadius:  &blastRadius,
-		TestPlan:     &testPlan,
-		RollbackPlan: &rollback,
+		Why:                &why,
+		Scope:              &scope,
+		NonGoals:           &nonGoals,
+		Invariants:         &invariants,
+		BlastRadius:        &blastRadius,
+		RiskCriticalScopes: &riskCriticalScopes,
+		RiskTierHint:       &riskTierHint,
+		RiskRationale:      &riskRationale,
+		TestPlan:           &testPlan,
+		RollbackPlan:       &rollback,
 	})
 	if err != nil {
 		t.Fatalf("SetCRContract() error = %v", err)
 	}
-	if len(changed) != 7 {
-		t.Fatalf("expected 7 changed fields, got %#v", changed)
+	if len(changed) != 10 {
+		t.Fatalf("expected 10 changed fields, got %#v", changed)
 	}
 
 	got, err := svc.GetCRContract(cr.ID)
@@ -59,8 +65,35 @@ func TestSetAndGetCRContractRoundTrip(t *testing.T) {
 	if len(got.Invariants) != 1 || got.Invariants[0] != invariants[0] {
 		t.Fatalf("unexpected invariants: %#v", got.Invariants)
 	}
+	if len(got.RiskCriticalScopes) != 2 || got.RiskCriticalScopes[0] != "cmd" || got.RiskCriticalScopes[1] != "internal/service" {
+		t.Fatalf("unexpected risk critical scopes: %#v", got.RiskCriticalScopes)
+	}
+	if got.RiskTierHint != "high" {
+		t.Fatalf("expected risk tier hint high, got %q", got.RiskTierHint)
+	}
+	if got.RiskRationale != riskRationale {
+		t.Fatalf("expected risk rationale %q, got %q", riskRationale, got.RiskRationale)
+	}
 	if strings.TrimSpace(got.UpdatedAt) == "" || strings.TrimSpace(got.UpdatedBy) == "" {
 		t.Fatalf("expected contract update audit fields, got %#v", got)
+	}
+}
+
+func TestSetCRContractRejectsInvalidRiskTierHint(t *testing.T) {
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	cr, err := svc.AddCR("Contract", "invalid risk tier")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+
+	invalid := "critical"
+	_, err = svc.SetCRContract(cr.ID, ContractPatch{RiskTierHint: &invalid})
+	if err == nil || !strings.Contains(err.Error(), "invalid risk tier hint") {
+		t.Fatalf("expected invalid risk tier hint error, got %v", err)
 	}
 }
 

@@ -14,6 +14,8 @@ func buildImpactReport(cr *model.CR, diff *diffSummary) *ImpactReport {
 	taskScopeWarnings := findTaskScopeWarnings(cr.Subtasks, scope)
 	taskContractWarnings := findTaskContractWarnings(cr.Subtasks)
 	taskChunkWarnings := findTaskChunkWarnings(cr.Subtasks)
+	riskTierHint, _ := normalizeRiskTierHint(cr.Contract.RiskTierHint)
+	matchedRiskCriticalScopes := findMatchedScopePrefixes(diff.Files, cr.Contract.RiskCriticalScopes)
 
 	signals := []RiskSignal{}
 	riskScore := 0
@@ -25,19 +27,8 @@ func buildImpactReport(cr *model.CR, diff *diffSummary) *ImpactReport {
 		riskScore += points
 	}
 
-	criticalPrefixes := []string{"internal/service/", "internal/store/", "internal/gitx/", "cmd/"}
-	criticalTouched := []string{}
-	for _, file := range diff.Files {
-		for _, prefix := range criticalPrefixes {
-			if strings.HasPrefix(file, prefix) {
-				criticalTouched = append(criticalTouched, prefix)
-				break
-			}
-		}
-	}
-	criticalTouched = dedupeStrings(criticalTouched)
-	if len(criticalTouched) > 0 {
-		addSignal("critical_paths", fmt.Sprintf("critical paths touched: %s", strings.Join(criticalTouched, ", ")), 3)
+	if len(matchedRiskCriticalScopes) > 0 {
+		addSignal("critical_scope_hint", fmt.Sprintf("contract critical scopes touched: %s", strings.Join(matchedRiskCriticalScopes, ", ")), 3)
 	}
 	if len(diff.DependencyFiles) > 0 {
 		addSignal("dependency_changes", fmt.Sprintf("%d dependency file(s) changed", len(diff.DependencyFiles)), 2)
@@ -56,34 +47,71 @@ func buildImpactReport(cr *model.CR, diff *diffSummary) *ImpactReport {
 		addSignal("scope_drift", fmt.Sprintf("%d file(s) outside declared scope", len(scopeDrift)), 2)
 	}
 
-	riskTier := "low"
-	switch {
-	case riskScore >= 7:
-		riskTier = "high"
-	case riskScore >= 3:
-		riskTier = "medium"
+	riskTierFloorApplied := false
+	riskTier := riskTierFromScore(riskScore)
+	if riskTierRank(riskTierHint) > riskTierRank(riskTier) {
+		floor := riskFloorScoreForTier(riskTierHint)
+		if floor > riskScore {
+			delta := floor - riskScore
+			addSignal("risk_tier_hint_floor", fmt.Sprintf("raised risk score to %s floor (+%d)", riskTierHint, delta), delta)
+		}
+		riskTier = riskTierHint
+		riskTierFloorApplied = true
 	}
 
 	return &ImpactReport{
-		CRID:                 cr.ID,
-		CRUID:                strings.TrimSpace(cr.UID),
-		BaseRef:              strings.TrimSpace(cr.BaseRef),
-		BaseCommit:           strings.TrimSpace(cr.BaseCommit),
-		ParentCRID:           cr.ParentCRID,
-		FilesChanged:         len(diff.Files),
-		NewFiles:             append([]string(nil), diff.NewFiles...),
-		ModifiedFiles:        append([]string(nil), diff.ModifiedFiles...),
-		DeletedFiles:         append([]string(nil), diff.DeletedFiles...),
-		TestFiles:            append([]string(nil), diff.TestFiles...),
-		DependencyFiles:      append([]string(nil), diff.DependencyFiles...),
-		ScopeDrift:           scopeDrift,
-		TaskScopeWarnings:    taskScopeWarnings,
-		TaskContractWarnings: taskContractWarnings,
-		TaskChunkWarnings:    taskChunkWarnings,
-		Signals:              signals,
-		RiskScore:            riskScore,
-		RiskTier:             riskTier,
+		CRID:                      cr.ID,
+		CRUID:                     strings.TrimSpace(cr.UID),
+		BaseRef:                   strings.TrimSpace(cr.BaseRef),
+		BaseCommit:                strings.TrimSpace(cr.BaseCommit),
+		ParentCRID:                cr.ParentCRID,
+		RiskTierHint:              riskTierHint,
+		RiskTierFloorApplied:      riskTierFloorApplied,
+		MatchedRiskCriticalScopes: matchedRiskCriticalScopes,
+		FilesChanged:              len(diff.Files),
+		NewFiles:                  append([]string(nil), diff.NewFiles...),
+		ModifiedFiles:             append([]string(nil), diff.ModifiedFiles...),
+		DeletedFiles:              append([]string(nil), diff.DeletedFiles...),
+		TestFiles:                 append([]string(nil), diff.TestFiles...),
+		DependencyFiles:           append([]string(nil), diff.DependencyFiles...),
+		ScopeDrift:                scopeDrift,
+		TaskScopeWarnings:         taskScopeWarnings,
+		TaskContractWarnings:      taskContractWarnings,
+		TaskChunkWarnings:         taskChunkWarnings,
+		Signals:                   signals,
+		RiskScore:                 riskScore,
+		RiskTier:                  riskTier,
 	}
+}
+
+func findMatchedScopePrefixes(changedFiles, scopePrefixes []string) []string {
+	if len(changedFiles) == 0 || len(scopePrefixes) == 0 {
+		return []string{}
+	}
+	normalizedScopes := make([]string, 0, len(scopePrefixes))
+	seenScopes := map[string]struct{}{}
+	for _, rawScope := range scopePrefixes {
+		scope := strings.TrimSpace(rawScope)
+		if scope == "" {
+			continue
+		}
+		if _, exists := seenScopes[scope]; exists {
+			continue
+		}
+		seenScopes[scope] = struct{}{}
+		normalizedScopes = append(normalizedScopes, scope)
+	}
+	sort.Strings(normalizedScopes)
+	matched := []string{}
+	for _, scope := range normalizedScopes {
+		for _, changedPath := range changedFiles {
+			if pathMatchesScopePrefix(changedPath, scope) {
+				matched = append(matched, scope)
+				break
+			}
+		}
+	}
+	return matched
 }
 
 func findScopeDrift(changedFiles, scopePrefixes []string) []string {

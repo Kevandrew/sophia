@@ -57,6 +57,53 @@ func normalizeNonEmptyStringList(values []string) []string {
 	return dedupeStrings(res)
 }
 
+func normalizeRiskTierHint(raw string) (string, error) {
+	normalized := strings.ToLower(strings.TrimSpace(raw))
+	switch normalized {
+	case "":
+		return "", nil
+	case "low", "medium", "high":
+		return normalized, nil
+	default:
+		return "", fmt.Errorf("invalid risk tier hint %q (expected low, medium, or high)", raw)
+	}
+}
+
+func riskTierRank(tier string) int {
+	switch strings.ToLower(strings.TrimSpace(tier)) {
+	case "high":
+		return 3
+	case "medium":
+		return 2
+	case "low":
+		return 1
+	default:
+		return 0
+	}
+}
+
+func riskTierFromScore(score int) string {
+	switch {
+	case score >= 7:
+		return "high"
+	case score >= 3:
+		return "medium"
+	default:
+		return "low"
+	}
+}
+
+func riskFloorScoreForTier(tier string) int {
+	switch strings.ToLower(strings.TrimSpace(tier)) {
+	case "high":
+		return 7
+	case "medium":
+		return 3
+	default:
+		return 0
+	}
+}
+
 func equalStringSlices(a, b []string) bool {
 	if len(a) != len(b) {
 		return false

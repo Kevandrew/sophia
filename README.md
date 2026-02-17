@@ -279,7 +279,7 @@ Behavior:
 ### Contract Management
 
 ```
-sophia cr contract set <id> --why "..." --scope internal/service --scope cmd --non-goal "..." --invariant "..." --blast-radius "..." --test-plan "..." --rollback-plan "..."
+sophia cr contract set <id> --why "..." --scope internal/service --scope cmd --non-goal "..." --invariant "..." --blast-radius "..." --risk-critical-scope internal/service --risk-tier-hint high --risk-rationale "..." --test-plan "..." --rollback-plan "..."
 sophia cr contract show <id>
 ```
 
@@ -288,6 +288,7 @@ Behavior:
 * Stores structured intent contract fields in CR metadata
 * Supports partial updates and records `contract_updated` audit events
 * Uses contract scope prefixes for drift checks during validation/merge
+* Supports contract-authored risk hints (`risk_critical_scopes`, `risk_tier_hint`, `risk_rationale`) for repo-agnostic impact scoring
 
 ---
 
@@ -301,12 +302,39 @@ sophia cr validate <id>
 Behavior:
 
 * `impact` computes deterministic risk tier/score and blast-radius signals from diff metadata
+* `impact` includes contract-driven risk scope signals and optional risk-tier floor hints when configured in CR contract
 * `validate` enforces required contract fields and scope-drift policy
 * `validate` emits blocking `Errors` and non-blocking `Warnings`
 * `validate` includes task chunk metadata warnings (`task_chunk_warnings`) when chunk metadata is malformed/inconsistent
 * `validate` records a `cr_validated` audit event
 * For merged CRs whose branch was deleted, `validate` derives diff context from the merge commit (with task-checkpoint scope fallback)
 * Both commands support machine-readable output via `--json`
+
+---
+
+
+```
+# parent intent
+sophia cr add "Parent rollout" --description "Coordinate delegated child work"
+sophia cr task add <parent-id> "Implement risky slice"
+sophia cr task contract set <parent-id> <task-id> --intent "..." --acceptance "..." --scope internal/service
+
+# child from current parent context
+sophia cr child add "Child risky slice" --description "Delegated implementation"
+sophia cr task delegate <parent-id> <task-id> --child <child-id>
+sophia cr stack <parent-id> --json
+
+# contract-driven risk hints on child
+sophia cr contract set <child-id> --risk-critical-scope internal/service --risk-tier-hint high --risk-rationale "Touches parser and merge paths."
+sophia cr impact <child-id>
+sophia cr validate <child-id>
+sophia cr status <child-id> --json
+
+# merge ordering for delegated flow
+sophia cr merge <child-id>
+sophia cr status <parent-id>
+sophia cr merge <parent-id>
+```
 
 ---
 

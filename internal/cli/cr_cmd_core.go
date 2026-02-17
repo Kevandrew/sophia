@@ -436,6 +436,9 @@ func newCRContractSetCmd() *cobra.Command {
 	var nonGoals []string
 	var invariants []string
 	var blastRadius string
+	var riskCriticalScopes []string
+	var riskTierHint string
+	var riskRationale string
 	var testPlan string
 	var rollbackPlan string
 
@@ -470,6 +473,18 @@ func newCRContractSetCmd() *cobra.Command {
 				v := blastRadius
 				patch.BlastRadius = &v
 			}
+			if cmd.Flags().Changed("risk-critical-scope") {
+				v := append([]string(nil), riskCriticalScopes...)
+				patch.RiskCriticalScopes = &v
+			}
+			if cmd.Flags().Changed("risk-tier-hint") {
+				v := riskTierHint
+				patch.RiskTierHint = &v
+			}
+			if cmd.Flags().Changed("risk-rationale") {
+				v := riskRationale
+				patch.RiskRationale = &v
+			}
 			if cmd.Flags().Changed("test-plan") {
 				v := testPlan
 				patch.TestPlan = &v
@@ -478,7 +493,7 @@ func newCRContractSetCmd() *cobra.Command {
 				v := rollbackPlan
 				patch.RollbackPlan = &v
 			}
-			if patch.Why == nil && patch.Scope == nil && patch.NonGoals == nil && patch.Invariants == nil && patch.BlastRadius == nil && patch.TestPlan == nil && patch.RollbackPlan == nil {
+			if patch.Why == nil && patch.Scope == nil && patch.NonGoals == nil && patch.Invariants == nil && patch.BlastRadius == nil && patch.RiskCriticalScopes == nil && patch.RiskTierHint == nil && patch.RiskRationale == nil && patch.TestPlan == nil && patch.RollbackPlan == nil {
 				return fmt.Errorf("provide at least one contract field flag")
 			}
 
@@ -500,6 +515,9 @@ func newCRContractSetCmd() *cobra.Command {
 	cmd.Flags().StringArrayVar(&nonGoals, "non-goal", nil, "Explicit non-goal (repeatable)")
 	cmd.Flags().StringArrayVar(&invariants, "invariant", nil, "Invariant that must hold (repeatable)")
 	cmd.Flags().StringVar(&blastRadius, "blast-radius", "", "Expected blast radius")
+	cmd.Flags().StringArrayVar(&riskCriticalScopes, "risk-critical-scope", nil, "CR-authored critical scope prefix for impact scoring (repeatable)")
+	cmd.Flags().StringVar(&riskTierHint, "risk-tier-hint", "", "Optional risk tier hint floor (low, medium, high)")
+	cmd.Flags().StringVar(&riskRationale, "risk-rationale", "", "Optional rationale for risk hint choices")
 	cmd.Flags().StringVar(&testPlan, "test-plan", "", "Planned validation/testing approach")
 	cmd.Flags().StringVar(&rollbackPlan, "rollback-plan", "", "Rollback strategy")
 	return cmd
@@ -529,6 +547,9 @@ func newCRContractShowCmd() *cobra.Command {
 			printValueList(cmd, "non_goals", contract.NonGoals)
 			printValueList(cmd, "invariants", contract.Invariants)
 			fmt.Fprintf(cmd.OutOrStdout(), "- blast_radius: %s\n", nonEmpty(strings.TrimSpace(contract.BlastRadius), "(missing)"))
+			printValueList(cmd, "risk_critical_scopes", contract.RiskCriticalScopes)
+			fmt.Fprintf(cmd.OutOrStdout(), "- risk_tier_hint: %s\n", nonEmpty(strings.TrimSpace(contract.RiskTierHint), "(none)"))
+			fmt.Fprintf(cmd.OutOrStdout(), "- risk_rationale: %s\n", nonEmpty(strings.TrimSpace(contract.RiskRationale), "(none)"))
 			fmt.Fprintf(cmd.OutOrStdout(), "- test_plan: %s\n", nonEmpty(strings.TrimSpace(contract.TestPlan), "(missing)"))
 			fmt.Fprintf(cmd.OutOrStdout(), "- rollback_plan: %s\n", nonEmpty(strings.TrimSpace(contract.RollbackPlan), "(missing)"))
 			fmt.Fprintf(cmd.OutOrStdout(), "- updated_at: %s\n", nonEmpty(strings.TrimSpace(contract.UpdatedAt), "(never)"))
