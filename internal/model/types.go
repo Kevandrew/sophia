@@ -37,15 +37,19 @@ type Subtask struct {
 }
 
 type CR struct {
-	ID          int       `yaml:"id"`
-	Title       string    `yaml:"title"`
-	Description string    `yaml:"description"`
-	Status      string    `yaml:"status"`
-	BaseBranch  string    `yaml:"base_branch"`
-	Branch      string    `yaml:"branch"`
-	Notes       []string  `yaml:"notes"`
-	Subtasks    []Subtask `yaml:"subtasks"`
-	Events      []Event   `yaml:"events"`
-	CreatedAt   string    `yaml:"created_at"`
-	UpdatedAt   string    `yaml:"updated_at"`
+	ID                int       `yaml:"id"`
+	Title             string    `yaml:"title"`
+	Description       string    `yaml:"description"`
+	Status            string    `yaml:"status"`
+	BaseBranch        string    `yaml:"base_branch"`
+	Branch            string    `yaml:"branch"`
+	Notes             []string  `yaml:"notes"`
+	Subtasks          []Subtask `yaml:"subtasks"`
+	Events            []Event   `yaml:"events"`
+	MergedAt          string    `yaml:"merged_at,omitempty"`
+	MergedBy          string    `yaml:"merged_by,omitempty"`
+	MergedCommit      string    `yaml:"merged_commit,omitempty"`
+	FilesTouchedCount int       `yaml:"files_touched_count,omitempty"`
+	CreatedAt         string    `yaml:"created_at"`
+	UpdatedAt         string    `yaml:"updated_at"`
 }

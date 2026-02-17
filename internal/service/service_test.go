@@ -181,6 +181,12 @@ func TestReviewShowsChangedFilesAndShortStat(t *testing.T) {
 	if len(review.Files) != 1 || review.Files[0] != "feature.txt" {
 		t.Fatalf("unexpected files: %#v", review.Files)
 	}
+	if len(review.NewFiles) != 1 || review.NewFiles[0] != "feature.txt" {
+		t.Fatalf("unexpected new files: %#v", review.NewFiles)
+	}
+	if len(review.ModifiedFiles) != 0 || len(review.DeletedFiles) != 0 {
+		t.Fatalf("unexpected modified/deleted categorization: modified=%#v deleted=%#v", review.ModifiedFiles, review.DeletedFiles)
+	}
 	if !strings.Contains(review.ShortStat, "1 file changed") {
 		t.Fatalf("expected shortstat to include file count, got %q", review.ShortStat)
 	}
@@ -236,6 +242,17 @@ func TestMergeCreatesIntentCommitAndMarksMerged(t *testing.T) {
 		if !strings.Contains(msg, section) {
 			t.Fatalf("expected section %q in commit message: %q", section, msg)
 		}
+	}
+	for _, footer := range []string{"Sophia-CR: 1", "Sophia-Intent: Bootstrap", "Sophia-Tasks: 0 completed"} {
+		if !strings.Contains(msg, footer) {
+			t.Fatalf("expected footer %q in commit message: %q", footer, msg)
+		}
+	}
+	if mergedCR.MergedAt == "" || mergedCR.MergedBy == "" || mergedCR.MergedCommit == "" {
+		t.Fatalf("expected merged metadata to be persisted, got %#v", mergedCR)
+	}
+	if mergedCR.FilesTouchedCount != 1 {
+		t.Fatalf("expected files_touched_count=1, got %d", mergedCR.FilesTouchedCount)
 	}
 }
 

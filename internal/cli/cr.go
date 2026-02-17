@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -8,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"sophia/internal/model"
+	"sophia/internal/service"
 )
 
 func newCRCmd() *cobra.Command {
@@ -22,6 +24,9 @@ func newCRCmd() *cobra.Command {
 	crCmd.AddCommand(newCRReviewCmd())
 	crCmd.AddCommand(newCRMergeCmd())
 	crCmd.AddCommand(newCRTaskCmd())
+	crCmd.AddCommand(newCRCurrentCmd())
+	crCmd.AddCommand(newCRSwitchCmd())
+	crCmd.AddCommand(newCRReopenCmd())
 
 	return crCmd
 }
@@ -38,11 +43,17 @@ func newCRAddCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			cr, err := svc.AddCR(args[0], description)
+			cr, warnings, err := svc.AddCRWithWarnings(args[0], description)
 			if err != nil {
 				return err
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "Created CR %d on branch %s\n", cr.ID, cr.Branch)
+			if len(warnings) > 0 {
+				fmt.Fprintln(cmd.OutOrStdout(), "Overlap warnings:")
+				for _, warning := range warnings {
+					fmt.Fprintf(cmd.OutOrStdout(), "- %s\n", warning)
+				}
+			}
 			return nil
 		},
 	}
@@ -72,6 +83,87 @@ func newCRListCmd() *cobra.Command {
 			for _, cr := range crs {
 				fmt.Fprintf(cmd.OutOrStdout(), "%d\t%s\t%s\t%s\n", cr.ID, cr.Status, cr.Branch, cr.Title)
 			}
+			return nil
+		},
+	}
+}
+
+func newCRCurrentCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "current",
+		Short: "Show the active CR context for the current branch",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			svc, err := newService()
+			if err != nil {
+				return err
+			}
+			ctx, err := svc.CurrentCR()
+			if err != nil {
+				if errorsIs(err, service.ErrNoActiveCRContext) {
+					fmt.Fprintln(cmd.OutOrStdout(), "No active CR context on current branch.")
+					return err
+				}
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "Branch: %s\n", ctx.Branch)
+			fmt.Fprintf(cmd.OutOrStdout(), "CR: %d\n", ctx.CR.ID)
+			fmt.Fprintf(cmd.OutOrStdout(), "Title: %s\n", ctx.CR.Title)
+			fmt.Fprintf(cmd.OutOrStdout(), "Status: %s\n", ctx.CR.Status)
+			fmt.Fprintf(cmd.OutOrStdout(), "Base: %s\n", ctx.CR.BaseBranch)
+			return nil
+		},
+	}
+}
+
+func newCRSwitchCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "switch <id>",
+		Short: "Switch to the branch for a CR",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			id, err := parsePositiveIntArg(args[0], "id")
+			if err != nil {
+				return err
+			}
+			svc, err := newService()
+			if err != nil {
+				return err
+			}
+			cr, err := svc.SwitchCR(id)
+			if err != nil {
+				if errorsIs(err, service.ErrWorkingTreeDirty) {
+					fmt.Fprintln(cmd.OutOrStdout(), "Working tree is dirty. Commit changes or run `git stash`, then retry.")
+				}
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "Switched to CR %d branch %s\n", cr.ID, cr.Branch)
+			return nil
+		},
+	}
+}
+
+func newCRReopenCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "reopen <id>",
+		Short: "Reopen a merged CR and switch to its branch",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			id, err := parsePositiveIntArg(args[0], "id")
+			if err != nil {
+				return err
+			}
+			svc, err := newService()
+			if err != nil {
+				return err
+			}
+			cr, err := svc.ReopenCR(id)
+			if err != nil {
+				if errorsIs(err, service.ErrWorkingTreeDirty) {
+					fmt.Fprintln(cmd.OutOrStdout(), "Working tree is dirty. Commit changes or run `git stash`, then retry.")
+				}
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "Reopened CR %d on branch %s\n", cr.ID, cr.Branch)
 			return nil
 		},
 	}
@@ -240,14 +332,12 @@ func newCRReviewCmd() *cobra.Command {
 				}
 			}
 
-			fmt.Fprintf(cmd.OutOrStdout(), "\nFiles Changed:\n")
-			if len(review.Files) == 0 {
-				fmt.Fprintln(cmd.OutOrStdout(), "- (none)")
-			} else {
-				for _, file := range review.Files {
-					fmt.Fprintf(cmd.OutOrStdout(), "- %s\n", file)
-				}
-			}
+			printListSection(cmd, "New Files", review.NewFiles)
+			printListSection(cmd, "Modified Files", review.ModifiedFiles)
+			printListSection(cmd, "Deleted Files", review.DeletedFiles)
+			printListSection(cmd, "Test Files Touched", review.TestFiles)
+			printListSection(cmd, "Dependency Files Touched", review.DependencyFiles)
+			printListSection(cmd, "Files Changed", review.Files)
 			fmt.Fprintf(cmd.OutOrStdout(), "\nDiff Stat:\n%s\n", review.ShortStat)
 			return nil
 		},
@@ -283,6 +373,17 @@ func newCRMergeCmd() *cobra.Command {
 	return cmd
 }
 
+func printListSection(cmd *cobra.Command, title string, items []string) {
+	fmt.Fprintf(cmd.OutOrStdout(), "\n%s:\n", title)
+	if len(items) == 0 {
+		fmt.Fprintln(cmd.OutOrStdout(), "- (none)")
+		return
+	}
+	for _, item := range items {
+		fmt.Fprintf(cmd.OutOrStdout(), "- %s\n", item)
+	}
+}
+
 func parsePositiveIntArg(raw string, name string) (int, error) {
 	id, err := strconv.Atoi(raw)
 	if err != nil || id <= 0 {
@@ -296,4 +397,8 @@ func nonEmpty(v, fallback string) string {
 		return fallback
 	}
 	return v
+}
+
+func errorsIs(err error, target error) bool {
+	return errors.Is(err, target)
 }
