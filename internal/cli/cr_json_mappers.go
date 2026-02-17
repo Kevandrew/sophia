@@ -124,8 +124,36 @@ func reviewToJSONMap(review *service.Review) map[string]any {
 		"files_changed":       review.Files,
 		"diff_stat":           review.ShortStat,
 		"impact":              impactToJSONMap(review.Impact),
+		"trust":               trustToJSONMap(review.Trust),
 		"validation_errors":   review.ValidationErrors,
 		"validation_warnings": review.ValidationWarnings,
+	}
+}
+
+func trustToJSONMap(trust *service.TrustReport) map[string]any {
+	if trust == nil {
+		return map[string]any{}
+	}
+	dimensions := make([]map[string]any, 0, len(trust.Dimensions))
+	for _, dimension := range trust.Dimensions {
+		dimensions = append(dimensions, map[string]any{
+			"code":             dimension.Code,
+			"label":            dimension.Label,
+			"score":            dimension.Score,
+			"max":              dimension.Max,
+			"reasons":          dimension.Reasons,
+			"required_actions": dimension.RequiredActions,
+		})
+	}
+	return map[string]any{
+		"verdict":          trust.Verdict,
+		"score":            trust.Score,
+		"max":              trust.Max,
+		"advisory_only":    trust.AdvisoryOnly,
+		"hard_failures":    trust.HardFailures,
+		"dimensions":       dimensions,
+		"required_actions": trust.RequiredActions,
+		"summary":          trust.Summary,
 	}
 }
 

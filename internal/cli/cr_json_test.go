@@ -72,7 +72,7 @@ func TestCRJSONCommandsReturnEnvelope(t *testing.T) {
 		{args: []string{"cr", "why", "1", "--json"}, keys: []string{"cr_uid", "base_ref", "base_commit", "parent_cr_id", "effective_why", "source"}},
 		{args: []string{"cr", "status", "1", "--json"}, keys: []string{"id", "uid", "base_ref", "base_commit", "parent_cr_id", "parent_status", "title", "working_tree", "validation", "merge_blocked"}},
 		{args: []string{"cr", "impact", "1", "--json"}, keys: []string{"cr_id", "cr_uid", "base_ref", "base_commit", "parent_cr_id", "risk_tier", "risk_score", "risk_tier_hint", "risk_tier_floor_applied", "matched_risk_critical_scopes"}},
-		{args: []string{"cr", "review", "1", "--json"}, keys: []string{"cr", "impact", "validation_errors", "validation_warnings"}},
+		{args: []string{"cr", "review", "1", "--json"}, keys: []string{"cr", "impact", "trust", "validation_errors", "validation_warnings"}},
 		{args: []string{"cr", "validate", "1", "--json"}, keys: []string{"valid", "errors", "warnings", "impact"}},
 	}
 
@@ -129,6 +129,16 @@ func TestCRJSONCommandsReturnEnvelope(t *testing.T) {
 	}
 	if _, ok := firstSubtask["checkpoint_chunks"]; !ok {
 		t.Fatalf("expected review subtask checkpoint_chunks field, got %#v", firstSubtask)
+	}
+	reviewTrust, ok := reviewEnv.Data["trust"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected review trust object, got %#v", reviewEnv.Data["trust"])
+	}
+	if _, ok := reviewTrust["verdict"]; !ok {
+		t.Fatalf("expected review trust verdict field, got %#v", reviewTrust)
+	}
+	if _, ok := reviewTrust["dimensions"]; !ok {
+		t.Fatalf("expected review trust dimensions field, got %#v", reviewTrust)
 	}
 }
 

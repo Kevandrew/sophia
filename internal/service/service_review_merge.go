@@ -20,11 +20,13 @@ func (s *Service) ReviewCR(id int) (*Review, error) {
 	if err != nil {
 		return nil, err
 	}
+	trust := buildTrustReport(cr, validation, diff)
 
 	return &Review{
 		CR:                 cr,
 		Contract:           cr.Contract,
 		Impact:             validation.Impact,
+		Trust:              trust,
 		ValidationErrors:   append([]string(nil), validation.Errors...),
 		ValidationWarnings: append([]string(nil), validation.Warnings...),
 		Files:              diff.Files,

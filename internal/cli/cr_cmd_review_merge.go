@@ -95,6 +95,7 @@ func newCRReviewCmd() *cobra.Command {
 			printListSection(cmd, "Files Changed", review.Files)
 			fmt.Fprintf(cmd.OutOrStdout(), "\nDiff Stat:\n%s\n", review.ShortStat)
 			printImpactSection(cmd, review.Impact)
+			printTrustSection(cmd, review.Trust)
 			printStringSection(cmd, "Errors", review.ValidationErrors)
 			printStringSection(cmd, "Warnings", review.ValidationWarnings)
 			return nil
