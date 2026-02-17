@@ -80,6 +80,17 @@ type LogEntry struct {
 	FilesTouched string
 }
 
+type RepairReport struct {
+	BaseBranch    string
+	Scanned       int
+	Imported      int
+	Updated       int
+	Skipped       int
+	NextID        int
+	HighestCRID   int
+	RepairedCRIDs []int
+}
+
 type HistoryNote struct {
 	Index    int
 	Text     string
@@ -214,6 +225,9 @@ func (s *Service) AddCRWithWarnings(title, description string) (*model.CR, []str
 	}
 	if err := s.git.EnsureBootstrapCommit("chore: bootstrap base branch for Sophia"); err != nil {
 		return nil, nil, fmt.Errorf("ensure bootstrap commit: %w", err)
+	}
+	if err := s.ensureNextCRIDFloor(cfg.BaseBranch); err != nil {
+		return nil, nil, fmt.Errorf("align cr id sequence: %w", err)
 	}
 
 	id, err := s.store.NextCRID()
@@ -649,20 +663,7 @@ func (s *Service) MergeCR(id int, keepBranch bool) (string, error) {
 	actor := s.git.Actor()
 	mergedAt := s.timestamp()
 	msg := buildMergeCommitMessage(cr, actor, mergedAt)
-	mergeBase, err := s.git.MergeBase(cr.BaseBranch, cr.Branch)
-	if err != nil {
-		return "", err
-	}
-	if err := s.git.CheckoutBranch(cr.Branch); err != nil {
-		return "", err
-	}
-	if err := s.git.ResetSoft(mergeBase); err != nil {
-		return "", err
-	}
-	if err := s.git.Commit(msg); err != nil {
-		return "", err
-	}
-	if err := s.git.MergeFFOnly(cr.BaseBranch, cr.Branch); err != nil {
+	if err := s.git.MergeNoFF(cr.BaseBranch, cr.Branch, msg); err != nil {
 		return "", err
 	}
 
@@ -1002,6 +1003,137 @@ func (s *Service) logFromGit(limit int) ([]LogEntry, error) {
 	return entries, nil
 }
 
+func (s *Service) RepairFromGit(baseBranch string, refresh bool) (*RepairReport, error) {
+	targetBase := strings.TrimSpace(baseBranch)
+	if targetBase == "" {
+		if s.store.IsInitialized() {
+			cfg, err := s.store.LoadConfig()
+			if err == nil && strings.TrimSpace(cfg.BaseBranch) != "" {
+				targetBase = strings.TrimSpace(cfg.BaseBranch)
+			}
+		}
+	}
+	if targetBase == "" {
+		targetBase = s.git.DefaultBranch()
+	}
+	if !s.git.BranchExists(targetBase) {
+		return nil, fmt.Errorf("base branch %q does not exist", targetBase)
+	}
+
+	mode := model.MetadataModeLocal
+	if s.store.IsInitialized() {
+		if cfg, err := s.store.LoadConfig(); err == nil && strings.TrimSpace(cfg.MetadataMode) != "" {
+			mode = cfg.MetadataMode
+		}
+	}
+	if err := s.store.Init(targetBase, mode); err != nil {
+		return nil, err
+	}
+
+	existingMap := map[int]*model.CR{}
+	if existing, err := s.store.ListCRs(); err == nil {
+		for i := range existing {
+			cr := existing[i]
+			c := cr
+			existingMap[cr.ID] = &c
+		}
+	}
+
+	commits, err := s.git.RecentCommits(targetBase, 5000)
+	if err != nil {
+		return nil, err
+	}
+
+	report := &RepairReport{
+		BaseBranch:    targetBase,
+		Scanned:       len(commits),
+		RepairedCRIDs: []int{},
+	}
+
+	repairedSet := map[int]struct{}{}
+	for _, commit := range commits {
+		id, ok := crIDFromSubjectOrBody(commit.Subject, commit.Body)
+		if !ok {
+			continue
+		}
+
+		existing, exists := existingMap[id]
+		if exists && existing.Status == model.StatusInProgress && !refresh {
+			report.Skipped++
+			continue
+		}
+
+		description := intentFromCommitBody(commit.Body)
+		notes := notesFromCommitBody(commit.Body)
+		subtasks := subtasksFromCommitBody(commit.Body, commit.When, commit.Author)
+		when := nonEmptyTrimmed(commit.When, s.timestamp())
+		actor := nonEmptyTrimmed(commit.Author, "unknown")
+		filesTouched := 0
+		if count, countErr := s.git.ChangedFileCount(commit.Hash); countErr == nil {
+			filesTouched = count
+		}
+
+		cr := &model.CR{
+			ID:                id,
+			Title:             titleFromSubjectOrBody(commit.Subject, commit.Body),
+			Description:       description,
+			Status:            model.StatusMerged,
+			BaseBranch:        targetBase,
+			Branch:            fmt.Sprintf("sophia/cr-%d", id),
+			Notes:             notes,
+			Subtasks:          subtasks,
+			Events:            []model.Event{},
+			MergedAt:          when,
+			MergedBy:          actor,
+			MergedCommit:      shortHash(commit.Hash),
+			FilesTouchedCount: filesTouched,
+			CreatedAt:         when,
+			UpdatedAt:         when,
+		}
+
+		if exists {
+			cr.CreatedAt = existing.CreatedAt
+			if strings.TrimSpace(cr.CreatedAt) == "" {
+				cr.CreatedAt = when
+			}
+			cr.Events = append([]model.Event{}, existing.Events...)
+			report.Updated++
+		} else {
+			report.Imported++
+		}
+		cr.Events = append(cr.Events, model.Event{
+			TS:      s.timestamp(),
+			Actor:   s.git.Actor(),
+			Type:    "cr_repaired",
+			Summary: fmt.Sprintf("Repaired CR %d from git commit %s", id, shortHash(commit.Hash)),
+			Ref:     fmt.Sprintf("cr:%d", id),
+		})
+
+		if err := s.store.SaveCR(cr); err != nil {
+			return nil, err
+		}
+		existingMap[id] = cr
+		if id > report.HighestCRID {
+			report.HighestCRID = id
+		}
+		if _, seen := repairedSet[id]; !seen {
+			repairedSet[id] = struct{}{}
+			report.RepairedCRIDs = append(report.RepairedCRIDs, id)
+		}
+	}
+
+	if err := s.ensureNextCRIDFloor(targetBase); err != nil {
+		return nil, err
+	}
+	idx, err := s.store.LoadIndex()
+	if err != nil {
+		return nil, err
+	}
+	report.NextID = idx.NextID
+	sort.Ints(report.RepairedCRIDs)
+	return report, nil
+}
+
 func (s *Service) InstallHook(forceOverwrite bool) (string, error) {
 	if err := s.store.EnsureInitialized(); err != nil {
 		return "", err
@@ -1208,6 +1340,100 @@ func titleFromSubjectOrBody(subject, body string) string {
 	return "(unknown)"
 }
 
+func sectionFromCommitBody(body, section string) string {
+	body = strings.ReplaceAll(body, "\r\n", "\n")
+	needle := section + ":\n"
+	start := strings.Index(body, needle)
+	if start < 0 {
+		return ""
+	}
+	rest := body[start+len(needle):]
+	marker := "\n\n"
+	if idx := strings.Index(rest, marker); idx >= 0 {
+		return strings.TrimSpace(rest[:idx])
+	}
+	return strings.TrimSpace(rest)
+}
+
+func intentFromCommitBody(body string) string {
+	section := sectionFromCommitBody(body, "Intent")
+	if strings.EqualFold(strings.TrimSpace(section), "(none)") {
+		return ""
+	}
+	return section
+}
+
+func notesFromCommitBody(body string) []string {
+	section := sectionFromCommitBody(body, "Notes")
+	if section == "" || strings.EqualFold(strings.TrimSpace(section), "- (none)") {
+		return []string{}
+	}
+	res := make([]string, 0)
+	for _, line := range strings.Split(section, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "- ") {
+			continue
+		}
+		note := strings.TrimSpace(strings.TrimPrefix(line, "- "))
+		if note == "" || strings.EqualFold(note, "(none)") {
+			continue
+		}
+		res = append(res, note)
+	}
+	return res
+}
+
+func subtasksFromCommitBody(body, when, actor string) []model.Subtask {
+	section := sectionFromCommitBody(body, "Subtasks")
+	if section == "" || strings.EqualFold(strings.TrimSpace(section), "- (none)") {
+		return []model.Subtask{}
+	}
+	res := make([]model.Subtask, 0)
+	for _, line := range strings.Split(section, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "- [") {
+			continue
+		}
+		open := strings.HasPrefix(line, "- [ ]")
+		done := strings.HasPrefix(line, "- [x]") || strings.HasPrefix(line, "- [X]")
+		if !open && !done {
+			continue
+		}
+		rest := strings.TrimSpace(line[5:])
+		taskID := len(res) + 1
+		title := rest
+		if strings.HasPrefix(rest, "#") {
+			parts := strings.SplitN(rest, " ", 2)
+			if len(parts) == 2 {
+				if parsed, err := strconv.Atoi(strings.TrimPrefix(parts[0], "#")); err == nil && parsed > 0 {
+					taskID = parsed
+				}
+				title = strings.TrimSpace(parts[1])
+			}
+		}
+		status := model.TaskStatusOpen
+		completedAt := ""
+		completedBy := ""
+		if done {
+			status = model.TaskStatusDone
+			completedAt = when
+			completedBy = actor
+		}
+		res = append(res, model.Subtask{
+			ID:          taskID,
+			Title:       title,
+			Status:      status,
+			CreatedAt:   when,
+			UpdatedAt:   when,
+			CompletedAt: completedAt,
+			CreatedBy:   actor,
+			CompletedBy: completedBy,
+		})
+	}
+	sort.Slice(res, func(i, j int) bool { return res[i].ID < res[j].ID })
+	return res
+}
+
 func parseCRBranchID(branch string) (int, bool) {
 	matches := crBranchPattern.FindStringSubmatch(strings.TrimSpace(branch))
 	if len(matches) != 2 {
@@ -1345,6 +1571,53 @@ func ensureGitIgnoreEntry(root, entry string) error {
 		return fmt.Errorf("write .gitignore: %w", err)
 	}
 	return nil
+}
+
+func (s *Service) ensureNextCRIDFloor(baseBranch string) error {
+	idx, err := s.store.LoadIndex()
+	if err != nil {
+		return err
+	}
+	maxID := 0
+
+	crs, err := s.store.ListCRs()
+	if err == nil {
+		for _, cr := range crs {
+			if cr.ID > maxID {
+				maxID = cr.ID
+			}
+		}
+	}
+
+	branches, err := s.git.LocalBranches("sophia/cr-")
+	if err == nil {
+		for _, branch := range branches {
+			if id, ok := parseCRBranchID(branch); ok && id > maxID {
+				maxID = id
+			}
+		}
+	}
+
+	if strings.TrimSpace(baseBranch) != "" {
+		commits, err := s.git.RecentCommits(baseBranch, 5000)
+		if err == nil {
+			for _, commit := range commits {
+				if id, ok := crIDFromSubjectOrBody(commit.Subject, commit.Body); ok && id > maxID {
+					maxID = id
+				}
+			}
+		}
+	}
+
+	required := maxID + 1
+	if required < 1 {
+		required = 1
+	}
+	if idx.NextID >= required {
+		return nil
+	}
+	idx.NextID = required
+	return s.store.SaveIndex(idx)
 }
 
 func (s *Service) timestamp() string {

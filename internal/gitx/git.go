@@ -196,7 +196,7 @@ func (c *Client) RecentCommits(branch string, limit int) ([]Commit, error) {
 	if limit <= 0 {
 		limit = 100
 	}
-	out, err := c.run("log", branch, "-n", strconv.Itoa(limit), "--pretty=format:%H%x1f%aN <%aE>%x1f%aI%x1f%s%x1f%b%x1e")
+	out, err := c.run("log", branch, "--first-parent", "-n", strconv.Itoa(limit), "--pretty=format:%H%x1f%aN <%aE>%x1f%aI%x1f%s%x1f%b%x1e")
 	if err != nil {
 		return nil, err
 	}
@@ -232,6 +232,16 @@ func (c *Client) MergeBase(baseBranch, branch string) (string, error) {
 		return "", err
 	}
 	return strings.TrimSpace(out), nil
+}
+
+func (c *Client) MergeNoFF(baseBranch, branch, message string) error {
+	if err := c.CheckoutBranch(baseBranch); err != nil {
+		return err
+	}
+	args := c.identityFlags()
+	args = append(args, "merge", "--no-ff", branch, "-m", message)
+	_, err := c.run(args...)
+	return err
 }
 
 func (c *Client) ResetSoft(target string) error {
