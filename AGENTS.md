@@ -8,6 +8,9 @@
 
 Recommended daily flow (intent-first):
 1. `sophia cr add "<title>" --description "<why>"`
+   Optional stacked/multi-base forms:
+   `sophia cr add "<title>" --base <git-ref>`
+   `sophia cr add "<title>" --parent <cr-id>`
 2. `sophia cr contract set <id> --why "..." --scope <prefix> ...`
 3. `sophia cr task add <id> "<subtask>"`
 4. `sophia cr task contract set <id> <task-id> --intent "..." --acceptance "..." --scope <prefix>`
@@ -17,6 +20,7 @@ Recommended daily flow (intent-first):
 8. `sophia cr review <id>`
 9. optional machine-readable checks: `sophia cr status <id> --json`, `sophia cr validate <id> --json`
 10. `sophia cr merge <id>`
+11. stacked flows when needed: `sophia cr restack <id>` or `sophia cr base set <id> --ref <git-ref> [--rebase]`
 
 ## Coding Style & Naming Conventions
 - Language: Go (module `sophia`).
@@ -49,6 +53,7 @@ Recommended daily flow (intent-first):
 - Use `--no-checkpoint` for metadata-only completion; use `--all` only when full-stage behavior is intended.
 - Pre-staged index changes are rejected before checkpointing to prevent accidental scope drift.
 - Merge is validation-gated; use `--override-reason` only for audited emergency bypasses.
+- For stacked CRs, merge parents before children unless an audited override is explicitly required.
 - PRs should include:
   - intent summary (what/why)
   - key command outputs (`go test`, `go vet`, `sophia cr review`)
@@ -58,4 +63,4 @@ Recommended daily flow (intent-first):
 - `.sophia/` is local-first workflow state and is ignored in Git by default.
 - If local metadata is missing/out-of-sync, run `sophia repair`.
 - `_docs/` is local/internal and ignored via `.gitignore`.
-- Current milestone: CR-10 (agent-grade git abstraction surfaces: why/status/json/from-contract checkpointing).
+- Current milestone: CR-13 (stacked and multi-base change requests: parent/child CRs, per-CR base refs, restack/base-set flows).
