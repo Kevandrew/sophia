@@ -10,6 +10,8 @@ const (
 	trustVerdictTrusted        = "trusted"
 	trustVerdictNeedsAttention = "needs_attention"
 	trustVerdictUntrusted      = "untrusted"
+	trustTrustedMinRatio       = 0.85
+	trustAttentionMinRatio     = 0.60
 )
 
 func buildTrustReport(cr *model.CR, validation *ValidationReport, diff *diffSummary) *TrustReport {
@@ -73,16 +75,7 @@ func buildTrustReport(cr *model.CR, validation *ValidationReport, diff *diffSumm
 	}
 	requiredActions = dedupeStrings(requiredActions)
 
-	verdict := trustVerdictNeedsAttention
-	summary := "Trust evidence has gaps; address required actions before treating diffs as optional."
-	switch {
-	case len(hardFailures) > 0 || score < 60:
-		verdict = trustVerdictUntrusted
-		summary = "Trust evidence is insufficient; perform deeper review and resolve required actions."
-	case score >= 85:
-		verdict = trustVerdictTrusted
-		summary = "Trust evidence is strong; diff deep-dive can be optional."
-	}
+	verdict, summary := selectTrustVerdict(score, max, hardFailures)
 
 	return &TrustReport{
 		Verdict:         verdict,
@@ -94,6 +87,25 @@ func buildTrustReport(cr *model.CR, validation *ValidationReport, diff *diffSumm
 		RequiredActions: requiredActions,
 		Summary:         summary,
 	}
+}
+
+func selectTrustVerdict(score, max int, hardFailures []string) (string, string) {
+	ratio := trustScoreRatio(score, max)
+	switch {
+	case len(hardFailures) > 0 || ratio < trustAttentionMinRatio:
+		return trustVerdictUntrusted, "Trust evidence is insufficient; perform deeper review and resolve required actions."
+	case ratio >= trustTrustedMinRatio:
+		return trustVerdictTrusted, "Trust evidence is strong; diff deep-dive can be optional."
+	default:
+		return trustVerdictNeedsAttention, "Trust evidence has gaps; address required actions before treating diffs as optional."
+	}
+}
+
+func trustScoreRatio(score, max int) float64 {
+	if max <= 0 {
+		return 0
+	}
+	return float64(score) / float64(max)
 }
 
 func buildContractQualityDimension(contract model.Contract) TrustDimension {
