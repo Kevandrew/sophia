@@ -303,6 +303,38 @@ type TaskChunk struct {
 	Preview  string
 }
 
+type BlameRange struct {
+	Start int
+	End   int
+}
+
+type BlameOptions struct {
+	Rev    string
+	Ranges []BlameRange
+}
+
+type BlameLineView struct {
+	Line         int
+	Commit       string
+	Author       string
+	AuthorEmail  string
+	AuthorTime   string
+	CRID         int
+	HasCR        bool
+	CRUID        string
+	Intent       string
+	IntentSource string
+	Summary      string
+	Text         string
+}
+
+type BlameView struct {
+	Path   string
+	Rev    string
+	Ranges []BlameRange
+	Lines  []BlameLineView
+}
+
 type diffSummary struct {
 	Files           []string
 	ShortStat       string
