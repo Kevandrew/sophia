@@ -482,6 +482,7 @@ sophia cr merge <id> --override-reason "hotfix required for production outage"
 ```
 sophia doctor
 sophia log
+sophia blame <path> [--rev <git-ref>] [-L start,end] [--json]
 sophia repair
 sophia hook install
 sophia cr why <id>
@@ -511,6 +512,7 @@ sophia cr history <id>
 
 * `doctor` flags workflow drift (dirty tree, non-CR branch, stale merged CR branches)
 * `log` shows intent-first CR history and can reconstruct merged CRs from Git commit metadata
+* `blame` shows Sophia-enriched per-line attribution (`CR`, intent) with fallback to commit summary when CR metadata is unavailable
 * `repair` rebuilds missing local CR metadata from Git history and realigns CR IDs
 * `hook install` adds a pre-commit guard against direct commits on the base branch
 * `current/switch/reopen/base/restack` supports deterministic branch and stack context moves

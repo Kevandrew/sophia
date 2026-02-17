@@ -6,9 +6,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 )
 
 const sophiaManagedHookMarker = "SOPHIA_MANAGED_PRE_COMMIT"
@@ -26,6 +28,22 @@ type FileChange struct {
 type StatusEntry struct {
 	Code string
 	Path string
+}
+
+type BlameRange struct {
+	Start int
+	End   int
+}
+
+type BlameLine struct {
+	CommitHash string
+	OrigLine   int
+	FinalLine  int
+	Author     string
+	AuthorMail string
+	AuthorTime string
+	Summary    string
+	Text       string
 }
 
 type Commit struct {
@@ -296,6 +314,156 @@ func (c *Client) RecentCommits(branch string, limit int) ([]Commit, error) {
 		})
 	}
 	return commits, nil
+}
+
+func (c *Client) CommitByHash(hash string) (*Commit, error) {
+	hash = strings.TrimSpace(hash)
+	if hash == "" {
+		return nil, fmt.Errorf("commit hash cannot be empty")
+	}
+	out, err := c.run("show", "-s", "--format=%H%x1f%aN <%aE>%x1f%aI%x1f%s%x1f%b", hash)
+	if err != nil {
+		return nil, err
+	}
+	parts := strings.SplitN(out, "\x1f", 5)
+	if len(parts) < 5 {
+		return nil, fmt.Errorf("unexpected git show output for commit %q", hash)
+	}
+	return &Commit{
+		Hash:    strings.TrimSpace(parts[0]),
+		Author:  strings.TrimSpace(parts[1]),
+		When:    strings.TrimSpace(parts[2]),
+		Subject: strings.TrimSpace(parts[3]),
+		Body:    strings.TrimSpace(parts[4]),
+	}, nil
+}
+
+func (c *Client) BlameLinePorcelain(path string, rev string, ranges []BlameRange) ([]BlameLine, error) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return nil, fmt.Errorf("path cannot be empty")
+	}
+
+	args := buildBlameArgs(path, rev, ranges)
+	out, err := c.run(args...)
+	if err != nil {
+		return nil, err
+	}
+	return parseBlamePorcelain(out)
+}
+
+func buildBlameArgs(path string, rev string, ranges []BlameRange) []string {
+	args := []string{"blame", "--line-porcelain"}
+	for _, r := range ranges {
+		args = append(args, "-L", fmt.Sprintf("%d,%d", r.Start, r.End))
+	}
+	if strings.TrimSpace(rev) != "" {
+		args = append(args, strings.TrimSpace(rev))
+	}
+	args = append(args, "--", path)
+	return args
+}
+
+var blameHeaderPattern = regexp.MustCompile(`^([0-9a-f]{40})\s+(\d+)\s+(\d+)(?:\s+(\d+))?$`)
+
+func parseBlamePorcelain(raw string) ([]BlameLine, error) {
+	if strings.TrimSpace(raw) == "" {
+		return []BlameLine{}, nil
+	}
+	lines := strings.Split(strings.ReplaceAll(raw, "\r\n", "\n"), "\n")
+	res := make([]BlameLine, 0)
+
+	for i := 0; i < len(lines); {
+		line := lines[i]
+		if strings.TrimSpace(line) == "" {
+			i++
+			continue
+		}
+		header := blameHeaderPattern.FindStringSubmatch(strings.TrimSpace(line))
+		if len(header) != 5 {
+			return nil, fmt.Errorf("invalid blame porcelain header %q", line)
+		}
+
+		origLine, err := strconv.Atoi(header[2])
+		if err != nil {
+			return nil, fmt.Errorf("parse blame orig line %q: %w", header[2], err)
+		}
+		finalLine, err := strconv.Atoi(header[3])
+		if err != nil {
+			return nil, fmt.Errorf("parse blame final line %q: %w", header[3], err)
+		}
+
+		entry := BlameLine{
+			CommitHash: header[1],
+			OrigLine:   origLine,
+			FinalLine:  finalLine,
+		}
+		i++
+
+		var authorTimeRaw string
+		var authorTZRaw string
+		for i < len(lines) {
+			metaLine := lines[i]
+			if strings.HasPrefix(metaLine, "\t") {
+				entry.Text = strings.TrimPrefix(metaLine, "\t")
+				i++
+				break
+			}
+			if blameHeaderPattern.MatchString(strings.TrimSpace(metaLine)) {
+				break
+			}
+			if metaLine == "" {
+				i++
+				continue
+			}
+			key, value, ok := strings.Cut(metaLine, " ")
+			if !ok {
+				i++
+				continue
+			}
+			switch key {
+			case "author":
+				entry.Author = strings.TrimSpace(value)
+			case "author-mail":
+				entry.AuthorMail = strings.Trim(strings.TrimSpace(value), "<>")
+			case "author-time":
+				authorTimeRaw = strings.TrimSpace(value)
+			case "author-tz":
+				authorTZRaw = strings.TrimSpace(value)
+			case "summary":
+				entry.Summary = strings.TrimSpace(value)
+			}
+			i++
+		}
+		entry.AuthorTime = parseAuthorTimestamp(authorTimeRaw, authorTZRaw)
+		res = append(res, entry)
+	}
+	return res, nil
+}
+
+func parseAuthorTimestamp(unixSecondsRaw string, tzRaw string) string {
+	unixSecondsRaw = strings.TrimSpace(unixSecondsRaw)
+	if unixSecondsRaw == "" {
+		return ""
+	}
+	seconds, err := strconv.ParseInt(unixSecondsRaw, 10, 64)
+	if err != nil {
+		return ""
+	}
+	loc := time.UTC
+	if len(tzRaw) == 5 && (strings.HasPrefix(tzRaw, "+") || strings.HasPrefix(tzRaw, "-")) {
+		sign := 1
+		if strings.HasPrefix(tzRaw, "-") {
+			sign = -1
+		}
+		hours, hErr := strconv.Atoi(tzRaw[1:3])
+		minutes, mErr := strconv.Atoi(tzRaw[3:5])
+		if hErr == nil && mErr == nil {
+			offset := sign * ((hours * 60 * 60) + (minutes * 60))
+			loc = time.FixedZone(tzRaw, offset)
+		}
+	}
+	return time.Unix(seconds, 0).In(loc).Format(time.RFC3339)
 }
 
 func (c *Client) MergeBase(baseBranch, branch string) (string, error) {

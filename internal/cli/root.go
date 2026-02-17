@@ -22,6 +22,7 @@ func newRootCmd() *cobra.Command {
 	}
 
 	rootCmd.AddCommand(newInitCmd())
+	rootCmd.AddCommand(newBlameCmd())
 	rootCmd.AddCommand(newCRCmd())
 	rootCmd.AddCommand(newDoctorCmd())
 	rootCmd.AddCommand(newLogCmd())
