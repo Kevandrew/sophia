@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"sophia/internal/gitx"
+	"sophia/internal/model"
 	"strings"
 )
 
@@ -66,4 +67,24 @@ func (s *Service) rebaseBranchOnto(branch, ontoRef string) error {
 		return rebaseGit.RebaseCurrentBranchOnto(ontoRef)
 	}
 	return rebaseGit.RebaseBranchOnto(branch, ontoRef)
+}
+
+func (s *Service) effectiveMergeGitForCR(cr *model.CR) (*gitx.Client, string, error) {
+	if cr == nil {
+		return nil, "", fmt.Errorf("cr is required")
+	}
+	mergeGit := s.git
+	worktreePath := strings.TrimSpace(s.git.WorkDir)
+	baseOwner, err := s.branchOwnerWorktree(cr.BaseBranch)
+	if err != nil {
+		return nil, "", err
+	}
+	if baseOwner != nil && !s.isCurrentWorktreePath(baseOwner.Path) {
+		mergeGit = gitx.New(baseOwner.Path)
+		worktreePath = strings.TrimSpace(baseOwner.Path)
+	}
+	if strings.TrimSpace(worktreePath) == "" {
+		worktreePath = strings.TrimSpace(mergeGit.WorkDir)
+	}
+	return mergeGit, worktreePath, nil
 }
