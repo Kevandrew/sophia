@@ -257,7 +257,7 @@ sophia cr status <id>
 Behavior:
 
 * `why` returns the effective rationale (`contract why` fallback to CR description)
-* `status` returns branch context, workspace dirtiness, task progress, contract completeness, validation summary, and `merge_blocked`
+* `status` returns CR identity (`id` + immutable `uid`), branch context, workspace dirtiness, task progress, contract completeness, validation summary, and `merge_blocked`
 * Both commands support `--json`
 
 ---
@@ -312,6 +312,7 @@ Metadata:
 - merged_at: 2026-02-17T08:32:10Z
 
 Sophia-CR: 1
+Sophia-CR-UID: cr_4fd8bc65-9360-48b5-912d-95f8a03a2d6d
 Sophia-Intent: Add billing retries
 Sophia-Tasks: 2 completed
 ```
@@ -358,6 +359,7 @@ sophia cr history <id>
 * `task contract` enforces subtask intent + acceptance + scope before completion
 * `contract/impact/validate` provide intent integrity and blast-radius review context
 * `--json` on read/check commands provides stable machine-readable envelopes for agents
+* JSON read/check outputs include immutable CR uid fields to support stable identity across environments
 * `edit/redact/history` supports retroactive metadata hygiene with audit-safe events
 
 ---

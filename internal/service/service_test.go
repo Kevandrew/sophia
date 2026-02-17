@@ -130,6 +130,9 @@ func TestAddCRCreatesBranchAndCRFile(t *testing.T) {
 	if cr.Branch != "sophia/cr-1" {
 		t.Fatalf("unexpected branch %q", cr.Branch)
 	}
+	if strings.TrimSpace(cr.UID) == "" {
+		t.Fatalf("expected CR uid to be assigned, got %#v", cr)
+	}
 
 	branch, err := svc.git.CurrentBranch()
 	if err != nil {
@@ -145,6 +148,33 @@ func TestAddCRCreatesBranchAndCRFile(t *testing.T) {
 	}
 	if loaded.Title != "Bootstrap" || len(loaded.Events) == 0 || loaded.Events[0].Type != "cr_created" {
 		t.Fatalf("unexpected loaded CR: %#v", loaded)
+	}
+	if loaded.UID != cr.UID {
+		t.Fatalf("expected persisted uid %q, got %q", cr.UID, loaded.UID)
+	}
+}
+
+func TestAddCRAssignsDistinctUIDs(t *testing.T) {
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	first, err := svc.AddCR("First", "uid one")
+	if err != nil {
+		t.Fatalf("AddCR(first) error = %v", err)
+	}
+	second, err := svc.AddCR("Second", "uid two")
+	if err != nil {
+		t.Fatalf("AddCR(second) error = %v", err)
+	}
+
+	if strings.TrimSpace(first.UID) == "" || strings.TrimSpace(second.UID) == "" {
+		t.Fatalf("expected non-empty uids, got first=%q second=%q", first.UID, second.UID)
+	}
+	if first.UID == second.UID {
+		t.Fatalf("expected distinct uids, got %q", first.UID)
 	}
 }
 
@@ -254,7 +284,7 @@ func TestDoneTaskWithCheckpointCreatesCommit(t *testing.T) {
 	if !strings.Contains(msg, "feat(cr-1/task-1): feat: implement checkpoint workflow") {
 		t.Fatalf("unexpected checkpoint subject: %q", msg)
 	}
-	for _, footer := range []string{"Sophia-CR: 1", "Sophia-Task: 1", "Sophia-Intent: Checkpoint CR"} {
+	for _, footer := range []string{"Sophia-CR: 1", "Sophia-CR-UID: " + cr.UID, "Sophia-Task: 1", "Sophia-Intent: Checkpoint CR"} {
 		if !strings.Contains(msg, footer) {
 			t.Fatalf("expected checkpoint footer %q in message: %q", footer, msg)
 		}
@@ -766,7 +796,7 @@ func TestMergeCreatesIntentCommitAndMarksMerged(t *testing.T) {
 			t.Fatalf("expected section %q in commit message: %q", section, msg)
 		}
 	}
-	for _, footer := range []string{"Sophia-CR: 1", "Sophia-Intent: Bootstrap", "Sophia-Tasks: 0 completed"} {
+	for _, footer := range []string{"Sophia-CR: 1", "Sophia-CR-UID: " + cr.UID, "Sophia-Intent: Bootstrap", "Sophia-Tasks: 0 completed"} {
 		if !strings.Contains(msg, footer) {
 			t.Fatalf("expected footer %q in commit message: %q", footer, msg)
 		}
