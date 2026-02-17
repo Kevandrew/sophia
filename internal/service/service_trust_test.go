@@ -189,6 +189,82 @@ func TestTrustReportNoTaskCanStillBeNeedsAttention(t *testing.T) {
 	}
 }
 
+func TestSelectTrustVerdictUsesRatioThresholds(t *testing.T) {
+	cases := []struct {
+		name         string
+		score        int
+		max          int
+		hardFailures []string
+		wantVerdict  string
+	}{
+		{name: "trusted at threshold", score: 85, max: 100, wantVerdict: trustVerdictTrusted},
+		{name: "trusted above threshold with larger max", score: 94, max: 110, wantVerdict: trustVerdictTrusted},
+		{name: "needs attention below trusted threshold", score: 84, max: 100, wantVerdict: trustVerdictNeedsAttention},
+		{name: "needs attention at attention threshold", score: 60, max: 100, wantVerdict: trustVerdictNeedsAttention},
+		{name: "untrusted below attention threshold", score: 59, max: 100, wantVerdict: trustVerdictUntrusted},
+		{name: "hard failure forces untrusted", score: 100, max: 100, hardFailures: []string{"validation failed"}, wantVerdict: trustVerdictUntrusted},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			gotVerdict, _ := selectTrustVerdict(tc.score, tc.max, tc.hardFailures)
+			if gotVerdict != tc.wantVerdict {
+				t.Fatalf("selectTrustVerdict(%d,%d,%v) verdict=%q, want %q", tc.score, tc.max, tc.hardFailures, gotVerdict, tc.wantVerdict)
+			}
+		})
+	}
+}
+
+func TestParseShortStatMetrics(t *testing.T) {
+	cases := []struct {
+		name     string
+		input    string
+		expected shortStatMetrics
+	}{
+		{
+			name:  "full shortstat",
+			input: "21 files changed, 995 insertions(+), 70 deletions(-)",
+			expected: shortStatMetrics{
+				FilesChanged: 21,
+				Insertions:   995,
+				Deletions:    70,
+			},
+		},
+		{
+			name:  "single file insertion only",
+			input: "1 file changed, 1 insertion(+)",
+			expected: shortStatMetrics{
+				FilesChanged: 1,
+				Insertions:   1,
+				Deletions:    0,
+			},
+		},
+		{
+			name:  "derived shortstat format",
+			input: "3 file(s) changed (derived from task checkpoint scope)",
+			expected: shortStatMetrics{
+				FilesChanged: 3,
+				Insertions:   0,
+				Deletions:    0,
+			},
+		},
+		{
+			name:     "empty shortstat",
+			input:    "",
+			expected: shortStatMetrics{},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := parseShortStatMetrics(tc.input)
+			if got != tc.expected {
+				t.Fatalf("parseShortStatMetrics(%q)=%#v, want %#v", tc.input, got, tc.expected)
+			}
+		})
+	}
+}
+
 func validTrustContract() model.Contract {
 	return model.Contract{
 		Why:          "Deliver deterministic trust evidence so review can be metadata-first.",

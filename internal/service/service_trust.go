@@ -2,7 +2,9 @@ package service
 
 import (
 	"fmt"
+	"regexp"
 	"sophia/internal/model"
+	"strconv"
 	"strings"
 )
 
@@ -13,6 +15,8 @@ const (
 	trustTrustedMinRatio       = 0.85
 	trustAttentionMinRatio     = 0.60
 )
+
+var leadingIntPattern = regexp.MustCompile(`^\d+`)
 
 func buildTrustReport(cr *model.CR, validation *ValidationReport, diff *diffSummary) *TrustReport {
 	if cr == nil {
@@ -106,6 +110,48 @@ func trustScoreRatio(score, max int) float64 {
 		return 0
 	}
 	return float64(score) / float64(max)
+}
+
+type shortStatMetrics struct {
+	FilesChanged int
+	Insertions   int
+	Deletions    int
+}
+
+func parseShortStatMetrics(shortStat string) shortStatMetrics {
+	metrics := shortStatMetrics{}
+	trimmed := strings.TrimSpace(shortStat)
+	if trimmed == "" {
+		return metrics
+	}
+	for _, rawPart := range strings.Split(trimmed, ",") {
+		part := strings.ToLower(strings.TrimSpace(rawPart))
+		if part == "" {
+			continue
+		}
+		value := parseLeadingInt(part)
+		switch {
+		case strings.Contains(part, "file") && strings.Contains(part, "changed"):
+			metrics.FilesChanged = value
+		case strings.Contains(part, "insertion"):
+			metrics.Insertions = value
+		case strings.Contains(part, "deletion"):
+			metrics.Deletions = value
+		}
+	}
+	return metrics
+}
+
+func parseLeadingInt(input string) int {
+	match := leadingIntPattern.FindString(strings.TrimSpace(input))
+	if strings.TrimSpace(match) == "" {
+		return 0
+	}
+	value, err := strconv.Atoi(match)
+	if err != nil {
+		return 0
+	}
+	return value
 }
 
 func buildContractQualityDimension(contract model.Contract) TrustDimension {
