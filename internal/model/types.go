@@ -33,18 +33,27 @@ type Event struct {
 }
 
 type Subtask struct {
-	ID                int      `yaml:"id"`
-	Title             string   `yaml:"title"`
-	Status            string   `yaml:"status"`
-	CreatedAt         string   `yaml:"created_at"`
-	UpdatedAt         string   `yaml:"updated_at"`
-	CompletedAt       string   `yaml:"completed_at,omitempty"`
-	CreatedBy         string   `yaml:"created_by"`
-	CompletedBy       string   `yaml:"completed_by,omitempty"`
-	CheckpointCommit  string   `yaml:"checkpoint_commit,omitempty"`
-	CheckpointAt      string   `yaml:"checkpoint_at,omitempty"`
-	CheckpointMessage string   `yaml:"checkpoint_message,omitempty"`
-	CheckpointScope   []string `yaml:"checkpoint_scope,omitempty"`
+	ID                int          `yaml:"id"`
+	Title             string       `yaml:"title"`
+	Status            string       `yaml:"status"`
+	CreatedAt         string       `yaml:"created_at"`
+	UpdatedAt         string       `yaml:"updated_at"`
+	CompletedAt       string       `yaml:"completed_at,omitempty"`
+	CreatedBy         string       `yaml:"created_by"`
+	CompletedBy       string       `yaml:"completed_by,omitempty"`
+	CheckpointCommit  string       `yaml:"checkpoint_commit,omitempty"`
+	CheckpointAt      string       `yaml:"checkpoint_at,omitempty"`
+	CheckpointMessage string       `yaml:"checkpoint_message,omitempty"`
+	CheckpointScope   []string     `yaml:"checkpoint_scope,omitempty"`
+	Contract          TaskContract `yaml:"contract,omitempty"`
+}
+
+type TaskContract struct {
+	Intent             string   `yaml:"intent,omitempty"`
+	AcceptanceCriteria []string `yaml:"acceptance_criteria,omitempty"`
+	Scope              []string `yaml:"scope,omitempty"`
+	UpdatedAt          string   `yaml:"updated_at,omitempty"`
+	UpdatedBy          string   `yaml:"updated_by,omitempty"`
 }
 
 type Contract struct {
