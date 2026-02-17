@@ -97,6 +97,8 @@ func jsonErrorCode(err error) string {
 		return "task_contract_incomplete"
 	case errors.Is(err, service.ErrNoTaskScopeMatches):
 		return "no_task_scope_matches"
+	case errors.Is(err, service.ErrTaskNotDone):
+		return "task_not_done"
 	}
 	lower := strings.ToLower(strings.TrimSpace(err.Error()))
 	switch {
