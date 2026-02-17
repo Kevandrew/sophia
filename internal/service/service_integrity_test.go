@@ -430,7 +430,7 @@ func TestRepairFromGitRebuildsCRsAndRealignsIndex(t *testing.T) {
 
 	runGit(t, dir, "commit", "--allow-empty",
 		"-m", "[CR-2] Existing intent",
-		"-m", "Intent:\nRecovered why\n\nSubtasks:\n- [x] #1 Do thing\n\nNotes:\n- recovered note\n\nMetadata:\n- actor: Test User <test@example.com>\n- merged_at: 2026-02-17T00:00:00Z\n\nSophia-CR: 2\nSophia-Intent: Existing intent\nSophia-Tasks: 1 completed",
+		"-m", "Intent:\nRecovered why\n\nSubtasks:\n- [x] #1 Do thing\n\nNotes:\n- recovered note\n\nMetadata:\n- actor: Test User <test@example.com>\n- merged_at: 2026-02-17T00:00:00Z\n\nSophia-CR: 2\nSophia-CR-UID: cr_fixture-uid-2\nSophia-Intent: Existing intent\nSophia-Tasks: 1 completed",
 	)
 
 	if err := svc.store.SaveIndex(model.Index{NextID: 1}); err != nil {
@@ -458,6 +458,9 @@ func TestRepairFromGitRebuildsCRsAndRealignsIndex(t *testing.T) {
 	if repaired.Status != "merged" || repaired.Title != "Existing intent" {
 		t.Fatalf("unexpected repaired CR: %#v", repaired)
 	}
+	if repaired.UID != "cr_fixture-uid-2" {
+		t.Fatalf("expected repaired UID from footer, got %#v", repaired.UID)
+	}
 	if len(repaired.Notes) != 1 || repaired.Notes[0] != "recovered note" {
 		t.Fatalf("unexpected repaired notes: %#v", repaired.Notes)
 	}
@@ -471,6 +474,42 @@ func TestRepairFromGitRebuildsCRsAndRealignsIndex(t *testing.T) {
 	}
 	if nextCR.ID != 3 {
 		t.Fatalf("expected next CR id 3, got %d", nextCR.ID)
+	}
+}
+
+func TestRepairBackfillsMissingUIDOnExistingCRMetadata(t *testing.T) {
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	runGit(t, dir, "config", "user.name", "Test User")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+
+	cr, err := svc.AddCR("UID backfill", "repair should set uid")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+
+	loaded, err := svc.store.LoadCR(cr.ID)
+	if err != nil {
+		t.Fatalf("LoadCR() error = %v", err)
+	}
+	loaded.UID = ""
+	if err := svc.store.SaveCR(loaded); err != nil {
+		t.Fatalf("SaveCR(clear uid) error = %v", err)
+	}
+
+	if _, err := svc.RepairFromGit("main", false); err != nil {
+		t.Fatalf("RepairFromGit() error = %v", err)
+	}
+
+	repaired, err := svc.store.LoadCR(cr.ID)
+	if err != nil {
+		t.Fatalf("LoadCR(repaired) error = %v", err)
+	}
+	if strings.TrimSpace(repaired.UID) == "" {
+		t.Fatalf("expected repair to backfill uid, got %#v", repaired)
 	}
 }
 
