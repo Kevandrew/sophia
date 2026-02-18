@@ -147,7 +147,85 @@ sophia init [--base-branch <name>] [--metadata-mode local|tracked]
 * Sets default base branch
 * Defaults to local metadata mode (shared across worktrees)
 * Seeds `cr-plan.sample.yaml` in the active metadata root when missing
+* Seeds root `SOPHIA.yaml` when missing (tracked repo policy template)
 * Resolves repository root from any nested subdirectory before loading metadata
+
+---
+
+### Repository Policy File (`SOPHIA.yaml`)
+
+Sophia supports a tracked repository policy file at the repo root:
+
+* Path is fixed to `SOPHIA.yaml`
+* Missing file falls back to built-in defaults (backward compatible behavior)
+* Present but invalid file fails deterministically (`policy_invalid`)
+* Unknown keys are rejected (`KnownFields` strict decode)
+* `init` seeds the template only when missing (never overwrites existing file)
+
+Policy controls:
+
+* Required CR contract fields (`contract.required_fields`)
+* Required task contract fields (`task_contract.required_fields`)
+* Scope allowlist conventions (`scope.allowed_prefixes`)
+* File classification hints for tests/dependencies (`classification.*`)
+* Merge override allowance (`merge.allow_override`)
+
+Default template:
+
+```yaml
+version: v1
+
+contract:
+  required_fields:
+    - why
+    - scope
+    - non_goals
+    - invariants
+    - blast_radius
+    - test_plan
+    - rollback_plan
+
+task_contract:
+  required_fields:
+    - intent
+    - acceptance_criteria
+    - scope
+
+scope:
+  allowed_prefixes:
+    - "."
+
+classification:
+  test:
+    suffixes:
+      - "_test.go"
+      - ".spec.js"
+      - ".spec.ts"
+      - ".spec.jsx"
+      - ".spec.tsx"
+      - ".test.js"
+      - ".test.ts"
+      - ".test.jsx"
+      - ".test.tsx"
+    path_contains:
+      - "/test/"
+      - "/tests/"
+  dependency:
+    file_names:
+      - "go.mod"
+      - "go.sum"
+      - "package.json"
+      - "package-lock.json"
+      - "pnpm-lock.yaml"
+      - "yarn.lock"
+      - "cargo.toml"
+      - "cargo.lock"
+      - "requirements.txt"
+      - "poetry.lock"
+
+merge:
+  allow_override: true
+```
 
 ---
 
@@ -585,6 +663,9 @@ Sophia-Tasks: 2 completed
 ```
 sophia cr merge <id> --override-reason "hotfix required for production outage"
 ```
+
+* Override bypass can be disabled at repo level via `SOPHIA.yaml`:
+  `merge.allow_override: false` (returns `policy_violation` for `merge`/`merge resume` with `--override-reason`)
 
 ---
 

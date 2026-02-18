@@ -1,0 +1,52 @@
+version: v1
+
+contract:
+  required_fields:
+    - why
+    - scope
+    - non_goals
+    - invariants
+    - blast_radius
+    - test_plan
+    - rollback_plan
+
+task_contract:
+  required_fields:
+    - intent
+    - acceptance_criteria
+    - scope
+
+scope:
+  allowed_prefixes:
+    - "."
+
+classification:
+  test:
+    suffixes:
+      - "_test.go"
+      - ".spec.js"
+      - ".spec.ts"
+      - ".spec.jsx"
+      - ".spec.tsx"
+      - ".test.js"
+      - ".test.ts"
+      - ".test.jsx"
+      - ".test.tsx"
+    path_contains:
+      - "/test/"
+      - "/tests/"
+  dependency:
+    file_names:
+      - "go.mod"
+      - "go.sum"
+      - "package.json"
+      - "package-lock.json"
+      - "pnpm-lock.yaml"
+      - "yarn.lock"
+      - "cargo.toml"
+      - "cargo.lock"
+      - "requirements.txt"
+      - "poetry.lock"
+
+merge:
+  allow_override: true

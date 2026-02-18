@@ -220,6 +220,11 @@ func (s *Service) validateCRPlan(plan *crPlanSpec) (*planOrder, error) {
 	if len(plan.CRs) == 0 {
 		return nil, fmt.Errorf("plan must include at least one CR")
 	}
+	policy, err := s.repoPolicy()
+	if err != nil {
+		return nil, err
+	}
+	allowedScopePrefixes := append([]string(nil), policy.Scope.AllowedPrefixes...)
 
 	byKey := make(map[string]crPlanCRSpec, len(plan.CRs))
 	keyOrder := make([]string, 0, len(plan.CRs))
@@ -242,7 +247,7 @@ func (s *Service) validateCRPlan(plan *crPlanSpec) (*planOrder, error) {
 		if cr.Base != "" && cr.ParentKey != "" {
 			return nil, fmt.Errorf("cr %q cannot define both base and parent_key", cr.Key)
 		}
-		if err := s.validatePlanContract(cr.Key, cr.Contract); err != nil {
+		if err := s.validatePlanContract(cr.Key, cr.Contract, allowedScopePrefixes); err != nil {
 			return nil, err
 		}
 
@@ -261,7 +266,7 @@ func (s *Service) validateCRPlan(plan *crPlanSpec) (*planOrder, error) {
 			if task.Title == "" {
 				return nil, fmt.Errorf("cr %q task %q title cannot be empty", cr.Key, task.Key)
 			}
-			if err := s.validatePlanTaskContract(cr.Key, task.Key, task.Contract); err != nil {
+			if err := s.validatePlanTaskContract(cr.Key, task.Key, task.Contract, allowedScopePrefixes); err != nil {
 				return nil, err
 			}
 
@@ -350,10 +355,14 @@ func (s *Service) validateCRPlan(plan *crPlanSpec) (*planOrder, error) {
 	}, nil
 }
 
-func (s *Service) validatePlanContract(crKey string, contract crPlanContract) error {
+func (s *Service) validatePlanContract(crKey string, contract crPlanContract, allowedScopePrefixes []string) error {
 	if len(contract.Scope) > 0 {
-		if _, err := s.normalizeContractScopePrefixes(contract.Scope); err != nil {
+		scope, err := s.normalizeContractScopePrefixes(contract.Scope)
+		if err != nil {
 			return fmt.Errorf("cr %q contract scope invalid: %w", crKey, err)
+		}
+		if err := enforceScopeAllowlist(scope, allowedScopePrefixes, fmt.Sprintf("cr %q contract scope", crKey)); err != nil {
+			return err
 		}
 	}
 	if len(contract.RiskCriticalScopes) > 0 {
@@ -367,10 +376,14 @@ func (s *Service) validatePlanContract(crKey string, contract crPlanContract) er
 	return nil
 }
 
-func (s *Service) validatePlanTaskContract(crKey, taskKey string, contract crPlanTaskContract) error {
+func (s *Service) validatePlanTaskContract(crKey, taskKey string, contract crPlanTaskContract, allowedScopePrefixes []string) error {
 	if len(contract.Scope) > 0 {
-		if _, err := s.normalizeContractScopePrefixes(contract.Scope); err != nil {
+		scope, err := s.normalizeContractScopePrefixes(contract.Scope)
+		if err != nil {
 			return fmt.Errorf("cr %q task %q contract scope invalid: %w", crKey, taskKey, err)
+		}
+		if err := enforceScopeAllowlist(scope, allowedScopePrefixes, fmt.Sprintf("cr %q task %q contract scope", crKey, taskKey)); err != nil {
+			return err
 		}
 	}
 	return nil

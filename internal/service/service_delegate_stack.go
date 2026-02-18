@@ -40,6 +40,10 @@ func (s *Service) DelegateTaskToChild(parentCRID, taskID, childCRID int) (*Deleg
 	if child.ParentCRID != parent.ID {
 		return nil, fmt.Errorf("child cr %d is not a direct child of parent cr %d", child.ID, parent.ID)
 	}
+	policy, err := s.repoPolicy()
+	if err != nil {
+		return nil, err
+	}
 
 	parentTaskIndex := indexOfTask(parent.Subtasks, taskID)
 	if parentTaskIndex < 0 {
@@ -49,7 +53,7 @@ func (s *Service) DelegateTaskToChild(parentCRID, taskID, childCRID int) (*Deleg
 	if parentTask.Status == model.TaskStatusDone {
 		return nil, fmt.Errorf("task %d in cr %d is already done", taskID, parentCRID)
 	}
-	if missing := missingTaskContractFields(parentTask.Contract); len(missing) > 0 {
+	if missing := missingTaskContractFields(parentTask.Contract, policy.TaskContract.RequiredFields); len(missing) > 0 {
 		return nil, fmt.Errorf("%w: task %d missing %s", ErrTaskContractIncomplete, taskID, strings.Join(missing, ","))
 	}
 	for _, delegation := range parentTask.Delegations {

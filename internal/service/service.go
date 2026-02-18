@@ -33,6 +33,8 @@ var (
 	ErrTaskDelegated          = errors.New("task is delegated")
 	ErrTaskNotDone            = errors.New("task is not done")
 	ErrInvalidEvidenceType    = errors.New("invalid evidence type")
+	ErrPolicyInvalid          = errors.New("repository policy is invalid")
+	ErrPolicyViolation        = errors.New("repository policy violation")
 )
 
 var (
@@ -731,6 +733,9 @@ func (s *Service) Init(baseBranch, metadataMode string) (string, error) {
 		return "", err
 	}
 	if err := ensureCRPlanSample(s.store.SophiaDir()); err != nil {
+		return "", err
+	}
+	if err := ensureRepoPolicyFile(s.repoRoot); err != nil {
 		return "", err
 	}
 	if effectiveMode == model.MetadataModeLocal {

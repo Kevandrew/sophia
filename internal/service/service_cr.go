@@ -225,6 +225,10 @@ func (s *Service) SetCRContract(id int, patch ContractPatch) ([]string, error) {
 	if guardErr := s.ensureNoMergeInProgressForCR(cr); guardErr != nil {
 		return nil, guardErr
 	}
+	policy, err := s.repoPolicy()
+	if err != nil {
+		return nil, err
+	}
 	changed := []string{}
 	if patch.Why != nil {
 		if cr.Contract.Why != strings.TrimSpace(*patch.Why) {
@@ -235,6 +239,9 @@ func (s *Service) SetCRContract(id int, patch ContractPatch) ([]string, error) {
 	if patch.Scope != nil {
 		scope, scopeErr := s.normalizeContractScopePrefixes(*patch.Scope)
 		if scopeErr != nil {
+			return nil, scopeErr
+		}
+		if scopeErr := enforceScopeAllowlist(scope, policy.Scope.AllowedPrefixes, "cr contract scope"); scopeErr != nil {
 			return nil, scopeErr
 		}
 		if !equalStringSlices(cr.Contract.Scope, scope) {
@@ -541,7 +548,11 @@ func (s *Service) StatusCR(id int) (*CRStatusView, error) {
 		}
 	}
 
-	missingFields := missingCRContractFields(cr.Contract)
+	policy, err := s.repoPolicy()
+	if err != nil {
+		return nil, err
+	}
+	missingFields := missingCRContractFields(cr.Contract, policy.Contract.RequiredFields)
 	view := &CRStatusView{
 		ID:                    cr.ID,
 		UID:                   strings.TrimSpace(cr.UID),
@@ -600,11 +611,15 @@ func (s *Service) ImpactCR(id int) (*ImpactReport, error) {
 	if err != nil {
 		return nil, err
 	}
+	policy, err := s.repoPolicy()
+	if err != nil {
+		return nil, err
+	}
 	diff, err := s.summarizeCRDiff(cr)
 	if err != nil {
 		return nil, err
 	}
-	impact := buildImpactReport(cr, diff)
+	impact := buildImpactReport(cr, diff, policy)
 	return impact, nil
 }
 
@@ -613,19 +628,26 @@ func (s *Service) ValidateCR(id int) (*ValidationReport, error) {
 	if err != nil {
 		return nil, err
 	}
+	policy, err := s.repoPolicy()
+	if err != nil {
+		return nil, err
+	}
 	diff, err := s.summarizeCRDiff(cr)
 	if err != nil {
 		return nil, err
 	}
-	impact := buildImpactReport(cr, diff)
+	impact := buildImpactReport(cr, diff, policy)
 
 	errorsOut := make([]string, 0)
-	for _, field := range missingCRContractFields(cr.Contract) {
+	for _, field := range missingCRContractFields(cr.Contract, policy.Contract.RequiredFields) {
 		errorsOut = append(errorsOut, fmt.Sprintf("missing required contract field: %s", field))
 	}
 	for _, driftPath := range impact.ScopeDrift {
 		errorsOut = append(errorsOut, fmt.Sprintf("scope drift: changed path %q is outside declared contract scope", driftPath))
 	}
+	errorsOut = append(errorsOut, policyScopeViolationErrors(cr, policy.Scope.AllowedPrefixes)...)
+	errorsOut = dedupeStrings(errorsOut)
+	sort.Strings(errorsOut)
 
 	warnings := append([]string(nil), impact.TaskScopeWarnings...)
 	warnings = append(warnings, impact.TaskContractWarnings...)
