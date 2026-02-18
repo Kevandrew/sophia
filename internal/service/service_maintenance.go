@@ -287,6 +287,17 @@ func (s *Service) RepairFromGit(baseBranch string, refresh bool) (*RepairReport,
 		}
 	}
 
+	allCRs := make([]model.CR, 0, len(existingMap))
+	for _, cr := range existingMap {
+		if cr == nil {
+			continue
+		}
+		allCRs = append(allCRs, *cr)
+	}
+	if err := s.syncAllCRRefs(allCRs); err != nil {
+		return nil, err
+	}
+
 	if err := s.ensureNextCRIDFloor(targetBase); err != nil {
 		return nil, err
 	}

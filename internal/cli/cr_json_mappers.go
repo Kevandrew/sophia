@@ -378,3 +378,28 @@ func rangeDiffToJSONMap(view *service.RangeDiffView) map[string]any {
 		"warnings":      view.Warnings,
 	}
 }
+
+func crRangeAnchorsToJSONMap(view *service.CRRangeAnchorsView) map[string]any {
+	if view == nil {
+		return map[string]any{}
+	}
+	return map[string]any{
+		"cr_id":      view.CRID,
+		"base":       view.Base,
+		"head":       view.Head,
+		"merge_base": view.MergeBase,
+		"warnings":   view.Warnings,
+	}
+}
+
+func crRevParseToJSONMap(view *service.CRRevParseView) map[string]any {
+	if view == nil {
+		return map[string]any{}
+	}
+	return map[string]any{
+		"cr_id":    view.CRID,
+		"kind":     view.Kind,
+		"commit":   view.Commit,
+		"warnings": view.Warnings,
+	}
+}

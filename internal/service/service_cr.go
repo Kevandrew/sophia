@@ -135,6 +135,9 @@ func (s *Service) AddCRWithOptionsWithWarnings(title, description string, opts A
 	if err := s.store.SaveCR(cr); err != nil {
 		return nil, nil, err
 	}
+	if err := s.syncCRRef(cr); err != nil {
+		return nil, nil, err
+	}
 
 	warnings := s.computeOverlapWarnings(referenceDirs, cr.ID)
 	return cr, warnings, nil

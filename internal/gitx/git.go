@@ -129,6 +129,91 @@ func (c *Client) BranchExists(branch string) bool {
 	return err == nil
 }
 
+func (c *Client) RefExists(ref string) bool {
+	ref = strings.TrimSpace(ref)
+	if ref == "" {
+		return false
+	}
+	_, err := c.run("show-ref", "--verify", "--quiet", ref)
+	return err == nil
+}
+
+func (c *Client) ResolveSymbolicRef(ref string) (string, error) {
+	ref = strings.TrimSpace(ref)
+	if ref == "" {
+		return "", fmt.Errorf("ref cannot be empty")
+	}
+	out, err := c.run("symbolic-ref", "--quiet", ref)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(out), nil
+}
+
+func (c *Client) SetSymbolicRef(ref, target string) error {
+	ref = strings.TrimSpace(ref)
+	target = strings.TrimSpace(target)
+	if ref == "" {
+		return fmt.Errorf("ref cannot be empty")
+	}
+	if target == "" {
+		return fmt.Errorf("target cannot be empty")
+	}
+	_, err := c.run("symbolic-ref", ref, target)
+	return err
+}
+
+func (c *Client) UpdateRef(ref, target string) error {
+	ref = strings.TrimSpace(ref)
+	target = strings.TrimSpace(target)
+	if ref == "" {
+		return fmt.Errorf("ref cannot be empty")
+	}
+	if target == "" {
+		return fmt.Errorf("target cannot be empty")
+	}
+	_, err := c.run("update-ref", "--no-deref", ref, target)
+	return err
+}
+
+func (c *Client) DeleteRef(ref string) error {
+	ref = strings.TrimSpace(ref)
+	if ref == "" {
+		return fmt.Errorf("ref cannot be empty")
+	}
+	if !c.RefExists(ref) {
+		return nil
+	}
+	_, err := c.run("update-ref", "-d", ref)
+	return err
+}
+
+func (c *Client) ListRefs(prefix string) ([]string, error) {
+	prefix = strings.TrimSpace(prefix)
+	args := []string{"for-each-ref", "--format=%(refname)"}
+	if prefix != "" {
+		args = append(args, prefix)
+	}
+	out, err := c.run(args...)
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(out) == "" {
+		return []string{}, nil
+	}
+	lines := strings.Split(out, "\n")
+	refs := make([]string, 0, len(lines))
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		refs = append(refs, line)
+	}
+	sort.Strings(refs)
+	return refs, nil
+}
+
 func (c *Client) EnsureBaseBranch(baseBranch string) error {
 	baseBranch = strings.TrimSpace(baseBranch)
 	if baseBranch == "" {

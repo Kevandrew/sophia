@@ -407,6 +407,9 @@ func (s *Service) finalizeCRMergedState(cr *model.CR, validation *ValidationRepo
 	if err := s.store.SaveCR(cr); err != nil {
 		return err
 	}
+	if err := s.syncCRRef(cr); err != nil {
+		return err
+	}
 	if err := s.backfillChildrenAfterParentMerge(cr); err != nil {
 		return err
 	}
@@ -603,6 +606,9 @@ func (s *Service) SwitchCR(id int) (*model.CR, error) {
 		if err := s.git.CheckoutBranch(cr.Branch); err != nil {
 			return nil, err
 		}
+		if err := s.syncCRRef(cr); err != nil {
+			return nil, err
+		}
 		return cr, nil
 	}
 
@@ -614,6 +620,9 @@ func (s *Service) SwitchCR(id int) (*model.CR, error) {
 		return nil, err
 	}
 	if err := s.git.CreateBranchFrom(cr.Branch, baseAnchor); err != nil {
+		return nil, err
+	}
+	if err := s.syncCRRef(cr); err != nil {
 		return nil, err
 	}
 	return cr, nil
@@ -669,6 +678,9 @@ func (s *Service) ReopenCR(id int) (*model.CR, error) {
 		Ref:     fmt.Sprintf("cr:%d", cr.ID),
 	})
 	if err := s.store.SaveCR(cr); err != nil {
+		return nil, err
+	}
+	if err := s.syncCRRef(cr); err != nil {
 		return nil, err
 	}
 
