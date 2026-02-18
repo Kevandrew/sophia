@@ -532,6 +532,7 @@ type TrustReport struct {
 	Requirements    []TrustRequirement
 	CheckResults    []TrustCheckResult
 	ReviewDepth     TrustReviewDepthResult
+	ContractDrift   TaskContractDriftSummary
 	Gate            TrustGateSummary
 }
 
@@ -541,18 +542,22 @@ type TrustRequirement struct {
 	Satisfied bool
 	Reason    string
 	Action    string
+	TaskID    int
+	Source    string
 }
 
 type TrustCheckResult struct {
-	Key            string
-	Command        string
-	Required       bool
-	Status         string
-	Reason         string
-	AllowExitCodes []int
-	ExitCode       *int
-	LastRunAt      string
-	FreshnessHours int
+	Key               string
+	Command           string
+	Required          bool
+	Status            string
+	Reason            string
+	AllowExitCodes    []int
+	ExitCode          *int
+	LastRunAt         string
+	FreshnessHours    int
+	RequiredByTaskIDs []int
+	Sources           []string
 }
 
 type TrustReviewDepthResult struct {
@@ -570,6 +575,13 @@ type TrustGateSummary struct {
 	Applies bool
 	Blocked bool
 	Reason  string
+}
+
+type TaskContractDriftSummary struct {
+	Total               int
+	Unacknowledged      int
+	TasksWithDrift      []int
+	UnacknowledgedTasks []int
 }
 
 type TrustCheckStatusReport struct {
@@ -594,6 +606,8 @@ type TaskContractPatch struct {
 	Intent             *string
 	AcceptanceCriteria *[]string
 	Scope              *[]string
+	AcceptanceChecks   *[]string
+	ChangeReason       *string
 }
 
 type TaskChunk struct {
