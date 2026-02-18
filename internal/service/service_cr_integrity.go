@@ -383,6 +383,9 @@ func (s *Service) taskNeedsCheckpointOrphan(cr *model.CR, task *model.Subtask, b
 	}
 	commit := strings.TrimSpace(task.CheckpointCommit)
 	if task.Status == model.TaskStatusDone && commit == "" {
+		if strings.TrimSpace(task.CheckpointReason) != "" && strings.TrimSpace(task.CheckpointSource) == "task_no_checkpoint" {
+			return false, ""
+		}
 		return true, "done task missing checkpoint commit"
 	}
 	if commit == "" {

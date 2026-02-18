@@ -473,7 +473,10 @@ func (s *Service) ListTaskChunks(crID, taskID int, paths []string) ([]TaskChunk,
 }
 
 func (s *Service) DoneTask(crID, taskID int) error {
-	_, err := s.DoneTaskWithCheckpoint(crID, taskID, DoneTaskOptions{Checkpoint: false})
+	_, err := s.DoneTaskWithCheckpoint(crID, taskID, DoneTaskOptions{
+		Checkpoint:         false,
+		NoCheckpointReason: "task marked done without checkpoint via service API",
+	})
 	return err
 }
 
@@ -745,6 +748,17 @@ func (s *Service) DoneTaskWithCheckpoint(crID, taskID int, opts DoneTaskOptions)
 			cr.Events[len(cr.Events)-1].Meta["scope_source"] = "patch_manifest"
 			cr.Events[len(cr.Events)-1].Meta["chunk_count"] = strconv.Itoa(len(checkpointChunks))
 		}
+	} else {
+		reason := strings.TrimSpace(opts.NoCheckpointReason)
+		cr.Subtasks[taskIndex].CheckpointCommit = ""
+		cr.Subtasks[taskIndex].CheckpointAt = now
+		cr.Subtasks[taskIndex].CheckpointMessage = ""
+		cr.Subtasks[taskIndex].CheckpointScope = []string{}
+		cr.Subtasks[taskIndex].CheckpointChunks = []model.CheckpointChunk{}
+		cr.Subtasks[taskIndex].CheckpointOrphan = false
+		cr.Subtasks[taskIndex].CheckpointReason = reason
+		cr.Subtasks[taskIndex].CheckpointSource = "task_no_checkpoint"
+		cr.Subtasks[taskIndex].CheckpointSyncAt = now
 	}
 
 	cr.Subtasks[taskIndex].Status = model.TaskStatusDone
@@ -752,12 +766,23 @@ func (s *Service) DoneTaskWithCheckpoint(crID, taskID int, opts DoneTaskOptions)
 	cr.Subtasks[taskIndex].CompletedAt = now
 	cr.Subtasks[taskIndex].CompletedBy = actor
 
+	taskDoneMeta := map[string]string{
+		"checkpoint": strconv.FormatBool(opts.Checkpoint),
+	}
+	if opts.Checkpoint {
+		taskDoneMeta["checkpoint_commit"] = commitSHA
+		taskDoneMeta["checkpoint_source"] = "task_checkpoint"
+	} else {
+		taskDoneMeta["checkpoint_source"] = "task_no_checkpoint"
+		taskDoneMeta["no_checkpoint_reason"] = strings.TrimSpace(opts.NoCheckpointReason)
+	}
 	cr.Events = append(cr.Events, model.Event{
 		TS:      now,
 		Actor:   actor,
 		Type:    "task_done",
 		Summary: title,
 		Ref:     fmt.Sprintf("task:%d", taskID),
+		Meta:    taskDoneMeta,
 	})
 	cr.UpdatedAt = now
 

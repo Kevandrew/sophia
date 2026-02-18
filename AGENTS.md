@@ -20,14 +20,14 @@ Recommended daily flow (intent-first):
    `--risk-critical-scope <prefix> --risk-tier-hint <low|medium|high> --risk-rationale "..."`
 3. `sophia cr task add <id> "<subtask>"`
 4. `sophia cr task contract set <id> <task-id> --intent "..." --acceptance "..." --scope <prefix>`
-5. implement on `sophia/cr-<id>`
+5. implement on the active CR branch (typically via `sophia cr switch <id>`)
 6. `sophia cr task done <id> <task-id> --from-contract` (preferred checkpoint from task contract scope)
    Optional hunk flow:
    `sophia cr task chunk list <id> <task-id> [--path <file>] [--json]`
    `sophia cr task done <id> <task-id> --patch-file <patch-file>`
 7. `sophia cr validate <id>` (read-only by default; add `--record` to append validation audit event)
-8. `sophia cr review <id>` (use Trust verdict/required actions as primary metadata confidence signal; diff deep-dive becomes optional when trust is strong; hard-fail means `validation errors > 0` or missing required CR contract fields, and evidence signals come from scope drift, validation warnings/errors, task checkpoints, tests/dependencies touched, and delegated blockers)
-9. optional machine-readable checks: `sophia cr status <id> --json`, `sophia cr validate <id> --json`, `sophia doctor --json`
+8. `sophia cr review <id>` (use Trust verdict/required_actions as deterministic confidence signal; treat `attention_actions` as non-blocking improvement guidance; hard-fail means `validation errors > 0` or missing required CR contract fields, and evidence signals come from scope drift, validation warnings/errors, task checkpoints, tests/dependencies touched, and delegated blockers)
+9. optional machine-readable checks: `sophia cr status <id> --json`, `sophia cr validate <id> --json`, `sophia cr check status <id> --json`, `sophia doctor --json`
 10. `sophia cr merge <id>`
 11. if merge conflicts occur:
    `sophia cr merge status <id>`
@@ -65,7 +65,7 @@ Recommended daily flow (intent-first):
 - Set task contracts (`cr task contract`) before task completion; `task done` is blocked if missing.
 - Task completion creates checkpoint commits via `sophia cr task done` and requires explicit scope mode (`--from-contract`, `--path`, `--patch-file`, or `--all`).
 - Prefer `--from-contract` to keep staging aligned with task scope declarations.
-- Use `--no-checkpoint` for metadata-only completion; use `--all` only when full-stage behavior is intended.
+- Use `--no-checkpoint --no-checkpoint-reason "<why>"` for metadata-only completion; use `--all` only when full-stage behavior is intended.
 - Pre-staged index changes are rejected before checkpointing to prevent accidental scope drift.
 - Merge is validation-gated; use `--override-reason` only for audited emergency bypasses.
 - During unresolved merge state, mutating CR commands are blocked until `cr merge abort` or `cr merge resume` completes.

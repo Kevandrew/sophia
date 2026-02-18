@@ -230,7 +230,10 @@ func TestDiffTaskFallbackRequiresCheckpointScope(t *testing.T) {
 		t.Fatalf("AddTask() error = %v", err)
 	}
 	mustSetTaskContractForDiff(t, svc, cr.ID, task.ID, []string{"missing.txt"})
-	if _, err := svc.DoneTaskWithCheckpoint(cr.ID, task.ID, DoneTaskOptions{Checkpoint: false}); err != nil {
+	if _, err := svc.DoneTaskWithCheckpoint(cr.ID, task.ID, DoneTaskOptions{
+		Checkpoint:         false,
+		NoCheckpointReason: "metadata-only fallback test",
+	}); err != nil {
 		t.Fatalf("DoneTaskWithCheckpoint(no checkpoint) error = %v", err)
 	}
 

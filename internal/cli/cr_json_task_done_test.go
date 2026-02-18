@@ -53,6 +53,11 @@ func TestTaskDoneFlagConflictsWithFromContract(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "--no-checkpoint cannot be combined") {
 		t.Fatalf("expected --no-checkpoint + --patch-file conflict error, got %v", err)
 	}
+
+	_, _, err = runCLI(t, dir, "cr", "task", "done", "1", "1", "--no-checkpoint")
+	if err == nil || !strings.Contains(err.Error(), "--no-checkpoint requires --no-checkpoint-reason") {
+		t.Fatalf("expected --no-checkpoint reason requirement error, got %v", err)
+	}
 }
 
 func TestTaskDonePatchFileSuccess(t *testing.T) {

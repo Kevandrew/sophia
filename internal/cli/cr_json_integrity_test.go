@@ -54,7 +54,10 @@ func TestCRDoctorAndReconcileJSON(t *testing.T) {
 	if _, err := svc.ReopenTask(cr.ID, task.ID, service.ReopenTaskOptions{ClearCheckpoint: true}); err != nil {
 		t.Fatalf("ReopenTask() error = %v", err)
 	}
-	if _, err := svc.DoneTaskWithCheckpoint(cr.ID, task.ID, service.DoneTaskOptions{Checkpoint: false}); err != nil {
+	if _, err := svc.DoneTaskWithCheckpoint(cr.ID, task.ID, service.DoneTaskOptions{
+		Checkpoint:         false,
+		NoCheckpointReason: "metadata-only completion for integrity check",
+	}); err != nil {
 		t.Fatalf("DoneTaskWithCheckpoint(no checkpoint) error = %v", err)
 	}
 

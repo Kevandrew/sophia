@@ -474,21 +474,22 @@ func trustToJSONMap(trust *service.TrustReport) map[string]any {
 		checkResults = append(checkResults, trustCheckResultToJSONMap(check))
 	}
 	return map[string]any{
-		"verdict":          trust.Verdict,
-		"score":            trust.Score,
-		"max":              trust.Max,
-		"advisory_only":    trust.AdvisoryOnly,
-		"risk_tier":        trust.RiskTier,
-		"hard_failures":    stringSliceOrEmpty(trust.HardFailures),
-		"dimensions":       dimensions,
-		"requirements":     requirements,
-		"check_results":    checkResults,
-		"review_depth":     trustReviewDepthToJSONMap(trust.ReviewDepth),
-		"contract_drift":   trustContractDriftSummaryToJSONMap(trust.ContractDrift),
-		"gate":             trustGateToJSONMap(trust.Gate),
-		"required_actions": stringSliceOrEmpty(trust.RequiredActions),
-		"advisories":       stringSliceOrEmpty(trust.Advisories),
-		"summary":          trust.Summary,
+		"verdict":           trust.Verdict,
+		"score":             trust.Score,
+		"max":               trust.Max,
+		"advisory_only":     trust.AdvisoryOnly,
+		"risk_tier":         trust.RiskTier,
+		"hard_failures":     stringSliceOrEmpty(trust.HardFailures),
+		"dimensions":        dimensions,
+		"requirements":      requirements,
+		"check_results":     checkResults,
+		"review_depth":      trustReviewDepthToJSONMap(trust.ReviewDepth),
+		"contract_drift":    trustContractDriftSummaryToJSONMap(trust.ContractDrift),
+		"gate":              trustGateToJSONMap(trust.Gate),
+		"required_actions":  stringSliceOrEmpty(trust.RequiredActions),
+		"attention_actions": stringSliceOrEmpty(trust.AttentionActions),
+		"advisories":        stringSliceOrEmpty(trust.Advisories),
+		"summary":           trust.Summary,
 	}
 }
 
@@ -567,12 +568,15 @@ func trustCheckStatusToJSONMap(report *service.TrustCheckStatusReport) map[strin
 		checkResults = append(checkResults, trustCheckResultToJSONMap(check))
 	}
 	return map[string]any{
-		"cr_id":           report.CRID,
-		"cr_uid":          report.CRUID,
-		"risk_tier":       report.RiskTier,
-		"freshness_hours": report.FreshnessHours,
-		"requirements":    requirements,
-		"check_results":   checkResults,
+		"cr_id":                report.CRID,
+		"cr_uid":               report.CRUID,
+		"risk_tier":            report.RiskTier,
+		"freshness_hours":      report.FreshnessHours,
+		"check_mode":           report.CheckMode,
+		"required_check_count": report.RequiredCheckCount,
+		"requirements":         requirements,
+		"check_results":        checkResults,
+		"guidance":             stringSliceOrEmpty(report.Guidance),
 	}
 }
 
@@ -589,12 +593,15 @@ func trustCheckRunToJSONMap(report *service.TrustCheckRunReport) map[string]any 
 		checkResults = append(checkResults, trustCheckResultToJSONMap(check))
 	}
 	return map[string]any{
-		"cr_id":         report.CRID,
-		"cr_uid":        report.CRUID,
-		"risk_tier":     report.RiskTier,
-		"executed":      report.Executed,
-		"requirements":  requirements,
-		"check_results": checkResults,
+		"cr_id":                report.CRID,
+		"cr_uid":               report.CRUID,
+		"risk_tier":            report.RiskTier,
+		"executed":             report.Executed,
+		"check_mode":           report.CheckMode,
+		"required_check_count": report.RequiredCheckCount,
+		"requirements":         requirements,
+		"check_results":        checkResults,
+		"guidance":             stringSliceOrEmpty(report.Guidance),
 	}
 }
 

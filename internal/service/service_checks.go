@@ -25,13 +25,17 @@ func (s *Service) TrustCheckStatusCR(id int) (*TrustCheckStatusReport, error) {
 		return nil, err
 	}
 	trust := buildTrustReportWithPolicy(cr, validation, diff, policy.Contract.RequiredFields, policy)
+	checkMode, requiredCount, guidance := trustCheckModeAndGuidance(trust.CheckResults)
 	return &TrustCheckStatusReport{
-		CRID:           cr.ID,
-		CRUID:          cr.UID,
-		RiskTier:       trust.RiskTier,
-		Requirements:   append([]TrustRequirement(nil), trust.Requirements...),
-		CheckResults:   append([]TrustCheckResult(nil), trust.CheckResults...),
-		FreshnessHours: intValueOrDefault(policy.Trust.Checks.FreshnessHours, defaultTrustCheckFreshnessHours),
+		CRID:               cr.ID,
+		CRUID:              cr.UID,
+		RiskTier:           trust.RiskTier,
+		Requirements:       append([]TrustRequirement(nil), trust.Requirements...),
+		CheckResults:       append([]TrustCheckResult(nil), trust.CheckResults...),
+		FreshnessHours:     intValueOrDefault(policy.Trust.Checks.FreshnessHours, defaultTrustCheckFreshnessHours),
+		CheckMode:          checkMode,
+		RequiredCheckCount: requiredCount,
+		Guidance:           guidance,
 	}, nil
 }
 
@@ -108,12 +112,28 @@ func (s *Service) RunTrustChecksCR(id int) (*TrustCheckRunReport, error) {
 		return nil, err
 	}
 	trust := buildTrustReportWithPolicy(updatedCR, updatedValidation, updatedDiff, policy.Contract.RequiredFields, policy)
+	checkMode, requiredCount, guidance := trustCheckModeAndGuidance(trust.CheckResults)
 	return &TrustCheckRunReport{
-		CRID:         updatedCR.ID,
-		CRUID:        updatedCR.UID,
-		RiskTier:     trust.RiskTier,
-		Requirements: append([]TrustRequirement(nil), trust.Requirements...),
-		CheckResults: append([]TrustCheckResult(nil), trust.CheckResults...),
-		Executed:     len(requiredChecks),
+		CRID:               updatedCR.ID,
+		CRUID:              updatedCR.UID,
+		RiskTier:           trust.RiskTier,
+		Requirements:       append([]TrustRequirement(nil), trust.Requirements...),
+		CheckResults:       append([]TrustCheckResult(nil), trust.CheckResults...),
+		Executed:           len(requiredChecks),
+		CheckMode:          checkMode,
+		RequiredCheckCount: requiredCount,
+		Guidance:           guidance,
 	}, nil
+}
+
+func trustCheckModeAndGuidance(checkResults []TrustCheckResult) (string, int, []string) {
+	requiredCount := len(checkResults)
+	if requiredCount == 0 {
+		return "none", 0, []string{
+			"No checks are currently required for this CR.",
+			"Define trust.checks.definitions in SOPHIA.yaml to require executable checks by risk tier.",
+			"Done-task acceptance checks can also require check keys via `sophia cr task contract set --acceptance-check <key>`.",
+		}
+	}
+	return "required", requiredCount, []string{}
 }

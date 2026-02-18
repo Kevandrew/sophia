@@ -52,6 +52,9 @@ func newCRCheckRunCmd() *cobra.Command {
 			fmt.Fprintf(cmd.OutOrStdout(), "CR %d trust check run complete.\n", report.CRID)
 			fmt.Fprintf(cmd.OutOrStdout(), "Executed: %d\n", report.Executed)
 			fmt.Fprintf(cmd.OutOrStdout(), "Risk Tier: %s\n", nonEmpty(strings.TrimSpace(report.RiskTier), "-"))
+			fmt.Fprintf(cmd.OutOrStdout(), "Check Mode: %s\n", nonEmpty(strings.TrimSpace(report.CheckMode), "-"))
+			fmt.Fprintf(cmd.OutOrStdout(), "Required Checks: %d\n", report.RequiredCheckCount)
+			printStringSection(cmd, "Guidance", report.Guidance)
 			printTrustRequirements(cmd, report.Requirements)
 			printTrustCheckResults(cmd, report.CheckResults)
 			return nil
@@ -97,6 +100,9 @@ func newCRCheckStatusCmd() *cobra.Command {
 			fmt.Fprintf(cmd.OutOrStdout(), "CR %d trust check status.\n", report.CRID)
 			fmt.Fprintf(cmd.OutOrStdout(), "Risk Tier: %s\n", nonEmpty(strings.TrimSpace(report.RiskTier), "-"))
 			fmt.Fprintf(cmd.OutOrStdout(), "Freshness Hours: %d\n", report.FreshnessHours)
+			fmt.Fprintf(cmd.OutOrStdout(), "Check Mode: %s\n", nonEmpty(strings.TrimSpace(report.CheckMode), "-"))
+			fmt.Fprintf(cmd.OutOrStdout(), "Required Checks: %d\n", report.RequiredCheckCount)
+			printStringSection(cmd, "Guidance", report.Guidance)
 			printTrustRequirements(cmd, report.Requirements)
 			printTrustCheckResults(cmd, report.CheckResults)
 			return nil
