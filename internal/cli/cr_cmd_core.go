@@ -647,49 +647,7 @@ func newCRStatusCmd() *cobra.Command {
 				return err
 			}
 			if asJSON {
-				return writeJSONSuccess(cmd, map[string]any{
-					"id":            status.ID,
-					"uid":           status.UID,
-					"title":         status.Title,
-					"status":        status.Status,
-					"base":          status.BaseBranch,
-					"base_ref":      status.BaseRef,
-					"base_commit":   status.BaseCommit,
-					"parent_cr_id":  status.ParentCRID,
-					"parent_status": status.ParentStatus,
-					"branch":        status.Branch,
-					"branch_context": map[string]any{
-						"current_branch": status.CurrentBranch,
-						"branch_match":   status.BranchMatch,
-					},
-					"working_tree": map[string]any{
-						"modified_staged_count": status.ModifiedStagedCount,
-						"untracked_count":       status.UntrackedCount,
-						"dirty":                 status.Dirty,
-					},
-					"tasks": map[string]any{
-						"total":             status.TasksTotal,
-						"open":              status.TasksOpen,
-						"done":              status.TasksDone,
-						"delegated":         status.TasksDelegated,
-						"delegated_pending": status.TasksDelegatedPending,
-					},
-					"contract": map[string]any{
-						"complete":       status.ContractComplete,
-						"missing_fields": status.ContractMissingFields,
-					},
-					"validation": map[string]any{
-						"valid":    status.ValidationValid,
-						"errors":   status.ValidationErrors,
-						"warnings": status.ValidationWarnings,
-						"risk": map[string]any{
-							"tier":  status.RiskTier,
-							"score": status.RiskScore,
-						},
-					},
-					"merge_blocked":  status.MergeBlocked,
-					"merge_blockers": status.MergeBlockers,
-				})
+				return writeJSONSuccess(cmd, crStatusToJSONMap(status))
 			}
 
 			fmt.Fprintf(cmd.OutOrStdout(), "CR %d: %s\n", status.ID, status.Title)
