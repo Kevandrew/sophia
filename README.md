@@ -68,7 +68,8 @@ Each CR:
 * Has a unique ID
 * Has a title and description
 * Lives in `.sophia/cr/<id>.yaml`
-* Maps to a branch `sophia/cr-<id>`
+* Maps to a readable branch alias `cr-<id>-<slug>` (optional owner prefix: `<owner>/cr-<id>-<slug>`)
+* Retains legacy compatibility for existing `sophia/cr-<id>` branches
 
 By default (`metadata_mode=local`), Sophia metadata is shared per-repository under the Git common dir (`<git-common-dir>/sophia-local`) so all worktrees use the same CR state.
 Tracked mode (`metadata_mode=tracked`) keeps metadata in `.sophia/` inside the worktree.
@@ -95,7 +96,8 @@ id: 1
 title: Add billing retries
 status: in_progress
 base_branch: main
-branch: sophia/cr-1
+branch: cr-1-add-billing-retries
+uid: cr_4fd8bc65-9360-48b5-912d-95f8a03a2d6d
 notes:
   - Initial retry logic implementation
 subtasks: []
@@ -237,18 +239,23 @@ sophia cr add "Add billing retries"
 sophia cr add "Add billing retries" --switch
 sophia cr add "Add billing retries" --base release/2026-q1
 sophia cr add "Add billing retries" --parent 12
+sophia cr add "Add billing retries" --owner-prefix kevandrew
+sophia cr add "Add billing retries" --branch-alias kevandrew/cr-42-billing-retries
 sophia cr child add "Implement parser split" --description "Delegated from active parent CR."
+sophia init --branch-owner-prefix kevandrew
 ```
 
 Behavior:
 
 * Generate new CR ID
-* Create branch `sophia/cr-<id>`
+* Create branch alias `cr-<id>-<slug>` (or `<owner>/cr-<id>-<slug>` when configured)
 * Keep current branch by default and print `sophia cr switch <id>` guidance
 * `--switch` opts into immediate branch checkout
 * Supports per-CR base refs via `--base <git-ref>`
 * Supports stacked child CR creation via `--parent <cr-id>` (mutually exclusive with `--base`)
 * Supports child CR creation from active CR context via `cr child add`
+* Supports explicit create-time alias override via `--branch-alias`
+* Supports create-time owner namespace override via `--owner-prefix`
 * Write CR YAML file
 
 ---
@@ -266,9 +273,31 @@ Behavior:
 * Parses a strict versioned YAML schema (`version: v1`) with unknown-field rejection
 * Validates CR graph semantics before mutation (parent references, cycles, delegation targets)
 * Executes serially: create CR -> set CR contract -> add tasks -> set task contracts -> apply delegations
+* Supports optional branch controls per CR spec:
+  * `branch_alias` for explicit alias
+  * `owner_prefix` for generated alias owner namespace
 * Supports dry-run previews with deterministic planned operations and predicted IDs
 * Deletes source plan file after successful apply by default; `--keep-file` preserves it
 * Restores the starting branch after apply/dry-run when possible
+
+---
+
+### Branch Identity Commands
+
+```
+sophia cr branch show <id>
+sophia cr branch resolve [--branch <name>]
+sophia cr branch format --id <id> --title "<title>" [--owner-prefix <owner>]
+sophia cr branch migrate <id> --dry-run
+sophia cr branch migrate --all --dry-run --json
+```
+
+Behavior:
+
+* `show` returns stored branch alias for a CR
+* `resolve` maps current (or provided) branch to CR context
+* `format` previews deterministic alias generation
+* `migrate` renames in-progress CR branches to current alias policy (`--dry-run` preview supported)
 
 Minimal schema:
 
