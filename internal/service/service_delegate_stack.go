@@ -13,7 +13,7 @@ func (s *Service) AddChildCRFromCurrent(title, description string) (*model.CR, [
 	if err != nil {
 		return nil, nil, err
 	}
-	return s.AddCRWithOptionsWithWarnings(title, description, AddCROptions{ParentCRID: ctx.CR.ID})
+	return s.AddCRWithOptionsWithWarnings(title, description, AddCROptions{ParentCRID: ctx.CR.ID, Switch: true})
 }
 
 func (s *Service) DelegateTaskToChild(parentCRID, taskID, childCRID int) (*DelegateTaskResult, error) {
