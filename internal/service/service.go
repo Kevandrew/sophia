@@ -834,20 +834,45 @@ func (s *Service) Init(baseBranch, metadataMode string) (string, error) {
 	})
 }
 
-func (s *Service) InitWithOptions(opts InitOptions) (string, error) {
-	baseBranch := opts.BaseBranch
-	metadataMode := opts.MetadataMode
-	branchOwnerPrefix := opts.BranchOwnerPrefix
+type initResolution struct {
+	requestedBase  string
+	requestedMode  string
+	effectiveBase  string
+	effectiveMode  string
+	wasInitialized bool
+}
 
+func (s *Service) InitWithOptions(opts InitOptions) (string, error) {
+	if err := s.ensureInitRepoContext(); err != nil {
+		return "", err
+	}
+	s.applyRequestedMetadataModeForInit(opts.MetadataMode)
+	resolution, err := s.resolveInitInputs(opts.BaseBranch, opts.MetadataMode)
+	if err != nil {
+		return "", err
+	}
+	resolution.wasInitialized = s.applyEffectiveMetadataModeForInit(resolution.effectiveMode, resolution.wasInitialized)
+	if err := s.initializeStoreForInit(resolution); err != nil {
+		return "", err
+	}
+	if err := s.finalizeInitArtifacts(resolution.effectiveMode, opts.BranchOwnerPrefix); err != nil {
+		return "", err
+	}
+	return resolution.effectiveBase, nil
+}
+
+func (s *Service) ensureInitRepoContext() error {
 	if !s.git.InRepo() {
 		if err := s.git.InitRepo(); err != nil {
-			return "", fmt.Errorf("initialize git repository: %w", err)
+			return fmt.Errorf("initialize git repository: %w", err)
 		}
 	}
 	s.bootstrapRepoContext(s.git.WorkDir)
+	return nil
+}
 
-	requestedMode := strings.TrimSpace(metadataMode)
-	switch requestedMode {
+func (s *Service) applyRequestedMetadataModeForInit(metadataMode string) {
+	switch strings.TrimSpace(metadataMode) {
 	case model.MetadataModeTracked:
 		s.setStoreSophiaDir(s.legacySophiaDir)
 	case model.MetadataModeLocal:
@@ -861,97 +886,104 @@ func (s *Service) InitWithOptions(opts InitOptions) (string, error) {
 			s.setStoreSophiaDir(s.legacySophiaDir)
 		}
 	}
+}
 
-	wasInitialized := s.store.IsInitialized()
+func (s *Service) resolveInitInputs(baseBranch, metadataMode string) (initResolution, error) {
+	resolution := initResolution{
+		requestedBase:  strings.TrimSpace(baseBranch),
+		requestedMode:  strings.TrimSpace(metadataMode),
+		effectiveBase:  strings.TrimSpace(baseBranch),
+		wasInitialized: s.store.IsInitialized(),
+	}
 	existingMode := ""
-	effectiveBase := strings.TrimSpace(baseBranch)
-	if effectiveBase == "" && wasInitialized {
+	if resolution.effectiveBase == "" && resolution.wasInitialized {
 		cfg, err := s.store.LoadConfig()
 		if err == nil {
 			if strings.TrimSpace(cfg.BaseBranch) != "" {
-				effectiveBase = cfg.BaseBranch
+				resolution.effectiveBase = cfg.BaseBranch
 			}
 			existingMode = cfg.MetadataMode
 		}
 	}
-	effectiveMode := strings.TrimSpace(metadataMode)
-	if effectiveMode == "" {
-		effectiveMode = strings.TrimSpace(existingMode)
+	resolution.effectiveMode = resolution.requestedMode
+	if resolution.effectiveMode == "" {
+		resolution.effectiveMode = strings.TrimSpace(existingMode)
 	}
-	if effectiveMode == "" {
-		effectiveMode = model.MetadataModeLocal
+	if resolution.effectiveMode == "" {
+		resolution.effectiveMode = model.MetadataModeLocal
 	}
-	if !isValidMetadataMode(effectiveMode) {
-		return "", fmt.Errorf("invalid metadata mode %q (expected local or tracked)", effectiveMode)
+	if !isValidMetadataMode(resolution.effectiveMode) {
+		return initResolution{}, fmt.Errorf("invalid metadata mode %q (expected local or tracked)", resolution.effectiveMode)
 	}
-	if effectiveBase == "" {
+	if resolution.effectiveBase == "" {
 		currentBranch, err := s.git.CurrentBranch()
 		if err == nil && strings.TrimSpace(currentBranch) != "" {
-			effectiveBase = currentBranch
+			resolution.effectiveBase = currentBranch
 		}
 	}
-	if effectiveBase == "" {
-		effectiveBase = "main"
+	if resolution.effectiveBase == "" {
+		resolution.effectiveBase = "main"
 	}
+	return resolution, nil
+}
 
-	if effectiveMode == model.MetadataModeTracked {
+func (s *Service) applyEffectiveMetadataModeForInit(effectiveMode string, fallbackInitialized bool) bool {
+	switch effectiveMode {
+	case model.MetadataModeTracked:
 		s.setStoreSophiaDir(s.legacySophiaDir)
-		wasInitialized = s.store.IsInitialized()
-	} else if strings.TrimSpace(s.sharedLocalSophiaDir) != "" {
-		if err := s.migrateLegacyLocalMetadata(s.sharedLocalSophiaDir, s.legacySophiaDir); err == nil {
-			s.setStoreSophiaDir(s.sharedLocalSophiaDir)
+		return s.store.IsInitialized()
+	case model.MetadataModeLocal:
+		if strings.TrimSpace(s.sharedLocalSophiaDir) != "" {
+			if err := s.migrateLegacyLocalMetadata(s.sharedLocalSophiaDir, s.legacySophiaDir); err == nil {
+				s.setStoreSophiaDir(s.sharedLocalSophiaDir)
+			}
+			return s.store.IsInitialized()
 		}
-		wasInitialized = s.store.IsInitialized()
 	}
+	return fallbackInitialized
+}
 
-	if err := s.git.EnsureBranchExists(effectiveBase); err != nil {
-		return "", fmt.Errorf("prepare base branch %q: %w", effectiveBase, err)
+func (s *Service) initializeStoreForInit(resolution initResolution) error {
+	if err := s.git.EnsureBranchExists(resolution.effectiveBase); err != nil {
+		return fmt.Errorf("prepare base branch %q: %w", resolution.effectiveBase, err)
 	}
-
 	configBase := ""
-	if !wasInitialized {
-		configBase = effectiveBase
-	} else if strings.TrimSpace(baseBranch) != "" {
-		configBase = effectiveBase
+	if !resolution.wasInitialized || resolution.requestedBase != "" {
+		configBase = resolution.effectiveBase
 	}
 	configMode := ""
-	if !wasInitialized {
-		configMode = effectiveMode
-	} else if strings.TrimSpace(metadataMode) != "" {
-		configMode = effectiveMode
+	if !resolution.wasInitialized || resolution.requestedMode != "" {
+		configMode = resolution.effectiveMode
 	}
-	if err := s.store.Init(configBase, configMode); err != nil {
-		return "", err
-	}
+	return s.store.Init(configBase, configMode)
+}
+
+func (s *Service) finalizeInitArtifacts(effectiveMode string, branchOwnerPrefix string) error {
 	if err := ensureCRPlanSample(s.store.SophiaDir()); err != nil {
-		return "", err
+		return err
 	}
 	if err := ensureRepoPolicyFile(s.repoRoot); err != nil {
-		return "", err
+		return err
 	}
 	if effectiveMode == model.MetadataModeLocal {
 		if err := ensureGitIgnoreEntry(s.git.WorkDir, ".sophia/"); err != nil {
-			return "", err
+			return err
 		}
 	}
-
 	trimmedPrefix := strings.TrimSpace(branchOwnerPrefix)
-	if trimmedPrefix != "" {
-		normalizedPrefix, prefixErr := normalizeCRBranchOwnerPrefix(trimmedPrefix)
-		if prefixErr != nil {
-			return "", prefixErr
-		}
-		cfg, cfgErr := s.store.LoadConfig()
-		if cfgErr != nil {
-			return "", cfgErr
-		}
-		cfg.BranchOwnerPrefix = normalizedPrefix
-		if saveErr := s.store.SaveConfig(cfg); saveErr != nil {
-			return "", saveErr
-		}
+	if trimmedPrefix == "" {
+		return nil
 	}
-
-	return effectiveBase, nil
+	normalizedPrefix, prefixErr := normalizeCRBranchOwnerPrefix(trimmedPrefix)
+	if prefixErr != nil {
+		return prefixErr
+	}
+	cfg, cfgErr := s.store.LoadConfig()
+	if cfgErr != nil {
+		return cfgErr
+	}
+	cfg.BranchOwnerPrefix = normalizedPrefix
+	return s.store.SaveConfig(cfg)
 }
 
 func (s *Service) Config() (model.Config, error) {
