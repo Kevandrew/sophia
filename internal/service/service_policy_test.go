@@ -422,6 +422,144 @@ merge:
 	}
 }
 
+func TestRepoPolicyTrustDefaultsApplied(t *testing.T) {
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	policy, err := svc.repoPolicy()
+	if err != nil {
+		t.Fatalf("repoPolicy() error = %v", err)
+	}
+	if policy.Trust.Mode != "advisory" {
+		t.Fatalf("expected trust mode advisory, got %#v", policy.Trust.Mode)
+	}
+	if policy.Trust.Gate.Enabled == nil || *policy.Trust.Gate.Enabled {
+		t.Fatalf("expected trust gate disabled by default, got %#v", policy.Trust.Gate.Enabled)
+	}
+	if len(policy.Trust.Checks.Definitions) != 0 {
+		t.Fatalf("expected neutral default trust checks, got %#v", policy.Trust.Checks.Definitions)
+	}
+	if policy.Trust.ReviewDepth.High.MinSamples == nil || *policy.Trust.ReviewDepth.High.MinSamples != 0 {
+		t.Fatalf("expected neutral high-tier sample default, got %#v", policy.Trust.ReviewDepth.High.MinSamples)
+	}
+	if policy.Trust.ReviewDepth.High.RequireCriticalScopeCoverage == nil || *policy.Trust.ReviewDepth.High.RequireCriticalScopeCoverage {
+		t.Fatalf("expected neutral high-tier critical-scope coverage default, got %#v", policy.Trust.ReviewDepth.High.RequireCriticalScopeCoverage)
+	}
+}
+
+func TestRepoPolicyRejectsInvalidTrustMode(t *testing.T) {
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	writePolicyFileForTest(t, dir, `version: v1
+trust:
+  mode: random
+`)
+
+	_, err := svc.repoPolicy()
+	if !errors.Is(err, ErrPolicyInvalid) {
+		t.Fatalf("expected ErrPolicyInvalid, got %v", err)
+	}
+}
+
+func TestRepoPolicyRejectsInvalidTrustThreshold(t *testing.T) {
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	writePolicyFileForTest(t, dir, `version: v1
+trust:
+  thresholds:
+    low: 0.95
+    medium: 0.90
+    high: 0.99
+`)
+
+	_, err := svc.repoPolicy()
+	if !errors.Is(err, ErrPolicyInvalid) {
+		t.Fatalf("expected ErrPolicyInvalid, got %v", err)
+	}
+}
+
+func TestRepoPolicyRejectsDuplicateTrustCheckKeys(t *testing.T) {
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	writePolicyFileForTest(t, dir, `version: v1
+trust:
+  checks:
+    definitions:
+      - key: smoke
+        command: "echo one"
+      - key: smoke
+        command: "echo two"
+`)
+
+	_, err := svc.repoPolicy()
+	if !errors.Is(err, ErrPolicyInvalid) {
+		t.Fatalf("expected ErrPolicyInvalid, got %v", err)
+	}
+}
+
+func TestPolicyTrustGateBlocksMergeWithoutOverride(t *testing.T) {
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	runGit(t, dir, "config", "user.name", "Test User")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+	writePolicyFileForTest(t, dir, `version: v1
+trust:
+  mode: gate
+  gate:
+    enabled: true
+    apply_risk_tiers: [high]
+    min_verdict: trusted
+  checks:
+    freshness_hours: 24
+    definitions:
+      - key: smoke
+        command: "echo ok"
+        tiers: [high]
+        allow_exit_codes: [0]
+`)
+
+	cr, err := svc.AddCR("gate block merge", "")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	setValidContract(t, svc, cr.ID)
+	high := "high"
+	rationale := "High-risk gate validation."
+	if _, err := svc.SetCRContract(cr.ID, ContractPatch{
+		RiskTierHint:  &high,
+		RiskRationale: &rationale,
+	}); err != nil {
+		t.Fatalf("SetCRContract(risk) error = %v", err)
+	}
+	runGit(t, dir, "checkout", cr.Branch)
+	if err := os.WriteFile(filepath.Join(dir, "gate.txt"), []byte("x\n"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+	runGit(t, dir, "add", "gate.txt")
+	runGit(t, dir, "commit", "-m", "feat: gate merge fixture")
+
+	if _, _, err := svc.MergeCRWithWarnings(cr.ID, false, ""); err == nil {
+		t.Fatalf("expected trust gate merge block")
+	} else if !strings.Contains(strings.ToLower(err.Error()), "trust gate blocked") {
+		t.Fatalf("expected trust gate blocked error, got %v", err)
+	}
+}
+
 func writePolicyFileForTest(t *testing.T, dir, content string) {
 	t.Helper()
 	path := filepath.Join(dir, repoPolicyFileName)
