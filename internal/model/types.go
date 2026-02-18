@@ -64,33 +64,62 @@ type TaskDelegation struct {
 }
 
 type Subtask struct {
-	ID                int               `yaml:"id"`
-	Title             string            `yaml:"title"`
-	Status            string            `yaml:"status"`
-	CreatedAt         string            `yaml:"created_at"`
-	UpdatedAt         string            `yaml:"updated_at"`
-	CompletedAt       string            `yaml:"completed_at,omitempty"`
-	CreatedBy         string            `yaml:"created_by"`
-	CompletedBy       string            `yaml:"completed_by,omitempty"`
-	CheckpointCommit  string            `yaml:"checkpoint_commit,omitempty"`
-	CheckpointAt      string            `yaml:"checkpoint_at,omitempty"`
-	CheckpointMessage string            `yaml:"checkpoint_message,omitempty"`
-	CheckpointScope   []string          `yaml:"checkpoint_scope,omitempty"`
-	CheckpointChunks  []CheckpointChunk `yaml:"checkpoint_chunks,omitempty"`
-	CheckpointOrphan  bool              `yaml:"checkpoint_orphan,omitempty"`
-	CheckpointReason  string            `yaml:"checkpoint_reason,omitempty"`
-	CheckpointSource  string            `yaml:"checkpoint_source,omitempty"`
-	CheckpointSyncAt  string            `yaml:"checkpoint_sync_at,omitempty"`
-	Delegations       []TaskDelegation  `yaml:"delegations,omitempty"`
-	Contract          TaskContract      `yaml:"contract,omitempty"`
+	ID                int                  `yaml:"id"`
+	Title             string               `yaml:"title"`
+	Status            string               `yaml:"status"`
+	CreatedAt         string               `yaml:"created_at"`
+	UpdatedAt         string               `yaml:"updated_at"`
+	CompletedAt       string               `yaml:"completed_at,omitempty"`
+	CreatedBy         string               `yaml:"created_by"`
+	CompletedBy       string               `yaml:"completed_by,omitempty"`
+	CheckpointCommit  string               `yaml:"checkpoint_commit,omitempty"`
+	CheckpointAt      string               `yaml:"checkpoint_at,omitempty"`
+	CheckpointMessage string               `yaml:"checkpoint_message,omitempty"`
+	CheckpointScope   []string             `yaml:"checkpoint_scope,omitempty"`
+	CheckpointChunks  []CheckpointChunk    `yaml:"checkpoint_chunks,omitempty"`
+	CheckpointOrphan  bool                 `yaml:"checkpoint_orphan,omitempty"`
+	CheckpointReason  string               `yaml:"checkpoint_reason,omitempty"`
+	CheckpointSource  string               `yaml:"checkpoint_source,omitempty"`
+	CheckpointSyncAt  string               `yaml:"checkpoint_sync_at,omitempty"`
+	Delegations       []TaskDelegation     `yaml:"delegations,omitempty"`
+	Contract          TaskContract         `yaml:"contract,omitempty"`
+	ContractBaseline  TaskContractBaseline `yaml:"contract_baseline,omitempty"`
+	ContractDrifts    []TaskContractDrift  `yaml:"contract_drifts,omitempty"`
 }
 
 type TaskContract struct {
 	Intent             string   `yaml:"intent,omitempty"`
 	AcceptanceCriteria []string `yaml:"acceptance_criteria,omitempty"`
 	Scope              []string `yaml:"scope,omitempty"`
+	AcceptanceChecks   []string `yaml:"acceptance_checks,omitempty"`
 	UpdatedAt          string   `yaml:"updated_at,omitempty"`
 	UpdatedBy          string   `yaml:"updated_by,omitempty"`
+}
+
+type TaskContractBaseline struct {
+	CapturedAt         string   `yaml:"captured_at,omitempty"`
+	CapturedBy         string   `yaml:"captured_by,omitempty"`
+	Intent             string   `yaml:"intent,omitempty"`
+	AcceptanceCriteria []string `yaml:"acceptance_criteria,omitempty"`
+	Scope              []string `yaml:"scope,omitempty"`
+	AcceptanceChecks   []string `yaml:"acceptance_checks,omitempty"`
+}
+
+type TaskContractDrift struct {
+	ID                     int      `yaml:"id"`
+	TS                     string   `yaml:"ts"`
+	Actor                  string   `yaml:"actor"`
+	Fields                 []string `yaml:"fields,omitempty"`
+	BeforeScope            []string `yaml:"before_scope,omitempty"`
+	AfterScope             []string `yaml:"after_scope,omitempty"`
+	BeforeAcceptanceChecks []string `yaml:"before_acceptance_checks,omitempty"`
+	AfterAcceptanceChecks  []string `yaml:"after_acceptance_checks,omitempty"`
+	CheckpointCommit       string   `yaml:"checkpoint_commit,omitempty"`
+	Reason                 string   `yaml:"reason,omitempty"`
+	Acknowledged           bool     `yaml:"acknowledged,omitempty"`
+	AcknowledgedAt         string   `yaml:"acknowledged_at,omitempty"`
+	AcknowledgedBy         string   `yaml:"acknowledged_by,omitempty"`
+	AckReason              string   `yaml:"ack_reason,omitempty"`
 }
 
 type Contract struct {

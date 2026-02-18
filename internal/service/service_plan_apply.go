@@ -90,6 +90,7 @@ type crPlanTaskContract struct {
 	Intent             string   `yaml:"intent,omitempty"`
 	AcceptanceCriteria []string `yaml:"acceptance_criteria,omitempty"`
 	Scope              []string `yaml:"scope,omitempty"`
+	AcceptanceChecks   []string `yaml:"acceptance_checks,omitempty"`
 }
 
 type planTaskRef struct {
@@ -674,7 +675,7 @@ func hasPlanTaskContract(contract crPlanTaskContract) bool {
 	if strings.TrimSpace(contract.Intent) != "" {
 		return true
 	}
-	return len(contract.AcceptanceCriteria) > 0 || len(contract.Scope) > 0
+	return len(contract.AcceptanceCriteria) > 0 || len(contract.Scope) > 0 || len(contract.AcceptanceChecks) > 0
 }
 
 func contractPatchFromPlan(contract crPlanContract) ContractPatch {
@@ -706,9 +707,11 @@ func taskContractPatchFromPlan(contract crPlanTaskContract) TaskContractPatch {
 	intent := strings.TrimSpace(contract.Intent)
 	acceptance := append([]string(nil), contract.AcceptanceCriteria...)
 	scope := append([]string(nil), contract.Scope...)
+	acceptanceChecks := append([]string(nil), contract.AcceptanceChecks...)
 	return TaskContractPatch{
 		Intent:             &intent,
 		AcceptanceCriteria: &acceptance,
 		Scope:              &scope,
+		AcceptanceChecks:   &acceptanceChecks,
 	}
 }

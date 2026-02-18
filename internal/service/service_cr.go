@@ -683,6 +683,11 @@ func (s *Service) ValidateCR(id int) (*ValidationReport, error) {
 		errorsOut = append(errorsOut, fmt.Sprintf("scope drift: changed path %q is outside declared contract scope", driftPath))
 	}
 	errorsOut = append(errorsOut, policyScopeViolationErrors(cr, policy.Scope.AllowedPrefixes)...)
+	for _, task := range cr.Subtasks {
+		if validateErr := validateTaskAcceptanceCheckKeys(task.ID, task.Contract.AcceptanceChecks, policy); validateErr != nil {
+			errorsOut = append(errorsOut, validateErr.Error())
+		}
+	}
 	errorsOut = dedupeStrings(errorsOut)
 	sort.Strings(errorsOut)
 

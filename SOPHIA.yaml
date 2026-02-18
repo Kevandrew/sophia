@@ -64,7 +64,12 @@ trust:
     high: 0.95
   checks:
     freshness_hours: 24
-    definitions: []
+    definitions:
+      # Example:
+      # - key: unit_tests
+      #   command: go test ./...
+      #   tiers: [low, medium, high]
+      #   allow_exit_codes: [0]
   review_depth:
     low:
       min_samples: 0

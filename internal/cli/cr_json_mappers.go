@@ -90,8 +90,39 @@ func taskContractToJSONMap(contract model.TaskContract) map[string]any {
 		"intent":              contract.Intent,
 		"acceptance_criteria": stringSliceOrEmpty(contract.AcceptanceCriteria),
 		"scope":               stringSliceOrEmpty(contract.Scope),
+		"acceptance_checks":   stringSliceOrEmpty(contract.AcceptanceChecks),
 		"updated_at":          contract.UpdatedAt,
 		"updated_by":          contract.UpdatedBy,
+	}
+}
+
+func taskContractBaselineToJSONMap(baseline model.TaskContractBaseline) map[string]any {
+	return map[string]any{
+		"captured_at":         baseline.CapturedAt,
+		"captured_by":         baseline.CapturedBy,
+		"intent":              baseline.Intent,
+		"acceptance_criteria": stringSliceOrEmpty(baseline.AcceptanceCriteria),
+		"scope":               stringSliceOrEmpty(baseline.Scope),
+		"acceptance_checks":   stringSliceOrEmpty(baseline.AcceptanceChecks),
+	}
+}
+
+func taskContractDriftModelToJSONMap(drift model.TaskContractDrift) map[string]any {
+	return map[string]any{
+		"id":                       drift.ID,
+		"ts":                       drift.TS,
+		"actor":                    drift.Actor,
+		"fields":                   stringSliceOrEmpty(drift.Fields),
+		"before_scope":             stringSliceOrEmpty(drift.BeforeScope),
+		"after_scope":              stringSliceOrEmpty(drift.AfterScope),
+		"before_acceptance_checks": stringSliceOrEmpty(drift.BeforeAcceptanceChecks),
+		"after_acceptance_checks":  stringSliceOrEmpty(drift.AfterAcceptanceChecks),
+		"checkpoint_commit":        drift.CheckpointCommit,
+		"reason":                   drift.Reason,
+		"acknowledged":             drift.Acknowledged,
+		"acknowledged_at":          drift.AcknowledgedAt,
+		"acknowledged_by":          drift.AcknowledgedBy,
+		"ack_reason":               drift.AckReason,
 	}
 }
 
@@ -103,6 +134,10 @@ func taskToJSONMap(task model.Subtask) map[string]any {
 	delegations := make([]map[string]any, 0, len(task.Delegations))
 	for _, delegation := range task.Delegations {
 		delegations = append(delegations, taskDelegationToJSONMap(delegation))
+	}
+	drifts := make([]map[string]any, 0, len(task.ContractDrifts))
+	for _, drift := range task.ContractDrifts {
+		drifts = append(drifts, taskContractDriftModelToJSONMap(drift))
 	}
 	return map[string]any{
 		"id":                 task.ID,
@@ -124,6 +159,8 @@ func taskToJSONMap(task model.Subtask) map[string]any {
 		"checkpoint_sync_at": task.CheckpointSyncAt,
 		"delegations":        delegations,
 		"task_contract":      taskContractToJSONMap(task.Contract),
+		"contract_baseline":  taskContractBaselineToJSONMap(task.ContractBaseline),
+		"contract_drifts":    drifts,
 	}
 }
 
@@ -447,6 +484,7 @@ func trustToJSONMap(trust *service.TrustReport) map[string]any {
 		"requirements":     requirements,
 		"check_results":    checkResults,
 		"review_depth":     trustReviewDepthToJSONMap(trust.ReviewDepth),
+		"contract_drift":   trustContractDriftSummaryToJSONMap(trust.ContractDrift),
 		"gate":             trustGateToJSONMap(trust.Gate),
 		"required_actions": stringSliceOrEmpty(trust.RequiredActions),
 		"advisories":       stringSliceOrEmpty(trust.Advisories),
@@ -461,6 +499,8 @@ func trustRequirementToJSONMap(requirement service.TrustRequirement) map[string]
 		"satisfied": requirement.Satisfied,
 		"reason":    requirement.Reason,
 		"action":    requirement.Action,
+		"task_id":   requirement.TaskID,
+		"source":    requirement.Source,
 	}
 }
 
@@ -470,15 +510,17 @@ func trustCheckResultToJSONMap(check service.TrustCheckResult) map[string]any {
 		exitCode = *check.ExitCode
 	}
 	return map[string]any{
-		"key":              check.Key,
-		"command":          check.Command,
-		"required":         check.Required,
-		"status":           check.Status,
-		"reason":           check.Reason,
-		"allow_exit_codes": append([]int(nil), check.AllowExitCodes...),
-		"exit_code":        exitCode,
-		"last_run_at":      check.LastRunAt,
-		"freshness_hours":  check.FreshnessHours,
+		"key":                  check.Key,
+		"command":              check.Command,
+		"required":             check.Required,
+		"status":               check.Status,
+		"reason":               check.Reason,
+		"allow_exit_codes":     append([]int(nil), check.AllowExitCodes...),
+		"exit_code":            exitCode,
+		"last_run_at":          check.LastRunAt,
+		"freshness_hours":      check.FreshnessHours,
+		"required_by_task_ids": intSliceOrEmpty(check.RequiredByTaskIDs),
+		"sources":              stringSliceOrEmpty(check.Sources),
 	}
 }
 
@@ -500,6 +542,15 @@ func trustGateToJSONMap(gate service.TrustGateSummary) map[string]any {
 		"applies": gate.Applies,
 		"blocked": gate.Blocked,
 		"reason":  gate.Reason,
+	}
+}
+
+func trustContractDriftSummaryToJSONMap(summary service.TaskContractDriftSummary) map[string]any {
+	return map[string]any{
+		"total":                summary.Total,
+		"unacknowledged":       summary.Unacknowledged,
+		"tasks_with_drift":     intSliceOrEmpty(summary.TasksWithDrift),
+		"unacknowledged_tasks": intSliceOrEmpty(summary.UnacknowledgedTasks),
 	}
 }
 
@@ -888,6 +939,10 @@ func crPackToJSONMap(view *service.CRPackView) map[string]any {
 				"new_lines": chunk.NewLines,
 			})
 		}
+		drifts := make([]map[string]any, 0, len(task.ContractDrifts))
+		for _, drift := range task.ContractDrifts {
+			drifts = append(drifts, taskContractDriftModelToJSONMap(drift))
+		}
 		tasks = append(tasks, map[string]any{
 			"id":                 task.ID,
 			"title":              task.Title,
@@ -904,9 +959,12 @@ func crPackToJSONMap(view *service.CRPackView) map[string]any {
 				"intent":              task.Contract.Intent,
 				"acceptance_criteria": stringSliceOrEmpty(task.Contract.AcceptanceCriteria),
 				"scope":               stringSliceOrEmpty(task.Contract.Scope),
+				"acceptance_checks":   stringSliceOrEmpty(task.Contract.AcceptanceChecks),
 				"updated_at":          task.Contract.UpdatedAt,
 				"updated_by":          task.Contract.UpdatedBy,
 			},
+			"contract_baseline": taskContractBaselineToJSONMap(task.ContractBaseline),
+			"contract_drifts":   drifts,
 		})
 	}
 

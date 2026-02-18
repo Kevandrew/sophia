@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"regexp"
 	"sophia/internal/model"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -84,41 +85,45 @@ func buildTrustReportWithPolicy(cr *model.CR, validation *ValidationReport, diff
 	requirements := []TrustRequirement{}
 	if len(validation.Errors) > 0 {
 		hardFailures = append(hardFailures, fmt.Sprintf("validation errors present (%d)", len(validation.Errors)))
-		requirements = append(requirements, TrustRequirement{
-			Key:       "validation_clean",
-			Title:     "Validation has no errors",
-			Satisfied: false,
-			Reason:    fmt.Sprintf("%d validation error(s) present.", len(validation.Errors)),
-			Action:    "Resolve all validation errors before trusting review data.",
-		})
-	} else {
-		requirements = append(requirements, TrustRequirement{
-			Key:       "validation_clean",
-			Title:     "Validation has no errors",
-			Satisfied: true,
-			Reason:    "No validation errors.",
-			Action:    "",
-		})
-	}
+			requirements = append(requirements, TrustRequirement{
+				Key:       "validation_clean",
+				Title:     "Validation has no errors",
+				Satisfied: false,
+				Reason:    fmt.Sprintf("%d validation error(s) present.", len(validation.Errors)),
+				Action:    "Resolve all validation errors before trusting review data.",
+				Source:    "validation",
+			})
+		} else {
+			requirements = append(requirements, TrustRequirement{
+				Key:       "validation_clean",
+				Title:     "Validation has no errors",
+				Satisfied: true,
+				Reason:    "No validation errors.",
+				Action:    "",
+				Source:    "validation",
+			})
+		}
 	missingContractFields := missingCRContractFields(cr.Contract, requiredCRFields)
 	if len(missingContractFields) > 0 {
 		hardFailures = append(hardFailures, fmt.Sprintf("missing required contract fields: %s", strings.Join(missingContractFields, ", ")))
-		requirements = append(requirements, TrustRequirement{
-			Key:       "contract_required_fields",
-			Title:     "CR required contract fields are complete",
-			Satisfied: false,
-			Reason:    fmt.Sprintf("Missing fields: %s.", strings.Join(missingContractFields, ", ")),
-			Action:    fmt.Sprintf("Complete required contract fields: %s.", strings.Join(missingContractFields, ", ")),
-		})
-	} else {
-		requirements = append(requirements, TrustRequirement{
-			Key:       "contract_required_fields",
-			Title:     "CR required contract fields are complete",
-			Satisfied: true,
-			Reason:    "All required contract fields are present.",
-			Action:    "",
-		})
-	}
+			requirements = append(requirements, TrustRequirement{
+				Key:       "contract_required_fields",
+				Title:     "CR required contract fields are complete",
+				Satisfied: false,
+				Reason:    fmt.Sprintf("Missing fields: %s.", strings.Join(missingContractFields, ", ")),
+				Action:    fmt.Sprintf("Complete required contract fields: %s.", strings.Join(missingContractFields, ", ")),
+				Source:    "contract_required_fields",
+			})
+		} else {
+			requirements = append(requirements, TrustRequirement{
+				Key:       "contract_required_fields",
+				Title:     "CR required contract fields are complete",
+				Satisfied: true,
+				Reason:    "All required contract fields are present.",
+				Action:    "",
+				Source:    "contract_required_fields",
+			})
+		}
 
 	dimensions := []TrustDimension{
 		buildContractQualityDimension(cr.Contract),
@@ -151,7 +156,13 @@ func buildTrustReportWithPolicy(cr *model.CR, validation *ValidationReport, diff
 	advisories = dedupeStrings(advisories)
 
 	riskTier := normalizedRiskTier(impact.RiskTier)
-	checkResults := evaluateTrustChecks(cr.Evidence, policy.Trust, riskTier, time.Now().UTC())
+	taskAcceptanceRequirements := requiredTaskAcceptanceChecks(cr.Subtasks)
+	taskChecksByKey := taskAcceptanceCheckTaskMap(taskAcceptanceRequirements)
+	checkResults := evaluateTrustChecks(cr.Evidence, policy.Trust, riskTier, taskChecksByKey, time.Now().UTC())
+	checkResultsByKey := map[string]TrustCheckResult{}
+	for _, check := range checkResults {
+		checkResultsByKey[check.Key] = check
+	}
 	checkRequirements := make([]TrustRequirement, 0, len(checkResults))
 	for _, check := range checkResults {
 		satisfied := check.Status == policyTrustCheckStatusPass
@@ -165,9 +176,31 @@ func buildTrustReportWithPolicy(cr *model.CR, validation *ValidationReport, diff
 			Satisfied: satisfied,
 			Reason:    check.Reason,
 			Action:    action,
+			Source:    "policy_check",
 		})
 	}
 	requirements = append(requirements, checkRequirements...)
+	for _, req := range taskAcceptanceRequirements {
+		check, found := checkResultsByKey[req.Key]
+		satisfied := found && check.Status == policyTrustCheckStatusPass
+		reason := fmt.Sprintf("Check %q has no recorded status.", req.Key)
+		if found {
+			reason = check.Reason
+		}
+		action := ""
+		if !satisfied {
+			action = fmt.Sprintf("Task #%d requires check key %q to pass; run `sophia cr check run %d` or record fresh passing evidence.", req.TaskID, req.Key, cr.ID)
+		}
+		requirements = append(requirements, TrustRequirement{
+			Key:       fmt.Sprintf("task:%d:check:%s", req.TaskID, req.Key),
+			Title:     fmt.Sprintf("Task #%d acceptance check %q is passing and fresh", req.TaskID, req.Key),
+			Satisfied: satisfied,
+			Reason:    reason,
+			Action:    action,
+			TaskID:    req.TaskID,
+			Source:    "task_acceptance_check",
+		})
+	}
 
 	reviewDepth := evaluateTrustReviewDepth(cr, policy.Trust, riskTier)
 	reviewDepthReq := TrustRequirement{
@@ -176,6 +209,7 @@ func buildTrustReportWithPolicy(cr *model.CR, validation *ValidationReport, diff
 		Satisfied: reviewDepth.Satisfied,
 		Reason:    fmt.Sprintf("Samples: %d/%d.", reviewDepth.SampleCount, reviewDepth.RequiredSamples),
 		Action:    "",
+		Source:    "review_depth_policy",
 	}
 	if !reviewDepth.Satisfied {
 		reviewDepthReq.Action = fmt.Sprintf("Add review_sample evidence entries until at least %d sample(s) are recorded.", reviewDepth.RequiredSamples)
@@ -187,6 +221,20 @@ func buildTrustReportWithPolicy(cr *model.CR, validation *ValidationReport, diff
 		}
 	}
 	requirements = append(requirements, reviewDepthReq)
+	contractDrift := summarizeTaskContractDrift(cr.Subtasks)
+	contractDriftRequirement := TrustRequirement{
+		Key:       "contract_drift_acknowledged",
+		Title:     "Task contract drift records are acknowledged",
+		Satisfied: contractDrift.Unacknowledged == 0,
+		Reason:    "No unacknowledged task contract drift records.",
+		Action:    "",
+		Source:    "contract_drift",
+	}
+	if contractDrift.Unacknowledged > 0 {
+		contractDriftRequirement.Reason = fmt.Sprintf("%d unacknowledged drift record(s) remain across task(s): %s.", contractDrift.Unacknowledged, formatTaskIDList(contractDrift.UnacknowledgedTasks))
+		contractDriftRequirement.Action = fmt.Sprintf("Acknowledge drift records with `sophia cr task contract drift ack %d <task-id> <drift-id> --reason \"...\"`.", cr.ID)
+	}
+	requirements = append(requirements, contractDriftRequirement)
 
 	if strings.EqualFold(strings.TrimSpace(impact.RiskTier), "high") && len(impact.MatchedRiskCriticalScopes) > 0 {
 		advisories = append(advisories, fmt.Sprintf("Spot-check critical scopes: %s.", strings.Join(impact.MatchedRiskCriticalScopes, ", ")))
@@ -230,6 +278,7 @@ func buildTrustReportWithPolicy(cr *model.CR, validation *ValidationReport, diff
 		Requirements:    requirements,
 		CheckResults:    checkResults,
 		ReviewDepth:     reviewDepth,
+		ContractDrift:   contractDrift,
 		Gate:            gate,
 	}
 }
@@ -309,12 +358,57 @@ func normalizedRiskTier(raw string) string {
 	}
 }
 
-func evaluateTrustChecks(evidence []model.EvidenceEntry, trust model.PolicyTrust, riskTier string, now time.Time) []TrustCheckResult {
+func evaluateTrustChecks(evidence []model.EvidenceEntry, trust model.PolicyTrust, riskTier string, taskRequired map[string][]int, now time.Time) []TrustCheckResult {
 	required := requiredTrustCheckDefinitions(trust.Checks.Definitions, riskTier)
+	riskRequiredKeys := map[string]struct{}{}
+	for _, definition := range required {
+		riskRequiredKeys[strings.TrimSpace(definition.Key)] = struct{}{}
+	}
+	definitionsByKey := map[string]model.PolicyTrustCheckDefinition{}
+	for _, definition := range trust.Checks.Definitions {
+		key := strings.TrimSpace(definition.Key)
+		if key == "" {
+			continue
+		}
+		definitionsByKey[key] = definition
+	}
+	for key := range taskRequired {
+		if _, exists := definitionsByKey[key]; !exists {
+			continue
+		}
+		alreadyRequired := false
+		for _, current := range required {
+			if strings.TrimSpace(current.Key) == key {
+				alreadyRequired = true
+				break
+			}
+		}
+		if alreadyRequired {
+			continue
+		}
+		required = append(required, definitionsByKey[key])
+	}
+	sort.Slice(required, func(i, j int) bool {
+		return required[i].Key < required[j].Key
+	})
 	freshnessHours := intValueOrDefault(trust.Checks.FreshnessHours, defaultTrustCheckFreshnessHours)
 	results := make([]TrustCheckResult, 0, len(required))
 	for _, definition := range required {
 		result := evaluateTrustCheckResult(evidence, definition, freshnessHours, now)
+		key := strings.TrimSpace(definition.Key)
+		result.RequiredByTaskIDs = normalizeIntList(taskRequired[key])
+		_, riskRequired := riskRequiredKeys[key]
+		taskRequiredFlag := len(result.RequiredByTaskIDs) > 0
+		switch {
+		case riskRequired && taskRequiredFlag:
+			result.Sources = []string{"risk_tier_policy", "task_acceptance_check"}
+		case riskRequired:
+			result.Sources = []string{"risk_tier_policy"}
+		case taskRequiredFlag:
+			result.Sources = []string{"task_acceptance_check"}
+		default:
+			result.Sources = []string{}
+		}
 		results = append(results, result)
 	}
 	return results
@@ -932,6 +1026,90 @@ func isWeakTrustText(value string) bool {
 	default:
 		return false
 	}
+}
+
+type taskAcceptanceCheckRequirement struct {
+	TaskID int
+	Key    string
+}
+
+func requiredTaskAcceptanceChecks(tasks []model.Subtask) []taskAcceptanceCheckRequirement {
+	out := []taskAcceptanceCheckRequirement{}
+	seen := map[string]struct{}{}
+	for _, task := range tasks {
+		if task.Status != model.TaskStatusDone {
+			continue
+		}
+		for _, key := range normalizeAcceptanceCheckKeys(task.Contract.AcceptanceChecks) {
+			marker := fmt.Sprintf("%d:%s", task.ID, key)
+			if _, ok := seen[marker]; ok {
+				continue
+			}
+			seen[marker] = struct{}{}
+			out = append(out, taskAcceptanceCheckRequirement{TaskID: task.ID, Key: key})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].TaskID == out[j].TaskID {
+			return out[i].Key < out[j].Key
+		}
+		return out[i].TaskID < out[j].TaskID
+	})
+	return out
+}
+
+func taskAcceptanceCheckTaskMap(requirements []taskAcceptanceCheckRequirement) map[string][]int {
+	out := map[string][]int{}
+	for _, requirement := range requirements {
+		out[requirement.Key] = append(out[requirement.Key], requirement.TaskID)
+	}
+	for key, ids := range out {
+		out[key] = normalizeIntList(ids)
+	}
+	return out
+}
+
+func summarizeTaskContractDrift(tasks []model.Subtask) TaskContractDriftSummary {
+	summary := TaskContractDriftSummary{
+		TasksWithDrift:      []int{},
+		UnacknowledgedTasks: []int{},
+	}
+	tasksWithDrift := map[int]struct{}{}
+	unackedTasks := map[int]struct{}{}
+	for _, task := range tasks {
+		if len(task.ContractDrifts) == 0 {
+			continue
+		}
+		tasksWithDrift[task.ID] = struct{}{}
+		for _, drift := range task.ContractDrifts {
+			summary.Total++
+			if drift.Acknowledged {
+				continue
+			}
+			summary.Unacknowledged++
+			unackedTasks[task.ID] = struct{}{}
+		}
+	}
+	for taskID := range tasksWithDrift {
+		summary.TasksWithDrift = append(summary.TasksWithDrift, taskID)
+	}
+	for taskID := range unackedTasks {
+		summary.UnacknowledgedTasks = append(summary.UnacknowledgedTasks, taskID)
+	}
+	sort.Ints(summary.TasksWithDrift)
+	sort.Ints(summary.UnacknowledgedTasks)
+	return summary
+}
+
+func formatTaskIDList(taskIDs []int) string {
+	if len(taskIDs) == 0 {
+		return "(none)"
+	}
+	parts := make([]string, 0, len(taskIDs))
+	for _, taskID := range normalizeIntList(taskIDs) {
+		parts = append(parts, strconv.Itoa(taskID))
+	}
+	return strings.Join(parts, ", ")
 }
 
 func clampMin(value, min int) int {

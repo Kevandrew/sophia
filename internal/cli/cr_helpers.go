@@ -118,6 +118,15 @@ func printTrustSection(cmd *cobra.Command, trust *service.TrustReport) {
 	if len(trust.ReviewDepth.MissingCriticalScopes) > 0 {
 		fmt.Fprintf(cmd.OutOrStdout(), "- missing_critical_scopes: %s\n", strings.Join(trust.ReviewDepth.MissingCriticalScopes, ", "))
 	}
+	fmt.Fprintln(cmd.OutOrStdout(), "\nContract Drift:")
+	fmt.Fprintf(cmd.OutOrStdout(), "- total: %d\n", trust.ContractDrift.Total)
+	fmt.Fprintf(cmd.OutOrStdout(), "- unacknowledged: %d\n", trust.ContractDrift.Unacknowledged)
+	if len(trust.ContractDrift.TasksWithDrift) > 0 {
+		fmt.Fprintf(cmd.OutOrStdout(), "- tasks_with_drift: %v\n", trust.ContractDrift.TasksWithDrift)
+	}
+	if len(trust.ContractDrift.UnacknowledgedTasks) > 0 {
+		fmt.Fprintf(cmd.OutOrStdout(), "- unacknowledged_tasks: %v\n", trust.ContractDrift.UnacknowledgedTasks)
+	}
 	fmt.Fprintln(cmd.OutOrStdout(), "\nGate:")
 	fmt.Fprintf(cmd.OutOrStdout(), "- enabled: %t\n", trust.Gate.Enabled)
 	fmt.Fprintf(cmd.OutOrStdout(), "- applies: %t\n", trust.Gate.Applies)
@@ -145,6 +154,12 @@ func printTrustRequirements(cmd *cobra.Command, requirements []service.TrustRequ
 		if strings.TrimSpace(requirement.Reason) != "" {
 			fmt.Fprintf(cmd.OutOrStdout(), "  reason: %s\n", requirement.Reason)
 		}
+		if requirement.TaskID > 0 {
+			fmt.Fprintf(cmd.OutOrStdout(), "  task_id: %d\n", requirement.TaskID)
+		}
+		if strings.TrimSpace(requirement.Source) != "" {
+			fmt.Fprintf(cmd.OutOrStdout(), "  source: %s\n", requirement.Source)
+		}
 		if !requirement.Satisfied && strings.TrimSpace(requirement.Action) != "" {
 			fmt.Fprintf(cmd.OutOrStdout(), "  action: %s\n", requirement.Action)
 		}
@@ -167,6 +182,12 @@ func printTrustCheckResults(cmd *cobra.Command, checks []service.TrustCheckResul
 		}
 		if check.ExitCode != nil {
 			fmt.Fprintf(cmd.OutOrStdout(), "  exit_code: %d\n", *check.ExitCode)
+		}
+		if len(check.RequiredByTaskIDs) > 0 {
+			fmt.Fprintf(cmd.OutOrStdout(), "  required_by_task_ids: %v\n", check.RequiredByTaskIDs)
+		}
+		if len(check.Sources) > 0 {
+			fmt.Fprintf(cmd.OutOrStdout(), "  sources: %s\n", strings.Join(check.Sources, ", "))
 		}
 	}
 }

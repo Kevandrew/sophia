@@ -6,6 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"sophia/internal/model"
 	"sophia/internal/service"
 )
 
@@ -113,6 +114,7 @@ func newCRTaskContractCmd() *cobra.Command {
 	}
 	contractCmd.AddCommand(newCRTaskContractSetCmd())
 	contractCmd.AddCommand(newCRTaskContractShowCmd())
+	contractCmd.AddCommand(newCRTaskContractDriftCmd())
 	return contractCmd
 }
 
@@ -120,6 +122,8 @@ func newCRTaskContractSetCmd() *cobra.Command {
 	var intent string
 	var acceptance []string
 	var scope []string
+	var acceptanceChecks []string
+	var changeReason string
 	var asJSON bool
 
 	cmd := &cobra.Command{
@@ -155,8 +159,16 @@ func newCRTaskContractSetCmd() *cobra.Command {
 				v := append([]string(nil), scope...)
 				patch.Scope = &v
 			}
-			if patch.Intent == nil && patch.AcceptanceCriteria == nil && patch.Scope == nil {
-				err := fmt.Errorf("provide at least one of --intent, --acceptance, or --scope")
+			if cmd.Flags().Changed("acceptance-check") {
+				v := append([]string(nil), acceptanceChecks...)
+				patch.AcceptanceChecks = &v
+			}
+			if cmd.Flags().Changed("change-reason") {
+				v := changeReason
+				patch.ChangeReason = &v
+			}
+			if patch.Intent == nil && patch.AcceptanceCriteria == nil && patch.Scope == nil && patch.AcceptanceChecks == nil {
+				err := fmt.Errorf("provide at least one of --intent, --acceptance, --scope, or --acceptance-check")
 				if asJSON {
 					return writeJSONError(cmd, err)
 				}
@@ -192,6 +204,8 @@ func newCRTaskContractSetCmd() *cobra.Command {
 	cmd.Flags().StringVar(&intent, "intent", "", "Task intent statement")
 	cmd.Flags().StringArrayVar(&acceptance, "acceptance", nil, "Task acceptance criterion (repeatable)")
 	cmd.Flags().StringArrayVar(&scope, "scope", nil, "Task scope prefix (repeatable)")
+	cmd.Flags().StringArrayVar(&acceptanceChecks, "acceptance-check", nil, "Policy trust check key required for task acceptance (repeatable)")
+	cmd.Flags().StringVar(&changeReason, "change-reason", "", "Reason for post-checkpoint contract change (used to acknowledge drift)")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "Output in JSON format")
 	return cmd
 }
@@ -240,6 +254,7 @@ func newCRTaskContractShowCmd() *cobra.Command {
 						"intent":              contract.Intent,
 						"acceptance_criteria": contract.AcceptanceCriteria,
 						"scope":               contract.Scope,
+						"acceptance_checks":   contract.AcceptanceChecks,
 						"updated_at":          contract.UpdatedAt,
 						"updated_by":          contract.UpdatedBy,
 					},
@@ -249,6 +264,7 @@ func newCRTaskContractShowCmd() *cobra.Command {
 			fmt.Fprintf(cmd.OutOrStdout(), "- intent: %s\n", nonEmpty(strings.TrimSpace(contract.Intent), "(missing)"))
 			printValueList(cmd, "acceptance_criteria", contract.AcceptanceCriteria)
 			printValueList(cmd, "scope", contract.Scope)
+			printValueList(cmd, "acceptance_checks", contract.AcceptanceChecks)
 			fmt.Fprintf(cmd.OutOrStdout(), "- updated_at: %s\n", nonEmpty(strings.TrimSpace(contract.UpdatedAt), "(never)"))
 			fmt.Fprintf(cmd.OutOrStdout(), "- updated_by: %s\n", nonEmpty(strings.TrimSpace(contract.UpdatedBy), "(never)"))
 			return nil
@@ -257,6 +273,170 @@ func newCRTaskContractShowCmd() *cobra.Command {
 
 	cmd.Flags().BoolVar(&asJSON, "json", false, "Output in JSON format")
 	return cmd
+}
+
+func newCRTaskContractDriftCmd() *cobra.Command {
+	driftCmd := &cobra.Command{
+		Use:   "drift",
+		Short: "Inspect and acknowledge task contract drift records",
+	}
+	driftCmd.AddCommand(newCRTaskContractDriftListCmd())
+	driftCmd.AddCommand(newCRTaskContractDriftAckCmd())
+	return driftCmd
+}
+
+func newCRTaskContractDriftListCmd() *cobra.Command {
+	var asJSON bool
+
+	cmd := &cobra.Command{
+		Use:   "list <cr-id> <task-id>",
+		Short: "List drift records for a task contract",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			crID, err := parsePositiveIntArg(args[0], "cr-id")
+			if err != nil {
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
+				return err
+			}
+			taskID, err := parsePositiveIntArg(args[1], "task-id")
+			if err != nil {
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
+				return err
+			}
+			svc, err := newService()
+			if err != nil {
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
+				return err
+			}
+			drifts, err := svc.ListTaskContractDrifts(crID, taskID)
+			if err != nil {
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
+				return err
+			}
+			if asJSON {
+				return writeJSONSuccess(cmd, map[string]any{
+					"cr_id":   crID,
+					"task_id": taskID,
+					"drifts":  taskContractDriftsToJSON(drifts),
+				})
+			}
+			if len(drifts) == 0 {
+				fmt.Fprintf(cmd.OutOrStdout(), "No contract drift records for CR %d task %d.\n", crID, taskID)
+				return nil
+			}
+			fmt.Fprintln(cmd.OutOrStdout(), "DRIFT_ID\tFIELDS\tACKNOWLEDGED\tTS")
+			for _, drift := range drifts {
+				fmt.Fprintf(cmd.OutOrStdout(), "%d\t%s\t%t\t%s\n", drift.ID, strings.Join(drift.Fields, ","), drift.Acknowledged, drift.TS)
+			}
+			return nil
+		},
+	}
+
+	cmd.Flags().BoolVar(&asJSON, "json", false, "Output in JSON format")
+	return cmd
+}
+
+func newCRTaskContractDriftAckCmd() *cobra.Command {
+	var reason string
+	var asJSON bool
+
+	cmd := &cobra.Command{
+		Use:   "ack <cr-id> <task-id> <drift-id>",
+		Short: "Acknowledge a task contract drift record",
+		Args:  cobra.ExactArgs(3),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			crID, err := parsePositiveIntArg(args[0], "cr-id")
+			if err != nil {
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
+				return err
+			}
+			taskID, err := parsePositiveIntArg(args[1], "task-id")
+			if err != nil {
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
+				return err
+			}
+			driftID, err := parsePositiveIntArg(args[2], "drift-id")
+			if err != nil {
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
+				return err
+			}
+			if strings.TrimSpace(reason) == "" {
+				err := fmt.Errorf("--reason is required")
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
+				return err
+			}
+			svc, err := newService()
+			if err != nil {
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
+				return err
+			}
+			drift, err := svc.AckTaskContractDrift(crID, taskID, driftID, reason)
+			if err != nil {
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
+				return err
+			}
+			if asJSON {
+				return writeJSONSuccess(cmd, map[string]any{
+					"cr_id":   crID,
+					"task_id": taskID,
+					"drift":   taskContractDriftToJSON(*drift),
+				})
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "Acknowledged CR %d task %d drift %d.\n", crID, taskID, driftID)
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&reason, "reason", "", "Acknowledgement reason")
+	cmd.Flags().BoolVar(&asJSON, "json", false, "Output in JSON format")
+	return cmd
+}
+
+func taskContractDriftsToJSON(drifts []model.TaskContractDrift) []map[string]any {
+	out := make([]map[string]any, 0, len(drifts))
+	for _, drift := range drifts {
+		out = append(out, taskContractDriftToJSON(drift))
+	}
+	return out
+}
+
+func taskContractDriftToJSON(drift model.TaskContractDrift) map[string]any {
+	return map[string]any{
+		"id":                       drift.ID,
+		"ts":                       drift.TS,
+		"actor":                    drift.Actor,
+		"fields":                   stringSliceOrEmpty(drift.Fields),
+		"before_scope":             stringSliceOrEmpty(drift.BeforeScope),
+		"after_scope":              stringSliceOrEmpty(drift.AfterScope),
+		"before_acceptance_checks": stringSliceOrEmpty(drift.BeforeAcceptanceChecks),
+		"after_acceptance_checks":  stringSliceOrEmpty(drift.AfterAcceptanceChecks),
+		"checkpoint_commit":        drift.CheckpointCommit,
+		"reason":                   drift.Reason,
+		"acknowledged":             drift.Acknowledged,
+		"acknowledged_at":          drift.AcknowledgedAt,
+		"acknowledged_by":          drift.AcknowledgedBy,
+		"ack_reason":               drift.AckReason,
+	}
 }
 
 func newCRTaskDelegateCmd() *cobra.Command {
