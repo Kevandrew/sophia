@@ -12,7 +12,7 @@ import (
 	"sophia/internal/service"
 )
 
-func printListSection(cmd *cobra.Command, title string, items []string) {
+func printStringListSection(cmd *cobra.Command, title string, items []string) {
 	fmt.Fprintf(cmd.OutOrStdout(), "\n%s:\n", title)
 	if len(items) == 0 {
 		fmt.Fprintln(cmd.OutOrStdout(), "- (none)")
@@ -23,15 +23,12 @@ func printListSection(cmd *cobra.Command, title string, items []string) {
 	}
 }
 
+func printListSection(cmd *cobra.Command, title string, items []string) {
+	printStringListSection(cmd, title, items)
+}
+
 func printStringSection(cmd *cobra.Command, title string, items []string) {
-	fmt.Fprintf(cmd.OutOrStdout(), "\n%s:\n", title)
-	if len(items) == 0 {
-		fmt.Fprintln(cmd.OutOrStdout(), "- (none)")
-		return
-	}
-	for _, item := range items {
-		fmt.Fprintf(cmd.OutOrStdout(), "- %s\n", item)
-	}
+	printStringListSection(cmd, title, items)
 }
 
 func printValueList(cmd *cobra.Command, label string, values []string) {
