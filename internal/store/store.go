@@ -249,6 +249,41 @@ func (s *Store) SaveCR(cr *model.CR) error {
 	return s.writeYAMLAtomic(s.CRPath(cr.ID), cr)
 }
 
+func (s *Store) LoadCRByUID(uid string) (*model.CR, error) {
+	if err := s.EnsureInitialized(); err != nil {
+		return nil, err
+	}
+	needle := strings.TrimSpace(uid)
+	if needle == "" {
+		return nil, fmt.Errorf("cr uid cannot be empty")
+	}
+	crs, err := s.ListCRs()
+	if err != nil {
+		return nil, err
+	}
+	matches := make([]model.CR, 0, 1)
+	for _, cr := range crs {
+		if strings.TrimSpace(cr.UID) != needle {
+			continue
+		}
+		matches = append(matches, cr)
+	}
+	switch len(matches) {
+	case 0:
+		return nil, fmt.Errorf("cr uid %q not found", needle)
+	case 1:
+		cr := matches[0]
+		return &cr, nil
+	default:
+		ids := make([]string, 0, len(matches))
+		for _, m := range matches {
+			ids = append(ids, fmt.Sprintf("%d", m.ID))
+		}
+		sort.Strings(ids)
+		return nil, fmt.Errorf("cr uid %q is ambiguous across ids: %s", needle, strings.Join(ids, ","))
+	}
+}
+
 func (s *Store) ListCRs() ([]model.CR, error) {
 	if err := s.EnsureInitialized(); err != nil {
 		return nil, err
