@@ -65,6 +65,13 @@ sophia cr merge <cr-id>
 ## Documentation
 
 Start with the docs index: [`docs/index.md`](docs/index.md)
+Use CLI help for authoritative flags and command syntax:
+
+```bash
+sophia --help
+sophia cr --help
+sophia cr <command> --help
+```
 
 Key guides:
 - Getting started: [`docs/getting-started.md`](docs/getting-started.md)

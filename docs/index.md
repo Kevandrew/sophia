@@ -2,6 +2,8 @@
 
 This directory contains public-facing documentation for operators, contributors, and automation agents.
 
+Repository entrypoint: [`README.md`](../README.md)
+
 ## Start Here
 
 - [`getting-started.md`](getting-started.md)
