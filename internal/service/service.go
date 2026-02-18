@@ -553,6 +553,35 @@ type CRDiffView struct {
 	Warnings       []string
 }
 
+type RangeDiffOptions struct {
+	FromRef             string
+	ToRef               string
+	SinceLastCheckpoint bool
+}
+
+type RangeDiffCommitMap struct {
+	OldIndex  string
+	OldCommit string
+	Relation  string
+	NewIndex  string
+	NewCommit string
+	Subject   string
+}
+
+type RangeDiffView struct {
+	CRID         int
+	TaskID       int
+	FromRef      string
+	ToRef        string
+	BaseRef      string
+	OldRange     string
+	NewRange     string
+	Mapping      []RangeDiffCommitMap
+	FilesChanged []string
+	ShortStat    string
+	Warnings     []string
+}
+
 type BlameRange struct {
 	Start int
 	End   int

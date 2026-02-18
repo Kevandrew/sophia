@@ -540,6 +540,44 @@ func (c *Client) CommitPatch(hash string) (string, error) {
 	return out, nil
 }
 
+func (c *Client) RangeDiff(oldRange, newRange string) (string, error) {
+	oldRange = strings.TrimSpace(oldRange)
+	newRange = strings.TrimSpace(newRange)
+	if oldRange == "" || newRange == "" {
+		return "", fmt.Errorf("old and new ranges are required")
+	}
+	oldBase, oldTip, oldOK := splitRange(oldRange)
+	newBase, newTip, newOK := splitRange(newRange)
+
+	// Prefer the 3-argument form when ranges share a base so empty-side comparisons
+	// (for example base..base vs base..HEAD) still return a structured mapping.
+	args := []string{"range-diff", "--no-color"}
+	if oldOK && newOK && oldBase == newBase {
+		args = append(args, oldBase, oldTip, newTip)
+	} else {
+		args = append(args, oldRange, newRange)
+	}
+
+	out, err := c.run(args...)
+	if err != nil {
+		return "", err
+	}
+	return out, nil
+}
+
+func splitRange(rng string) (string, string, bool) {
+	parts := strings.SplitN(strings.TrimSpace(rng), "..", 2)
+	if len(parts) != 2 {
+		return "", "", false
+	}
+	base := strings.TrimSpace(parts[0])
+	tip := strings.TrimSpace(parts[1])
+	if base == "" || tip == "" {
+		return "", "", false
+	}
+	return base, tip, true
+}
+
 func (c *Client) BlameLinePorcelain(path string, rev string, ranges []BlameRange) ([]BlameLine, error) {
 	path = strings.TrimSpace(path)
 	if path == "" {
