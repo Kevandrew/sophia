@@ -60,6 +60,22 @@ func baseCommitFromBody(body string) string {
 	return strings.TrimSpace(matches[1])
 }
 
+func branchFromBody(body string) string {
+	matches := footerBranchPattern.FindStringSubmatch(body)
+	if len(matches) != 2 {
+		return ""
+	}
+	return strings.TrimSpace(matches[1])
+}
+
+func branchSchemeFromBody(body string) string {
+	matches := footerBranchSchemePattern.FindStringSubmatch(body)
+	if len(matches) != 2 {
+		return ""
+	}
+	return strings.TrimSpace(matches[1])
+}
+
 func parentCRIDFromBody(body string) int {
 	matches := footerParentPattern.FindStringSubmatch(body)
 	if len(matches) != 2 {

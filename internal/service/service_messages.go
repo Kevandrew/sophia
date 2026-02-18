@@ -66,6 +66,8 @@ func buildMergeCommitMessage(cr *model.CR, actor, mergedAt string) string {
 	fmt.Fprintf(&b, "Sophia-CR-UID: %s\n", strings.TrimSpace(cr.UID))
 	fmt.Fprintf(&b, "Sophia-Base-Ref: %s\n", nonEmptyTrimmed(cr.BaseRef, cr.BaseBranch))
 	fmt.Fprintf(&b, "Sophia-Base-Commit: %s\n", strings.TrimSpace(cr.BaseCommit))
+	fmt.Fprintf(&b, "Sophia-Branch: %s\n", strings.TrimSpace(cr.Branch))
+	fmt.Fprintf(&b, "Sophia-Branch-Scheme: %s\n", detectCRBranchScheme(cr.Branch))
 	if cr.ParentCRID > 0 {
 		fmt.Fprintf(&b, "Sophia-Parent-CR: %d\n", cr.ParentCRID)
 	}
@@ -107,6 +109,8 @@ func buildTaskCheckpointMessage(cr *model.CR, task *model.Subtask, scopeMode str
 	fmt.Fprintf(&b, "Sophia-CR-UID: %s\n", strings.TrimSpace(cr.UID))
 	fmt.Fprintf(&b, "Sophia-Base-Ref: %s\n", nonEmptyTrimmed(cr.BaseRef, cr.BaseBranch))
 	fmt.Fprintf(&b, "Sophia-Base-Commit: %s\n", strings.TrimSpace(cr.BaseCommit))
+	fmt.Fprintf(&b, "Sophia-Branch: %s\n", strings.TrimSpace(cr.Branch))
+	fmt.Fprintf(&b, "Sophia-Branch-Scheme: %s\n", detectCRBranchScheme(cr.Branch))
 	if cr.ParentCRID > 0 {
 		fmt.Fprintf(&b, "Sophia-Parent-CR: %d\n", cr.ParentCRID)
 	}
