@@ -10,6 +10,69 @@ import (
 	"sophia/internal/service"
 )
 
+type crAddRenderOptions struct {
+	switchBranch    bool
+	childMode       bool
+	includeParentID bool
+	parentCRID      int
+}
+
+func buildAddCROptions(baseRef string, parentCRID int, switchBranch bool, branchAlias string, ownerPrefix string, ownerPrefixSet bool) service.AddCROptions {
+	return service.AddCROptions{
+		BaseRef:        strings.TrimSpace(baseRef),
+		ParentCRID:     parentCRID,
+		Switch:         switchBranch,
+		NoSwitch:       !switchBranch,
+		BranchAlias:    strings.TrimSpace(branchAlias),
+		OwnerPrefix:    strings.TrimSpace(ownerPrefix),
+		OwnerPrefixSet: ownerPrefixSet,
+	}
+}
+
+func runCRAddFlow(
+	cmd *cobra.Command,
+	asJSON bool,
+	svc *service.Service,
+	title string,
+	description string,
+	opts service.AddCROptions,
+	renderOpts crAddRenderOptions,
+) error {
+	cr, warnings, err := svc.AddCRWithOptionsWithWarnings(title, description, opts)
+	if err != nil {
+		return commandError(cmd, asJSON, err)
+	}
+	if asJSON {
+		payload := map[string]any{
+			"cr":       crToJSONMap(cr),
+			"warnings": stringSliceOrEmpty(warnings),
+			"switched": renderOpts.switchBranch,
+		}
+		if renderOpts.includeParentID {
+			payload["parent_cr_id"] = renderOpts.parentCRID
+		}
+		return writeJSONSuccess(cmd, payload)
+	}
+
+	prefix := "Created CR"
+	if renderOpts.childMode {
+		prefix = "Created child CR"
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "%s %d on branch %s\n", prefix, cr.ID, cr.Branch)
+	if renderOpts.switchBranch {
+		fmt.Fprintf(cmd.OutOrStdout(), "Active branch: %s\n", cr.Branch)
+	} else {
+		fmt.Fprintf(cmd.OutOrStdout(), "Run: sophia cr switch %d\n", cr.ID)
+	}
+	if len(warnings) > 0 {
+		fmt.Fprintln(cmd.OutOrStdout(), "Overlap warnings:")
+		for _, warning := range warnings {
+			fmt.Fprintf(cmd.OutOrStdout(), "- %s\n", warning)
+		}
+	}
+	return nil
+}
+
 func newCRAddCmd() *cobra.Command {
 	var description string
 	var baseRef string
@@ -32,41 +95,10 @@ func newCRAddCmd() *cobra.Command {
 				err := fmt.Errorf("--parent must be >= 1")
 				return commandError(cmd, asJSON, err)
 			}
-			opts := service.AddCROptions{
-				BaseRef:     strings.TrimSpace(baseRef),
-				ParentCRID:  parentID,
-				Switch:      switchBranch,
-				NoSwitch:    !switchBranch,
-				BranchAlias: strings.TrimSpace(branchAlias),
-			}
-			if cmd.Flags().Changed("owner-prefix") {
-				opts.OwnerPrefixSet = true
-				opts.OwnerPrefix = strings.TrimSpace(ownerPrefix)
-			}
-			cr, warnings, err := svc.AddCRWithOptionsWithWarnings(args[0], description, opts)
-			if err != nil {
-				return commandError(cmd, asJSON, err)
-			}
-			if asJSON {
-				return writeJSONSuccess(cmd, map[string]any{
-					"cr":       crToJSONMap(cr),
-					"warnings": stringSliceOrEmpty(warnings),
-					"switched": switchBranch,
-				})
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Created CR %d on branch %s\n", cr.ID, cr.Branch)
-			if switchBranch {
-				fmt.Fprintf(cmd.OutOrStdout(), "Active branch: %s\n", cr.Branch)
-			} else {
-				fmt.Fprintf(cmd.OutOrStdout(), "Run: sophia cr switch %d\n", cr.ID)
-			}
-			if len(warnings) > 0 {
-				fmt.Fprintln(cmd.OutOrStdout(), "Overlap warnings:")
-				for _, warning := range warnings {
-					fmt.Fprintf(cmd.OutOrStdout(), "- %s\n", warning)
-				}
-			}
-			return nil
+			opts := buildAddCROptions(baseRef, parentID, switchBranch, branchAlias, ownerPrefix, cmd.Flags().Changed("owner-prefix"))
+			return runCRAddFlow(cmd, asJSON, svc, args[0], description, opts, crAddRenderOptions{
+				switchBranch: switchBranch,
+			})
 		},
 	}
 
@@ -200,38 +232,13 @@ func newCRChildAddCmd() *cobra.Command {
 				}
 				return commandError(cmd, asJSON, ctxErr)
 			}
-			cr, warnings, err := svc.AddCRWithOptionsWithWarnings(args[0], description, service.AddCROptions{
-				ParentCRID:     ctx.CR.ID,
-				Switch:         switchBranch,
-				NoSwitch:       !switchBranch,
-				BranchAlias:    strings.TrimSpace(branchAlias),
-				OwnerPrefix:    strings.TrimSpace(ownerPrefix),
-				OwnerPrefixSet: cmd.Flags().Changed("owner-prefix"),
+			opts := buildAddCROptions("", ctx.CR.ID, switchBranch, branchAlias, ownerPrefix, cmd.Flags().Changed("owner-prefix"))
+			return runCRAddFlow(cmd, asJSON, svc, args[0], description, opts, crAddRenderOptions{
+				switchBranch:    switchBranch,
+				childMode:       true,
+				includeParentID: true,
+				parentCRID:      ctx.CR.ID,
 			})
-			if err != nil {
-				return commandError(cmd, asJSON, err)
-			}
-			if asJSON {
-				return writeJSONSuccess(cmd, map[string]any{
-					"parent_cr_id": ctx.CR.ID,
-					"cr":           crToJSONMap(cr),
-					"warnings":     stringSliceOrEmpty(warnings),
-					"switched":     switchBranch,
-				})
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Created child CR %d on branch %s\n", cr.ID, cr.Branch)
-			if switchBranch {
-				fmt.Fprintf(cmd.OutOrStdout(), "Active branch: %s\n", cr.Branch)
-			} else {
-				fmt.Fprintf(cmd.OutOrStdout(), "Run: sophia cr switch %d\n", cr.ID)
-			}
-			if len(warnings) > 0 {
-				fmt.Fprintln(cmd.OutOrStdout(), "Overlap warnings:")
-				for _, warning := range warnings {
-					fmt.Fprintf(cmd.OutOrStdout(), "- %s\n", warning)
-				}
-			}
-			return nil
 		},
 	}
 
