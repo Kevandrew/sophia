@@ -37,6 +37,7 @@ func newRootCmd() *cobra.Command {
 func newInitCmd() *cobra.Command {
 	var baseBranch string
 	var metadataMode string
+	var branchOwnerPrefix string
 	var asJSON bool
 
 	cmd := &cobra.Command{
@@ -51,16 +52,25 @@ func newInitCmd() *cobra.Command {
 				}
 				return err
 			}
-			base, err := svc.Init(baseBranch, metadataMode)
+			base, err := svc.InitWithOptions(service.InitOptions{
+				BaseBranch:        baseBranch,
+				MetadataMode:      metadataMode,
+				BranchOwnerPrefix: branchOwnerPrefix,
+			})
 			if err != nil {
 				if asJSON {
 					return writeJSONError(cmd, err)
 				}
 				return err
 			}
+			currentPrefix := ""
+			if cfg, cfgErr := svc.Config(); cfgErr == nil {
+				currentPrefix = cfg.BranchOwnerPrefix
+			}
 			if asJSON {
 				return writeJSONSuccess(cmd, map[string]any{
-					"base_branch": base,
+					"base_branch":         base,
+					"branch_owner_prefix": currentPrefix,
 				})
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "Initialized Sophia (base branch: %s)\n", base)
@@ -70,6 +80,7 @@ func newInitCmd() *cobra.Command {
 
 	cmd.Flags().StringVar(&baseBranch, "base-branch", "", "Base branch to use for CR merges")
 	cmd.Flags().StringVar(&metadataMode, "metadata-mode", "", "Metadata mode: local or tracked (default: local)")
+	cmd.Flags().StringVar(&branchOwnerPrefix, "branch-owner-prefix", "", "Default owner prefix for generated branch aliases")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "Output in JSON format")
 	return cmd
 }

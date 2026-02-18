@@ -38,7 +38,6 @@ var (
 )
 
 var (
-	crBranchPattern      = regexp.MustCompile(`^sophia/cr-(\d+)$`)
 	crSubjectPattern     = regexp.MustCompile(`^\[CR-(\d+)\]\s*(.*)$`)
 	crFooterPattern      = regexp.MustCompile(`(?m)^Sophia-CR:\s*\d+\s*$`)
 	legacyPersistPattern = regexp.MustCompile(`^chore:\s*persist CR-\d+\s+merged metadata$`)
@@ -140,10 +139,13 @@ type CurrentCRContext struct {
 }
 
 type AddCROptions struct {
-	BaseRef    string
-	ParentCRID int
-	Switch     bool
-	NoSwitch   bool
+	BaseRef        string
+	ParentCRID     int
+	Switch         bool
+	NoSwitch       bool
+	BranchAlias    string
+	OwnerPrefix    string
+	OwnerPrefixSet bool
 }
 
 const (
@@ -187,6 +189,12 @@ type RepairReport struct {
 	NextID        int
 	HighestCRID   int
 	RepairedCRIDs []int
+}
+
+type InitOptions struct {
+	BaseBranch        string
+	MetadataMode      string
+	BranchOwnerPrefix string
 }
 
 type ReconcileCROptions struct {
@@ -736,6 +744,17 @@ func New(root string) *Service {
 }
 
 func (s *Service) Init(baseBranch, metadataMode string) (string, error) {
+	return s.InitWithOptions(InitOptions{
+		BaseBranch:   baseBranch,
+		MetadataMode: metadataMode,
+	})
+}
+
+func (s *Service) InitWithOptions(opts InitOptions) (string, error) {
+	baseBranch := opts.BaseBranch
+	metadataMode := opts.MetadataMode
+	branchOwnerPrefix := opts.BranchOwnerPrefix
+
 	if !s.git.InRepo() {
 		if err := s.git.InitRepo(); err != nil {
 			return "", fmt.Errorf("initialize git repository: %w", err)
@@ -832,5 +851,25 @@ func (s *Service) Init(baseBranch, metadataMode string) (string, error) {
 		}
 	}
 
+	trimmedPrefix := strings.TrimSpace(branchOwnerPrefix)
+	if trimmedPrefix != "" {
+		normalizedPrefix, prefixErr := normalizeCRBranchOwnerPrefix(trimmedPrefix)
+		if prefixErr != nil {
+			return "", prefixErr
+		}
+		cfg, cfgErr := s.store.LoadConfig()
+		if cfgErr != nil {
+			return "", cfgErr
+		}
+		cfg.BranchOwnerPrefix = normalizedPrefix
+		if saveErr := s.store.SaveConfig(cfg); saveErr != nil {
+			return "", saveErr
+		}
+	}
+
 	return effectiveBase, nil
+}
+
+func (s *Service) Config() (model.Config, error) {
+	return s.store.LoadConfig()
 }
