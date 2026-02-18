@@ -138,7 +138,7 @@ Common error-to-next-action guidance:
 ### Initialize Repository
 
 ```
-sophia init [--base-branch <name>] [--metadata-mode local|tracked]
+sophia init [--base-branch <name>] [--metadata-mode local|tracked] [--json]
 ```
 
 * Creates shared local metadata in `<git-common-dir>/sophia-local` by default
@@ -395,8 +395,11 @@ sophia cr list --status in_progress
 sophia cr list --risk-tier high
 sophia cr list --scope internal/
 sophia cr list --text "search term"
+sophia cr list --search "search term"   # alias for --text
 sophia cr list --json
 ```
+
+`--status` accepts only `in_progress|merged`; `--risk-tier` accepts only `low|medium|high`.
 
 ---
 
@@ -413,6 +416,7 @@ Examples:
 ```
 sophia cr search "billing"
 sophia cr search --status in_progress --risk-tier high
+sophia cr search --search "billing"
 sophia cr search "index" --json
 ```
 
@@ -562,7 +566,7 @@ Behavior:
 
 ```
 sophia cr impact <id>
-sophia cr validate <id>
+sophia cr validate <id> [--record]
 ```
 
 Behavior:
@@ -572,7 +576,7 @@ Behavior:
 * `validate` enforces required contract fields and scope-drift policy
 * `validate` emits blocking `Errors` and non-blocking `Warnings`
 * `validate` includes task chunk metadata warnings (`task_chunk_warnings`) when chunk metadata is malformed/inconsistent
-* `validate` records a `cr_validated` audit event
+* `validate` is read-only by default; add `--record` to append a `cr_validated` audit event
 * For merged CRs whose branch was deleted, `validate` derives diff context from the merge commit (with task-checkpoint scope fallback)
 * Both commands support machine-readable output via `--json`
 
@@ -712,28 +716,29 @@ sophia cr merge <id> --override-reason "hotfix required for production outage"
 ### Workflow Integrity + Visibility
 
 ```
-sophia doctor
-sophia log
+sophia doctor [--json]
+sophia log [--json]
 sophia blame <path> [--rev <git-ref>] [-L start,end] [--json]
-sophia repair
-sophia hook install
-sophia cr why <id>
-sophia cr status <id>
+sophia repair [--base-branch <name>] [--refresh] [--json]
+sophia hook install [--force-overwrite] [--json]
+sophia cr why <id> [--json]
+sophia cr status <id> [--json]
 sophia cr doctor <id> [--json]
 sophia cr reconcile <id> [--regenerate] [--json]
-sophia cr current
-sophia cr switch <id>
-sophia cr reopen <id>
-sophia cr base set <id> --ref <git-ref>
-sophia cr restack <id>
-sophia cr task contract set <cr-id> <task-id> --intent "..."
-sophia cr task contract show <cr-id> <task-id>
+sophia cr current [--json]
+sophia cr switch <id> [--json]
+sophia cr reopen <id> [--json]
+sophia cr base set <id> --ref <git-ref> [--rebase] [--json]
+sophia cr restack <id> [--json]
+sophia cr task contract set <cr-id> <task-id> --intent "..." [--json]
+sophia cr task contract show <cr-id> <task-id> [--json]
 sophia cr task chunk list <cr-id> <task-id> [--path <file>] [--json]
 sophia cr task done <cr-id> <task-id> --patch-file <patch-file>
+sophia cr task done <cr-id> <task-id> --no-checkpoint [--json]
 sophia cr task reopen <cr-id> <task-id> [--clear-checkpoint] [--json]
-sophia cr task delegate <parent-cr-id> <task-id> --child <child-cr-id>
-sophia cr task undelegate <parent-cr-id> <task-id> --child <child-cr-id>
-sophia cr child add "<title>" --description "..."
+sophia cr task delegate <parent-cr-id> <task-id> --child <child-cr-id> [--json]
+sophia cr task undelegate <parent-cr-id> <task-id> --child <child-cr-id> [--json]
+sophia cr child add "<title>" --description "..." [--json]
 sophia cr stack [<id>] [--json]
 sophia cr diff <id> [--task <task-id>] [--critical] [--json]
 sophia cr task diff <cr-id> <task-id> [--chunks] [--json]
@@ -743,17 +748,17 @@ sophia cr task rangediff <cr-id> <task-id> [--from <ref>] [--to <ref>] [--since-
 sophia cr merge status <id> [--json]
 sophia cr merge abort <id> [--json]
 sophia cr merge resume <id> [--json]
-sophia cr edit <id> --title "..."
-sophia cr contract set <id> --why "..."
-sophia cr contract show <id>
+sophia cr edit <id> --title "..." [--json]
+sophia cr contract set <id> --why "..." [--json]
+sophia cr contract show <id> [--json]
 sophia cr impact <id>
-sophia cr validate <id>
+sophia cr validate <id> [--record] [--json]
 sophia cr evidence add <id> --type command_run --cmd "go test ./..." --capture
 sophia cr evidence show <id> [--json]
-sophia cr export <id> --format json [--include diffs] [--out <path>]
+sophia cr export <id> --format json [--include diffs] [--out <path>] [--json]
 sophia cr review <id> --json
-sophia cr redact <id> --note-index 1 --reason "..."
-sophia cr history <id>
+sophia cr redact <id> --note-index 1 --reason "..." [--json]
+sophia cr history <id> [--show-redacted] [--json]
 ```
 
 * `doctor` flags workflow drift (dirty tree, non-CR branch, stale merged CR branches)
@@ -775,7 +780,7 @@ sophia cr history <id>
 * `task reopen` reopens done tasks without rewriting Git history and can optionally clear checkpoint metadata
 * `contract/impact/validate` provide intent integrity and blast-radius review context
 * `cr export` emits a canonical schema-versioned JSON bundle containing CR metadata, derived impact/trust/validation context, checkpoint inventory, referenced commits, and optional task patch sections (`--include diffs`)
-* `--json` on read/check commands provides stable machine-readable envelopes for agents
+* `--json` provides stable machine-readable envelopes across operational root/CR/task commands
 * JSON read/check outputs include immutable CR uid fields and per-CR base/parent metadata for stacked workflows
 * `edit/redact/history` supports retroactive metadata hygiene with audit-safe events
 
