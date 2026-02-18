@@ -123,59 +123,76 @@ func normalizeTrustInputs(validation *ValidationReport, diff *diffSummary) (*Val
 	return validation, diff, impact, shortStat
 }
 
+func newTrustRequirement(key, title string, satisfied bool, reason, action, source string) TrustRequirement {
+	return TrustRequirement{
+		Key:       key,
+		Title:     title,
+		Satisfied: satisfied,
+		Reason:    reason,
+		Action:    action,
+		Source:    source,
+	}
+}
+
+func newTaskTrustRequirement(key, title string, satisfied bool, reason, action string, taskID int, source string) TrustRequirement {
+	requirement := newTrustRequirement(key, title, satisfied, reason, action, source)
+	requirement.TaskID = taskID
+	return requirement
+}
+
 func buildInitialTrustRequirements(cr *model.CR, validation *ValidationReport, requiredCRFields []string) ([]string, []TrustRequirement) {
 	hardFailures := []string{}
 	requirements := []TrustRequirement{}
 	if len(validation.Errors) > 0 {
 		hardFailures = append(hardFailures, fmt.Sprintf("validation errors present (%d)", len(validation.Errors)))
-		requirements = append(requirements, TrustRequirement{
-			Key:       "validation_clean",
-			Title:     "Validation has no errors",
-			Satisfied: false,
-			Reason:    fmt.Sprintf("%d validation error(s) present.", len(validation.Errors)),
-			Action:    "Resolve all validation errors before trusting review data.",
-			Source:    "validation",
-		})
+		requirements = append(requirements, newTrustRequirement(
+			"validation_clean",
+			"Validation has no errors",
+			false,
+			fmt.Sprintf("%d validation error(s) present.", len(validation.Errors)),
+			"Resolve all validation errors before trusting review data.",
+			"validation",
+		))
 	} else {
-		requirements = append(requirements, TrustRequirement{
-			Key:       "validation_clean",
-			Title:     "Validation has no errors",
-			Satisfied: true,
-			Reason:    "No validation errors.",
-			Action:    "",
-			Source:    "validation",
-		})
+		requirements = append(requirements, newTrustRequirement(
+			"validation_clean",
+			"Validation has no errors",
+			true,
+			"No validation errors.",
+			"",
+			"validation",
+		))
 	}
 	missingContractFields := missingCRContractFields(cr.Contract, requiredCRFields)
 	if len(missingContractFields) > 0 {
 		hardFailures = append(hardFailures, fmt.Sprintf("missing required contract fields: %s", strings.Join(missingContractFields, ", ")))
-		requirements = append(requirements, TrustRequirement{
-			Key:       "contract_required_fields",
-			Title:     "CR required contract fields are complete",
-			Satisfied: false,
-			Reason:    fmt.Sprintf("Missing fields: %s.", strings.Join(missingContractFields, ", ")),
-			Action:    fmt.Sprintf("Complete required contract fields: %s.", strings.Join(missingContractFields, ", ")),
-			Source:    "contract_required_fields",
-		})
+		requirements = append(requirements, newTrustRequirement(
+			"contract_required_fields",
+			"CR required contract fields are complete",
+			false,
+			fmt.Sprintf("Missing fields: %s.", strings.Join(missingContractFields, ", ")),
+			fmt.Sprintf("Complete required contract fields: %s.", strings.Join(missingContractFields, ", ")),
+			"contract_required_fields",
+		))
 	} else {
-		requirements = append(requirements, TrustRequirement{
-			Key:       "contract_required_fields",
-			Title:     "CR required contract fields are complete",
-			Satisfied: true,
-			Reason:    "All required contract fields are present.",
-			Action:    "",
-			Source:    "contract_required_fields",
-		})
+		requirements = append(requirements, newTrustRequirement(
+			"contract_required_fields",
+			"CR required contract fields are complete",
+			true,
+			"All required contract fields are present.",
+			"",
+			"contract_required_fields",
+		))
 	}
 	unjustifiedNoCheckpointTasks := listUnjustifiedDoneTasksWithoutCheckpoint(cr.Subtasks)
-	checkpointExceptionRequirement := TrustRequirement{
-		Key:       "task_checkpoint_exception_justified",
-		Title:     "Done tasks without checkpoints include explicit rationale",
-		Satisfied: len(unjustifiedNoCheckpointTasks) == 0,
-		Reason:    "All done tasks are backed by checkpoint commits or explicit no-checkpoint reasons.",
-		Action:    "",
-		Source:    "task_proof_chain",
-	}
+	checkpointExceptionRequirement := newTrustRequirement(
+		"task_checkpoint_exception_justified",
+		"Done tasks without checkpoints include explicit rationale",
+		len(unjustifiedNoCheckpointTasks) == 0,
+		"All done tasks are backed by checkpoint commits or explicit no-checkpoint reasons.",
+		"",
+		"task_proof_chain",
+	)
 	if len(unjustifiedNoCheckpointTasks) > 0 {
 		checkpointExceptionRequirement.Reason = fmt.Sprintf("Done task(s) missing checkpoint rationale: %s.", formatTaskIDList(unjustifiedNoCheckpointTasks))
 		checkpointExceptionRequirement.Action = fmt.Sprintf("Record rationale with `sophia cr task done %d <task-id> --no-checkpoint --no-checkpoint-reason \"...\"` or create scoped checkpoints.", cr.ID)
@@ -233,14 +250,14 @@ func buildTrustCheckRequirements(cr *model.CR, trust model.PolicyTrust, riskTier
 		if !satisfied {
 			action = fmt.Sprintf("Run required check %q (%s) and record a passing fresh result.", check.Key, check.Command)
 		}
-		requirements = append(requirements, TrustRequirement{
-			Key:       "check:" + check.Key,
-			Title:     fmt.Sprintf("Required check %q is passing and fresh", check.Key),
-			Satisfied: satisfied,
-			Reason:    check.Reason,
-			Action:    action,
-			Source:    "policy_check",
-		})
+		requirements = append(requirements, newTrustRequirement(
+			"check:"+check.Key,
+			fmt.Sprintf("Required check %q is passing and fresh", check.Key),
+			satisfied,
+			check.Reason,
+			action,
+			"policy_check",
+		))
 	}
 	for _, req := range taskAcceptanceRequirements {
 		check, found := checkResultsByKey[req.Key]
@@ -253,28 +270,28 @@ func buildTrustCheckRequirements(cr *model.CR, trust model.PolicyTrust, riskTier
 		if !satisfied {
 			action = fmt.Sprintf("Task #%d requires check key %q to pass; run `sophia cr check run %d` or record fresh passing evidence.", req.TaskID, req.Key, cr.ID)
 		}
-		requirements = append(requirements, TrustRequirement{
-			Key:       fmt.Sprintf("task:%d:check:%s", req.TaskID, req.Key),
-			Title:     fmt.Sprintf("Task #%d acceptance check %q is passing and fresh", req.TaskID, req.Key),
-			Satisfied: satisfied,
-			Reason:    reason,
-			Action:    action,
-			TaskID:    req.TaskID,
-			Source:    "task_acceptance_check",
-		})
+		requirements = append(requirements, newTaskTrustRequirement(
+			fmt.Sprintf("task:%d:check:%s", req.TaskID, req.Key),
+			fmt.Sprintf("Task #%d acceptance check %q is passing and fresh", req.TaskID, req.Key),
+			satisfied,
+			reason,
+			action,
+			req.TaskID,
+			"task_acceptance_check",
+		))
 	}
 	return requirements, checkResults
 }
 
 func buildReviewDepthRequirement(reviewDepth TrustReviewDepthResult) TrustRequirement {
-	requirement := TrustRequirement{
-		Key:       "review_depth",
-		Title:     "Review-depth sampling requirement is satisfied",
-		Satisfied: reviewDepth.Satisfied,
-		Reason:    fmt.Sprintf("Samples: %d/%d.", reviewDepth.SampleCount, reviewDepth.RequiredSamples),
-		Action:    "",
-		Source:    "review_depth_policy",
-	}
+	requirement := newTrustRequirement(
+		"review_depth",
+		"Review-depth sampling requirement is satisfied",
+		reviewDepth.Satisfied,
+		fmt.Sprintf("Samples: %d/%d.", reviewDepth.SampleCount, reviewDepth.RequiredSamples),
+		"",
+		"review_depth_policy",
+	)
 	if !reviewDepth.Satisfied {
 		requirement.Action = fmt.Sprintf("Add review_sample evidence entries until at least %d sample(s) are recorded.", reviewDepth.RequiredSamples)
 	}
@@ -288,14 +305,14 @@ func buildReviewDepthRequirement(reviewDepth TrustReviewDepthResult) TrustRequir
 }
 
 func buildContractDriftRequirement(contractDrift TaskContractDriftSummary, crID int) TrustRequirement {
-	requirement := TrustRequirement{
-		Key:       "contract_drift_acknowledged",
-		Title:     "Task contract drift records are acknowledged",
-		Satisfied: contractDrift.Unacknowledged == 0,
-		Reason:    "No unacknowledged task contract drift records.",
-		Action:    "",
-		Source:    "contract_drift",
-	}
+	requirement := newTrustRequirement(
+		"contract_drift_acknowledged",
+		"Task contract drift records are acknowledged",
+		contractDrift.Unacknowledged == 0,
+		"No unacknowledged task contract drift records.",
+		"",
+		"contract_drift",
+	)
 	if contractDrift.Unacknowledged > 0 {
 		requirement.Reason = fmt.Sprintf("%d unacknowledged drift record(s) remain across task(s): %s.", contractDrift.Unacknowledged, formatTaskIDList(contractDrift.UnacknowledgedTasks))
 		requirement.Action = fmt.Sprintf("Acknowledge drift records with `sophia cr task contract drift ack %d <task-id> <drift-id> --reason \"...\"`.", crID)
