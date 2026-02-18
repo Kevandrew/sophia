@@ -25,7 +25,7 @@ func (s *Service) DiffCR(id int, opts CRDiffOptions) (*CRDiffView, error) {
 		return view, nil
 	}
 
-	fromRef, targetRef, err := s.crDiffAnchors(cr)
+	fromRef, targetRef, warnings, err := s.crDiffAnchors(cr)
 	if err != nil {
 		return nil, err
 	}
@@ -46,13 +46,13 @@ func (s *Service) DiffCR(id int, opts CRDiffOptions) (*CRDiffView, error) {
 		CRID:         cr.ID,
 		Mode:         "cr",
 		CriticalOnly: opts.CriticalOnly,
-		BaseRef:      strings.TrimSpace(cr.BaseRef),
-		BaseCommit:   strings.TrimSpace(cr.BaseCommit),
+		BaseRef:      strings.TrimSpace(nonEmptyTrimmed(cr.BaseRef, cr.BaseBranch)),
+		BaseCommit:   fromRef,
 		TargetRef:    targetRef,
 		Files:        files,
 		FilesChanged: len(files),
 		ShortStat:    shortStat,
-		Warnings:     []string{},
+		Warnings:     append([]string(nil), warnings...),
 	}
 	if opts.CriticalOnly {
 		applyCriticalFilter(view, cr.Contract.RiskCriticalScopes)
@@ -117,7 +117,7 @@ func (s *Service) diffTaskFromCR(cr *model.CR, taskID int, opts TaskDiffOptions)
 	if len(task.CheckpointScope) == 0 {
 		return nil, fmt.Errorf("task %d has no checkpoint commit and no checkpoint_scope for fallback diff", task.ID)
 	}
-	fromRef, targetRef, err := s.crDiffAnchors(cr)
+	fromRef, targetRef, anchorWarnings, err := s.crDiffAnchors(cr)
 	if err != nil {
 		return nil, err
 	}
@@ -137,6 +137,7 @@ func (s *Service) diffTaskFromCR(cr *model.CR, taskID int, opts TaskDiffOptions)
 	view.ShortStat = fmt.Sprintf("%d file(s) changed (task checkpoint scope fallback)", view.FilesChanged)
 	view.FallbackUsed = true
 	view.FallbackReason = "task checkpoint commit unavailable; using CR range filtered by task checkpoint_scope"
+	view.Warnings = append(view.Warnings, anchorWarnings...)
 	view.Warnings = append(view.Warnings, view.FallbackReason)
 	if opts.CriticalOnly {
 		applyCriticalFilter(view, cr.Contract.RiskCriticalScopes)
@@ -255,27 +256,15 @@ func (s *Service) DiffTaskChunk(crID, taskID int, chunkID string) (*CRDiffView, 
 	return view, nil
 }
 
-func (s *Service) crDiffAnchors(cr *model.CR) (string, string, error) {
+func (s *Service) crDiffAnchors(cr *model.CR) (string, string, []string, error) {
 	if cr == nil {
-		return "", "", fmt.Errorf("cr is required")
+		return "", "", nil, fmt.Errorf("cr is required")
 	}
-	fromRef := strings.TrimSpace(cr.BaseCommit)
-	if fromRef == "" {
-		fromRef = nonEmptyTrimmed(cr.BaseRef, cr.BaseBranch)
+	anchors, err := s.resolveCRAnchors(cr)
+	if err != nil {
+		return "", "", nil, err
 	}
-	if strings.TrimSpace(fromRef) == "" {
-		return "", "", fmt.Errorf("cr %d has no base anchor", cr.ID)
-	}
-	targetRef := ""
-	switch {
-	case s.git.BranchExists(cr.Branch):
-		targetRef = cr.Branch
-	case cr.Status == model.StatusMerged && strings.TrimSpace(cr.MergedCommit) != "":
-		targetRef = strings.TrimSpace(cr.MergedCommit)
-	default:
-		return "", "", fmt.Errorf("unable to compute diff for cr %d: missing branch context (%q)", cr.ID, cr.Branch)
-	}
-	return fromRef, targetRef, nil
+	return anchors.baseCommit, anchors.headCommit, append([]string(nil), anchors.warnings...), nil
 }
 
 func buildDiffFiles(chunks []parsedPatchChunk, source string) []DiffFileView {

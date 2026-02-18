@@ -124,27 +124,13 @@ func (s *Service) resolveRangeDiffAnchors(cr *model.CR, task *model.Subtask, opt
 			return "", "", nil, fmt.Errorf("resolve --to ref %q: %w", toRaw, err)
 		}
 		toResolved = strings.TrimSpace(resolved)
-	} else if s.git.BranchExists(cr.Branch) {
-		resolved, err := s.git.ResolveRef(cr.Branch)
-		if err != nil {
-			return "", "", nil, fmt.Errorf("resolve CR branch %q: %w", cr.Branch, err)
-		}
-		toResolved = strings.TrimSpace(resolved)
-	} else if cr.Status == model.StatusMerged && strings.TrimSpace(cr.MergedCommit) != "" {
-		resolved, err := s.git.ResolveRef(strings.TrimSpace(cr.MergedCommit))
-		if err == nil {
-			toResolved = strings.TrimSpace(resolved)
-		} else {
-			toResolved = strings.TrimSpace(cr.MergedCommit)
-		}
-		warnings = append(warnings, "CR branch is missing; using merged commit as --to anchor")
 	} else {
-		resolved, err := s.git.ResolveRef("HEAD")
+		anchors, err := s.resolveCRAnchors(cr)
 		if err != nil {
-			return "", "", nil, fmt.Errorf("resolve HEAD: %w", err)
+			return "", "", nil, err
 		}
-		toResolved = strings.TrimSpace(resolved)
-		warnings = append(warnings, "CR branch context unavailable; using HEAD as --to anchor")
+		toResolved = strings.TrimSpace(anchors.headCommit)
+		warnings = append(warnings, anchors.warnings...)
 	}
 
 	return fromResolved, toResolved, warnings, nil
