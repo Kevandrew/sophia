@@ -137,9 +137,11 @@ func newCRMergeCmd() *cobra.Command {
 	var asJSON bool
 
 	cmd := &cobra.Command{
-		Use:   "merge",
-		Short: "Merge a CR and recover from merge conflicts",
-		Args:  cobra.MaximumNArgs(1),
+		Use:     "merge <id>",
+		Short:   "Merge a CR and recover from merge conflicts",
+		Long:    "Merge a CR by id. If conflicts occur, use the merge subcommands to inspect status, resume after resolution, or abort cleanly.",
+		Example: "  sophia cr merge 25\n  sophia cr merge 25 --keep-branch\n  sophia cr merge 25 --override-reason \"Emergency prod fix\"\n  sophia cr merge status 25\n  sophia cr merge resume 25\n  sophia cr merge abort 25",
+		Args:    cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 1 {
 				err := fmt.Errorf("merge requires exactly one CR id")
@@ -203,9 +205,10 @@ func newCRMergeStatusCmd() *cobra.Command {
 	var asJSON bool
 
 	cmd := &cobra.Command{
-		Use:   "status <id>",
-		Short: "Show merge-in-progress status for a CR",
-		Args:  cobra.ExactArgs(1),
+		Use:     "status <id>",
+		Short:   "Show merge-in-progress status for a CR",
+		Example: "  sophia cr merge status 25\n  sophia cr merge status 25 --json",
+		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id, err := parsePositiveIntArg(args[0], "id")
 			if err != nil {
@@ -253,9 +256,10 @@ func newCRMergeAbortCmd() *cobra.Command {
 	var asJSON bool
 
 	cmd := &cobra.Command{
-		Use:   "abort <id>",
-		Short: "Abort an in-progress merge for a CR",
-		Args:  cobra.ExactArgs(1),
+		Use:     "abort <id>",
+		Short:   "Abort an in-progress merge for a CR",
+		Example: "  sophia cr merge abort 25\n  sophia cr merge abort 25 --json",
+		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id, err := parsePositiveIntArg(args[0], "id")
 			if err != nil {
@@ -299,9 +303,10 @@ func newCRMergeResumeCmd() *cobra.Command {
 	var asJSON bool
 
 	cmd := &cobra.Command{
-		Use:   "resume <id>",
-		Short: "Resume an in-progress merge for a CR after resolving conflicts",
-		Args:  cobra.ExactArgs(1),
+		Use:     "resume <id>",
+		Short:   "Resume an in-progress merge for a CR after resolving conflicts",
+		Example: "  sophia cr merge resume 25\n  sophia cr merge resume 25 --keep-branch",
+		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id, err := parsePositiveIntArg(args[0], "id")
 			if err != nil {
