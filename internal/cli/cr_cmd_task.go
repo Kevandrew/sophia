@@ -346,13 +346,26 @@ func taskContractDriftToJSON(drift model.TaskContractDrift) map[string]any {
 	}
 }
 
-func newCRTaskDelegateCmd() *cobra.Command {
+type taskDelegationCommandResult struct {
+	childCRID         int
+	childTaskID       int
+	parentTaskID      int
+	parentTaskStatus  string
+	removedDelegation int
+}
+
+func newTaskDelegationCommand(
+	use string,
+	short string,
+	run func(svc *service.Service, crID, taskID, childID int) (taskDelegationCommandResult, error),
+	buildJSON func(crID, taskID, childID int, result taskDelegationCommandResult) map[string]any,
+	renderText func(cmd *cobra.Command, crID, taskID, childID int, result taskDelegationCommandResult),
+) *cobra.Command {
 	var childID int
 	var asJSON bool
-
 	cmd := &cobra.Command{
-		Use:   "delegate <cr-id> <task-id> --child <child-cr-id>",
-		Short: "Delegate a parent task to a child CR",
+		Use:   use,
+		Short: short,
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			crID, err := parsePositiveIntArg(args[0], "cr-id")
@@ -371,21 +384,14 @@ func newCRTaskDelegateCmd() *cobra.Command {
 			if err != nil {
 				return commandError(cmd, asJSON, err)
 			}
-			result, err := svc.DelegateTaskToChild(crID, taskID, childID)
+			result, err := run(svc, crID, taskID, childID)
 			if err != nil {
 				return commandError(cmd, asJSON, err)
 			}
 			if asJSON {
-				return writeJSONSuccess(cmd, map[string]any{
-					"cr_id":              crID,
-					"task_id":            taskID,
-					"child_cr_id":        result.ChildCRID,
-					"child_task_id":      result.ChildTaskID,
-					"parent_task_id":     result.ParentTaskID,
-					"parent_task_status": result.ParentTaskStatus,
-				})
+				return writeJSONSuccess(cmd, buildJSON(crID, taskID, childID, result))
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Delegated CR %d task %d to child CR %d task %d (parent status: %s)\n", crID, result.ParentTaskID, result.ChildCRID, result.ChildTaskID, result.ParentTaskStatus)
+			renderText(cmd, crID, taskID, childID, result)
 			return nil
 		},
 	}
@@ -395,53 +401,67 @@ func newCRTaskDelegateCmd() *cobra.Command {
 	return cmd
 }
 
-func newCRTaskUndelegateCmd() *cobra.Command {
-	var childID int
-	var asJSON bool
+func newCRTaskDelegateCmd() *cobra.Command {
+	return newTaskDelegationCommand(
+		"delegate <cr-id> <task-id> --child <child-cr-id>",
+		"Delegate a parent task to a child CR",
+		func(svc *service.Service, crID, taskID, childID int) (taskDelegationCommandResult, error) {
+			result, err := svc.DelegateTaskToChild(crID, taskID, childID)
+			if err != nil {
+				return taskDelegationCommandResult{}, err
+			}
+			return taskDelegationCommandResult{
+				childCRID:        result.ChildCRID,
+				childTaskID:      result.ChildTaskID,
+				parentTaskID:     result.ParentTaskID,
+				parentTaskStatus: result.ParentTaskStatus,
+			}, nil
+		},
+		func(crID, taskID, childID int, result taskDelegationCommandResult) map[string]any {
+			return map[string]any{
+				"cr_id":              crID,
+				"task_id":            taskID,
+				"child_cr_id":        result.childCRID,
+				"child_task_id":      result.childTaskID,
+				"parent_task_id":     result.parentTaskID,
+				"parent_task_status": result.parentTaskStatus,
+			}
+		},
+		func(cmd *cobra.Command, crID, taskID, childID int, result taskDelegationCommandResult) {
+			fmt.Fprintf(cmd.OutOrStdout(), "Delegated CR %d task %d to child CR %d task %d (parent status: %s)\n", crID, result.parentTaskID, result.childCRID, result.childTaskID, result.parentTaskStatus)
+		},
+	)
+}
 
-	cmd := &cobra.Command{
-		Use:   "undelegate <cr-id> <task-id> --child <child-cr-id>",
-		Short: "Remove one delegation link from a parent task",
-		Args:  cobra.ExactArgs(2),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			crID, err := parsePositiveIntArg(args[0], "cr-id")
-			if err != nil {
-				return commandError(cmd, asJSON, err)
-			}
-			taskID, err := parsePositiveIntArg(args[1], "task-id")
-			if err != nil {
-				return commandError(cmd, asJSON, err)
-			}
-			if childID <= 0 {
-				err := fmt.Errorf("--child must be >= 1")
-				return commandError(cmd, asJSON, err)
-			}
-			svc, err := newService()
-			if err != nil {
-				return commandError(cmd, asJSON, err)
-			}
+func newCRTaskUndelegateCmd() *cobra.Command {
+	return newTaskDelegationCommand(
+		"undelegate <cr-id> <task-id> --child <child-cr-id>",
+		"Remove one delegation link from a parent task",
+		func(svc *service.Service, crID, taskID, childID int) (taskDelegationCommandResult, error) {
 			result, err := svc.UndelegateTaskFromChild(crID, taskID, childID)
 			if err != nil {
-				return commandError(cmd, asJSON, err)
+				return taskDelegationCommandResult{}, err
 			}
-			if asJSON {
-				return writeJSONSuccess(cmd, map[string]any{
-					"cr_id":               crID,
-					"task_id":             taskID,
-					"child_cr_id":         childID,
-					"parent_task_id":      result.ParentTaskID,
-					"parent_task_status":  result.ParentTaskStatus,
-					"removed_delegations": result.RemovedDelegation,
-				})
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Removed %d delegation(s) from CR %d task %d to child CR %d (parent status: %s)\n", result.RemovedDelegation, crID, result.ParentTaskID, childID, result.ParentTaskStatus)
-			return nil
+			return taskDelegationCommandResult{
+				parentTaskID:      result.ParentTaskID,
+				parentTaskStatus:  result.ParentTaskStatus,
+				removedDelegation: result.RemovedDelegation,
+			}, nil
 		},
-	}
-
-	cmd.Flags().IntVar(&childID, "child", 0, "Child CR id")
-	cmd.Flags().BoolVar(&asJSON, "json", false, "Output in JSON format")
-	return cmd
+		func(crID, taskID, childID int, result taskDelegationCommandResult) map[string]any {
+			return map[string]any{
+				"cr_id":               crID,
+				"task_id":             taskID,
+				"child_cr_id":         childID,
+				"parent_task_id":      result.parentTaskID,
+				"parent_task_status":  result.parentTaskStatus,
+				"removed_delegations": result.removedDelegation,
+			}
+		},
+		func(cmd *cobra.Command, crID, taskID, childID int, result taskDelegationCommandResult) {
+			fmt.Fprintf(cmd.OutOrStdout(), "Removed %d delegation(s) from CR %d task %d to child CR %d (parent status: %s)\n", result.removedDelegation, crID, result.parentTaskID, childID, result.parentTaskStatus)
+		},
+	)
 }
 
 func newCRTaskAddCmd() *cobra.Command {
