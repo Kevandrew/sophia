@@ -14,25 +14,29 @@ func (s *Service) summarizeCRDiff(cr *model.CR) (*diffSummary, error) {
 	if _, err := s.ensureCRBaseFields(cr, true); err != nil {
 		return nil, err
 	}
+	policy, err := s.repoPolicy()
+	if err != nil {
+		return nil, err
+	}
 	var (
 		changes   []gitx.FileChange
 		shortStat string
-		err       error
+		diffErr   error
 	)
 	switch {
 	case s.git.BranchExists(cr.Branch):
-		changes, err = s.diffNameStatusForCR(cr)
-		if err != nil {
-			return nil, err
+		changes, diffErr = s.diffNameStatusForCR(cr)
+		if diffErr != nil {
+			return nil, diffErr
 		}
-		shortStat, err = s.diffShortStatForCR(cr)
-		if err != nil {
-			return nil, err
+		shortStat, diffErr = s.diffShortStatForCR(cr)
+		if diffErr != nil {
+			return nil, diffErr
 		}
 	case cr.Status == model.StatusMerged:
-		changes, shortStat, err = s.summarizeMergedCRDiff(cr)
-		if err != nil {
-			return nil, err
+		changes, shortStat, diffErr = s.summarizeMergedCRDiff(cr)
+		if diffErr != nil {
+			return nil, diffErr
 		}
 	default:
 		return nil, fmt.Errorf("unable to summarize CR %d diff: missing branch context (%q, %q)", cr.ID, cr.BaseBranch, cr.Branch)
@@ -61,13 +65,13 @@ func (s *Service) summarizeCRDiff(cr *model.CR) (*diffSummary, error) {
 		default:
 			modifiedFiles = append(modifiedFiles, changePath)
 		}
-		if isTestFile(changePath) {
+		if isTestFile(changePath, policy) {
 			if _, ok := seenTest[changePath]; !ok {
 				seenTest[changePath] = struct{}{}
 				testFiles = append(testFiles, changePath)
 			}
 		}
-		if isDependencyFile(changePath) {
+		if isDependencyFile(changePath, policy) {
 			if _, ok := seenDep[changePath]; !ok {
 				seenDep[changePath] = struct{}{}
 				depFiles = append(depFiles, changePath)

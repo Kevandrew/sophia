@@ -8,11 +8,15 @@ import (
 	"strings"
 )
 
-func buildImpactReport(cr *model.CR, diff *diffSummary) *ImpactReport {
+func buildImpactReport(cr *model.CR, diff *diffSummary, policy *model.RepoPolicy) *ImpactReport {
 	scope := append([]string(nil), cr.Contract.Scope...)
 	scopeDrift := findScopeDrift(diff.Files, scope)
 	taskScopeWarnings := findTaskScopeWarnings(cr.Subtasks, scope)
-	taskContractWarnings := findTaskContractWarnings(cr.Subtasks)
+	taskRequiredFields := append([]string(nil), defaultTaskRequiredContractFields...)
+	if policy != nil && len(policy.TaskContract.RequiredFields) > 0 {
+		taskRequiredFields = append([]string(nil), policy.TaskContract.RequiredFields...)
+	}
+	taskContractWarnings := findTaskContractWarnings(cr.Subtasks, taskRequiredFields)
 	taskChunkWarnings := findTaskChunkWarnings(cr.Subtasks)
 	riskTierHint, _ := normalizeRiskTierHint(cr.Contract.RiskTierHint)
 	matchedRiskCriticalScopes := findMatchedScopePrefixes(diff.Files, cr.Contract.RiskCriticalScopes)
@@ -167,13 +171,13 @@ func findTaskScopeWarnings(tasks []model.Subtask, scopePrefixes []string) []stri
 	return dedupeStrings(warnings)
 }
 
-func findTaskContractWarnings(tasks []model.Subtask) []string {
+func findTaskContractWarnings(tasks []model.Subtask, requiredTaskFields []string) []string {
 	warnings := []string{}
 	for _, task := range tasks {
 		if task.Status != model.TaskStatusDone {
 			continue
 		}
-		missing := missingTaskContractFields(task.Contract)
+		missing := missingTaskContractFields(task.Contract, requiredTaskFields)
 		if len(missing) > 0 {
 			warnings = append(warnings, fmt.Sprintf("task #%d is done but missing contract fields: %s", task.ID, strings.Join(missing, ",")))
 		}
@@ -293,43 +297,83 @@ func taskCheckpointPaths(task model.Subtask) []string {
 	return paths
 }
 
-func missingCRContractFields(contract model.Contract) []string {
+func missingCRContractFields(contract model.Contract, requiredFields []string) []string {
+	if len(requiredFields) == 0 {
+		requiredFields = defaultCRRequiredContractFields
+	}
 	missing := []string{}
-	if strings.TrimSpace(contract.Why) == "" {
-		missing = append(missing, "why")
+	for _, field := range requiredFields {
+		switch field {
+		case "why":
+			if strings.TrimSpace(contract.Why) == "" {
+				missing = append(missing, field)
+			}
+		case "scope":
+			if len(contract.Scope) == 0 {
+				missing = append(missing, field)
+			}
+		case "non_goals":
+			if len(normalizeNonEmptyStringList(contract.NonGoals)) == 0 {
+				missing = append(missing, field)
+			}
+		case "invariants":
+			if len(normalizeNonEmptyStringList(contract.Invariants)) == 0 {
+				missing = append(missing, field)
+			}
+		case "blast_radius":
+			if strings.TrimSpace(contract.BlastRadius) == "" {
+				missing = append(missing, field)
+			}
+		case "risk_critical_scopes":
+			if len(contract.RiskCriticalScopes) == 0 {
+				missing = append(missing, field)
+			}
+		case "risk_tier_hint":
+			if strings.TrimSpace(contract.RiskTierHint) == "" {
+				missing = append(missing, field)
+			}
+		case "risk_rationale":
+			if strings.TrimSpace(contract.RiskRationale) == "" {
+				missing = append(missing, field)
+			}
+		case "test_plan":
+			if strings.TrimSpace(contract.TestPlan) == "" {
+				missing = append(missing, field)
+			}
+		case "rollback_plan":
+			if strings.TrimSpace(contract.RollbackPlan) == "" {
+				missing = append(missing, field)
+			}
+		}
 	}
-	if len(contract.Scope) == 0 {
-		missing = append(missing, "scope")
-	}
-	if len(normalizeNonEmptyStringList(contract.NonGoals)) == 0 {
-		missing = append(missing, "non_goals")
-	}
-	if len(normalizeNonEmptyStringList(contract.Invariants)) == 0 {
-		missing = append(missing, "invariants")
-	}
-	if strings.TrimSpace(contract.BlastRadius) == "" {
-		missing = append(missing, "blast_radius")
-	}
-	if strings.TrimSpace(contract.TestPlan) == "" {
-		missing = append(missing, "test_plan")
-	}
-	if strings.TrimSpace(contract.RollbackPlan) == "" {
-		missing = append(missing, "rollback_plan")
-	}
+	sort.Strings(missing)
+	missing = dedupeStrings(missing)
 	return missing
 }
 
-func missingTaskContractFields(contract model.TaskContract) []string {
+func missingTaskContractFields(contract model.TaskContract, requiredFields []string) []string {
+	if len(requiredFields) == 0 {
+		requiredFields = defaultTaskRequiredContractFields
+	}
 	missing := []string{}
-	if strings.TrimSpace(contract.Intent) == "" {
-		missing = append(missing, "intent")
+	for _, field := range requiredFields {
+		switch field {
+		case "intent":
+			if strings.TrimSpace(contract.Intent) == "" {
+				missing = append(missing, field)
+			}
+		case "acceptance_criteria":
+			if len(normalizeNonEmptyStringList(contract.AcceptanceCriteria)) == 0 {
+				missing = append(missing, field)
+			}
+		case "scope":
+			if len(contract.Scope) == 0 {
+				missing = append(missing, field)
+			}
+		}
 	}
-	if len(normalizeNonEmptyStringList(contract.AcceptanceCriteria)) == 0 {
-		missing = append(missing, "acceptance_criteria")
-	}
-	if len(contract.Scope) == 0 {
-		missing = append(missing, "scope")
-	}
+	sort.Strings(missing)
+	missing = dedupeStrings(missing)
 	return missing
 }
 
@@ -398,15 +442,24 @@ func topLevelDirs(paths []string) map[string]struct{} {
 	return res
 }
 
-func isTestFile(path string) bool {
+func isTestFile(path string, policy *model.RepoPolicy) bool {
+	suffixes := defaultTestSuffixes
+	pathContains := defaultTestPathContains
+	if policy != nil {
+		if len(policy.Classification.Test.Suffixes) > 0 {
+			suffixes = policy.Classification.Test.Suffixes
+		}
+		if len(policy.Classification.Test.PathContains) > 0 {
+			pathContains = policy.Classification.Test.PathContains
+		}
+	}
 	lower := strings.ToLower(path)
-	if strings.HasSuffix(lower, "_test.go") {
-		return true
+	for _, contains := range pathContains {
+		if strings.TrimSpace(contains) != "" && strings.Contains(lower, strings.ToLower(strings.TrimSpace(contains))) {
+			return true
+		}
 	}
-	if strings.Contains(lower, "/test/") || strings.Contains(lower, "/tests/") {
-		return true
-	}
-	for _, suffix := range []string{".spec.js", ".spec.ts", ".spec.jsx", ".spec.tsx", ".test.js", ".test.ts", ".test.jsx", ".test.tsx"} {
+	for _, suffix := range suffixes {
 		if strings.HasSuffix(lower, suffix) {
 			return true
 		}
@@ -414,18 +467,18 @@ func isTestFile(path string) bool {
 	return false
 }
 
-func isDependencyFile(path string) bool {
-	names := map[string]struct{}{
-		"go.mod":            {},
-		"go.sum":            {},
-		"package.json":      {},
-		"package-lock.json": {},
-		"pnpm-lock.yaml":    {},
-		"yarn.lock":         {},
-		"cargo.toml":        {},
-		"cargo.lock":        {},
-		"requirements.txt":  {},
-		"poetry.lock":       {},
+func isDependencyFile(path string, policy *model.RepoPolicy) bool {
+	fileNames := defaultDependencyFileNames
+	if policy != nil && len(policy.Classification.Dependency.FileNames) > 0 {
+		fileNames = policy.Classification.Dependency.FileNames
+	}
+	names := map[string]struct{}{}
+	for _, fileName := range fileNames {
+		trimmed := strings.ToLower(strings.TrimSpace(fileName))
+		if trimmed == "" {
+			continue
+		}
+		names[trimmed] = struct{}{}
 	}
 	lower := strings.ToLower(path)
 	parts := strings.Split(lower, "/")
