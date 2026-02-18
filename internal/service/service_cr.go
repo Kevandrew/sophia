@@ -25,6 +25,9 @@ func (s *Service) AddCRWithOptionsWithWarnings(title, description string, opts A
 	if strings.TrimSpace(opts.BaseRef) != "" && opts.ParentCRID > 0 {
 		return nil, nil, errors.New("--base and --parent cannot be combined")
 	}
+	if strings.TrimSpace(opts.BranchAlias) != "" && opts.OwnerPrefixSet {
+		return nil, nil, errors.New("--branch-alias and --owner-prefix cannot be combined")
+	}
 	if err := s.store.EnsureInitialized(); err != nil {
 		return nil, nil, err
 	}
@@ -95,7 +98,24 @@ func (s *Service) AddCRWithOptionsWithWarnings(title, description string, opts A
 		return nil, nil, err
 	}
 
-	branch := fmt.Sprintf("sophia/cr-%d", id)
+	branch := ""
+	if strings.TrimSpace(opts.BranchAlias) != "" {
+		normalizedAlias, aliasErr := validateExplicitCRBranchAlias(opts.BranchAlias, id)
+		if aliasErr != nil {
+			return nil, nil, aliasErr
+		}
+		branch = normalizedAlias
+	} else {
+		ownerPrefix := cfg.BranchOwnerPrefix
+		if opts.OwnerPrefixSet {
+			ownerPrefix = opts.OwnerPrefix
+		}
+		formattedBranch, branchErr := formatCRBranchAlias(id, title, ownerPrefix)
+		if branchErr != nil {
+			return nil, nil, branchErr
+		}
+		branch = formattedBranch
+	}
 	if s.git.BranchExists(branch) {
 		return nil, nil, fmt.Errorf("branch %q already exists", branch)
 	}

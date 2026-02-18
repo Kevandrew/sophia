@@ -15,6 +15,8 @@ func newCRAddCmd() *cobra.Command {
 	var baseRef string
 	var parentID int
 	var switchBranch bool
+	var branchAlias string
+	var ownerPrefix string
 	var asJSON bool
 
 	cmd := &cobra.Command{
@@ -37,10 +39,15 @@ func newCRAddCmd() *cobra.Command {
 				return err
 			}
 			opts := service.AddCROptions{
-				BaseRef:    strings.TrimSpace(baseRef),
-				ParentCRID: parentID,
-				Switch:     switchBranch,
-				NoSwitch:   !switchBranch,
+				BaseRef:     strings.TrimSpace(baseRef),
+				ParentCRID:  parentID,
+				Switch:      switchBranch,
+				NoSwitch:    !switchBranch,
+				BranchAlias: strings.TrimSpace(branchAlias),
+			}
+			if cmd.Flags().Changed("owner-prefix") {
+				opts.OwnerPrefixSet = true
+				opts.OwnerPrefix = strings.TrimSpace(ownerPrefix)
 			}
 			cr, warnings, err := svc.AddCRWithOptionsWithWarnings(args[0], description, opts)
 			if err != nil {
@@ -76,6 +83,8 @@ func newCRAddCmd() *cobra.Command {
 	cmd.Flags().StringVar(&baseRef, "base", "", "Base Git ref for this CR")
 	cmd.Flags().IntVar(&parentID, "parent", 0, "Parent CR id for stacked workflow")
 	cmd.Flags().BoolVar(&switchBranch, "switch", false, "Switch to the CR branch immediately after creation")
+	cmd.Flags().StringVar(&branchAlias, "branch-alias", "", "Explicit branch alias (must include matching cr-<id> segment)")
+	cmd.Flags().StringVar(&ownerPrefix, "owner-prefix", "", "Optional owner prefix for generated branch alias")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "Output in JSON format")
 	return cmd
 }
@@ -189,6 +198,8 @@ func newCRChildCmd() *cobra.Command {
 func newCRChildAddCmd() *cobra.Command {
 	var description string
 	var switchBranch bool
+	var branchAlias string
+	var ownerPrefix string
 	var asJSON bool
 
 	cmd := &cobra.Command{
@@ -214,9 +225,12 @@ func newCRChildAddCmd() *cobra.Command {
 				return ctxErr
 			}
 			cr, warnings, err := svc.AddCRWithOptionsWithWarnings(args[0], description, service.AddCROptions{
-				ParentCRID: ctx.CR.ID,
-				Switch:     switchBranch,
-				NoSwitch:   !switchBranch,
+				ParentCRID:     ctx.CR.ID,
+				Switch:         switchBranch,
+				NoSwitch:       !switchBranch,
+				BranchAlias:    strings.TrimSpace(branchAlias),
+				OwnerPrefix:    strings.TrimSpace(ownerPrefix),
+				OwnerPrefixSet: cmd.Flags().Changed("owner-prefix"),
 			})
 			if err != nil {
 				if asJSON {
@@ -250,6 +264,8 @@ func newCRChildAddCmd() *cobra.Command {
 
 	cmd.Flags().StringVar(&description, "description", "", "Description/rationale for the child CR")
 	cmd.Flags().BoolVar(&switchBranch, "switch", false, "Switch to the child CR branch immediately after creation")
+	cmd.Flags().StringVar(&branchAlias, "branch-alias", "", "Explicit branch alias (must include matching cr-<id> segment)")
+	cmd.Flags().StringVar(&ownerPrefix, "owner-prefix", "", "Optional owner prefix for generated branch alias")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "Output in JSON format")
 	return cmd
 }
