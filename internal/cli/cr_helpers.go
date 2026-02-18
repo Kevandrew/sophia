@@ -8,6 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"sophia/internal/model"
 	"sophia/internal/service"
 )
 
@@ -124,4 +125,30 @@ func nonEmpty(v, fallback string) string {
 
 func errorsIs(err error, target error) bool {
 	return errors.Is(err, target)
+}
+
+func normalizeCRStatusFilter(raw string) (string, error) {
+	value := strings.ToLower(strings.TrimSpace(raw))
+	if value == "" {
+		return "", nil
+	}
+	switch value {
+	case model.StatusInProgress, model.StatusMerged:
+		return value, nil
+	default:
+		return "", fmt.Errorf("invalid --status %q (expected %s or %s)", raw, model.StatusInProgress, model.StatusMerged)
+	}
+}
+
+func normalizeRiskTierFilter(raw string) (string, error) {
+	value := strings.ToLower(strings.TrimSpace(raw))
+	if value == "" {
+		return "", nil
+	}
+	switch value {
+	case "low", "medium", "high":
+		return value, nil
+	default:
+		return "", fmt.Errorf("invalid --risk-tier %q (expected low, medium, or high)", raw)
+	}
 }
