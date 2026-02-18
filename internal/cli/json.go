@@ -3,6 +3,8 @@ package cli
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -51,6 +53,11 @@ type jsonError struct {
 	Message string `json:"message"`
 	Details any    `json:"details,omitempty"`
 }
+
+var (
+	requiredActiveBranchPattern = regexp.MustCompile(`active CR branch "([^"]+)"`)
+	crBranchIDPattern           = regexp.MustCompile(`^sophia/cr-(\d+)$`)
+)
 
 func writeJSONSuccess(cmd *cobra.Command, payload any) error {
 	enc := json.NewEncoder(cmd.OutOrStdout())
@@ -116,6 +123,8 @@ func jsonErrorCode(err error) string {
 	}
 	lower := strings.ToLower(strings.TrimSpace(err.Error()))
 	switch {
+	case strings.Contains(lower, "requires active cr branch"):
+		return "no_active_cr_context"
 	case strings.Contains(lower, "not found"):
 		return "not_found"
 	case strings.Contains(lower, "validation failed"):
@@ -137,5 +146,36 @@ func jsonErrorDetails(err error) any {
 			return details
 		}
 	}
+	if action := suggestedActionForError(err); strings.TrimSpace(action) != "" {
+		return map[string]any{
+			"suggested_action": action,
+		}
+	}
 	return nil
+}
+
+func suggestedActionForError(err error) string {
+	if err == nil {
+		return ""
+	}
+	if errors.Is(err, service.ErrNoActiveCRContext) {
+		return "sophia cr switch <id>"
+	}
+	msg := strings.TrimSpace(err.Error())
+	if msg == "" {
+		return ""
+	}
+	matches := requiredActiveBranchPattern.FindStringSubmatch(msg)
+	if len(matches) == 2 {
+		branch := strings.TrimSpace(matches[1])
+		idMatches := crBranchIDPattern.FindStringSubmatch(branch)
+		if len(idMatches) == 2 {
+			return fmt.Sprintf("sophia cr switch %s", strings.TrimSpace(idMatches[1]))
+		}
+		return "sophia cr switch <id>"
+	}
+	if strings.Contains(strings.ToLower(msg), "requires active cr branch") {
+		return "sophia cr switch <id>"
+	}
+	return ""
 }

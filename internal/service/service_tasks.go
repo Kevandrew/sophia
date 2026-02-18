@@ -162,7 +162,7 @@ func (s *Service) ListTaskChunks(crID, taskID int, paths []string) ([]TaskChunk,
 		return nil, branchErr
 	}
 	if currentBranch != cr.Branch {
-		return nil, fmt.Errorf("chunk list requires active CR branch %q, current branch is %q", cr.Branch, currentBranch)
+		return nil, fmt.Errorf("chunk list requires active CR branch %q, current branch is %q; run `sophia cr switch %d`", cr.Branch, currentBranch, cr.ID)
 	}
 	normalizedPaths := []string{}
 	if len(paths) > 0 {
@@ -332,7 +332,7 @@ func (s *Service) DoneTaskWithCheckpoint(crID, taskID int, opts DoneTaskOptions)
 			return "", branchErr
 		}
 		if currentBranch != cr.Branch {
-			return "", fmt.Errorf("checkpoint requires active CR branch %q, current branch is %q", cr.Branch, currentBranch)
+			return "", fmt.Errorf("checkpoint requires active CR branch %q, current branch is %q; run `sophia cr switch %d`", cr.Branch, currentBranch, cr.ID)
 		}
 
 		preStaged, stagedErr := s.git.HasStagedChanges()
