@@ -105,6 +105,35 @@ subtasks: []
 
 ## CLI Commands (Current)
 
+### Help-First Discovery (Humans + LLMs)
+
+When you are unsure about next command shape or flags, navigate help top-down:
+
+```
+sophia --help
+sophia cr --help
+sophia cr <command> --help
+```
+
+Recommended first-run path:
+
+```
+sophia init
+sophia cr add "<title>" --description "<why>"
+sophia cr task add <cr-id> "<task>"
+sophia cr task done <cr-id> <task-id> --from-contract
+sophia cr validate <cr-id>
+sophia cr review <cr-id>
+sophia cr merge <cr-id>
+```
+
+Common error-to-next-action guidance:
+
+* `checkpoint scope required`: rerun `sophia cr task done <cr-id> <task-id>` with one of `--from-contract`, `--path`, `--patch-file`, or `--all`.
+* `task contract is incomplete`: set missing fields via `sophia cr task contract set <cr-id> <task-id> ...` and retry.
+* `merge in progress`: inspect with `sophia cr merge status <id>`, then `sophia cr merge resume <id>` or `sophia cr merge abort <id>`.
+* `missing branch context`: run `sophia cr switch <id>` before mutating task/CR state.
+
 ### Initialize Repository
 
 ```
