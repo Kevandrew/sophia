@@ -465,7 +465,7 @@ func (s *Service) Doctor(limit int) (*DoctorReport, error) {
 	branch, err := s.git.CurrentBranch()
 	if err == nil {
 		report.CurrentBranch = branch
-		if _, ok := parseCRBranchID(branch); !ok {
+		if _, ctxErr := s.resolveCRFromBranch(branch); ctxErr != nil {
 			report.Findings = append(report.Findings, DoctorFinding{
 				Code:    "non_cr_branch",
 				Message: fmt.Sprintf("current branch %q is not a CR branch", branch),
@@ -567,11 +567,7 @@ func (s *Service) CurrentCR() (*CurrentCRContext, error) {
 	if err != nil {
 		return nil, err
 	}
-	id, ok := parseCRBranchID(branch)
-	if !ok {
-		return nil, ErrNoActiveCRContext
-	}
-	cr, err := s.store.LoadCR(id)
+	cr, err := s.resolveCRFromBranch(branch)
 	if err != nil {
 		return nil, err
 	}
@@ -579,6 +575,40 @@ func (s *Service) CurrentCR() (*CurrentCRContext, error) {
 		return nil, err
 	}
 	return &CurrentCRContext{Branch: branch, CR: cr}, nil
+}
+
+func (s *Service) resolveCRFromBranch(branch string) (*model.CR, error) {
+	trimmedBranch := strings.TrimSpace(branch)
+	if trimmedBranch == "" {
+		return nil, ErrNoActiveCRContext
+	}
+
+	crs, err := s.store.ListCRs()
+	if err == nil {
+		for _, candidate := range crs {
+			if candidate.Status != model.StatusInProgress {
+				continue
+			}
+			if strings.TrimSpace(candidate.Branch) != trimmedBranch {
+				continue
+			}
+			crCopy := candidate
+			return &crCopy, nil
+		}
+	}
+
+	id, ok := parseCRBranchID(trimmedBranch)
+	if !ok {
+		return nil, ErrNoActiveCRContext
+	}
+	cr, err := s.store.LoadCR(id)
+	if err != nil {
+		return nil, ErrNoActiveCRContext
+	}
+	if cr.Status != model.StatusInProgress {
+		return nil, ErrNoActiveCRContext
+	}
+	return cr, nil
 }
 
 func (s *Service) SwitchCR(id int) (*model.CR, error) {
