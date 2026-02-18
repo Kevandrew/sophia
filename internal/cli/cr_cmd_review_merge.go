@@ -87,6 +87,30 @@ func newCRReviewCmd() *cobra.Command {
 				}
 			}
 
+			fmt.Fprintf(cmd.OutOrStdout(), "\nEvidence:\n")
+			if len(review.CR.Evidence) == 0 {
+				fmt.Fprintln(cmd.OutOrStdout(), "- (none)")
+			} else {
+				for i, entry := range review.CR.Evidence {
+					fmt.Fprintf(cmd.OutOrStdout(), "- #%d %s %s: %s\n", i+1, nonEmpty(strings.TrimSpace(entry.TS), "-"), nonEmpty(strings.TrimSpace(entry.Type), "-"), nonEmpty(strings.TrimSpace(entry.Summary), "-"))
+					if strings.TrimSpace(entry.Scope) != "" {
+						fmt.Fprintf(cmd.OutOrStdout(), "  scope: %s\n", entry.Scope)
+					}
+					if strings.TrimSpace(entry.Command) != "" {
+						fmt.Fprintf(cmd.OutOrStdout(), "  command: %s\n", entry.Command)
+					}
+					if entry.ExitCode != nil {
+						fmt.Fprintf(cmd.OutOrStdout(), "  exit_code: %d\n", *entry.ExitCode)
+					}
+					if strings.TrimSpace(entry.OutputHash) != "" {
+						fmt.Fprintf(cmd.OutOrStdout(), "  output_hash: %s\n", entry.OutputHash)
+					}
+					if len(entry.Attachments) > 0 {
+						fmt.Fprintf(cmd.OutOrStdout(), "  attachments: %s\n", strings.Join(entry.Attachments, ", "))
+					}
+				}
+			}
+
 			printListSection(cmd, "New Files", review.NewFiles)
 			printListSection(cmd, "Modified Files", review.ModifiedFiles)
 			printListSection(cmd, "Deleted Files", review.DeletedFiles)
