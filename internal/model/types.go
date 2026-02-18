@@ -13,9 +13,10 @@ const (
 )
 
 type Config struct {
-	Version      string `yaml:"version"`
-	BaseBranch   string `yaml:"base_branch"`
-	MetadataMode string `yaml:"metadata_mode,omitempty"`
+	Version           string `yaml:"version"`
+	BaseBranch        string `yaml:"base_branch"`
+	MetadataMode      string `yaml:"metadata_mode,omitempty"`
+	BranchOwnerPrefix string `yaml:"branch_owner_prefix,omitempty"`
 }
 
 type Index struct {

@@ -38,18 +38,19 @@ var (
 )
 
 var (
-	crBranchPattern      = regexp.MustCompile(`^sophia/cr-(\d+)$`)
-	crSubjectPattern     = regexp.MustCompile(`^\[CR-(\d+)\]\s*(.*)$`)
-	crFooterPattern      = regexp.MustCompile(`(?m)^Sophia-CR:\s*\d+\s*$`)
-	legacyPersistPattern = regexp.MustCompile(`^chore:\s*persist CR-\d+\s+merged metadata$`)
-	footerCRIDPattern    = regexp.MustCompile(`(?m)^Sophia-CR:\s*(\d+)\s*$`)
-	footerCRUIDPattern   = regexp.MustCompile(`(?m)^Sophia-CR-UID:\s*(\S+)\s*$`)
-	footerBaseRefPattern = regexp.MustCompile(`(?m)^Sophia-Base-Ref:\s*(.+)\s*$`)
-	footerBaseSHApattern = regexp.MustCompile(`(?m)^Sophia-Base-Commit:\s*(\S+)\s*$`)
-	footerParentPattern  = regexp.MustCompile(`(?m)^Sophia-Parent-CR:\s*(\d+)\s*$`)
-	footerTaskPattern    = regexp.MustCompile(`(?m)^Sophia-Task:\s*(\d+)\s*$`)
-	hunkHeaderPattern    = regexp.MustCompile(`^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@`)
-	footerIntentPattern  = regexp.MustCompile(`(?m)^Sophia-Intent:\s*(.+)\s*$`)
+	crSubjectPattern          = regexp.MustCompile(`^\[CR-(\d+)\]\s*(.*)$`)
+	crFooterPattern           = regexp.MustCompile(`(?m)^Sophia-CR:\s*\d+\s*$`)
+	legacyPersistPattern      = regexp.MustCompile(`^chore:\s*persist CR-\d+\s+merged metadata$`)
+	footerCRIDPattern         = regexp.MustCompile(`(?m)^Sophia-CR:\s*(\d+)\s*$`)
+	footerCRUIDPattern        = regexp.MustCompile(`(?m)^Sophia-CR-UID:\s*(\S+)\s*$`)
+	footerBaseRefPattern      = regexp.MustCompile(`(?m)^Sophia-Base-Ref:\s*(.+)\s*$`)
+	footerBaseSHApattern      = regexp.MustCompile(`(?m)^Sophia-Base-Commit:\s*(\S+)\s*$`)
+	footerParentPattern       = regexp.MustCompile(`(?m)^Sophia-Parent-CR:\s*(\d+)\s*$`)
+	footerTaskPattern         = regexp.MustCompile(`(?m)^Sophia-Task:\s*(\d+)\s*$`)
+	hunkHeaderPattern         = regexp.MustCompile(`^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@`)
+	footerIntentPattern       = regexp.MustCompile(`(?m)^Sophia-Intent:\s*(.+)\s*$`)
+	footerBranchPattern       = regexp.MustCompile(`(?m)^Sophia-Branch:\s*(.+)\s*$`)
+	footerBranchSchemePattern = regexp.MustCompile(`(?m)^Sophia-Branch-Scheme:\s*(\S+)\s*$`)
 )
 
 const redactedPlaceholder = "[REDACTED]"
@@ -140,10 +141,13 @@ type CurrentCRContext struct {
 }
 
 type AddCROptions struct {
-	BaseRef    string
-	ParentCRID int
-	Switch     bool
-	NoSwitch   bool
+	BaseRef        string
+	ParentCRID     int
+	Switch         bool
+	NoSwitch       bool
+	BranchAlias    string
+	OwnerPrefix    string
+	OwnerPrefixSet bool
 }
 
 const (
@@ -187,6 +191,12 @@ type RepairReport struct {
 	NextID        int
 	HighestCRID   int
 	RepairedCRIDs []int
+}
+
+type InitOptions struct {
+	BaseBranch        string
+	MetadataMode      string
+	BranchOwnerPrefix string
 }
 
 type ReconcileCROptions struct {
@@ -736,6 +746,17 @@ func New(root string) *Service {
 }
 
 func (s *Service) Init(baseBranch, metadataMode string) (string, error) {
+	return s.InitWithOptions(InitOptions{
+		BaseBranch:   baseBranch,
+		MetadataMode: metadataMode,
+	})
+}
+
+func (s *Service) InitWithOptions(opts InitOptions) (string, error) {
+	baseBranch := opts.BaseBranch
+	metadataMode := opts.MetadataMode
+	branchOwnerPrefix := opts.BranchOwnerPrefix
+
 	if !s.git.InRepo() {
 		if err := s.git.InitRepo(); err != nil {
 			return "", fmt.Errorf("initialize git repository: %w", err)
@@ -832,5 +853,25 @@ func (s *Service) Init(baseBranch, metadataMode string) (string, error) {
 		}
 	}
 
+	trimmedPrefix := strings.TrimSpace(branchOwnerPrefix)
+	if trimmedPrefix != "" {
+		normalizedPrefix, prefixErr := normalizeCRBranchOwnerPrefix(trimmedPrefix)
+		if prefixErr != nil {
+			return "", prefixErr
+		}
+		cfg, cfgErr := s.store.LoadConfig()
+		if cfgErr != nil {
+			return "", cfgErr
+		}
+		cfg.BranchOwnerPrefix = normalizedPrefix
+		if saveErr := s.store.SaveConfig(cfg); saveErr != nil {
+			return "", saveErr
+		}
+	}
+
 	return effectiveBase, nil
+}
+
+func (s *Service) Config() (model.Config, error) {
+	return s.store.LoadConfig()
 }

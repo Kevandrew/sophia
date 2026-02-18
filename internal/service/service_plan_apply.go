@@ -60,6 +60,8 @@ type crPlanCRSpec struct {
 	Description string           `yaml:"description"`
 	Base        string           `yaml:"base,omitempty"`
 	ParentKey   string           `yaml:"parent_key,omitempty"`
+	BranchAlias string           `yaml:"branch_alias,omitempty"`
+	OwnerPrefix string           `yaml:"owner_prefix,omitempty"`
 	Contract    crPlanContract   `yaml:"contract,omitempty"`
 	Tasks       []crPlanTaskSpec `yaml:"tasks,omitempty"`
 }
@@ -235,6 +237,8 @@ func (s *Service) validateCRPlan(plan *crPlanSpec) (*planOrder, error) {
 		cr.Description = strings.TrimSpace(cr.Description)
 		cr.Base = strings.TrimSpace(cr.Base)
 		cr.ParentKey = strings.TrimSpace(cr.ParentKey)
+		cr.BranchAlias = strings.TrimSpace(cr.BranchAlias)
+		cr.OwnerPrefix = strings.TrimSpace(cr.OwnerPrefix)
 		if cr.Key == "" {
 			return nil, fmt.Errorf("cr[%d] key cannot be empty", i)
 		}
@@ -246,6 +250,19 @@ func (s *Service) validateCRPlan(plan *crPlanSpec) (*planOrder, error) {
 		}
 		if cr.Base != "" && cr.ParentKey != "" {
 			return nil, fmt.Errorf("cr %q cannot define both base and parent_key", cr.Key)
+		}
+		if cr.BranchAlias != "" && cr.OwnerPrefix != "" {
+			return nil, fmt.Errorf("cr %q cannot define both branch_alias and owner_prefix", cr.Key)
+		}
+		if cr.BranchAlias != "" {
+			if _, aliasErr := validateCRBranchAliasShape(cr.BranchAlias); aliasErr != nil {
+				return nil, fmt.Errorf("cr %q branch_alias invalid: %v", cr.Key, aliasErr)
+			}
+		}
+		if cr.OwnerPrefix != "" {
+			if _, prefixErr := normalizeCRBranchOwnerPrefix(cr.OwnerPrefix); prefixErr != nil {
+				return nil, fmt.Errorf("cr %q owner_prefix invalid: %v", cr.Key, prefixErr)
+			}
 		}
 		if err := s.validatePlanContract(cr.Key, cr.Contract, allowedScopePrefixes); err != nil {
 			return nil, err
@@ -492,6 +509,10 @@ func (s *Service) populateDryRunPredictions(result *ApplyCRPlanResult, order *pl
 	if err != nil {
 		return err
 	}
+	cfg, err := s.store.LoadConfig()
+	if err != nil {
+		return err
+	}
 	nextCRID := idx.NextID
 	crIDByKey := map[string]int{}
 	nextTaskIDByCRKey := map[string]int{}
@@ -502,11 +523,29 @@ func (s *Service) populateDryRunPredictions(result *ApplyCRPlanResult, order *pl
 		if cr.ParentKey != "" {
 			parentID = crIDByKey[cr.ParentKey]
 		}
+		predictedBranch := ""
+		if cr.BranchAlias != "" {
+			alias, aliasErr := validateExplicitCRBranchAlias(cr.BranchAlias, nextCRID)
+			if aliasErr != nil {
+				return aliasErr
+			}
+			predictedBranch = alias
+		} else {
+			ownerPrefix := cfg.BranchOwnerPrefix
+			if cr.OwnerPrefix != "" {
+				ownerPrefix = cr.OwnerPrefix
+			}
+			alias, branchErr := formatCRBranchAlias(nextCRID, cr.Title, ownerPrefix)
+			if branchErr != nil {
+				return branchErr
+			}
+			predictedBranch = alias
+		}
 		result.CreatedCRs = append(result.CreatedCRs, ApplyCRPlanCreatedCR{
 			Key:        key,
 			ID:         nextCRID,
 			UID:        "",
-			Branch:     fmt.Sprintf("sophia/cr-%d", nextCRID),
+			Branch:     predictedBranch,
 			ParentCRID: parentID,
 		})
 		crIDByKey[key] = nextCRID
@@ -555,6 +594,11 @@ func (s *Service) applyCRPlan(plan *crPlanSpec, order *planOrder) (*ApplyCRPlanR
 			addOpts.ParentCRID = crIDByKey[crSpec.ParentKey]
 		} else if crSpec.Base != "" {
 			addOpts.BaseRef = crSpec.Base
+		}
+		addOpts.BranchAlias = crSpec.BranchAlias
+		if crSpec.OwnerPrefix != "" {
+			addOpts.OwnerPrefix = crSpec.OwnerPrefix
+			addOpts.OwnerPrefixSet = true
 		}
 		createdCR, warnings, err := s.AddCRWithOptionsWithWarnings(crSpec.Title, crSpec.Description, addOpts)
 		if err != nil {

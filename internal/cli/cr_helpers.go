@@ -152,3 +152,45 @@ func normalizeRiskTierFilter(raw string) (string, error) {
 		return "", fmt.Errorf("invalid --risk-tier %q (expected low, medium, or high)", raw)
 	}
 }
+
+func commandUsesCRSelectorAsFirstArg(cmd *cobra.Command) bool {
+	if cmd == nil {
+		return false
+	}
+	fields := strings.Fields(strings.TrimSpace(cmd.Use))
+	if len(fields) < 2 {
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(fields[1])) {
+	case "<id>", "<cr-id>", "[id]", "[cr-id]":
+		return true
+	default:
+		return false
+	}
+}
+
+func rewriteCRSelectorArg(cmd *cobra.Command, args []string) error {
+	if cmd == nil || len(args) == 0 {
+		return nil
+	}
+	if !commandUsesCRSelectorAsFirstArg(cmd) {
+		return nil
+	}
+	raw := strings.TrimSpace(args[0])
+	if raw == "" {
+		return nil
+	}
+	if parsed, err := strconv.Atoi(raw); err == nil && parsed > 0 {
+		return nil
+	}
+	svc, err := newService()
+	if err != nil {
+		return err
+	}
+	resolved, err := svc.ResolveCRID(raw)
+	if err != nil {
+		return err
+	}
+	args[0] = strconv.Itoa(resolved)
+	return nil
+}

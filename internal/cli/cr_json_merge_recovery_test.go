@@ -145,7 +145,8 @@ func setupCLIMergeConflictRepo(t *testing.T) string {
 	runGit(t, dir, "add", "conflict.txt")
 	runGit(t, dir, "commit", "-m", "chore: seed conflict")
 
-	if _, err := svc.AddCR("Merge conflict recovery", "exercise conflict flow"); err != nil {
+	cr, err := svc.AddCR("Merge conflict recovery", "exercise conflict flow")
+	if err != nil {
 		t.Fatalf("AddCR() error = %v", err)
 	}
 	setCLIValidContract(t, svc, 1)
@@ -162,7 +163,7 @@ func setupCLIMergeConflictRepo(t *testing.T) string {
 	}
 	runGit(t, dir, "add", "conflict.txt")
 	runGit(t, dir, "commit", "-m", "feat: main side change")
-	runGit(t, dir, "checkout", "sophia/cr-1")
+	runGit(t, dir, "checkout", cr.Branch)
 
 	return dir
 }

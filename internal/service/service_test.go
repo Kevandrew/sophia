@@ -108,8 +108,8 @@ func TestAddCRAlignsNextIDWithHistory(t *testing.T) {
 	if cr.ID != 5 {
 		t.Fatalf("expected CR id 5, got %d", cr.ID)
 	}
-	if cr.Branch != "sophia/cr-5" {
-		t.Fatalf("expected branch sophia/cr-5, got %q", cr.Branch)
+	if id, ok := parseCRBranchID(cr.Branch); !ok || id != 5 {
+		t.Fatalf("expected branch for CR 5, got %q", cr.Branch)
 	}
 }
 
@@ -127,7 +127,7 @@ func TestAddCRCreatesBranchAndCRFile(t *testing.T) {
 	if cr.ID != 1 {
 		t.Fatalf("expected CR id 1, got %d", cr.ID)
 	}
-	if cr.Branch != "sophia/cr-1" {
+	if id, ok := parseCRBranchID(cr.Branch); !ok || id != 1 {
 		t.Fatalf("unexpected branch %q", cr.Branch)
 	}
 	if strings.TrimSpace(cr.UID) == "" {

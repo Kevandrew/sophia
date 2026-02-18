@@ -60,6 +60,22 @@ func baseCommitFromBody(body string) string {
 	return strings.TrimSpace(matches[1])
 }
 
+func branchFromBody(body string) string {
+	matches := footerBranchPattern.FindStringSubmatch(body)
+	if len(matches) != 2 {
+		return ""
+	}
+	return strings.TrimSpace(matches[1])
+}
+
+func branchSchemeFromBody(body string) string {
+	matches := footerBranchSchemePattern.FindStringSubmatch(body)
+	if len(matches) != 2 {
+		return ""
+	}
+	return strings.TrimSpace(matches[1])
+}
+
 func parentCRIDFromBody(body string) int {
 	matches := footerParentPattern.FindStringSubmatch(body)
 	if len(matches) != 2 {
@@ -198,15 +214,7 @@ func subtasksFromCommitBody(body, when, actor string) []model.Subtask {
 }
 
 func parseCRBranchID(branch string) (int, bool) {
-	matches := crBranchPattern.FindStringSubmatch(strings.TrimSpace(branch))
-	if len(matches) != 2 {
-		return 0, false
-	}
-	id, err := strconv.Atoi(matches[1])
-	if err != nil || id <= 0 {
-		return 0, false
-	}
-	return id, true
+	return parseCRIDFromBranchName(branch)
 }
 
 func shortHash(hash string) string {

@@ -15,6 +15,8 @@ func newCRAddCmd() *cobra.Command {
 	var baseRef string
 	var parentID int
 	var switchBranch bool
+	var branchAlias string
+	var ownerPrefix string
 	var asJSON bool
 
 	cmd := &cobra.Command{
@@ -37,10 +39,15 @@ func newCRAddCmd() *cobra.Command {
 				return err
 			}
 			opts := service.AddCROptions{
-				BaseRef:    strings.TrimSpace(baseRef),
-				ParentCRID: parentID,
-				Switch:     switchBranch,
-				NoSwitch:   !switchBranch,
+				BaseRef:     strings.TrimSpace(baseRef),
+				ParentCRID:  parentID,
+				Switch:      switchBranch,
+				NoSwitch:    !switchBranch,
+				BranchAlias: strings.TrimSpace(branchAlias),
+			}
+			if cmd.Flags().Changed("owner-prefix") {
+				opts.OwnerPrefixSet = true
+				opts.OwnerPrefix = strings.TrimSpace(ownerPrefix)
 			}
 			cr, warnings, err := svc.AddCRWithOptionsWithWarnings(args[0], description, opts)
 			if err != nil {
@@ -76,6 +83,8 @@ func newCRAddCmd() *cobra.Command {
 	cmd.Flags().StringVar(&baseRef, "base", "", "Base Git ref for this CR")
 	cmd.Flags().IntVar(&parentID, "parent", 0, "Parent CR id for stacked workflow")
 	cmd.Flags().BoolVar(&switchBranch, "switch", false, "Switch to the CR branch immediately after creation")
+	cmd.Flags().StringVar(&branchAlias, "branch-alias", "", "Explicit branch alias (must include matching cr-<id> segment)")
+	cmd.Flags().StringVar(&ownerPrefix, "owner-prefix", "", "Optional owner prefix for generated branch alias")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "Output in JSON format")
 	return cmd
 }
@@ -189,6 +198,8 @@ func newCRChildCmd() *cobra.Command {
 func newCRChildAddCmd() *cobra.Command {
 	var description string
 	var switchBranch bool
+	var branchAlias string
+	var ownerPrefix string
 	var asJSON bool
 
 	cmd := &cobra.Command{
@@ -214,9 +225,12 @@ func newCRChildAddCmd() *cobra.Command {
 				return ctxErr
 			}
 			cr, warnings, err := svc.AddCRWithOptionsWithWarnings(args[0], description, service.AddCROptions{
-				ParentCRID: ctx.CR.ID,
-				Switch:     switchBranch,
-				NoSwitch:   !switchBranch,
+				ParentCRID:     ctx.CR.ID,
+				Switch:         switchBranch,
+				NoSwitch:       !switchBranch,
+				BranchAlias:    strings.TrimSpace(branchAlias),
+				OwnerPrefix:    strings.TrimSpace(ownerPrefix),
+				OwnerPrefixSet: cmd.Flags().Changed("owner-prefix"),
 			})
 			if err != nil {
 				if asJSON {
@@ -250,6 +264,8 @@ func newCRChildAddCmd() *cobra.Command {
 
 	cmd.Flags().StringVar(&description, "description", "", "Description/rationale for the child CR")
 	cmd.Flags().BoolVar(&switchBranch, "switch", false, "Switch to the child CR branch immediately after creation")
+	cmd.Flags().StringVar(&branchAlias, "branch-alias", "", "Explicit branch alias (must include matching cr-<id> segment)")
+	cmd.Flags().StringVar(&ownerPrefix, "owner-prefix", "", "Optional owner prefix for generated branch alias")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "Output in JSON format")
 	return cmd
 }
@@ -631,49 +647,7 @@ func newCRStatusCmd() *cobra.Command {
 				return err
 			}
 			if asJSON {
-				return writeJSONSuccess(cmd, map[string]any{
-					"id":            status.ID,
-					"uid":           status.UID,
-					"title":         status.Title,
-					"status":        status.Status,
-					"base":          status.BaseBranch,
-					"base_ref":      status.BaseRef,
-					"base_commit":   status.BaseCommit,
-					"parent_cr_id":  status.ParentCRID,
-					"parent_status": status.ParentStatus,
-					"branch":        status.Branch,
-					"branch_context": map[string]any{
-						"current_branch": status.CurrentBranch,
-						"branch_match":   status.BranchMatch,
-					},
-					"working_tree": map[string]any{
-						"modified_staged_count": status.ModifiedStagedCount,
-						"untracked_count":       status.UntrackedCount,
-						"dirty":                 status.Dirty,
-					},
-					"tasks": map[string]any{
-						"total":             status.TasksTotal,
-						"open":              status.TasksOpen,
-						"done":              status.TasksDone,
-						"delegated":         status.TasksDelegated,
-						"delegated_pending": status.TasksDelegatedPending,
-					},
-					"contract": map[string]any{
-						"complete":       status.ContractComplete,
-						"missing_fields": status.ContractMissingFields,
-					},
-					"validation": map[string]any{
-						"valid":    status.ValidationValid,
-						"errors":   status.ValidationErrors,
-						"warnings": status.ValidationWarnings,
-						"risk": map[string]any{
-							"tier":  status.RiskTier,
-							"score": status.RiskScore,
-						},
-					},
-					"merge_blocked":  status.MergeBlocked,
-					"merge_blockers": status.MergeBlockers,
-				})
+				return writeJSONSuccess(cmd, crStatusToJSONMap(status))
 			}
 
 			fmt.Fprintf(cmd.OutOrStdout(), "CR %d: %s\n", status.ID, status.Title)

@@ -1,8 +1,15 @@
 package cli
 
 import (
+	"regexp"
 	"sophia/internal/model"
 	"sophia/internal/service"
+	"strings"
+)
+
+var (
+	legacyBranchJSONPattern = regexp.MustCompile(`^sophia/cr-(\d+)$`)
+	humanBranchJSONPattern  = regexp.MustCompile(`^(?:([a-z0-9._-]+)/)?cr-(\d+)(?:-([a-z0-9][a-z0-9-]*))?$`)
 )
 
 func stringSliceOrEmpty(in []string) []string {
@@ -28,6 +35,33 @@ func mapStringStringOrEmpty(in map[string]string) map[string]string {
 		out[k] = v
 	}
 	return out
+}
+
+func branchIdentityToJSONMap(branch, uid string) map[string]any {
+	trimmedBranch := strings.TrimSpace(branch)
+	trimmedUID := strings.TrimSpace(uid)
+	res := map[string]any{
+		"scheme": "custom",
+		"uid":    trimmedUID,
+		"slug":   "",
+		"legacy": false,
+	}
+	if matches := legacyBranchJSONPattern.FindStringSubmatch(trimmedBranch); len(matches) == 2 {
+		res["scheme"] = "legacy_v0"
+		res["legacy"] = true
+		return res
+	}
+	if matches := humanBranchJSONPattern.FindStringSubmatch(strings.ToLower(trimmedBranch)); len(matches) == 4 {
+		res["scheme"] = "human_alias_v1"
+		if strings.TrimSpace(matches[3]) != "" {
+			res["slug"] = strings.TrimSpace(matches[3])
+		}
+		if strings.TrimSpace(matches[1]) != "" {
+			res["owner_prefix"] = strings.TrimSpace(matches[1])
+		}
+		return res
+	}
+	return res
 }
 
 func checkpointChunkModelToJSONMap(chunk model.CheckpointChunk) map[string]any {
@@ -112,14 +146,15 @@ func contractToJSONMap(contract model.Contract) map[string]any {
 
 func crSearchResultToJSONMap(result model.CRSearchResult) map[string]any {
 	return map[string]any{
-		"id":           result.ID,
-		"uid":          result.UID,
-		"title":        result.Title,
-		"status":       result.Status,
-		"branch":       result.Branch,
-		"base_branch":  result.BaseBranch,
-		"parent_cr_id": result.ParentCRID,
-		"risk_tier":    result.RiskTier,
+		"id":              result.ID,
+		"uid":             result.UID,
+		"title":           result.Title,
+		"status":          result.Status,
+		"branch":          result.Branch,
+		"branch_identity": branchIdentityToJSONMap(result.Branch, result.UID),
+		"base_branch":     result.BaseBranch,
+		"parent_cr_id":    result.ParentCRID,
+		"risk_tier":       result.RiskTier,
 		"tasks": map[string]int{
 			"total": result.TasksTotal,
 			"open":  result.TasksOpen,
@@ -166,6 +201,7 @@ func crToJSONMap(cr *model.CR) map[string]any {
 		"base_commit":         cr.BaseCommit,
 		"parent_cr_id":        cr.ParentCRID,
 		"branch":              cr.Branch,
+		"branch_identity":     branchIdentityToJSONMap(cr.Branch, cr.UID),
 		"notes":               stringSliceOrEmpty(cr.Notes),
 		"evidence":            evidence,
 		"contract":            contractToJSONMap(cr.Contract),
@@ -336,16 +372,17 @@ func reviewToJSONMap(review *service.Review) map[string]any {
 	}
 	return map[string]any{
 		"cr": map[string]any{
-			"id":           review.CR.ID,
-			"uid":          review.CR.UID,
-			"title":        review.CR.Title,
-			"status":       review.CR.Status,
-			"base_branch":  review.CR.BaseBranch,
-			"base_ref":     review.CR.BaseRef,
-			"base_commit":  review.CR.BaseCommit,
-			"parent_cr_id": review.CR.ParentCRID,
-			"branch":       review.CR.Branch,
-			"intent":       review.CR.Description,
+			"id":              review.CR.ID,
+			"uid":             review.CR.UID,
+			"title":           review.CR.Title,
+			"status":          review.CR.Status,
+			"base_branch":     review.CR.BaseBranch,
+			"base_ref":        review.CR.BaseRef,
+			"base_commit":     review.CR.BaseCommit,
+			"parent_cr_id":    review.CR.ParentCRID,
+			"branch":          review.CR.Branch,
+			"branch_identity": branchIdentityToJSONMap(review.CR.Branch, review.CR.UID),
+			"intent":          review.CR.Description,
 		},
 		"contract": map[string]any{
 			"why":                  review.Contract.Why,
@@ -444,16 +481,17 @@ func crStatusToJSONMap(status *service.CRStatusView) map[string]any {
 		return map[string]any{}
 	}
 	return map[string]any{
-		"id":            status.ID,
-		"uid":           status.UID,
-		"title":         status.Title,
-		"status":        status.Status,
-		"base":          status.BaseBranch,
-		"base_ref":      status.BaseRef,
-		"base_commit":   status.BaseCommit,
-		"parent_cr_id":  status.ParentCRID,
-		"parent_status": status.ParentStatus,
-		"branch":        status.Branch,
+		"id":              status.ID,
+		"uid":             status.UID,
+		"title":           status.Title,
+		"status":          status.Status,
+		"base":            status.BaseBranch,
+		"base_ref":        status.BaseRef,
+		"base_commit":     status.BaseCommit,
+		"parent_cr_id":    status.ParentCRID,
+		"parent_status":   status.ParentStatus,
+		"branch":          status.Branch,
+		"branch_identity": branchIdentityToJSONMap(status.Branch, status.UID),
 		"branch_context": map[string]any{
 			"current_branch": status.CurrentBranch,
 			"branch_match":   status.BranchMatch,
@@ -512,11 +550,12 @@ func applyPlanToJSONMap(result *service.ApplyCRPlanResult) map[string]any {
 	createdCRs := make([]map[string]any, 0, len(result.CreatedCRs))
 	for _, created := range result.CreatedCRs {
 		createdCRs = append(createdCRs, map[string]any{
-			"key":          created.Key,
-			"id":           created.ID,
-			"uid":          created.UID,
-			"branch":       created.Branch,
-			"parent_cr_id": created.ParentCRID,
+			"key":             created.Key,
+			"id":              created.ID,
+			"uid":             created.UID,
+			"branch":          created.Branch,
+			"branch_identity": branchIdentityToJSONMap(created.Branch, created.UID),
+			"parent_cr_id":    created.ParentCRID,
 		})
 	}
 	createdTasks := make([]map[string]any, 0, len(result.CreatedTasks))
@@ -565,6 +604,7 @@ func crDoctorToJSONMap(report *service.CRDoctorReport) map[string]any {
 		"cr_id":                 report.CRID,
 		"cr_uid":                report.CRUID,
 		"branch":                report.Branch,
+		"branch_identity":       branchIdentityToJSONMap(report.Branch, report.CRUID),
 		"branch_exists":         report.BranchExists,
 		"branch_head":           report.BranchHead,
 		"base_ref":              report.BaseRef,
@@ -608,6 +648,7 @@ func reconcileCRToJSONMap(report *service.ReconcileCRReport) map[string]any {
 		"cr_id":              report.CRID,
 		"cr_uid":             report.CRUID,
 		"branch":             report.Branch,
+		"branch_identity":    branchIdentityToJSONMap(report.Branch, report.CRUID),
 		"branch_exists":      report.BranchExists,
 		"previous_parent_id": report.PreviousParentID,
 		"current_parent_id":  report.CurrentParentID,
@@ -803,21 +844,22 @@ func crPackToJSONMap(view *service.CRPackView) map[string]any {
 
 	return map[string]any{
 		"cr": map[string]any{
-			"id":            view.CR.ID,
-			"uid":           view.CR.UID,
-			"title":         view.CR.Title,
-			"description":   view.CR.Description,
-			"status":        view.CR.Status,
-			"base_branch":   view.CR.BaseBranch,
-			"base_ref":      view.CR.BaseRef,
-			"base_commit":   view.CR.BaseCommit,
-			"parent_cr_id":  view.CR.ParentCRID,
-			"branch":        view.CR.Branch,
-			"merged_at":     view.CR.MergedAt,
-			"merged_by":     view.CR.MergedBy,
-			"merged_commit": view.CR.MergedCommit,
-			"created_at":    view.CR.CreatedAt,
-			"updated_at":    view.CR.UpdatedAt,
+			"id":              view.CR.ID,
+			"uid":             view.CR.UID,
+			"title":           view.CR.Title,
+			"description":     view.CR.Description,
+			"status":          view.CR.Status,
+			"base_branch":     view.CR.BaseBranch,
+			"base_ref":        view.CR.BaseRef,
+			"base_commit":     view.CR.BaseCommit,
+			"parent_cr_id":    view.CR.ParentCRID,
+			"branch":          view.CR.Branch,
+			"branch_identity": branchIdentityToJSONMap(view.CR.Branch, view.CR.UID),
+			"merged_at":       view.CR.MergedAt,
+			"merged_by":       view.CR.MergedBy,
+			"merged_commit":   view.CR.MergedCommit,
+			"created_at":      view.CR.CreatedAt,
+			"updated_at":      view.CR.UpdatedAt,
 		},
 		"contract": map[string]any{
 			"why":                  view.Contract.Why,

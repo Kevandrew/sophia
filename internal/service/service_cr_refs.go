@@ -8,6 +8,7 @@ import (
 )
 
 const crRefPrefix = "refs/sophia/cr/"
+const crUIDRefPrefix = crRefPrefix + "uid/"
 
 type crAnchorResolution struct {
 	baseRef    string
@@ -20,6 +21,10 @@ type crAnchorResolution struct {
 
 func crRefName(id int) string {
 	return fmt.Sprintf("%s%d", crRefPrefix, id)
+}
+
+func crUIDRefName(uid string) string {
+	return crUIDRefPrefix + strings.TrimSpace(uid)
 }
 
 func parseCRRefID(ref string) (int, bool) {
@@ -38,34 +43,81 @@ func parseCRRefID(ref string) (int, bool) {
 	return id, true
 }
 
+func parseCRUIDRef(ref string) (string, bool) {
+	ref = strings.TrimSpace(ref)
+	if !strings.HasPrefix(ref, crUIDRefPrefix) {
+		return "", false
+	}
+	uid := strings.TrimSpace(strings.TrimPrefix(ref, crUIDRefPrefix))
+	if uid == "" {
+		return "", false
+	}
+	return uid, true
+}
+
 func (s *Service) syncCRRef(cr *model.CR) error {
 	if cr == nil || cr.ID <= 0 {
 		return fmt.Errorf("cr is required")
 	}
 	ref := crRefName(cr.ID)
+	uidRef := crUIDRefName(cr.UID)
+	if strings.TrimSpace(cr.UID) == "" {
+		uidRef = ""
+	}
 	switch cr.Status {
 	case model.StatusInProgress:
 		branch := strings.TrimSpace(cr.Branch)
 		if branch == "" || !s.git.BranchExists(branch) {
-			return s.git.DeleteRef(ref)
+			if err := s.git.DeleteRef(ref); err != nil {
+				return err
+			}
+			if uidRef != "" {
+				return s.git.DeleteRef(uidRef)
+			}
+			return nil
 		}
-		return s.git.SetSymbolicRef(ref, "refs/heads/"+branch)
+		if err := s.git.SetSymbolicRef(ref, "refs/heads/"+branch); err != nil {
+			return err
+		}
+		if uidRef != "" {
+			return s.git.SetSymbolicRef(uidRef, "refs/heads/"+branch)
+		}
+		return nil
 	case model.StatusMerged:
 		commit := strings.TrimSpace(cr.MergedCommit)
 		if commit == "" {
-			return s.git.DeleteRef(ref)
+			if err := s.git.DeleteRef(ref); err != nil {
+				return err
+			}
+			if uidRef != "" {
+				return s.git.DeleteRef(uidRef)
+			}
+			return nil
 		}
 		if resolved, err := s.git.ResolveRef(commit); err == nil && strings.TrimSpace(resolved) != "" {
 			commit = strings.TrimSpace(resolved)
 		}
-		return s.git.UpdateRef(ref, commit)
+		if err := s.git.UpdateRef(ref, commit); err != nil {
+			return err
+		}
+		if uidRef != "" {
+			return s.git.UpdateRef(uidRef, commit)
+		}
+		return nil
 	default:
-		return s.git.DeleteRef(ref)
+		if err := s.git.DeleteRef(ref); err != nil {
+			return err
+		}
+		if uidRef != "" {
+			return s.git.DeleteRef(uidRef)
+		}
+		return nil
 	}
 }
 
 func (s *Service) syncAllCRRefs(crs []model.CR) error {
 	known := map[int]struct{}{}
+	knownUID := map[string]struct{}{}
 	for i := range crs {
 		cr := crs[i]
 		if cr.ID <= 0 {
@@ -75,21 +127,31 @@ func (s *Service) syncAllCRRefs(crs []model.CR) error {
 			return err
 		}
 		known[cr.ID] = struct{}{}
+		if strings.TrimSpace(cr.UID) != "" {
+			knownUID[strings.TrimSpace(cr.UID)] = struct{}{}
+		}
 	}
 	refs, err := s.git.ListRefs(crRefPrefix)
 	if err != nil {
 		return err
 	}
 	for _, ref := range refs {
-		id, ok := parseCRRefID(ref)
-		if !ok {
+		if id, ok := parseCRRefID(ref); ok {
+			if _, exists := known[id]; exists {
+				continue
+			}
+			if err := s.git.DeleteRef(ref); err != nil {
+				return err
+			}
 			continue
 		}
-		if _, exists := known[id]; exists {
-			continue
-		}
-		if err := s.git.DeleteRef(ref); err != nil {
-			return err
+		if uid, ok := parseCRUIDRef(ref); ok {
+			if _, exists := knownUID[uid]; exists {
+				continue
+			}
+			if err := s.git.DeleteRef(ref); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

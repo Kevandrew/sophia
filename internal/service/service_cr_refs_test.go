@@ -25,6 +25,9 @@ func TestCRRefLifecycleAddMergeReopen(t *testing.T) {
 	if target := symbolicRefTarget(t, dir, crRefName(cr.ID)); target != "refs/heads/"+cr.Branch {
 		t.Fatalf("expected symbolic ref target %q, got %q", "refs/heads/"+cr.Branch, target)
 	}
+	if target := symbolicRefTarget(t, dir, crUIDRefName(cr.UID)); target != "refs/heads/"+cr.Branch {
+		t.Fatalf("expected uid symbolic ref target %q, got %q", "refs/heads/"+cr.Branch, target)
+	}
 
 	setValidContract(t, svc, cr.ID)
 	task, err := svc.AddTask(cr.ID, "checkpoint for merge")
@@ -46,9 +49,16 @@ func TestCRRefLifecycleAddMergeReopen(t *testing.T) {
 	if _, err := symbolicRefTargetE(dir, crRefName(cr.ID)); err == nil {
 		t.Fatalf("expected merged CR ref to be direct, not symbolic")
 	}
+	if _, err := symbolicRefTargetE(dir, crUIDRefName(cr.UID)); err == nil {
+		t.Fatalf("expected merged UID CR ref to be direct, not symbolic")
+	}
 	refSHA := runGit(t, dir, "rev-parse", crRefName(cr.ID))
 	if !strings.HasPrefix(refSHA, mergedSHA) && !strings.HasPrefix(mergedSHA, refSHA) {
 		t.Fatalf("expected CR ref %s to point at merged commit %s", refSHA, mergedSHA)
+	}
+	uidRefSHA := runGit(t, dir, "rev-parse", crUIDRefName(cr.UID))
+	if !strings.HasPrefix(uidRefSHA, mergedSHA) && !strings.HasPrefix(mergedSHA, uidRefSHA) {
+		t.Fatalf("expected UID CR ref %s to point at merged commit %s", uidRefSHA, mergedSHA)
 	}
 
 	if _, err := svc.ReopenCR(cr.ID); err != nil {
@@ -56,6 +66,9 @@ func TestCRRefLifecycleAddMergeReopen(t *testing.T) {
 	}
 	if target := symbolicRefTarget(t, dir, crRefName(cr.ID)); target != "refs/heads/"+cr.Branch {
 		t.Fatalf("expected symbolic ref target %q after reopen, got %q", "refs/heads/"+cr.Branch, target)
+	}
+	if target := symbolicRefTarget(t, dir, crUIDRefName(cr.UID)); target != "refs/heads/"+cr.Branch {
+		t.Fatalf("expected uid symbolic ref target %q after reopen, got %q", "refs/heads/"+cr.Branch, target)
 	}
 }
 
@@ -100,8 +113,14 @@ func TestRepairFromGitSynchronizesAndCleansCRRefs(t *testing.T) {
 	if err := runGitErr(dir, "update-ref", crRefName(999), "HEAD"); err != nil {
 		t.Fatalf("seed stale ref: %v", err)
 	}
+	if err := runGitErr(dir, "update-ref", crUIDRefName("cr_stale-uid"), "HEAD"); err != nil {
+		t.Fatalf("seed stale uid ref: %v", err)
+	}
 	if !gitRefExists(t, dir, crRefName(999)) {
 		t.Fatalf("expected stale ref to exist before repair")
+	}
+	if !gitRefExists(t, dir, crUIDRefName("cr_stale-uid")) {
+		t.Fatalf("expected stale uid ref to exist before repair")
 	}
 
 	if _, err := svc.RepairFromGit("main", true); err != nil {
@@ -111,6 +130,9 @@ func TestRepairFromGitSynchronizesAndCleansCRRefs(t *testing.T) {
 	if !gitRefExists(t, dir, crRefName(mergedCR.ID)) {
 		t.Fatalf("expected merged CR ref to exist after repair")
 	}
+	if !gitRefExists(t, dir, crUIDRefName(mergedCR.UID)) {
+		t.Fatalf("expected merged UID CR ref to exist after repair")
+	}
 	refSHA := runGit(t, dir, "rev-parse", crRefName(mergedCR.ID))
 	if !strings.HasPrefix(refSHA, mergedSHA) && !strings.HasPrefix(mergedSHA, refSHA) {
 		t.Fatalf("expected merged CR ref %s to point at merged commit %s", refSHA, mergedSHA)
@@ -119,8 +141,14 @@ func TestRepairFromGitSynchronizesAndCleansCRRefs(t *testing.T) {
 	if target := symbolicRefTarget(t, dir, crRefName(openCR.ID)); target != "refs/heads/"+openCR.Branch {
 		t.Fatalf("expected open CR symbolic target %q after repair, got %q", "refs/heads/"+openCR.Branch, target)
 	}
+	if target := symbolicRefTarget(t, dir, crUIDRefName(openCR.UID)); target != "refs/heads/"+openCR.Branch {
+		t.Fatalf("expected open UID CR symbolic target %q after repair, got %q", "refs/heads/"+openCR.Branch, target)
+	}
 	if gitRefExists(t, dir, crRefName(999)) {
 		t.Fatalf("expected stale CR ref to be removed by repair")
+	}
+	if gitRefExists(t, dir, crUIDRefName("cr_stale-uid")) {
+		t.Fatalf("expected stale UID CR ref to be removed by repair")
 	}
 }
 

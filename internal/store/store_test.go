@@ -182,3 +182,35 @@ func TestNewWithSophiaRootUsesExplicitMetadataPath(t *testing.T) {
 		t.Fatalf("expected config at explicit metadata path: %v", err)
 	}
 }
+
+func TestLoadCRByUID(t *testing.T) {
+	s := New(t.TempDir())
+	if err := s.Init("main", model.MetadataModeLocal); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	cr := &model.CR{
+		ID:          1,
+		UID:         "cr_selector-uid-1",
+		Title:       "UID selector",
+		Description: "lookup",
+		Status:      model.StatusInProgress,
+		BaseBranch:  "main",
+		Branch:      "cr-1-uid-selector",
+		Notes:       []string{},
+		Subtasks:    []model.Subtask{},
+		Events:      []model.Event{},
+		CreatedAt:   "2026-01-01T00:00:00Z",
+		UpdatedAt:   "2026-01-01T00:00:00Z",
+	}
+	if err := s.SaveCR(cr); err != nil {
+		t.Fatalf("SaveCR() error = %v", err)
+	}
+
+	loaded, err := s.LoadCRByUID(cr.UID)
+	if err != nil {
+		t.Fatalf("LoadCRByUID() error = %v", err)
+	}
+	if loaded.ID != cr.ID {
+		t.Fatalf("expected id %d, got %d", cr.ID, loaded.ID)
+	}
+}

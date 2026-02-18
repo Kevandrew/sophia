@@ -214,17 +214,26 @@ func (s *Service) RepairFromGit(baseBranch string, refresh bool) (*RepairReport,
 			filesTouched = count
 		}
 
+		title := titleFromSubjectOrBody(commit.Subject, commit.Body)
+		branch := strings.TrimSpace(branchFromBody(commit.Body))
+		if branch == "" {
+			branch = legacyCRBranchName(id)
+			if alias, aliasErr := formatCRBranchAlias(id, title, ""); aliasErr == nil {
+				branch = alias
+			}
+		}
+
 		cr := &model.CR{
 			ID:                id,
 			UID:               crUIDFromBody(commit.Body),
-			Title:             titleFromSubjectOrBody(commit.Subject, commit.Body),
+			Title:             title,
 			Description:       description,
 			Status:            model.StatusMerged,
 			BaseBranch:        targetBase,
 			BaseRef:           baseRefFromBody(commit.Body),
 			BaseCommit:        baseCommitFromBody(commit.Body),
 			ParentCRID:        parentCRIDFromBody(commit.Body),
-			Branch:            fmt.Sprintf("sophia/cr-%d", id),
+			Branch:            branch,
 			Notes:             notes,
 			Subtasks:          subtasks,
 			Events:            []model.Event{},

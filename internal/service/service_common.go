@@ -376,7 +376,7 @@ func (s *Service) ensureNextCRIDFloor(baseBranch string) error {
 		}
 	}
 
-	branches, err := s.git.LocalBranches("sophia/cr-")
+	branches, err := s.git.LocalBranches("")
 	if err == nil {
 		for _, branch := range branches {
 			if id, ok := parseCRBranchID(branch); ok && id > maxID {

@@ -56,7 +56,8 @@ type jsonError struct {
 
 var (
 	requiredActiveBranchPattern = regexp.MustCompile(`active CR branch "([^"]+)"`)
-	crBranchIDPattern           = regexp.MustCompile(`^sophia/cr-(\d+)$`)
+	crBranchIDPattern           = regexp.MustCompile(`^(?:[a-z0-9._-]+/)?cr-(\d+)(?:-[a-z0-9][a-z0-9-]*)?$`)
+	legacyCRBranchIDPattern     = regexp.MustCompile(`^sophia/cr-(\d+)$`)
 )
 
 func writeJSONSuccess(cmd *cobra.Command, payload any) error {
@@ -168,7 +169,10 @@ func suggestedActionForError(err error) string {
 	matches := requiredActiveBranchPattern.FindStringSubmatch(msg)
 	if len(matches) == 2 {
 		branch := strings.TrimSpace(matches[1])
-		idMatches := crBranchIDPattern.FindStringSubmatch(branch)
+		idMatches := crBranchIDPattern.FindStringSubmatch(strings.ToLower(branch))
+		if len(idMatches) != 2 {
+			idMatches = legacyCRBranchIDPattern.FindStringSubmatch(branch)
+		}
 		if len(idMatches) == 2 {
 			return fmt.Sprintf("sophia cr switch %s", strings.TrimSpace(idMatches[1]))
 		}
