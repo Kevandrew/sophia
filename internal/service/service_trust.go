@@ -61,215 +61,18 @@ func buildTrustReportWithPolicy(cr *model.CR, validation *ValidationReport, diff
 	if policy == nil {
 		policy = defaultRepoPolicy()
 	}
-	if validation == nil {
-		validation = &ValidationReport{}
-	}
-	if diff == nil {
-		diff = &diffSummary{}
-	}
-	shortStat := parseShortStatMetrics(diff.ShortStat)
-	impact := validation.Impact
-	if impact == nil {
-		impact = &ImpactReport{FilesChanged: len(diff.Files)}
-	}
-	if impact.FilesChanged == 0 {
-		if len(diff.Files) > 0 {
-			impact.FilesChanged = len(diff.Files)
-		} else if shortStat.FilesChanged > 0 {
-			impact.FilesChanged = shortStat.FilesChanged
-		}
-	}
-
-	hardFailures := []string{}
-	advisories := []string{}
-	requirements := []TrustRequirement{}
-	if len(validation.Errors) > 0 {
-		hardFailures = append(hardFailures, fmt.Sprintf("validation errors present (%d)", len(validation.Errors)))
-		requirements = append(requirements, TrustRequirement{
-			Key:       "validation_clean",
-			Title:     "Validation has no errors",
-			Satisfied: false,
-			Reason:    fmt.Sprintf("%d validation error(s) present.", len(validation.Errors)),
-			Action:    "Resolve all validation errors before trusting review data.",
-			Source:    "validation",
-		})
-	} else {
-		requirements = append(requirements, TrustRequirement{
-			Key:       "validation_clean",
-			Title:     "Validation has no errors",
-			Satisfied: true,
-			Reason:    "No validation errors.",
-			Action:    "",
-			Source:    "validation",
-		})
-	}
-	missingContractFields := missingCRContractFields(cr.Contract, requiredCRFields)
-	if len(missingContractFields) > 0 {
-		hardFailures = append(hardFailures, fmt.Sprintf("missing required contract fields: %s", strings.Join(missingContractFields, ", ")))
-		requirements = append(requirements, TrustRequirement{
-			Key:       "contract_required_fields",
-			Title:     "CR required contract fields are complete",
-			Satisfied: false,
-			Reason:    fmt.Sprintf("Missing fields: %s.", strings.Join(missingContractFields, ", ")),
-			Action:    fmt.Sprintf("Complete required contract fields: %s.", strings.Join(missingContractFields, ", ")),
-			Source:    "contract_required_fields",
-		})
-	} else {
-		requirements = append(requirements, TrustRequirement{
-			Key:       "contract_required_fields",
-			Title:     "CR required contract fields are complete",
-			Satisfied: true,
-			Reason:    "All required contract fields are present.",
-			Action:    "",
-			Source:    "contract_required_fields",
-		})
-	}
-	unjustifiedNoCheckpointTasks := listUnjustifiedDoneTasksWithoutCheckpoint(cr.Subtasks)
-	checkpointExceptionRequirement := TrustRequirement{
-		Key:       "task_checkpoint_exception_justified",
-		Title:     "Done tasks without checkpoints include explicit rationale",
-		Satisfied: len(unjustifiedNoCheckpointTasks) == 0,
-		Reason:    "All done tasks are backed by checkpoint commits or explicit no-checkpoint reasons.",
-		Action:    "",
-		Source:    "task_proof_chain",
-	}
-	if len(unjustifiedNoCheckpointTasks) > 0 {
-		checkpointExceptionRequirement.Reason = fmt.Sprintf("Done task(s) missing checkpoint rationale: %s.", formatTaskIDList(unjustifiedNoCheckpointTasks))
-		checkpointExceptionRequirement.Action = fmt.Sprintf("Record rationale with `sophia cr task done %d <task-id> --no-checkpoint --no-checkpoint-reason \"...\"` or create scoped checkpoints.", cr.ID)
-	}
-	requirements = append(requirements, checkpointExceptionRequirement)
-
-	dimensions := []TrustDimension{
-		buildContractQualityDimension(cr.Contract),
-		buildScopeDisciplineDimension(impact),
-		buildTaskProofChainDimension(cr.Subtasks),
-		buildRiskAccountabilityDimension(cr.Contract, impact, diff),
-		buildChangeMagnitudeDimension(impact, shortStat),
-		buildValidationHealthDimension(validation),
-		buildTestEvidenceDimension(cr.Contract, diff),
-	}
-
-	score := 0
-	max := 0
-	dimensionActions := []string{}
-	for i := range dimensions {
-		dimensions[i].Score = clampMin(dimensions[i].Score, 0)
-		if dimensions[i].Score > dimensions[i].Max {
-			dimensions[i].Score = dimensions[i].Max
-		}
-		dimensions[i].Reasons = dedupeStrings(dimensions[i].Reasons)
-		dimensions[i].RequiredActions = dedupeStrings(dimensions[i].RequiredActions)
-		dimensionActions = append(dimensionActions, dimensions[i].RequiredActions...)
-		score += dimensions[i].Score
-		max += dimensions[i].Max
-		for _, action := range dimensions[i].RequiredActions {
-			if isTrustGatingAction(action) {
-				continue
-			}
-			advisories = append(advisories, action)
-		}
-	}
-	advisories = dedupeStrings(advisories)
-
+	validation, diff, impact, shortStat := normalizeTrustInputs(validation, diff)
+	hardFailures, requirements := buildInitialTrustRequirements(cr, validation, requiredCRFields)
+	dimensions, score, max, dimensionActions, advisories := evaluateTrustDimensions(cr, validation, impact, diff, shortStat)
 	riskTier := normalizedRiskTier(impact.RiskTier)
-	taskAcceptanceRequirements := requiredTaskAcceptanceChecks(cr.Subtasks)
-	taskChecksByKey := taskAcceptanceCheckTaskMap(taskAcceptanceRequirements)
-	checkResults := evaluateTrustChecks(cr.Evidence, policy.Trust, riskTier, taskChecksByKey, time.Now().UTC())
-	checkResultsByKey := map[string]TrustCheckResult{}
-	for _, check := range checkResults {
-		checkResultsByKey[check.Key] = check
-	}
-	checkRequirements := make([]TrustRequirement, 0, len(checkResults))
-	for _, check := range checkResults {
-		satisfied := check.Status == policyTrustCheckStatusPass
-		action := ""
-		if !satisfied {
-			action = fmt.Sprintf("Run required check %q (%s) and record a passing fresh result.", check.Key, check.Command)
-		}
-		checkRequirements = append(checkRequirements, TrustRequirement{
-			Key:       "check:" + check.Key,
-			Title:     fmt.Sprintf("Required check %q is passing and fresh", check.Key),
-			Satisfied: satisfied,
-			Reason:    check.Reason,
-			Action:    action,
-			Source:    "policy_check",
-		})
-	}
-	requirements = append(requirements, checkRequirements...)
-	for _, req := range taskAcceptanceRequirements {
-		check, found := checkResultsByKey[req.Key]
-		satisfied := found && check.Status == policyTrustCheckStatusPass
-		reason := fmt.Sprintf("Check %q has no recorded status.", req.Key)
-		if found {
-			reason = check.Reason
-		}
-		action := ""
-		if !satisfied {
-			action = fmt.Sprintf("Task #%d requires check key %q to pass; run `sophia cr check run %d` or record fresh passing evidence.", req.TaskID, req.Key, cr.ID)
-		}
-		requirements = append(requirements, TrustRequirement{
-			Key:       fmt.Sprintf("task:%d:check:%s", req.TaskID, req.Key),
-			Title:     fmt.Sprintf("Task #%d acceptance check %q is passing and fresh", req.TaskID, req.Key),
-			Satisfied: satisfied,
-			Reason:    reason,
-			Action:    action,
-			TaskID:    req.TaskID,
-			Source:    "task_acceptance_check",
-		})
-	}
-
 	reviewDepth := evaluateTrustReviewDepth(cr, policy.Trust, riskTier)
-	reviewDepthReq := TrustRequirement{
-		Key:       "review_depth",
-		Title:     "Review-depth sampling requirement is satisfied",
-		Satisfied: reviewDepth.Satisfied,
-		Reason:    fmt.Sprintf("Samples: %d/%d.", reviewDepth.SampleCount, reviewDepth.RequiredSamples),
-		Action:    "",
-		Source:    "review_depth_policy",
-	}
-	if !reviewDepth.Satisfied {
-		reviewDepthReq.Action = fmt.Sprintf("Add review_sample evidence entries until at least %d sample(s) are recorded.", reviewDepth.RequiredSamples)
-	}
-	if reviewDepth.RequireCriticalScopeCoverage && len(reviewDepth.MissingCriticalScopes) > 0 {
-		reviewDepthReq.Reason = fmt.Sprintf("Missing critical scope coverage for: %s.", strings.Join(reviewDepth.MissingCriticalScopes, ", "))
-		if reviewDepthReq.Action == "" {
-			reviewDepthReq.Action = "Add review_sample evidence with scope prefixes covering each risk_critical_scope."
-		}
-	}
-	requirements = append(requirements, reviewDepthReq)
+	checkRequirements, checkResults := buildTrustCheckRequirements(cr, policy.Trust, riskTier, time.Now().UTC())
+	requirements = append(requirements, checkRequirements...)
+	requirements = append(requirements, buildReviewDepthRequirement(reviewDepth))
 	contractDrift := summarizeTaskContractDrift(cr.Subtasks)
-	contractDriftRequirement := TrustRequirement{
-		Key:       "contract_drift_acknowledged",
-		Title:     "Task contract drift records are acknowledged",
-		Satisfied: contractDrift.Unacknowledged == 0,
-		Reason:    "No unacknowledged task contract drift records.",
-		Action:    "",
-		Source:    "contract_drift",
-	}
-	if contractDrift.Unacknowledged > 0 {
-		contractDriftRequirement.Reason = fmt.Sprintf("%d unacknowledged drift record(s) remain across task(s): %s.", contractDrift.Unacknowledged, formatTaskIDList(contractDrift.UnacknowledgedTasks))
-		contractDriftRequirement.Action = fmt.Sprintf("Acknowledge drift records with `sophia cr task contract drift ack %d <task-id> <drift-id> --reason \"...\"`.", cr.ID)
-	}
-	requirements = append(requirements, contractDriftRequirement)
-
-	if strings.EqualFold(strings.TrimSpace(impact.RiskTier), "high") && len(impact.MatchedRiskCriticalScopes) > 0 {
-		advisories = append(advisories, fmt.Sprintf("Spot-check critical scopes: %s.", strings.Join(impact.MatchedRiskCriticalScopes, ", ")))
-	}
-	advisories = dedupeStrings(advisories)
-
-	if reviewDepth.RequireCriticalScopeCoverage && len(cr.Contract.RiskCriticalScopes) == 0 {
-		advisories = append(advisories, "Declare risk_critical_scopes in the CR contract to enforce high-tier critical-scope coverage checks.")
-		advisories = dedupeStrings(advisories)
-	}
-
-	requiredActions := []string{}
-	for _, requirement := range requirements {
-		if requirement.Satisfied || strings.TrimSpace(requirement.Action) == "" {
-			continue
-		}
-		requiredActions = append(requiredActions, requirement.Action)
-	}
-	requiredActions = dedupeStrings(requiredActions)
+	requirements = append(requirements, buildContractDriftRequirement(contractDrift, cr.ID))
+	advisories = appendRiskTierAdvisories(advisories, impact, reviewDepth, cr.Contract, diff)
+	requiredActions := collectRequiredActions(requirements)
 
 	verdict, summary := selectTrustVerdictForPolicy(score, max, hardFailures, requirements, policy.Trust, riskTier)
 	attentionActions := []string{}
@@ -277,12 +80,6 @@ func buildTrustReportWithPolicy(cr *model.CR, validation *ValidationReport, diff
 		attentionActions = dedupeStrings(dimensionActions)
 	}
 	gate := buildTrustGateSummary(policy.Trust, riskTier, verdict)
-	if strings.EqualFold(strings.TrimSpace(impact.RiskTier), "high") &&
-		len(impact.MatchedRiskCriticalScopes) > 0 &&
-		!hasSpecializedHighRiskEvidence(impact, diff) {
-		advisories = append(advisories, "Add specialized high-risk evidence (integration/worktree/doctor/repair coverage) to increase confidence.")
-		advisories = dedupeStrings(advisories)
-	}
 
 	return &TrustReport{
 		Verdict:          verdict,
@@ -302,6 +99,251 @@ func buildTrustReportWithPolicy(cr *model.CR, validation *ValidationReport, diff
 		ContractDrift:    contractDrift,
 		Gate:             gate,
 	}
+}
+
+func normalizeTrustInputs(validation *ValidationReport, diff *diffSummary) (*ValidationReport, *diffSummary, *ImpactReport, shortStatMetrics) {
+	if validation == nil {
+		validation = &ValidationReport{}
+	}
+	if diff == nil {
+		diff = &diffSummary{}
+	}
+	shortStat := parseShortStatMetrics(diff.ShortStat)
+	impact := validation.Impact
+	if impact == nil {
+		impact = &ImpactReport{FilesChanged: len(diff.Files)}
+	}
+	if impact.FilesChanged == 0 {
+		if len(diff.Files) > 0 {
+			impact.FilesChanged = len(diff.Files)
+		} else if shortStat.FilesChanged > 0 {
+			impact.FilesChanged = shortStat.FilesChanged
+		}
+	}
+	return validation, diff, impact, shortStat
+}
+
+func newTrustRequirement(key, title string, satisfied bool, reason, action, source string) TrustRequirement {
+	return TrustRequirement{
+		Key:       key,
+		Title:     title,
+		Satisfied: satisfied,
+		Reason:    reason,
+		Action:    action,
+		Source:    source,
+	}
+}
+
+func newTaskTrustRequirement(key, title string, satisfied bool, reason, action string, taskID int, source string) TrustRequirement {
+	requirement := newTrustRequirement(key, title, satisfied, reason, action, source)
+	requirement.TaskID = taskID
+	return requirement
+}
+
+func buildInitialTrustRequirements(cr *model.CR, validation *ValidationReport, requiredCRFields []string) ([]string, []TrustRequirement) {
+	hardFailures := []string{}
+	requirements := []TrustRequirement{}
+	if len(validation.Errors) > 0 {
+		hardFailures = append(hardFailures, fmt.Sprintf("validation errors present (%d)", len(validation.Errors)))
+		requirements = append(requirements, newTrustRequirement(
+			"validation_clean",
+			"Validation has no errors",
+			false,
+			fmt.Sprintf("%d validation error(s) present.", len(validation.Errors)),
+			"Resolve all validation errors before trusting review data.",
+			"validation",
+		))
+	} else {
+		requirements = append(requirements, newTrustRequirement(
+			"validation_clean",
+			"Validation has no errors",
+			true,
+			"No validation errors.",
+			"",
+			"validation",
+		))
+	}
+	missingContractFields := missingCRContractFields(cr.Contract, requiredCRFields)
+	if len(missingContractFields) > 0 {
+		hardFailures = append(hardFailures, fmt.Sprintf("missing required contract fields: %s", strings.Join(missingContractFields, ", ")))
+		requirements = append(requirements, newTrustRequirement(
+			"contract_required_fields",
+			"CR required contract fields are complete",
+			false,
+			fmt.Sprintf("Missing fields: %s.", strings.Join(missingContractFields, ", ")),
+			fmt.Sprintf("Complete required contract fields: %s.", strings.Join(missingContractFields, ", ")),
+			"contract_required_fields",
+		))
+	} else {
+		requirements = append(requirements, newTrustRequirement(
+			"contract_required_fields",
+			"CR required contract fields are complete",
+			true,
+			"All required contract fields are present.",
+			"",
+			"contract_required_fields",
+		))
+	}
+	unjustifiedNoCheckpointTasks := listUnjustifiedDoneTasksWithoutCheckpoint(cr.Subtasks)
+	checkpointExceptionRequirement := newTrustRequirement(
+		"task_checkpoint_exception_justified",
+		"Done tasks without checkpoints include explicit rationale",
+		len(unjustifiedNoCheckpointTasks) == 0,
+		"All done tasks are backed by checkpoint commits or explicit no-checkpoint reasons.",
+		"",
+		"task_proof_chain",
+	)
+	if len(unjustifiedNoCheckpointTasks) > 0 {
+		checkpointExceptionRequirement.Reason = fmt.Sprintf("Done task(s) missing checkpoint rationale: %s.", formatTaskIDList(unjustifiedNoCheckpointTasks))
+		checkpointExceptionRequirement.Action = fmt.Sprintf("Record rationale with `sophia cr task done %d <task-id> --no-checkpoint --no-checkpoint-reason \"...\"` or create scoped checkpoints.", cr.ID)
+	}
+	requirements = append(requirements, checkpointExceptionRequirement)
+	return hardFailures, requirements
+}
+
+func evaluateTrustDimensions(cr *model.CR, validation *ValidationReport, impact *ImpactReport, diff *diffSummary, shortStat shortStatMetrics) ([]TrustDimension, int, int, []string, []string) {
+	dimensions := []TrustDimension{
+		buildContractQualityDimension(cr.Contract),
+		buildScopeDisciplineDimension(impact),
+		buildTaskProofChainDimension(cr.Subtasks),
+		buildRiskAccountabilityDimension(cr.Contract, impact, diff),
+		buildChangeMagnitudeDimension(impact, shortStat),
+		buildValidationHealthDimension(validation),
+		buildTestEvidenceDimension(cr.Contract, diff),
+	}
+	score := 0
+	max := 0
+	dimensionActions := []string{}
+	advisories := []string{}
+	for i := range dimensions {
+		dimensions[i].Score = clampMin(dimensions[i].Score, 0)
+		if dimensions[i].Score > dimensions[i].Max {
+			dimensions[i].Score = dimensions[i].Max
+		}
+		dimensions[i].Reasons = dedupeStrings(dimensions[i].Reasons)
+		dimensions[i].RequiredActions = dedupeStrings(dimensions[i].RequiredActions)
+		dimensionActions = append(dimensionActions, dimensions[i].RequiredActions...)
+		score += dimensions[i].Score
+		max += dimensions[i].Max
+		for _, action := range dimensions[i].RequiredActions {
+			if isTrustGatingAction(action) {
+				continue
+			}
+			advisories = append(advisories, action)
+		}
+	}
+	return dimensions, score, max, dimensionActions, dedupeStrings(advisories)
+}
+
+func buildTrustCheckRequirements(cr *model.CR, trust model.PolicyTrust, riskTier string, now time.Time) ([]TrustRequirement, []TrustCheckResult) {
+	taskAcceptanceRequirements := requiredTaskAcceptanceChecks(cr.Subtasks)
+	taskChecksByKey := taskAcceptanceCheckTaskMap(taskAcceptanceRequirements)
+	checkResults := evaluateTrustChecks(cr.Evidence, trust, riskTier, taskChecksByKey, now)
+	checkResultsByKey := map[string]TrustCheckResult{}
+	for _, check := range checkResults {
+		checkResultsByKey[check.Key] = check
+	}
+	requirements := make([]TrustRequirement, 0, len(checkResults)+len(taskAcceptanceRequirements))
+	for _, check := range checkResults {
+		satisfied := check.Status == policyTrustCheckStatusPass
+		action := ""
+		if !satisfied {
+			action = fmt.Sprintf("Run required check %q (%s) and record a passing fresh result.", check.Key, check.Command)
+		}
+		requirements = append(requirements, newTrustRequirement(
+			"check:"+check.Key,
+			fmt.Sprintf("Required check %q is passing and fresh", check.Key),
+			satisfied,
+			check.Reason,
+			action,
+			"policy_check",
+		))
+	}
+	for _, req := range taskAcceptanceRequirements {
+		check, found := checkResultsByKey[req.Key]
+		satisfied := found && check.Status == policyTrustCheckStatusPass
+		reason := fmt.Sprintf("Check %q has no recorded status.", req.Key)
+		if found {
+			reason = check.Reason
+		}
+		action := ""
+		if !satisfied {
+			action = fmt.Sprintf("Task #%d requires check key %q to pass; run `sophia cr check run %d` or record fresh passing evidence.", req.TaskID, req.Key, cr.ID)
+		}
+		requirements = append(requirements, newTaskTrustRequirement(
+			fmt.Sprintf("task:%d:check:%s", req.TaskID, req.Key),
+			fmt.Sprintf("Task #%d acceptance check %q is passing and fresh", req.TaskID, req.Key),
+			satisfied,
+			reason,
+			action,
+			req.TaskID,
+			"task_acceptance_check",
+		))
+	}
+	return requirements, checkResults
+}
+
+func buildReviewDepthRequirement(reviewDepth TrustReviewDepthResult) TrustRequirement {
+	requirement := newTrustRequirement(
+		"review_depth",
+		"Review-depth sampling requirement is satisfied",
+		reviewDepth.Satisfied,
+		fmt.Sprintf("Samples: %d/%d.", reviewDepth.SampleCount, reviewDepth.RequiredSamples),
+		"",
+		"review_depth_policy",
+	)
+	if !reviewDepth.Satisfied {
+		requirement.Action = fmt.Sprintf("Add review_sample evidence entries until at least %d sample(s) are recorded.", reviewDepth.RequiredSamples)
+	}
+	if reviewDepth.RequireCriticalScopeCoverage && len(reviewDepth.MissingCriticalScopes) > 0 {
+		requirement.Reason = fmt.Sprintf("Missing critical scope coverage for: %s.", strings.Join(reviewDepth.MissingCriticalScopes, ", "))
+		if requirement.Action == "" {
+			requirement.Action = "Add review_sample evidence with scope prefixes covering each risk_critical_scope."
+		}
+	}
+	return requirement
+}
+
+func buildContractDriftRequirement(contractDrift TaskContractDriftSummary, crID int) TrustRequirement {
+	requirement := newTrustRequirement(
+		"contract_drift_acknowledged",
+		"Task contract drift records are acknowledged",
+		contractDrift.Unacknowledged == 0,
+		"No unacknowledged task contract drift records.",
+		"",
+		"contract_drift",
+	)
+	if contractDrift.Unacknowledged > 0 {
+		requirement.Reason = fmt.Sprintf("%d unacknowledged drift record(s) remain across task(s): %s.", contractDrift.Unacknowledged, formatTaskIDList(contractDrift.UnacknowledgedTasks))
+		requirement.Action = fmt.Sprintf("Acknowledge drift records with `sophia cr task contract drift ack %d <task-id> <drift-id> --reason \"...\"`.", crID)
+	}
+	return requirement
+}
+
+func appendRiskTierAdvisories(advisories []string, impact *ImpactReport, reviewDepth TrustReviewDepthResult, contract model.Contract, diff *diffSummary) []string {
+	if strings.EqualFold(strings.TrimSpace(impact.RiskTier), "high") && len(impact.MatchedRiskCriticalScopes) > 0 {
+		advisories = append(advisories, fmt.Sprintf("Spot-check critical scopes: %s.", strings.Join(impact.MatchedRiskCriticalScopes, ", ")))
+	}
+	if reviewDepth.RequireCriticalScopeCoverage && len(contract.RiskCriticalScopes) == 0 {
+		advisories = append(advisories, "Declare risk_critical_scopes in the CR contract to enforce high-tier critical-scope coverage checks.")
+	}
+	if strings.EqualFold(strings.TrimSpace(impact.RiskTier), "high") &&
+		len(impact.MatchedRiskCriticalScopes) > 0 &&
+		!hasSpecializedHighRiskEvidence(impact, diff) {
+		advisories = append(advisories, "Add specialized high-risk evidence (integration/worktree/doctor/repair coverage) to increase confidence.")
+	}
+	return dedupeStrings(advisories)
+}
+
+func collectRequiredActions(requirements []TrustRequirement) []string {
+	actions := []string{}
+	for _, requirement := range requirements {
+		if requirement.Satisfied || strings.TrimSpace(requirement.Action) == "" {
+			continue
+		}
+		actions = append(actions, requirement.Action)
+	}
+	return dedupeStrings(actions)
 }
 
 func selectTrustVerdict(score, max int, hardFailures []string) (string, string) {

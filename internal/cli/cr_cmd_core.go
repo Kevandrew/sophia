@@ -10,6 +10,69 @@ import (
 	"sophia/internal/service"
 )
 
+type crAddRenderOptions struct {
+	switchBranch    bool
+	childMode       bool
+	includeParentID bool
+	parentCRID      int
+}
+
+func buildAddCROptions(baseRef string, parentCRID int, switchBranch bool, branchAlias string, ownerPrefix string, ownerPrefixSet bool) service.AddCROptions {
+	return service.AddCROptions{
+		BaseRef:        strings.TrimSpace(baseRef),
+		ParentCRID:     parentCRID,
+		Switch:         switchBranch,
+		NoSwitch:       !switchBranch,
+		BranchAlias:    strings.TrimSpace(branchAlias),
+		OwnerPrefix:    strings.TrimSpace(ownerPrefix),
+		OwnerPrefixSet: ownerPrefixSet,
+	}
+}
+
+func runCRAddFlow(
+	cmd *cobra.Command,
+	asJSON bool,
+	svc *service.Service,
+	title string,
+	description string,
+	opts service.AddCROptions,
+	renderOpts crAddRenderOptions,
+) error {
+	cr, warnings, err := svc.AddCRWithOptionsWithWarnings(title, description, opts)
+	if err != nil {
+		return commandError(cmd, asJSON, err)
+	}
+	if asJSON {
+		payload := map[string]any{
+			"cr":       crToJSONMap(cr),
+			"warnings": stringSliceOrEmpty(warnings),
+			"switched": renderOpts.switchBranch,
+		}
+		if renderOpts.includeParentID {
+			payload["parent_cr_id"] = renderOpts.parentCRID
+		}
+		return writeJSONSuccess(cmd, payload)
+	}
+
+	prefix := "Created CR"
+	if renderOpts.childMode {
+		prefix = "Created child CR"
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "%s %d on branch %s\n", prefix, cr.ID, cr.Branch)
+	if renderOpts.switchBranch {
+		fmt.Fprintf(cmd.OutOrStdout(), "Active branch: %s\n", cr.Branch)
+	} else {
+		fmt.Fprintf(cmd.OutOrStdout(), "Run: sophia cr switch %d\n", cr.ID)
+	}
+	if len(warnings) > 0 {
+		fmt.Fprintln(cmd.OutOrStdout(), "Overlap warnings:")
+		for _, warning := range warnings {
+			fmt.Fprintf(cmd.OutOrStdout(), "- %s\n", warning)
+		}
+	}
+	return nil
+}
+
 func newCRAddCmd() *cobra.Command {
 	var description string
 	var baseRef string
@@ -26,56 +89,16 @@ func newCRAddCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			svc, err := newService()
 			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 			if parentID < 0 {
 				err := fmt.Errorf("--parent must be >= 1")
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
-			opts := service.AddCROptions{
-				BaseRef:     strings.TrimSpace(baseRef),
-				ParentCRID:  parentID,
-				Switch:      switchBranch,
-				NoSwitch:    !switchBranch,
-				BranchAlias: strings.TrimSpace(branchAlias),
-			}
-			if cmd.Flags().Changed("owner-prefix") {
-				opts.OwnerPrefixSet = true
-				opts.OwnerPrefix = strings.TrimSpace(ownerPrefix)
-			}
-			cr, warnings, err := svc.AddCRWithOptionsWithWarnings(args[0], description, opts)
-			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
-			}
-			if asJSON {
-				return writeJSONSuccess(cmd, map[string]any{
-					"cr":       crToJSONMap(cr),
-					"warnings": stringSliceOrEmpty(warnings),
-					"switched": switchBranch,
-				})
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Created CR %d on branch %s\n", cr.ID, cr.Branch)
-			if switchBranch {
-				fmt.Fprintf(cmd.OutOrStdout(), "Active branch: %s\n", cr.Branch)
-			} else {
-				fmt.Fprintf(cmd.OutOrStdout(), "Run: sophia cr switch %d\n", cr.ID)
-			}
-			if len(warnings) > 0 {
-				fmt.Fprintln(cmd.OutOrStdout(), "Overlap warnings:")
-				for _, warning := range warnings {
-					fmt.Fprintf(cmd.OutOrStdout(), "- %s\n", warning)
-				}
-			}
-			return nil
+			opts := buildAddCROptions(baseRef, parentID, switchBranch, branchAlias, ownerPrefix, cmd.Flags().Changed("owner-prefix"))
+			return runCRAddFlow(cmd, asJSON, svc, args[0], description, opts, crAddRenderOptions{
+				switchBranch: switchBranch,
+			})
 		},
 	}
 
@@ -102,17 +125,11 @@ func newCRApplyCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if strings.TrimSpace(filePath) == "" {
 				err := fmt.Errorf("--file is required")
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 			svc, err := newService()
 			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 			result, err := svc.ApplyCRPlan(service.ApplyCRPlanOptions{
 				FilePath: filePath,
@@ -120,10 +137,7 @@ func newCRApplyCmd() *cobra.Command {
 				KeepFile: keepFile,
 			})
 			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 			if asJSON {
 				return writeJSONSuccess(cmd, applyPlanToJSONMap(result))
@@ -209,56 +223,22 @@ func newCRChildAddCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			svc, err := newService()
 			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 			ctx, ctxErr := svc.CurrentCR()
 			if ctxErr != nil {
 				if errorsIs(ctxErr, service.ErrNoActiveCRContext) {
 					ctxErr = fmt.Errorf("current branch is not a CR branch; run `sophia cr switch <id>` or use `sophia cr add <title> --parent <id>`")
 				}
-				if asJSON {
-					return writeJSONError(cmd, ctxErr)
-				}
-				return ctxErr
+				return commandError(cmd, asJSON, ctxErr)
 			}
-			cr, warnings, err := svc.AddCRWithOptionsWithWarnings(args[0], description, service.AddCROptions{
-				ParentCRID:     ctx.CR.ID,
-				Switch:         switchBranch,
-				NoSwitch:       !switchBranch,
-				BranchAlias:    strings.TrimSpace(branchAlias),
-				OwnerPrefix:    strings.TrimSpace(ownerPrefix),
-				OwnerPrefixSet: cmd.Flags().Changed("owner-prefix"),
+			opts := buildAddCROptions("", ctx.CR.ID, switchBranch, branchAlias, ownerPrefix, cmd.Flags().Changed("owner-prefix"))
+			return runCRAddFlow(cmd, asJSON, svc, args[0], description, opts, crAddRenderOptions{
+				switchBranch:    switchBranch,
+				childMode:       true,
+				includeParentID: true,
+				parentCRID:      ctx.CR.ID,
 			})
-			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
-			}
-			if asJSON {
-				return writeJSONSuccess(cmd, map[string]any{
-					"parent_cr_id": ctx.CR.ID,
-					"cr":           crToJSONMap(cr),
-					"warnings":     stringSliceOrEmpty(warnings),
-					"switched":     switchBranch,
-				})
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Created child CR %d on branch %s\n", cr.ID, cr.Branch)
-			if switchBranch {
-				fmt.Fprintf(cmd.OutOrStdout(), "Active branch: %s\n", cr.Branch)
-			} else {
-				fmt.Fprintf(cmd.OutOrStdout(), "Run: sophia cr switch %d\n", cr.ID)
-			}
-			if len(warnings) > 0 {
-				fmt.Fprintln(cmd.OutOrStdout(), "Overlap warnings:")
-				for _, warning := range warnings {
-					fmt.Fprintf(cmd.OutOrStdout(), "- %s\n", warning)
-				}
-			}
-			return nil
 		},
 	}
 
@@ -268,6 +248,83 @@ func newCRChildAddCmd() *cobra.Command {
 	cmd.Flags().StringVar(&ownerPrefix, "owner-prefix", "", "Optional owner prefix for generated branch alias")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "Output in JSON format")
 	return cmd
+}
+
+type crSearchCommandFilters struct {
+	status          string
+	scope           string
+	riskTier        string
+	text            string
+	search          string
+	positionalQuery string
+	hasQueryArg     bool
+}
+
+func resolveCRSearchQuery(filters crSearchCommandFilters) (model.CRSearchQuery, error) {
+	normalizedStatus, err := normalizeCRStatusFilter(filters.status)
+	if err != nil {
+		return model.CRSearchQuery{}, err
+	}
+	normalizedRiskTier, err := normalizeRiskTierFilter(filters.riskTier)
+	if err != nil {
+		return model.CRSearchQuery{}, err
+	}
+
+	searchText := strings.TrimSpace(filters.text)
+	searchFlag := strings.TrimSpace(filters.search)
+	if searchText != "" && searchFlag != "" && searchText != searchFlag {
+		return model.CRSearchQuery{}, fmt.Errorf("invalid argument: --text and --search must match when both are provided")
+	}
+	if searchFlag != "" {
+		searchText = searchFlag
+	}
+	if filters.hasQueryArg {
+		argText := strings.TrimSpace(filters.positionalQuery)
+		if searchText != "" && searchText != argText {
+			return model.CRSearchQuery{}, fmt.Errorf("invalid argument: positional query and --text/--search must match when both are provided")
+		}
+		searchText = argText
+	}
+
+	return model.CRSearchQuery{
+		Status:      normalizedStatus,
+		ScopePrefix: filters.scope,
+		RiskTier:    normalizedRiskTier,
+		Text:        searchText,
+	}, nil
+}
+
+func runCRSearchQuery(query model.CRSearchQuery) ([]model.CRSearchResult, error) {
+	svc, err := newService()
+	if err != nil {
+		return nil, err
+	}
+	return svc.SearchCRs(query)
+}
+
+func renderCRSearchResults(cmd *cobra.Command, asJSON bool, results []model.CRSearchResult, includeFoundHeading bool) error {
+	if asJSON {
+		items := make([]map[string]any, 0, len(results))
+		for _, result := range results {
+			items = append(items, crSearchResultToJSONMap(result))
+		}
+		return writeJSONSuccess(cmd, map[string]any{
+			"count":   len(results),
+			"results": items,
+		})
+	}
+	if len(results) == 0 {
+		fmt.Fprintln(cmd.OutOrStdout(), "No CRs found.")
+		return nil
+	}
+	if includeFoundHeading {
+		fmt.Fprintf(cmd.OutOrStdout(), "Found %d CR(s):\n", len(results))
+	}
+	fmt.Fprintln(cmd.OutOrStdout(), "ID\tSTATUS\tRISK\tBRANCH\tTITLE")
+	for _, result := range results {
+		fmt.Fprintf(cmd.OutOrStdout(), "%d\t%s\t%s\t%s\t%s\n", result.ID, result.Status, result.RiskTier, result.Branch, result.Title)
+	}
+	return nil
 }
 
 func newCRListCmd() *cobra.Command {
@@ -282,76 +339,21 @@ func newCRListCmd() *cobra.Command {
 		Use:   "list",
 		Short: "List all change requests",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			normalizedStatus, err := normalizeCRStatusFilter(status)
+			query, err := resolveCRSearchQuery(crSearchCommandFilters{
+				status:   status,
+				scope:    scope,
+				riskTier: riskTier,
+				text:     text,
+				search:   search,
+			})
 			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
-			normalizedRiskTier, err := normalizeRiskTierFilter(riskTier)
+			results, err := runCRSearchQuery(query)
 			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
-			searchText := strings.TrimSpace(text)
-			searchFlag := strings.TrimSpace(search)
-			if searchText != "" && searchFlag != "" && searchText != searchFlag {
-				err := fmt.Errorf("invalid argument: --text and --search must match when both are provided")
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
-			}
-			if searchFlag != "" {
-				searchText = searchFlag
-			}
-
-			svc, err := newService()
-			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
-			}
-
-			query := model.CRSearchQuery{
-				Status:      normalizedStatus,
-				ScopePrefix: scope,
-				RiskTier:    normalizedRiskTier,
-				Text:        searchText,
-			}
-
-			results, err := svc.SearchCRs(query)
-			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
-			}
-
-			if asJSON {
-				items := make([]map[string]any, 0, len(results))
-				for _, r := range results {
-					items = append(items, crSearchResultToJSONMap(r))
-				}
-				return writeJSONSuccess(cmd, map[string]any{
-					"count":   len(results),
-					"results": items,
-				})
-			}
-
-			if len(results) == 0 {
-				fmt.Fprintln(cmd.OutOrStdout(), "No CRs found.")
-				return nil
-			}
-			fmt.Fprintln(cmd.OutOrStdout(), "ID\tSTATUS\tRISK\tBRANCH\tTITLE")
-			for _, r := range results {
-				fmt.Fprintf(cmd.OutOrStdout(), "%d\t%s\t%s\t%s\t%s\n", r.ID, r.Status, r.RiskTier, r.Branch, r.Title)
-			}
-			return nil
+			return renderCRSearchResults(cmd, asJSON, results, false)
 		},
 	}
 
@@ -377,88 +379,26 @@ func newCRSearchCmd() *cobra.Command {
 		Short: "Search change requests by text and filters",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			normalizedStatus, err := normalizeCRStatusFilter(status)
-			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
-			}
-			normalizedRiskTier, err := normalizeRiskTierFilter(riskTier)
-			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
-			}
-			searchText := strings.TrimSpace(text)
-			searchFlag := strings.TrimSpace(search)
-			if searchText != "" && searchFlag != "" && searchText != searchFlag {
-				err := fmt.Errorf("invalid argument: --text and --search must match when both are provided")
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
-			}
-			if searchFlag != "" {
-				searchText = searchFlag
+			filters := crSearchCommandFilters{
+				status:   status,
+				scope:    scope,
+				riskTier: riskTier,
+				text:     text,
+				search:   search,
 			}
 			if len(args) > 0 {
-				argText := strings.TrimSpace(args[0])
-				if searchText != "" && searchText != argText {
-					err := fmt.Errorf("invalid argument: positional query and --text/--search must match when both are provided")
-					if asJSON {
-						return writeJSONError(cmd, err)
-					}
-					return err
-				}
-				searchText = argText
+				filters.hasQueryArg = true
+				filters.positionalQuery = args[0]
 			}
-
-			svc, err := newService()
+			query, err := resolveCRSearchQuery(filters)
 			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
-
-			query := model.CRSearchQuery{
-				Status:      normalizedStatus,
-				ScopePrefix: scope,
-				RiskTier:    normalizedRiskTier,
-				Text:        searchText,
-			}
-
-			results, err := svc.SearchCRs(query)
+			results, err := runCRSearchQuery(query)
 			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
-
-			if asJSON {
-				items := make([]map[string]any, 0, len(results))
-				for _, r := range results {
-					items = append(items, crSearchResultToJSONMap(r))
-				}
-				return writeJSONSuccess(cmd, map[string]any{
-					"count":   len(results),
-					"results": items,
-				})
-			}
-
-			if len(results) == 0 {
-				fmt.Fprintln(cmd.OutOrStdout(), "No CRs found.")
-				return nil
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Found %d CR(s):\n", len(results))
-			fmt.Fprintln(cmd.OutOrStdout(), "ID\tSTATUS\tRISK\tBRANCH\tTITLE")
-			for _, r := range results {
-				fmt.Fprintf(cmd.OutOrStdout(), "%d\t%s\t%s\t%s\t%s\n", r.ID, r.Status, r.RiskTier, r.Branch, r.Title)
-			}
-			return nil
+			return renderCRSearchResults(cmd, asJSON, results, true)
 		},
 	}
 
@@ -481,10 +421,7 @@ func newCRStackCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			svc, err := newService()
 			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 
 			var stack *service.StackView
@@ -493,18 +430,12 @@ func newCRStackCmd() *cobra.Command {
 			} else {
 				id, parseErr := parsePositiveIntArg(args[0], "id")
 				if parseErr != nil {
-					if asJSON {
-						return writeJSONError(cmd, parseErr)
-					}
-					return parseErr
+					return commandError(cmd, asJSON, parseErr)
 				}
 				stack, err = svc.StackCR(id)
 			}
 			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 
 			if asJSON {
@@ -562,26 +493,13 @@ func newCRWhyCmd() *cobra.Command {
 		Short: "Show the rationale for why a CR exists",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			id, err := parsePositiveIntArg(args[0], "id")
+			id, svc, err := parseIDAndService(args[0], "id")
 			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
-			}
-			svc, err := newService()
-			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 			why, err := svc.WhyCR(id)
 			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 			if asJSON {
 				return writeJSONSuccess(cmd, map[string]any{
@@ -625,26 +543,13 @@ func newCRStatusCmd() *cobra.Command {
 		Short: "Show CR merge-readiness and workspace status",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			id, err := parsePositiveIntArg(args[0], "id")
+			id, svc, err := parseIDAndService(args[0], "id")
 			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
-			}
-			svc, err := newService()
-			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 			status, err := svc.StatusCR(id)
 			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 			if asJSON {
 				return writeJSONSuccess(cmd, crStatusToJSONMap(status))
@@ -697,20 +602,14 @@ func newCREditCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id, err := parsePositiveIntArg(args[0], "id")
 			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 
 			titleChanged := cmd.Flags().Changed("title")
 			descriptionChanged := cmd.Flags().Changed("description")
 			if !titleChanged && !descriptionChanged {
 				err := fmt.Errorf("provide at least one of --title or --description")
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 
 			var titlePtr *string
@@ -724,17 +623,11 @@ func newCREditCmd() *cobra.Command {
 
 			svc, err := newService()
 			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 			changedFields, err := svc.EditCR(id, titlePtr, descriptionPtr)
 			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 			if asJSON {
 				return writeJSONSuccess(cmd, map[string]any{
@@ -784,10 +677,7 @@ func newCRContractSetCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id, err := parsePositiveIntArg(args[0], "id")
 			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 
 			patch := service.ContractPatch{}
@@ -833,25 +723,16 @@ func newCRContractSetCmd() *cobra.Command {
 			}
 			if patch.Why == nil && patch.Scope == nil && patch.NonGoals == nil && patch.Invariants == nil && patch.BlastRadius == nil && patch.RiskCriticalScopes == nil && patch.RiskTierHint == nil && patch.RiskRationale == nil && patch.TestPlan == nil && patch.RollbackPlan == nil {
 				err := fmt.Errorf("provide at least one contract field flag")
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 
 			svc, err := newService()
 			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 			changed, err := svc.SetCRContract(id, patch)
 			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 			if asJSON {
 				return writeJSONSuccess(cmd, map[string]any{
@@ -887,26 +768,13 @@ func newCRContractShowCmd() *cobra.Command {
 		Example: "  sophia cr contract show 25",
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			id, err := parsePositiveIntArg(args[0], "id")
+			id, svc, err := parseIDAndService(args[0], "id")
 			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
-			}
-			svc, err := newService()
-			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 			contract, err := svc.GetCRContract(id)
 			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 			if asJSON {
 				return writeJSONSuccess(cmd, map[string]any{
@@ -942,26 +810,13 @@ func newCRImpactCmd() *cobra.Command {
 		Short: "Show deterministic impact and risk summary for a CR",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			id, err := parsePositiveIntArg(args[0], "id")
+			id, svc, err := parseIDAndService(args[0], "id")
 			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
-			}
-			svc, err := newService()
-			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 			impact, err := svc.ImpactCR(id)
 			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 			if asJSON {
 				return writeJSONSuccess(cmd, impactToJSONMap(impact))
@@ -984,40 +839,21 @@ func newCRValidateCmd() *cobra.Command {
 		Short: "Validate CR contract completeness, scope drift, and risk signals",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			id, err := parsePositiveIntArg(args[0], "id")
+			id, svc, err := parseIDAndService(args[0], "id")
 			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
-			}
-			svc, err := newService()
-			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 			report, err := svc.ValidateCR(id)
 			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 			review, err := svc.ReviewCR(id)
 			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 			if record {
 				if err := svc.RecordCRValidation(id, report); err != nil {
-					if asJSON {
-						return writeJSONError(cmd, err)
-					}
-					return err
+					return commandError(cmd, asJSON, err)
 				}
 			}
 			trustWarnings := []string{}
@@ -1084,43 +920,28 @@ func newCRRedactCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id, err := parsePositiveIntArg(args[0], "id")
 			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 			reason = strings.TrimSpace(reason)
 			if reason == "" {
 				err := fmt.Errorf("--reason is required")
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 
 			noteChanged := cmd.Flags().Changed("note-index")
 			eventChanged := cmd.Flags().Changed("event-index")
 			if noteChanged == eventChanged {
 				err := fmt.Errorf("provide exactly one of --note-index or --event-index")
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 
 			svc, err := newService()
 			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 			if noteChanged {
 				if err := svc.RedactCRNote(id, noteIndex, reason); err != nil {
-					if asJSON {
-						return writeJSONError(cmd, err)
-					}
-					return err
+					return commandError(cmd, asJSON, err)
 				}
 				if asJSON {
 					return writeJSONSuccess(cmd, map[string]any{
@@ -1134,10 +955,7 @@ func newCRRedactCmd() *cobra.Command {
 				return nil
 			}
 			if err := svc.RedactCREvent(id, eventIndex, reason); err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 			if asJSON {
 				return writeJSONSuccess(cmd, map[string]any{
@@ -1168,26 +986,13 @@ func newCRHistoryCmd() *cobra.Command {
 		Short: "Show CR notes/events timeline with indices",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			id, err := parsePositiveIntArg(args[0], "id")
+			id, svc, err := parseIDAndService(args[0], "id")
 			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
-			}
-			svc, err := newService()
-			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 			history, err := svc.HistoryCR(id, showRedacted)
 			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 			if asJSON {
 				return writeJSONSuccess(cmd, historyToJSONMap(history, showRedacted))
@@ -1270,21 +1075,14 @@ func newCRCurrentCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			svc, err := newService()
 			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 			ctx, err := svc.CurrentCR()
 			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
 				if errorsIs(err, service.ErrNoActiveCRContext) {
 					fmt.Fprintln(cmd.OutOrStdout(), "No active CR context on current branch.")
-					return err
 				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 			if asJSON {
 				return writeJSONSuccess(cmd, map[string]any{
@@ -1328,29 +1126,20 @@ func newCRSwitchCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id, err := parsePositiveIntArg(args[0], "id")
 			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 			svc, err := newService()
 			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 			cr, err := svc.SwitchCR(id)
 			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				if errorsIs(err, service.ErrWorkingTreeDirty) {
+				if !asJSON && errorsIs(err, service.ErrWorkingTreeDirty) {
 					fmt.Fprintln(cmd.OutOrStdout(), "Working tree is dirty. Commit changes or run `git stash`, then retry.")
-				} else if errorsIs(err, service.ErrBranchInOtherWorktree) {
+				} else if !asJSON && errorsIs(err, service.ErrBranchInOtherWorktree) {
 					fmt.Fprintln(cmd.OutOrStdout(), "Target branch is already checked out in another worktree. Run this command from that worktree path.")
 				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 			if asJSON {
 				return writeJSONSuccess(cmd, map[string]any{
@@ -1376,29 +1165,20 @@ func newCRReopenCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id, err := parsePositiveIntArg(args[0], "id")
 			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 			svc, err := newService()
 			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 			cr, err := svc.ReopenCR(id)
 			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				if errorsIs(err, service.ErrWorkingTreeDirty) {
+				if !asJSON && errorsIs(err, service.ErrWorkingTreeDirty) {
 					fmt.Fprintln(cmd.OutOrStdout(), "Working tree is dirty. Commit changes or run `git stash`, then retry.")
-				} else if errorsIs(err, service.ErrBranchInOtherWorktree) {
+				} else if !asJSON && errorsIs(err, service.ErrBranchInOtherWorktree) {
 					fmt.Fprintln(cmd.OutOrStdout(), "Target branch is already checked out in another worktree. Reopen from that worktree path.")
 				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 			if asJSON {
 				return writeJSONSuccess(cmd, map[string]any{
@@ -1436,33 +1216,21 @@ func newCRBaseSetCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id, err := parsePositiveIntArg(args[0], "id")
 			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 			ref = strings.TrimSpace(ref)
 			if ref == "" {
 				err := fmt.Errorf("--ref is required")
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 
 			svc, err := newService()
 			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 			cr, err := svc.SetCRBase(id, ref, rebase)
 			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 			if asJSON {
 				return writeJSONSuccess(cmd, map[string]any{
@@ -1493,24 +1261,15 @@ func newCRRestackCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id, err := parsePositiveIntArg(args[0], "id")
 			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 			svc, err := newService()
 			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 			cr, err := svc.RestackCR(id)
 			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 			if asJSON {
 				return writeJSONSuccess(cmd, map[string]any{
@@ -1539,27 +1298,18 @@ func newCRRefreshCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id, err := parsePositiveIntArg(args[0], "id")
 			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 			svc, err := newService()
 			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 			view, err := svc.RefreshCR(id, service.RefreshOptions{
 				Strategy: strategy,
 				DryRun:   dryRun,
 			})
 			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 			if asJSON {
 				return writeJSONSuccess(cmd, crRefreshToJSONMap(view))
@@ -1602,23 +1352,14 @@ func newCRNoteCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id, err := parsePositiveIntArg(args[0], "id")
 			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 			svc, err := newService()
 			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 			if err := svc.AddNote(id, args[1]); err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 			if asJSON {
 				return writeJSONSuccess(cmd, map[string]any{

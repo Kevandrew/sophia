@@ -8,6 +8,12 @@ import (
 	"strings"
 )
 
+type mergePreflightView struct {
+	validation     *ValidationReport
+	trust          *TrustReport
+	overrideReason string
+}
+
 func (s *Service) ReviewCR(id int) (*Review, error) {
 	cr, err := s.store.LoadCR(id)
 	if err != nil {
@@ -67,43 +73,9 @@ func (s *Service) MergeCRWithWarnings(id int, keepBranch bool, overrideReason st
 	if cr.Status == model.StatusMerged {
 		return "", warnings, ErrCRAlreadyMerged
 	}
-	policy, err := s.repoPolicy()
+	preflight, err := s.prepareMergePreflight(id, cr, overrideReason, true)
 	if err != nil {
 		return "", warnings, err
-	}
-	validation, err := s.ValidateCR(id)
-	if err != nil {
-		return "", warnings, err
-	}
-	diff, err := s.summarizeCRDiff(cr)
-	if err != nil {
-		return "", warnings, err
-	}
-	trust := buildTrustReportWithPolicy(cr, validation, diff, policy.Contract.RequiredFields, policy)
-	overrideReason = strings.TrimSpace(overrideReason)
-	if overrideReason != "" && !policyAllowsMergeOverride(policy) {
-		return "", warnings, fmt.Errorf("%w: merge override is disabled by repository policy", ErrPolicyViolation)
-	}
-	if cr.ParentCRID > 0 {
-		parent, parentErr := s.store.LoadCR(cr.ParentCRID)
-		if parentErr != nil {
-			return "", warnings, fmt.Errorf("parent cr %d not found: %w", cr.ParentCRID, parentErr)
-		}
-		if parent.Status != model.StatusMerged && overrideReason == "" && !childDelegatedFromParent(parent, cr.ID) {
-			return "", warnings, fmt.Errorf("%w: CR %d depends on parent CR %d (%s)", ErrParentCRNotMerged, cr.ID, parent.ID, parent.Status)
-		}
-	}
-	if !validation.Valid && overrideReason == "" {
-		return "", warnings, fmt.Errorf("%w: %s", ErrCRValidationFailed, strings.Join(validation.Errors, "; "))
-	}
-	if overrideReason == "" && trust.Gate.Blocked {
-		return "", warnings, fmt.Errorf("merge blocked: %s", strings.TrimSpace(trust.Gate.Reason))
-	}
-	if overrideReason == "" {
-		blockers := s.mergeBlockersForCR(cr, validation)
-		if len(blockers) > 0 {
-			return "", warnings, fmt.Errorf("merge blocked: %s", strings.Join(blockers, "; "))
-		}
 	}
 	if !s.git.BranchExists(cr.BaseBranch) {
 		return "", warnings, fmt.Errorf("base branch %q does not exist", cr.BaseBranch)
@@ -176,7 +148,7 @@ func (s *Service) MergeCRWithWarnings(id int, keepBranch bool, overrideReason st
 		return "", warnings, err
 	}
 
-	if err := s.finalizeCRMergedState(cr, validation, trust, overrideReason, actor, mergedAt, sha, false); err != nil {
+	if err := s.finalizeCRMergedState(cr, preflight.validation, preflight.trust, preflight.overrideReason, actor, mergedAt, sha, false); err != nil {
 		return "", warnings, err
 	}
 
@@ -271,8 +243,7 @@ func (s *Service) AbortMergeCR(id int) error {
 	}
 	now := s.timestamp()
 	actor := s.git.Actor()
-	cr.UpdatedAt = now
-	cr.Events = append(cr.Events, model.Event{
+	return s.appendCRMutationEventAndSave(cr, model.Event{
 		TS:      now,
 		Actor:   actor,
 		Type:    "cr_merge_aborted",
@@ -283,7 +254,6 @@ func (s *Service) AbortMergeCR(id int) error {
 			"conflict_count": strconv.Itoa(len(status.ConflictFiles)),
 		},
 	})
-	return s.store.SaveCR(cr)
 }
 
 func (s *Service) ResumeMergeCR(id int, keepBranch bool, overrideReason string) (string, []string, error) {
@@ -312,25 +282,9 @@ func (s *Service) ResumeMergeCR(id int, keepBranch bool, overrideReason string) 
 	if cr.Status == model.StatusMerged {
 		return "", nil, ErrCRAlreadyMerged
 	}
-	policy, err := s.repoPolicy()
+	preflight, err := s.prepareMergePreflight(id, cr, overrideReason, false)
 	if err != nil {
 		return "", nil, err
-	}
-	validation, err := s.ValidateCR(id)
-	if err != nil {
-		return "", nil, err
-	}
-	diff, err := s.summarizeCRDiff(cr)
-	if err != nil {
-		return "", nil, err
-	}
-	trust := buildTrustReportWithPolicy(cr, validation, diff, policy.Contract.RequiredFields, policy)
-	overrideReason = strings.TrimSpace(overrideReason)
-	if overrideReason != "" && !policyAllowsMergeOverride(policy) {
-		return "", nil, fmt.Errorf("%w: merge override is disabled by repository policy", ErrPolicyViolation)
-	}
-	if overrideReason == "" && trust.Gate.Blocked {
-		return "", nil, fmt.Errorf("merge blocked: %s", strings.TrimSpace(trust.Gate.Reason))
 	}
 
 	mergeGit, _, err := s.effectiveMergeGitForCR(cr)
@@ -358,10 +312,56 @@ func (s *Service) ResumeMergeCR(id int, keepBranch bool, overrideReason string) 
 	}
 	mergedAt := s.timestamp()
 	actor := mergeGit.Actor()
-	if err := s.finalizeCRMergedState(cr, validation, trust, overrideReason, actor, mergedAt, sha, true); err != nil {
+	if err := s.finalizeCRMergedState(cr, preflight.validation, preflight.trust, preflight.overrideReason, actor, mergedAt, sha, true); err != nil {
 		return "", warnings, err
 	}
 	return sha, warnings, nil
+}
+
+func (s *Service) prepareMergePreflight(id int, cr *model.CR, overrideReason string, enforceParentState bool) (*mergePreflightView, error) {
+	policy, err := s.repoPolicy()
+	if err != nil {
+		return nil, err
+	}
+	validation, err := s.ValidateCR(id)
+	if err != nil {
+		return nil, err
+	}
+	diff, err := s.summarizeCRDiff(cr)
+	if err != nil {
+		return nil, err
+	}
+	trust := buildTrustReportWithPolicy(cr, validation, diff, policy.Contract.RequiredFields, policy)
+	trimmedOverride := strings.TrimSpace(overrideReason)
+	if trimmedOverride != "" && !policyAllowsMergeOverride(policy) {
+		return nil, fmt.Errorf("%w: merge override is disabled by repository policy", ErrPolicyViolation)
+	}
+	if enforceParentState && cr.ParentCRID > 0 {
+		parent, parentErr := s.store.LoadCR(cr.ParentCRID)
+		if parentErr != nil {
+			return nil, fmt.Errorf("parent cr %d not found: %w", cr.ParentCRID, parentErr)
+		}
+		if parent.Status != model.StatusMerged && trimmedOverride == "" && !childDelegatedFromParent(parent, cr.ID) {
+			return nil, fmt.Errorf("%w: CR %d depends on parent CR %d (%s)", ErrParentCRNotMerged, cr.ID, parent.ID, parent.Status)
+		}
+	}
+	if !validation.Valid && trimmedOverride == "" {
+		return nil, fmt.Errorf("%w: %s", ErrCRValidationFailed, strings.Join(validation.Errors, "; "))
+	}
+	if trimmedOverride == "" && trust.Gate.Blocked {
+		return nil, fmt.Errorf("merge blocked: %s", strings.TrimSpace(trust.Gate.Reason))
+	}
+	if trimmedOverride == "" {
+		blockers := s.mergeBlockersForCR(cr, validation)
+		if len(blockers) > 0 {
+			return nil, fmt.Errorf("merge blocked: %s", strings.Join(blockers, "; "))
+		}
+	}
+	return &mergePreflightView{
+		validation:     validation,
+		trust:          trust,
+		overrideReason: trimmedOverride,
+	}, nil
 }
 
 func (s *Service) finalizeCRMergedState(cr *model.CR, validation *ValidationReport, trust *TrustReport, overrideReason, actor, mergedAt, sha string, resumed bool) error {
@@ -461,7 +461,7 @@ func (s *Service) recordMergeConflictEvent(cr *model.CR, actor, worktreePath str
 	if cause != nil {
 		meta["cause"] = strings.TrimSpace(cause.Error())
 	}
-	cr.Events = append(cr.Events, model.Event{
+	return s.appendCRMutationEventAndSave(cr, model.Event{
 		TS:      now,
 		Actor:   actor,
 		Type:    "cr_merge_conflict",
@@ -469,8 +469,6 @@ func (s *Service) recordMergeConflictEvent(cr *model.CR, actor, worktreePath str
 		Ref:     fmt.Sprintf("cr:%d", cr.ID),
 		Meta:    meta,
 	})
-	cr.UpdatedAt = now
-	return s.store.SaveCR(cr)
 }
 
 func (s *Service) Doctor(limit int) (*DoctorReport, error) {

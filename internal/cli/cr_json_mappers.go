@@ -75,6 +75,33 @@ func checkpointChunkModelToJSONMap(chunk model.CheckpointChunk) map[string]any {
 	}
 }
 
+func checkpointChunkMaps(chunks []model.CheckpointChunk) []map[string]any {
+	out := make([]map[string]any, 0, len(chunks))
+	for _, chunk := range chunks {
+		out = append(out, checkpointChunkModelToJSONMap(chunk))
+	}
+	return out
+}
+
+func checkpointChunkToDiffJSONMap(chunk model.CheckpointChunk) map[string]any {
+	return map[string]any{
+		"chunk_id":  chunk.ID,
+		"path":      chunk.Path,
+		"old_start": chunk.OldStart,
+		"old_lines": chunk.OldLines,
+		"new_start": chunk.NewStart,
+		"new_lines": chunk.NewLines,
+	}
+}
+
+func checkpointChunkDiffMaps(chunks []model.CheckpointChunk) []map[string]any {
+	out := make([]map[string]any, 0, len(chunks))
+	for _, chunk := range chunks {
+		out = append(out, checkpointChunkToDiffJSONMap(chunk))
+	}
+	return out
+}
+
 func taskDelegationToJSONMap(delegation model.TaskDelegation) map[string]any {
 	return map[string]any{
 		"child_cr_id":   delegation.ChildCRID,
@@ -85,15 +112,28 @@ func taskDelegationToJSONMap(delegation model.TaskDelegation) map[string]any {
 	}
 }
 
-func taskContractToJSONMap(contract model.TaskContract) map[string]any {
+func taskDelegationMaps(delegations []model.TaskDelegation) []map[string]any {
+	out := make([]map[string]any, 0, len(delegations))
+	for _, delegation := range delegations {
+		out = append(out, taskDelegationToJSONMap(delegation))
+	}
+	return out
+}
+
+func taskContractFieldsToJSONMap(contract model.TaskContract) map[string]any {
 	return map[string]any{
 		"intent":              contract.Intent,
 		"acceptance_criteria": stringSliceOrEmpty(contract.AcceptanceCriteria),
 		"scope":               stringSliceOrEmpty(contract.Scope),
 		"acceptance_checks":   stringSliceOrEmpty(contract.AcceptanceChecks),
-		"updated_at":          contract.UpdatedAt,
-		"updated_by":          contract.UpdatedBy,
 	}
+}
+
+func taskContractToJSONMap(contract model.TaskContract) map[string]any {
+	out := taskContractFieldsToJSONMap(contract)
+	out["updated_at"] = contract.UpdatedAt
+	out["updated_by"] = contract.UpdatedBy
+	return out
 }
 
 func taskContractBaselineToJSONMap(baseline model.TaskContractBaseline) map[string]any {
@@ -126,19 +166,52 @@ func taskContractDriftModelToJSONMap(drift model.TaskContractDrift) map[string]a
 	}
 }
 
+func taskContractDriftMaps(drifts []model.TaskContractDrift) []map[string]any {
+	out := make([]map[string]any, 0, len(drifts))
+	for _, drift := range drifts {
+		out = append(out, taskContractDriftModelToJSONMap(drift))
+	}
+	return out
+}
+
+type taskJSONProjectionOptions struct {
+	includeCheckpointMessage bool
+	includeCheckpointSyncAt  bool
+	includeDelegations       bool
+	includeContract          bool
+}
+
+func projectTaskJSON(task model.Subtask, opts taskJSONProjectionOptions) map[string]any {
+	out := map[string]any{
+		"id":                task.ID,
+		"title":             task.Title,
+		"status":            task.Status,
+		"checkpoint_commit": task.CheckpointCommit,
+		"checkpoint_at":     task.CheckpointAt,
+		"checkpoint_scope":  stringSliceOrEmpty(task.CheckpointScope),
+		"checkpoint_source": task.CheckpointSource,
+		"checkpoint_orphan": task.CheckpointOrphan,
+		"checkpoint_reason": task.CheckpointReason,
+		"checkpoint_chunks": checkpointChunkDiffMaps(task.CheckpointChunks),
+	}
+	if opts.includeCheckpointMessage {
+		out["checkpoint_message"] = task.CheckpointMessage
+	}
+	if opts.includeCheckpointSyncAt {
+		out["checkpoint_sync_at"] = task.CheckpointSyncAt
+	}
+	if opts.includeDelegations {
+		out["delegations"] = taskDelegationMaps(task.Delegations)
+	}
+	if opts.includeContract {
+		out["contract"] = taskContractToJSONMap(task.Contract)
+		out["contract_baseline"] = taskContractBaselineToJSONMap(task.ContractBaseline)
+		out["contract_drifts"] = taskContractDriftMaps(task.ContractDrifts)
+	}
+	return out
+}
+
 func taskToJSONMap(task model.Subtask) map[string]any {
-	chunks := make([]map[string]any, 0, len(task.CheckpointChunks))
-	for _, chunk := range task.CheckpointChunks {
-		chunks = append(chunks, checkpointChunkModelToJSONMap(chunk))
-	}
-	delegations := make([]map[string]any, 0, len(task.Delegations))
-	for _, delegation := range task.Delegations {
-		delegations = append(delegations, taskDelegationToJSONMap(delegation))
-	}
-	drifts := make([]map[string]any, 0, len(task.ContractDrifts))
-	for _, drift := range task.ContractDrifts {
-		drifts = append(drifts, taskContractDriftModelToJSONMap(drift))
-	}
 	return map[string]any{
 		"id":                 task.ID,
 		"title":              task.Title,
@@ -152,19 +225,19 @@ func taskToJSONMap(task model.Subtask) map[string]any {
 		"checkpoint_at":      task.CheckpointAt,
 		"checkpoint_message": task.CheckpointMessage,
 		"checkpoint_scope":   stringSliceOrEmpty(task.CheckpointScope),
-		"checkpoint_chunks":  chunks,
+		"checkpoint_chunks":  checkpointChunkMaps(task.CheckpointChunks),
 		"checkpoint_orphan":  task.CheckpointOrphan,
 		"checkpoint_reason":  task.CheckpointReason,
 		"checkpoint_source":  task.CheckpointSource,
 		"checkpoint_sync_at": task.CheckpointSyncAt,
-		"delegations":        delegations,
+		"delegations":        taskDelegationMaps(task.Delegations),
 		"task_contract":      taskContractToJSONMap(task.Contract),
 		"contract_baseline":  taskContractBaselineToJSONMap(task.ContractBaseline),
-		"contract_drifts":    drifts,
+		"contract_drifts":    taskContractDriftMaps(task.ContractDrifts),
 	}
 }
 
-func contractToJSONMap(contract model.Contract) map[string]any {
+func contractFieldsToJSONMap(contract model.Contract) map[string]any {
 	return map[string]any{
 		"why":                  contract.Why,
 		"scope":                stringSliceOrEmpty(contract.Scope),
@@ -176,9 +249,14 @@ func contractToJSONMap(contract model.Contract) map[string]any {
 		"risk_rationale":       contract.RiskRationale,
 		"test_plan":            contract.TestPlan,
 		"rollback_plan":        contract.RollbackPlan,
-		"updated_at":           contract.UpdatedAt,
-		"updated_by":           contract.UpdatedBy,
 	}
+}
+
+func contractToJSONMap(contract model.Contract) map[string]any {
+	out := contractFieldsToJSONMap(contract)
+	out["updated_at"] = contract.UpdatedAt
+	out["updated_by"] = contract.UpdatedBy
+	return out
 }
 
 func crSearchResultToJSONMap(result model.CRSearchResult) map[string]any {
@@ -367,41 +445,10 @@ func reviewToJSONMap(review *service.Review) map[string]any {
 	}
 	subtasks := make([]map[string]any, 0, len(review.CR.Subtasks))
 	for _, task := range review.CR.Subtasks {
-		chunkMaps := make([]map[string]any, 0, len(task.CheckpointChunks))
-		for _, chunk := range task.CheckpointChunks {
-			chunkMaps = append(chunkMaps, map[string]any{
-				"chunk_id":  chunk.ID,
-				"path":      chunk.Path,
-				"old_start": chunk.OldStart,
-				"old_lines": chunk.OldLines,
-				"new_start": chunk.NewStart,
-				"new_lines": chunk.NewLines,
-			})
-		}
-		delegationMaps := make([]map[string]any, 0, len(task.Delegations))
-		for _, delegation := range task.Delegations {
-			delegationMaps = append(delegationMaps, map[string]any{
-				"child_cr_id":   delegation.ChildCRID,
-				"child_cr_uid":  delegation.ChildCRUID,
-				"child_task_id": delegation.ChildTaskID,
-				"linked_at":     delegation.LinkedAt,
-				"linked_by":     delegation.LinkedBy,
-			})
-		}
-		subtasks = append(subtasks, map[string]any{
-			"id":                 task.ID,
-			"title":              task.Title,
-			"status":             task.Status,
-			"checkpoint_commit":  task.CheckpointCommit,
-			"checkpoint_at":      task.CheckpointAt,
-			"checkpoint_orphan":  task.CheckpointOrphan,
-			"checkpoint_reason":  task.CheckpointReason,
-			"checkpoint_source":  task.CheckpointSource,
-			"checkpoint_sync_at": task.CheckpointSyncAt,
-			"checkpoint_scope":   stringSliceOrEmpty(task.CheckpointScope),
-			"checkpoint_chunks":  chunkMaps,
-			"delegations":        delegationMaps,
-		})
+		subtasks = append(subtasks, projectTaskJSON(task, taskJSONProjectionOptions{
+			includeCheckpointSyncAt: true,
+			includeDelegations:      true,
+		}))
 	}
 	evidence := make([]map[string]any, 0, len(review.CR.Evidence))
 	for _, entry := range review.CR.Evidence {
@@ -421,18 +468,7 @@ func reviewToJSONMap(review *service.Review) map[string]any {
 			"branch_identity": branchIdentityToJSONMap(review.CR.Branch, review.CR.UID),
 			"intent":          review.CR.Description,
 		},
-		"contract": map[string]any{
-			"why":                  review.Contract.Why,
-			"scope":                stringSliceOrEmpty(review.Contract.Scope),
-			"non_goals":            stringSliceOrEmpty(review.Contract.NonGoals),
-			"invariants":           stringSliceOrEmpty(review.Contract.Invariants),
-			"blast_radius":         review.Contract.BlastRadius,
-			"risk_critical_scopes": stringSliceOrEmpty(review.Contract.RiskCriticalScopes),
-			"risk_tier_hint":       review.Contract.RiskTierHint,
-			"risk_rationale":       review.Contract.RiskRationale,
-			"test_plan":            review.Contract.TestPlan,
-			"rollback_plan":        review.Contract.RollbackPlan,
-		},
+		"contract":            contractFieldsToJSONMap(review.Contract),
 		"subtasks":            subtasks,
 		"notes":               stringSliceOrEmpty(review.CR.Notes),
 		"evidence":            evidence,
@@ -935,44 +971,10 @@ func crPackToJSONMap(view *service.CRPackView) map[string]any {
 	}
 	tasks := make([]map[string]any, 0, len(view.Tasks))
 	for _, task := range view.Tasks {
-		chunks := make([]map[string]any, 0, len(task.CheckpointChunks))
-		for _, chunk := range task.CheckpointChunks {
-			chunks = append(chunks, map[string]any{
-				"chunk_id":  chunk.ID,
-				"path":      chunk.Path,
-				"old_start": chunk.OldStart,
-				"old_lines": chunk.OldLines,
-				"new_start": chunk.NewStart,
-				"new_lines": chunk.NewLines,
-			})
-		}
-		drifts := make([]map[string]any, 0, len(task.ContractDrifts))
-		for _, drift := range task.ContractDrifts {
-			drifts = append(drifts, taskContractDriftModelToJSONMap(drift))
-		}
-		tasks = append(tasks, map[string]any{
-			"id":                 task.ID,
-			"title":              task.Title,
-			"status":             task.Status,
-			"checkpoint_commit":  task.CheckpointCommit,
-			"checkpoint_at":      task.CheckpointAt,
-			"checkpoint_message": task.CheckpointMessage,
-			"checkpoint_scope":   stringSliceOrEmpty(task.CheckpointScope),
-			"checkpoint_source":  task.CheckpointSource,
-			"checkpoint_orphan":  task.CheckpointOrphan,
-			"checkpoint_reason":  task.CheckpointReason,
-			"checkpoint_chunks":  chunks,
-			"contract": map[string]any{
-				"intent":              task.Contract.Intent,
-				"acceptance_criteria": stringSliceOrEmpty(task.Contract.AcceptanceCriteria),
-				"scope":               stringSliceOrEmpty(task.Contract.Scope),
-				"acceptance_checks":   stringSliceOrEmpty(task.Contract.AcceptanceChecks),
-				"updated_at":          task.Contract.UpdatedAt,
-				"updated_by":          task.Contract.UpdatedBy,
-			},
-			"contract_baseline": taskContractBaselineToJSONMap(task.ContractBaseline),
-			"contract_drifts":   drifts,
-		})
+		tasks = append(tasks, projectTaskJSON(task, taskJSONProjectionOptions{
+			includeCheckpointMessage: true,
+			includeContract:          true,
+		}))
 	}
 
 	events := make([]map[string]any, 0, len(view.RecentEvents))
@@ -1032,20 +1034,7 @@ func crPackToJSONMap(view *service.CRPackView) map[string]any {
 			"created_at":      view.CR.CreatedAt,
 			"updated_at":      view.CR.UpdatedAt,
 		},
-		"contract": map[string]any{
-			"why":                  view.Contract.Why,
-			"scope":                stringSliceOrEmpty(view.Contract.Scope),
-			"non_goals":            stringSliceOrEmpty(view.Contract.NonGoals),
-			"invariants":           stringSliceOrEmpty(view.Contract.Invariants),
-			"blast_radius":         view.Contract.BlastRadius,
-			"risk_critical_scopes": stringSliceOrEmpty(view.Contract.RiskCriticalScopes),
-			"risk_tier_hint":       view.Contract.RiskTierHint,
-			"risk_rationale":       view.Contract.RiskRationale,
-			"test_plan":            view.Contract.TestPlan,
-			"rollback_plan":        view.Contract.RollbackPlan,
-			"updated_at":           view.Contract.UpdatedAt,
-			"updated_by":           view.Contract.UpdatedBy,
-		},
+		"contract":           contractToJSONMap(view.Contract),
 		"tasks":              tasks,
 		"anchors":            anchors,
 		"status":             crStatusToJSONMap(view.Status),

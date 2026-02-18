@@ -14,12 +14,9 @@ func (s *Service) AddTask(crID int, title string) (*model.Subtask, error) {
 	if strings.TrimSpace(title) == "" {
 		return nil, errors.New("task title cannot be empty")
 	}
-	cr, err := s.store.LoadCR(crID)
+	cr, err := s.loadCRForMutation(crID)
 	if err != nil {
 		return nil, err
-	}
-	if guardErr := s.ensureNoMergeInProgressForCR(cr); guardErr != nil {
-		return nil, guardErr
 	}
 	newTaskID := nextTaskID(cr.Subtasks)
 	now := s.timestamp()
@@ -33,15 +30,13 @@ func (s *Service) AddTask(crID int, title string) (*model.Subtask, error) {
 		CreatedBy: actor,
 	}
 	cr.Subtasks = append(cr.Subtasks, task)
-	cr.Events = append(cr.Events, model.Event{
+	if err := s.appendCRMutationEventAndSave(cr, model.Event{
 		TS:      now,
 		Actor:   actor,
 		Type:    "task_added",
 		Summary: title,
 		Ref:     fmt.Sprintf("task:%d", newTaskID),
-	})
-	cr.UpdatedAt = now
-	if err := s.store.SaveCR(cr); err != nil {
+	}); err != nil {
 		return nil, err
 	}
 	return &task, nil
@@ -345,12 +340,9 @@ func (s *Service) AckTaskContractDrift(crID, taskID, driftID int, reason string)
 	if reason == "" {
 		return nil, fmt.Errorf("ack reason is required")
 	}
-	cr, err := s.store.LoadCR(crID)
+	cr, err := s.loadCRForMutation(crID)
 	if err != nil {
 		return nil, err
-	}
-	if guardErr := s.ensureNoMergeInProgressForCR(cr); guardErr != nil {
-		return nil, guardErr
 	}
 	taskIndex := indexOfTask(cr.Subtasks, taskID)
 	if taskIndex < 0 {
@@ -375,8 +367,7 @@ func (s *Service) AckTaskContractDrift(crID, taskID, driftID int, reason string)
 	task.ContractDrifts[driftIndex].AcknowledgedBy = actor
 	task.ContractDrifts[driftIndex].AckReason = reason
 	task.UpdatedAt = now
-	cr.UpdatedAt = now
-	cr.Events = append(cr.Events, model.Event{
+	if err := s.appendCRMutationEventAndSave(cr, model.Event{
 		TS:      now,
 		Actor:   actor,
 		Type:    "task_contract_drift_acknowledged",
@@ -386,8 +377,7 @@ func (s *Service) AckTaskContractDrift(crID, taskID, driftID int, reason string)
 			"drift_id": strconv.Itoa(driftID),
 			"reason":   reason,
 		},
-	})
-	if err := s.store.SaveCR(cr); err != nil {
+	}); err != nil {
 		return nil, err
 	}
 	ack := task.ContractDrifts[driftIndex]
@@ -482,12 +472,9 @@ func (s *Service) DoneTask(crID, taskID int) error {
 
 // Reopen preserves checkpoint evidence by default unless the caller explicitly clears it.
 func (s *Service) ReopenTask(crID, taskID int, opts ReopenTaskOptions) (*model.Subtask, error) {
-	cr, err := s.store.LoadCR(crID)
+	cr, err := s.loadCRForMutation(crID)
 	if err != nil {
 		return nil, err
-	}
-	if guardErr := s.ensureNoMergeInProgressForCR(cr); guardErr != nil {
-		return nil, guardErr
 	}
 	if cr.Status != model.StatusInProgress {
 		return nil, fmt.Errorf("cr %d is not in progress", crID)
@@ -527,16 +514,14 @@ func (s *Service) ReopenTask(crID, taskID int, opts ReopenTaskOptions) (*model.S
 	if previousCheckpoint != "" {
 		meta["previous_checkpoint_commit"] = previousCheckpoint
 	}
-	cr.Events = append(cr.Events, model.Event{
+	if err := s.appendCRMutationEventAndSave(cr, model.Event{
 		TS:      now,
 		Actor:   actor,
 		Type:    "task_reopened",
 		Summary: task.Title,
 		Ref:     fmt.Sprintf("task:%d", taskID),
 		Meta:    meta,
-	})
-	cr.UpdatedAt = now
-	if err := s.store.SaveCR(cr); err != nil {
+	}); err != nil {
 		return nil, err
 	}
 

@@ -12,7 +12,7 @@ import (
 	"sophia/internal/service"
 )
 
-func printListSection(cmd *cobra.Command, title string, items []string) {
+func printStringListSection(cmd *cobra.Command, title string, items []string) {
 	fmt.Fprintf(cmd.OutOrStdout(), "\n%s:\n", title)
 	if len(items) == 0 {
 		fmt.Fprintln(cmd.OutOrStdout(), "- (none)")
@@ -23,15 +23,12 @@ func printListSection(cmd *cobra.Command, title string, items []string) {
 	}
 }
 
+func printListSection(cmd *cobra.Command, title string, items []string) {
+	printStringListSection(cmd, title, items)
+}
+
 func printStringSection(cmd *cobra.Command, title string, items []string) {
-	fmt.Fprintf(cmd.OutOrStdout(), "\n%s:\n", title)
-	if len(items) == 0 {
-		fmt.Fprintln(cmd.OutOrStdout(), "- (none)")
-		return
-	}
-	for _, item := range items {
-		fmt.Fprintf(cmd.OutOrStdout(), "- %s\n", item)
-	}
+	printStringListSection(cmd, title, items)
 }
 
 func printValueList(cmd *cobra.Command, label string, values []string) {
@@ -199,6 +196,34 @@ func parsePositiveIntArg(raw string, name string) (int, error) {
 		return 0, fmt.Errorf("invalid %s %q", name, raw)
 	}
 	return id, nil
+}
+
+func parseIDAndService(rawID string, argName string) (int, *service.Service, error) {
+	id, err := parsePositiveIntArg(rawID, argName)
+	if err != nil {
+		return 0, nil, err
+	}
+	svc, err := newService()
+	if err != nil {
+		return 0, nil, err
+	}
+	return id, svc, nil
+}
+
+func parseCRTaskIDsAndService(rawCRID, rawTaskID string) (int, int, *service.Service, error) {
+	crID, err := parsePositiveIntArg(rawCRID, "cr-id")
+	if err != nil {
+		return 0, 0, nil, err
+	}
+	taskID, err := parsePositiveIntArg(rawTaskID, "task-id")
+	if err != nil {
+		return 0, 0, nil, err
+	}
+	svc, err := newService()
+	if err != nil {
+		return 0, 0, nil, err
+	}
+	return crID, taskID, svc, nil
 }
 
 func nonEmpty(v, fallback string) string {
