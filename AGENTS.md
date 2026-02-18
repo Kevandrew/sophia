@@ -25,9 +25,9 @@ Recommended daily flow (intent-first):
    Optional hunk flow:
    `sophia cr task chunk list <id> <task-id> [--path <file>] [--json]`
    `sophia cr task done <id> <task-id> --patch-file <patch-file>`
-7. `sophia cr validate <id>`
+7. `sophia cr validate <id>` (read-only by default; add `--record` to append validation audit event)
 8. `sophia cr review <id>` (use Trust verdict/required actions as primary metadata confidence signal; diff deep-dive becomes optional when trust is strong; hard-fail means `validation errors > 0` or missing required CR contract fields, and evidence signals come from scope drift, validation warnings/errors, task checkpoints, tests/dependencies touched, and delegated blockers)
-9. optional machine-readable checks: `sophia cr status <id> --json`, `sophia cr validate <id> --json`
+9. optional machine-readable checks: `sophia cr status <id> --json`, `sophia cr validate <id> --json`, `sophia doctor --json`
 10. `sophia cr merge <id>`
 11. if merge conflicts occur:
    `sophia cr merge status <id>`

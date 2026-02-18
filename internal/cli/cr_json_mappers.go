@@ -1,6 +1,243 @@
 package cli
 
-import "sophia/internal/service"
+import (
+	"sophia/internal/model"
+	"sophia/internal/service"
+)
+
+func stringSliceOrEmpty(in []string) []string {
+	if len(in) == 0 {
+		return []string{}
+	}
+	return append([]string(nil), in...)
+}
+
+func intSliceOrEmpty(in []int) []int {
+	if len(in) == 0 {
+		return []int{}
+	}
+	return append([]int(nil), in...)
+}
+
+func mapStringStringOrEmpty(in map[string]string) map[string]string {
+	if len(in) == 0 {
+		return map[string]string{}
+	}
+	out := make(map[string]string, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
+}
+
+func checkpointChunkModelToJSONMap(chunk model.CheckpointChunk) map[string]any {
+	return map[string]any{
+		"id":        chunk.ID,
+		"path":      chunk.Path,
+		"old_start": chunk.OldStart,
+		"old_lines": chunk.OldLines,
+		"new_start": chunk.NewStart,
+		"new_lines": chunk.NewLines,
+	}
+}
+
+func taskDelegationToJSONMap(delegation model.TaskDelegation) map[string]any {
+	return map[string]any{
+		"child_cr_id":   delegation.ChildCRID,
+		"child_cr_uid":  delegation.ChildCRUID,
+		"child_task_id": delegation.ChildTaskID,
+		"linked_at":     delegation.LinkedAt,
+		"linked_by":     delegation.LinkedBy,
+	}
+}
+
+func taskContractToJSONMap(contract model.TaskContract) map[string]any {
+	return map[string]any{
+		"intent":              contract.Intent,
+		"acceptance_criteria": stringSliceOrEmpty(contract.AcceptanceCriteria),
+		"scope":               stringSliceOrEmpty(contract.Scope),
+		"updated_at":          contract.UpdatedAt,
+		"updated_by":          contract.UpdatedBy,
+	}
+}
+
+func taskToJSONMap(task model.Subtask) map[string]any {
+	chunks := make([]map[string]any, 0, len(task.CheckpointChunks))
+	for _, chunk := range task.CheckpointChunks {
+		chunks = append(chunks, checkpointChunkModelToJSONMap(chunk))
+	}
+	delegations := make([]map[string]any, 0, len(task.Delegations))
+	for _, delegation := range task.Delegations {
+		delegations = append(delegations, taskDelegationToJSONMap(delegation))
+	}
+	return map[string]any{
+		"id":                 task.ID,
+		"title":              task.Title,
+		"status":             task.Status,
+		"created_at":         task.CreatedAt,
+		"updated_at":         task.UpdatedAt,
+		"completed_at":       task.CompletedAt,
+		"created_by":         task.CreatedBy,
+		"completed_by":       task.CompletedBy,
+		"checkpoint_commit":  task.CheckpointCommit,
+		"checkpoint_at":      task.CheckpointAt,
+		"checkpoint_message": task.CheckpointMessage,
+		"checkpoint_scope":   stringSliceOrEmpty(task.CheckpointScope),
+		"checkpoint_chunks":  chunks,
+		"checkpoint_orphan":  task.CheckpointOrphan,
+		"checkpoint_reason":  task.CheckpointReason,
+		"checkpoint_source":  task.CheckpointSource,
+		"checkpoint_sync_at": task.CheckpointSyncAt,
+		"delegations":        delegations,
+		"task_contract":      taskContractToJSONMap(task.Contract),
+	}
+}
+
+func contractToJSONMap(contract model.Contract) map[string]any {
+	return map[string]any{
+		"why":                  contract.Why,
+		"scope":                stringSliceOrEmpty(contract.Scope),
+		"non_goals":            stringSliceOrEmpty(contract.NonGoals),
+		"invariants":           stringSliceOrEmpty(contract.Invariants),
+		"blast_radius":         contract.BlastRadius,
+		"risk_critical_scopes": stringSliceOrEmpty(contract.RiskCriticalScopes),
+		"risk_tier_hint":       contract.RiskTierHint,
+		"risk_rationale":       contract.RiskRationale,
+		"test_plan":            contract.TestPlan,
+		"rollback_plan":        contract.RollbackPlan,
+		"updated_at":           contract.UpdatedAt,
+		"updated_by":           contract.UpdatedBy,
+	}
+}
+
+func crSearchResultToJSONMap(result model.CRSearchResult) map[string]any {
+	return map[string]any{
+		"id":           result.ID,
+		"uid":          result.UID,
+		"title":        result.Title,
+		"status":       result.Status,
+		"branch":       result.Branch,
+		"base_branch":  result.BaseBranch,
+		"parent_cr_id": result.ParentCRID,
+		"risk_tier":    result.RiskTier,
+		"tasks": map[string]int{
+			"total": result.TasksTotal,
+			"open":  result.TasksOpen,
+			"done":  result.TasksDone,
+		},
+		"created_at": result.CreatedAt,
+		"updated_at": result.UpdatedAt,
+	}
+}
+
+func crToJSONMap(cr *model.CR) map[string]any {
+	if cr == nil {
+		return map[string]any{}
+	}
+	subtasks := make([]map[string]any, 0, len(cr.Subtasks))
+	for _, task := range cr.Subtasks {
+		subtasks = append(subtasks, taskToJSONMap(task))
+	}
+	evidence := make([]map[string]any, 0, len(cr.Evidence))
+	for _, entry := range cr.Evidence {
+		evidence = append(evidence, evidenceEntryToJSONMap(entry))
+	}
+	events := make([]map[string]any, 0, len(cr.Events))
+	for _, event := range cr.Events {
+		events = append(events, map[string]any{
+			"ts":               event.TS,
+			"actor":            event.Actor,
+			"type":             event.Type,
+			"summary":          event.Summary,
+			"ref":              event.Ref,
+			"redacted":         event.Redacted,
+			"redaction_reason": event.RedactionReason,
+			"meta":             mapStringStringOrEmpty(event.Meta),
+		})
+	}
+	return map[string]any{
+		"id":                  cr.ID,
+		"uid":                 cr.UID,
+		"title":               cr.Title,
+		"description":         cr.Description,
+		"status":              cr.Status,
+		"base_branch":         cr.BaseBranch,
+		"base_ref":            cr.BaseRef,
+		"base_commit":         cr.BaseCommit,
+		"parent_cr_id":        cr.ParentCRID,
+		"branch":              cr.Branch,
+		"notes":               stringSliceOrEmpty(cr.Notes),
+		"evidence":            evidence,
+		"contract":            contractToJSONMap(cr.Contract),
+		"subtasks":            subtasks,
+		"events":              events,
+		"merged_at":           cr.MergedAt,
+		"merged_by":           cr.MergedBy,
+		"merged_commit":       cr.MergedCommit,
+		"files_touched_count": cr.FilesTouchedCount,
+		"created_at":          cr.CreatedAt,
+		"updated_at":          cr.UpdatedAt,
+	}
+}
+
+func historyToJSONMap(history *service.CRHistory, showRedacted bool) map[string]any {
+	if history == nil {
+		return map[string]any{}
+	}
+	notes := make([]map[string]any, 0, len(history.Notes))
+	for _, note := range history.Notes {
+		notes = append(notes, map[string]any{
+			"index":    note.Index,
+			"text":     note.Text,
+			"redacted": note.Redacted,
+		})
+	}
+	evidence := make([]map[string]any, 0, len(history.Evidence))
+	for _, entry := range history.Evidence {
+		evidence = append(evidence, map[string]any{
+			"index":       entry.Index,
+			"ts":          entry.TS,
+			"actor":       entry.Actor,
+			"type":        entry.Type,
+			"scope":       entry.Scope,
+			"command":     entry.Command,
+			"output_hash": entry.OutputHash,
+			"summary":     entry.Summary,
+			"attachments": stringSliceOrEmpty(entry.Attachments),
+			"redacted":    false,
+			"exit_code": func() any {
+				if entry.ExitCode == nil {
+					return nil
+				}
+				return *entry.ExitCode
+			}(),
+		})
+	}
+	events := make([]map[string]any, 0, len(history.Events))
+	for _, event := range history.Events {
+		events = append(events, map[string]any{
+			"index":            event.Index,
+			"ts":               event.TS,
+			"actor":            event.Actor,
+			"type":             event.Type,
+			"summary":          event.Summary,
+			"ref":              event.Ref,
+			"redacted":         event.Redacted,
+			"redaction_reason": event.RedactionReason,
+			"meta":             mapStringStringOrEmpty(event.Meta),
+		})
+	}
+	return map[string]any{
+		"cr_id":         history.CRID,
+		"title":         history.Title,
+		"status":        history.Status,
+		"description":   history.Description,
+		"show_redacted": showRedacted,
+		"notes":         notes,
+		"evidence":      evidence,
+		"events":        events,
+	}
+}
 
 func impactToJSONMap(impact *service.ImpactReport) map[string]any {
 	if impact == nil {
@@ -22,17 +259,17 @@ func impactToJSONMap(impact *service.ImpactReport) map[string]any {
 		"parent_cr_id":                 impact.ParentCRID,
 		"risk_tier_hint":               impact.RiskTierHint,
 		"risk_tier_floor_applied":      impact.RiskTierFloorApplied,
-		"matched_risk_critical_scopes": impact.MatchedRiskCriticalScopes,
+		"matched_risk_critical_scopes": stringSliceOrEmpty(impact.MatchedRiskCriticalScopes),
 		"files_changed":                impact.FilesChanged,
-		"new_files":                    impact.NewFiles,
-		"modified_files":               impact.ModifiedFiles,
-		"deleted_files":                impact.DeletedFiles,
-		"test_files":                   impact.TestFiles,
-		"dependency_files":             impact.DependencyFiles,
-		"scope_drift":                  impact.ScopeDrift,
-		"task_scope_warnings":          impact.TaskScopeWarnings,
-		"task_contract_warnings":       impact.TaskContractWarnings,
-		"task_chunk_warnings":          impact.TaskChunkWarnings,
+		"new_files":                    stringSliceOrEmpty(impact.NewFiles),
+		"modified_files":               stringSliceOrEmpty(impact.ModifiedFiles),
+		"deleted_files":                stringSliceOrEmpty(impact.DeletedFiles),
+		"test_files":                   stringSliceOrEmpty(impact.TestFiles),
+		"dependency_files":             stringSliceOrEmpty(impact.DependencyFiles),
+		"scope_drift":                  stringSliceOrEmpty(impact.ScopeDrift),
+		"task_scope_warnings":          stringSliceOrEmpty(impact.TaskScopeWarnings),
+		"task_contract_warnings":       stringSliceOrEmpty(impact.TaskContractWarnings),
+		"task_chunk_warnings":          stringSliceOrEmpty(impact.TaskChunkWarnings),
 		"risk_signals":                 signals,
 		"risk_score":                   impact.RiskScore,
 		"risk_tier":                    impact.RiskTier,
@@ -88,7 +325,7 @@ func reviewToJSONMap(review *service.Review) map[string]any {
 			"checkpoint_reason":  task.CheckpointReason,
 			"checkpoint_source":  task.CheckpointSource,
 			"checkpoint_sync_at": task.CheckpointSyncAt,
-			"checkpoint_scope":   task.CheckpointScope,
+			"checkpoint_scope":   stringSliceOrEmpty(task.CheckpointScope),
 			"checkpoint_chunks":  chunkMaps,
 			"delegations":        delegationMaps,
 		})
@@ -112,30 +349,30 @@ func reviewToJSONMap(review *service.Review) map[string]any {
 		},
 		"contract": map[string]any{
 			"why":                  review.Contract.Why,
-			"scope":                review.Contract.Scope,
-			"non_goals":            review.Contract.NonGoals,
-			"invariants":           review.Contract.Invariants,
+			"scope":                stringSliceOrEmpty(review.Contract.Scope),
+			"non_goals":            stringSliceOrEmpty(review.Contract.NonGoals),
+			"invariants":           stringSliceOrEmpty(review.Contract.Invariants),
 			"blast_radius":         review.Contract.BlastRadius,
-			"risk_critical_scopes": review.Contract.RiskCriticalScopes,
+			"risk_critical_scopes": stringSliceOrEmpty(review.Contract.RiskCriticalScopes),
 			"risk_tier_hint":       review.Contract.RiskTierHint,
 			"risk_rationale":       review.Contract.RiskRationale,
 			"test_plan":            review.Contract.TestPlan,
 			"rollback_plan":        review.Contract.RollbackPlan,
 		},
 		"subtasks":            subtasks,
-		"notes":               review.CR.Notes,
+		"notes":               stringSliceOrEmpty(review.CR.Notes),
 		"evidence":            evidence,
-		"new_files":           review.NewFiles,
-		"modified_files":      review.ModifiedFiles,
-		"deleted_files":       review.DeletedFiles,
-		"test_files_touched":  review.TestFiles,
-		"dependency_files":    review.DependencyFiles,
-		"files_changed":       review.Files,
+		"new_files":           stringSliceOrEmpty(review.NewFiles),
+		"modified_files":      stringSliceOrEmpty(review.ModifiedFiles),
+		"deleted_files":       stringSliceOrEmpty(review.DeletedFiles),
+		"test_files_touched":  stringSliceOrEmpty(review.TestFiles),
+		"dependency_files":    stringSliceOrEmpty(review.DependencyFiles),
+		"files_changed":       stringSliceOrEmpty(review.Files),
 		"diff_stat":           review.ShortStat,
 		"impact":              impactToJSONMap(review.Impact),
 		"trust":               trustToJSONMap(review.Trust),
-		"validation_errors":   review.ValidationErrors,
-		"validation_warnings": review.ValidationWarnings,
+		"validation_errors":   stringSliceOrEmpty(review.ValidationErrors),
+		"validation_warnings": stringSliceOrEmpty(review.ValidationWarnings),
 	}
 }
 
@@ -159,10 +396,10 @@ func trustToJSONMap(trust *service.TrustReport) map[string]any {
 		"score":            trust.Score,
 		"max":              trust.Max,
 		"advisory_only":    trust.AdvisoryOnly,
-		"hard_failures":    trust.HardFailures,
+		"hard_failures":    stringSliceOrEmpty(trust.HardFailures),
 		"dimensions":       dimensions,
-		"required_actions": trust.RequiredActions,
-		"advisories":       trust.Advisories,
+		"required_actions": stringSliceOrEmpty(trust.RequiredActions),
+		"advisories":       stringSliceOrEmpty(trust.Advisories),
 		"summary":          trust.Summary,
 	}
 }
@@ -178,8 +415,8 @@ func validationToJSONMap(report *service.ValidationReport) map[string]any {
 	}
 	return map[string]any{
 		"valid":    report.Valid,
-		"errors":   report.Errors,
-		"warnings": report.Warnings,
+		"errors":   stringSliceOrEmpty(report.Errors),
+		"warnings": stringSliceOrEmpty(report.Warnings),
 		"impact":   impactToJSONMap(report.Impact),
 	}
 }
@@ -195,10 +432,10 @@ func mergeStatusToJSONMap(status *service.MergeStatusView) map[string]any {
 		"cr_branch":      status.CRBranch,
 		"worktree_path":  status.WorktreePath,
 		"in_progress":    status.InProgress,
-		"conflict_files": status.ConflictFiles,
+		"conflict_files": stringSliceOrEmpty(status.ConflictFiles),
 		"target_matches": status.TargetMatches,
 		"merge_head":     status.MergeHead,
-		"advice":         status.Advice,
+		"advice":         stringSliceOrEmpty(status.Advice),
 	}
 }
 
@@ -235,7 +472,7 @@ func crStatusToJSONMap(status *service.CRStatusView) map[string]any {
 		},
 		"contract": map[string]any{
 			"complete":       status.ContractComplete,
-			"missing_fields": status.ContractMissingFields,
+			"missing_fields": stringSliceOrEmpty(status.ContractMissingFields),
 		},
 		"validation": map[string]any{
 			"valid":    status.ValidationValid,
@@ -247,7 +484,7 @@ func crStatusToJSONMap(status *service.CRStatusView) map[string]any {
 			},
 		},
 		"merge_blocked":  status.MergeBlocked,
-		"merge_blockers": status.MergeBlockers,
+		"merge_blockers": stringSliceOrEmpty(status.MergeBlockers),
 	}
 }
 
@@ -264,7 +501,7 @@ func crRefreshToJSONMap(view *service.CRRefreshView) map[string]any {
 		"target_ref":  view.TargetRef,
 		"before_head": view.BeforeHead,
 		"after_head":  view.AfterHead,
-		"warnings":    view.Warnings,
+		"warnings":    stringSliceOrEmpty(view.Warnings),
 	}
 }
 
@@ -303,11 +540,11 @@ func applyPlanToJSONMap(result *service.ApplyCRPlanResult) map[string]any {
 		"file":               result.FilePath,
 		"dry_run":            result.DryRun,
 		"consumed":           result.Consumed,
-		"planned_operations": result.PlannedOperations,
+		"planned_operations": stringSliceOrEmpty(result.PlannedOperations),
 		"created_crs":        createdCRs,
 		"created_tasks":      createdTasks,
 		"delegations":        delegations,
-		"warnings":           result.Warnings,
+		"warnings":           stringSliceOrEmpty(result.Warnings),
 	}
 }
 
@@ -383,7 +620,7 @@ func reconcileCRToJSONMap(report *service.ReconcileCRReport) map[string]any {
 		"regenerated":        report.Regenerated,
 		"files_changed":      report.FilesChanged,
 		"diff_stat":          report.DiffStat,
-		"warnings":           report.Warnings,
+		"warnings":           stringSliceOrEmpty(report.Warnings),
 		"findings":           findings,
 		"task_results":       taskResults,
 	}
@@ -428,7 +665,7 @@ func crDiffToJSONMap(view *service.CRDiffView) map[string]any {
 		"short_stat":      view.ShortStat,
 		"fallback_used":   view.FallbackUsed,
 		"fallback_reason": view.FallbackReason,
-		"warnings":        view.Warnings,
+		"warnings":        stringSliceOrEmpty(view.Warnings),
 	}
 }
 
@@ -458,7 +695,7 @@ func rangeDiffToJSONMap(view *service.RangeDiffView) map[string]any {
 		"mapping":       mapping,
 		"files_changed": view.FilesChanged,
 		"short_stat":    view.ShortStat,
-		"warnings":      view.Warnings,
+		"warnings":      stringSliceOrEmpty(view.Warnings),
 	}
 }
 
@@ -471,7 +708,7 @@ func crRangeAnchorsToJSONMap(view *service.CRRangeAnchorsView) map[string]any {
 		"base":       view.Base,
 		"head":       view.Head,
 		"merge_base": view.MergeBase,
-		"warnings":   view.Warnings,
+		"warnings":   stringSliceOrEmpty(view.Warnings),
 	}
 }
 
@@ -483,7 +720,7 @@ func crRevParseToJSONMap(view *service.CRRevParseView) map[string]any {
 		"cr_id":    view.CRID,
 		"kind":     view.Kind,
 		"commit":   view.Commit,
-		"warnings": view.Warnings,
+		"warnings": stringSliceOrEmpty(view.Warnings),
 	}
 }
 
@@ -511,15 +748,15 @@ func crPackToJSONMap(view *service.CRPackView) map[string]any {
 			"checkpoint_commit":  task.CheckpointCommit,
 			"checkpoint_at":      task.CheckpointAt,
 			"checkpoint_message": task.CheckpointMessage,
-			"checkpoint_scope":   task.CheckpointScope,
+			"checkpoint_scope":   stringSliceOrEmpty(task.CheckpointScope),
 			"checkpoint_source":  task.CheckpointSource,
 			"checkpoint_orphan":  task.CheckpointOrphan,
 			"checkpoint_reason":  task.CheckpointReason,
 			"checkpoint_chunks":  chunks,
 			"contract": map[string]any{
 				"intent":              task.Contract.Intent,
-				"acceptance_criteria": task.Contract.AcceptanceCriteria,
-				"scope":               task.Contract.Scope,
+				"acceptance_criteria": stringSliceOrEmpty(task.Contract.AcceptanceCriteria),
+				"scope":               stringSliceOrEmpty(task.Contract.Scope),
 				"updated_at":          task.Contract.UpdatedAt,
 				"updated_by":          task.Contract.UpdatedBy,
 			},
@@ -534,7 +771,7 @@ func crPackToJSONMap(view *service.CRPackView) map[string]any {
 			"type":    event.Type,
 			"summary": event.Summary,
 			"ref":     event.Ref,
-			"meta":    event.Meta,
+			"meta":    mapStringStringOrEmpty(event.Meta),
 		})
 	}
 
@@ -560,7 +797,7 @@ func crPackToJSONMap(view *service.CRPackView) map[string]any {
 			"base":       view.Anchors.Base,
 			"head":       view.Anchors.Head,
 			"merge_base": view.Anchors.MergeBase,
-			"warnings":   view.Anchors.Warnings,
+			"warnings":   stringSliceOrEmpty(view.Anchors.Warnings),
 		}
 	}
 
@@ -584,11 +821,11 @@ func crPackToJSONMap(view *service.CRPackView) map[string]any {
 		},
 		"contract": map[string]any{
 			"why":                  view.Contract.Why,
-			"scope":                view.Contract.Scope,
-			"non_goals":            view.Contract.NonGoals,
-			"invariants":           view.Contract.Invariants,
+			"scope":                stringSliceOrEmpty(view.Contract.Scope),
+			"non_goals":            stringSliceOrEmpty(view.Contract.NonGoals),
+			"invariants":           stringSliceOrEmpty(view.Contract.Invariants),
 			"blast_radius":         view.Contract.BlastRadius,
-			"risk_critical_scopes": view.Contract.RiskCriticalScopes,
+			"risk_critical_scopes": stringSliceOrEmpty(view.Contract.RiskCriticalScopes),
 			"risk_tier_hint":       view.Contract.RiskTierHint,
 			"risk_rationale":       view.Contract.RiskRationale,
 			"test_plan":            view.Contract.TestPlan,
@@ -604,11 +841,11 @@ func crPackToJSONMap(view *service.CRPackView) map[string]any {
 		"recent_checkpoints": checkpoints,
 		"checkpoints_meta":   packSliceMetaToJSONMap(view.CheckpointsMeta),
 		"diff_stat":          view.DiffStat,
-		"files_changed":      view.FilesChanged,
+		"files_changed":      stringSliceOrEmpty(view.FilesChanged),
 		"impact":             impactToJSONMap(view.Impact),
 		"validation":         validationToJSONMap(view.Validation),
 		"trust":              trustToJSONMap(view.Trust),
-		"warnings":           view.Warnings,
+		"warnings":           stringSliceOrEmpty(view.Warnings),
 	}
 }
 
