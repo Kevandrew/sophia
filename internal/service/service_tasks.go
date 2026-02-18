@@ -240,6 +240,10 @@ func (s *Service) ReopenTask(crID, taskID int, opts ReopenTaskOptions) (*model.S
 		task.CheckpointMessage = ""
 		task.CheckpointScope = nil
 		task.CheckpointChunks = nil
+		task.CheckpointOrphan = false
+		task.CheckpointReason = ""
+		task.CheckpointSource = ""
+		task.CheckpointSyncAt = ""
 	}
 
 	meta := map[string]string{
@@ -439,6 +443,10 @@ func (s *Service) DoneTaskWithCheckpoint(crID, taskID int, opts DoneTaskOptions)
 		cr.Subtasks[taskIndex].CheckpointMessage = commitMessage
 		cr.Subtasks[taskIndex].CheckpointScope = append([]string(nil), checkpointScope...)
 		cr.Subtasks[taskIndex].CheckpointChunks = append([]model.CheckpointChunk(nil), checkpointChunks...)
+		cr.Subtasks[taskIndex].CheckpointOrphan = false
+		cr.Subtasks[taskIndex].CheckpointReason = ""
+		cr.Subtasks[taskIndex].CheckpointSource = "task_checkpoint"
+		cr.Subtasks[taskIndex].CheckpointSyncAt = now
 		cr.Events = append(cr.Events, model.Event{
 			TS:      now,
 			Actor:   actor,

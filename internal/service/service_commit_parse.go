@@ -72,6 +72,18 @@ func parentCRIDFromBody(body string) int {
 	return id
 }
 
+func taskIDFromBody(body string) int {
+	matches := footerTaskPattern.FindStringSubmatch(body)
+	if len(matches) != 2 {
+		return 0
+	}
+	id, err := strconv.Atoi(strings.TrimSpace(matches[1]))
+	if err != nil || id <= 0 {
+		return 0
+	}
+	return id
+}
+
 func titleFromSubjectOrBody(subject, body string) string {
 	if matches := crSubjectPattern.FindStringSubmatch(strings.TrimSpace(subject)); len(matches) >= 3 {
 		title := strings.TrimSpace(matches[2])

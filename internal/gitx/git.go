@@ -618,6 +618,29 @@ func (c *Client) MergeBase(baseBranch, branch string) (string, error) {
 	return strings.TrimSpace(out), nil
 }
 
+func (c *Client) IsAncestor(ancestor, descendant string) (bool, error) {
+	ancestor = strings.TrimSpace(ancestor)
+	descendant = strings.TrimSpace(descendant)
+	if ancestor == "" || descendant == "" {
+		return false, fmt.Errorf("ancestor and descendant refs are required")
+	}
+	cmd := exec.Command("git", "merge-base", "--is-ancestor", ancestor, descendant)
+	cmd.Dir = c.WorkDir
+	raw, err := cmd.CombinedOutput()
+	if err == nil {
+		return true, nil
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+		return false, nil
+	}
+	trimmed := strings.TrimSpace(string(raw))
+	if trimmed == "" {
+		return false, fmt.Errorf("git merge-base --is-ancestor %s %s: %w", ancestor, descendant, err)
+	}
+	return false, fmt.Errorf("git merge-base --is-ancestor %s %s: %w: %s", ancestor, descendant, err, trimmed)
+}
+
 func (c *Client) MergeNoFF(baseBranch, branch, message string) error {
 	if err := c.CheckoutBranch(baseBranch); err != nil {
 		return err

@@ -45,6 +45,7 @@ var (
 	footerBaseRefPattern = regexp.MustCompile(`(?m)^Sophia-Base-Ref:\s*(.+)\s*$`)
 	footerBaseSHApattern = regexp.MustCompile(`(?m)^Sophia-Base-Commit:\s*(\S+)\s*$`)
 	footerParentPattern  = regexp.MustCompile(`(?m)^Sophia-Parent-CR:\s*(\d+)\s*$`)
+	footerTaskPattern    = regexp.MustCompile(`(?m)^Sophia-Task:\s*(\d+)\s*$`)
 	hunkHeaderPattern    = regexp.MustCompile(`^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@`)
 	footerIntentPattern  = regexp.MustCompile(`(?m)^Sophia-Intent:\s*(.+)\s*$`)
 )
@@ -110,6 +111,27 @@ type DoctorReport struct {
 	Findings       []DoctorFinding
 }
 
+type CRDoctorFinding struct {
+	Code    string
+	Message string
+	TaskID  int
+	Commit  string
+}
+
+type CRDoctorReport struct {
+	CRID             int
+	CRUID            string
+	Branch           string
+	BranchExists     bool
+	BranchHead       string
+	BaseRef          string
+	BaseCommit       string
+	ResolvedBaseRef  string
+	ParentCRID       int
+	ExpectedParentID int
+	Findings         []CRDoctorFinding
+}
+
 type CurrentCRContext struct {
 	Branch string
 	CR     *model.CR
@@ -138,6 +160,44 @@ type RepairReport struct {
 	NextID        int
 	HighestCRID   int
 	RepairedCRIDs []int
+}
+
+type ReconcileCROptions struct {
+	Regenerate bool
+}
+
+type ReconcileTaskResult struct {
+	TaskID           int
+	Title            string
+	Status           string
+	PreviousCommit   string
+	CurrentCommit    string
+	Action           string
+	Reason           string
+	Source           string
+	CheckpointAt     string
+	CheckpointOrphan bool
+}
+
+type ReconcileCRReport struct {
+	CRID             int
+	CRUID            string
+	Branch           string
+	BranchExists     bool
+	PreviousParentID int
+	CurrentParentID  int
+	ParentRelinked   bool
+	ScanRef          string
+	ScannedCommits   int
+	Relinked         int
+	Orphaned         int
+	ClearedOrphans   int
+	Regenerated      bool
+	FilesChanged     int
+	DiffStat         string
+	Warnings         []string
+	Findings         []CRDoctorFinding
+	TaskResults      []ReconcileTaskResult
 }
 
 type WhyView struct {
