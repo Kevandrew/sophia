@@ -243,6 +243,83 @@ func newCRChildAddCmd() *cobra.Command {
 	return cmd
 }
 
+type crSearchCommandFilters struct {
+	status          string
+	scope           string
+	riskTier        string
+	text            string
+	search          string
+	positionalQuery string
+	hasQueryArg     bool
+}
+
+func resolveCRSearchQuery(filters crSearchCommandFilters) (model.CRSearchQuery, error) {
+	normalizedStatus, err := normalizeCRStatusFilter(filters.status)
+	if err != nil {
+		return model.CRSearchQuery{}, err
+	}
+	normalizedRiskTier, err := normalizeRiskTierFilter(filters.riskTier)
+	if err != nil {
+		return model.CRSearchQuery{}, err
+	}
+
+	searchText := strings.TrimSpace(filters.text)
+	searchFlag := strings.TrimSpace(filters.search)
+	if searchText != "" && searchFlag != "" && searchText != searchFlag {
+		return model.CRSearchQuery{}, fmt.Errorf("invalid argument: --text and --search must match when both are provided")
+	}
+	if searchFlag != "" {
+		searchText = searchFlag
+	}
+	if filters.hasQueryArg {
+		argText := strings.TrimSpace(filters.positionalQuery)
+		if searchText != "" && searchText != argText {
+			return model.CRSearchQuery{}, fmt.Errorf("invalid argument: positional query and --text/--search must match when both are provided")
+		}
+		searchText = argText
+	}
+
+	return model.CRSearchQuery{
+		Status:      normalizedStatus,
+		ScopePrefix: filters.scope,
+		RiskTier:    normalizedRiskTier,
+		Text:        searchText,
+	}, nil
+}
+
+func runCRSearchQuery(query model.CRSearchQuery) ([]model.CRSearchResult, error) {
+	svc, err := newService()
+	if err != nil {
+		return nil, err
+	}
+	return svc.SearchCRs(query)
+}
+
+func renderCRSearchResults(cmd *cobra.Command, asJSON bool, results []model.CRSearchResult, includeFoundHeading bool) error {
+	if asJSON {
+		items := make([]map[string]any, 0, len(results))
+		for _, result := range results {
+			items = append(items, crSearchResultToJSONMap(result))
+		}
+		return writeJSONSuccess(cmd, map[string]any{
+			"count":   len(results),
+			"results": items,
+		})
+	}
+	if len(results) == 0 {
+		fmt.Fprintln(cmd.OutOrStdout(), "No CRs found.")
+		return nil
+	}
+	if includeFoundHeading {
+		fmt.Fprintf(cmd.OutOrStdout(), "Found %d CR(s):\n", len(results))
+	}
+	fmt.Fprintln(cmd.OutOrStdout(), "ID\tSTATUS\tRISK\tBRANCH\tTITLE")
+	for _, result := range results {
+		fmt.Fprintf(cmd.OutOrStdout(), "%d\t%s\t%s\t%s\t%s\n", result.ID, result.Status, result.RiskTier, result.Branch, result.Title)
+	}
+	return nil
+}
+
 func newCRListCmd() *cobra.Command {
 	var status string
 	var scope string
@@ -255,61 +332,21 @@ func newCRListCmd() *cobra.Command {
 		Use:   "list",
 		Short: "List all change requests",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			normalizedStatus, err := normalizeCRStatusFilter(status)
+			query, err := resolveCRSearchQuery(crSearchCommandFilters{
+				status:   status,
+				scope:    scope,
+				riskTier: riskTier,
+				text:     text,
+				search:   search,
+			})
 			if err != nil {
 				return commandError(cmd, asJSON, err)
 			}
-			normalizedRiskTier, err := normalizeRiskTierFilter(riskTier)
+			results, err := runCRSearchQuery(query)
 			if err != nil {
 				return commandError(cmd, asJSON, err)
 			}
-			searchText := strings.TrimSpace(text)
-			searchFlag := strings.TrimSpace(search)
-			if searchText != "" && searchFlag != "" && searchText != searchFlag {
-				err := fmt.Errorf("invalid argument: --text and --search must match when both are provided")
-				return commandError(cmd, asJSON, err)
-			}
-			if searchFlag != "" {
-				searchText = searchFlag
-			}
-
-			svc, err := newService()
-			if err != nil {
-				return commandError(cmd, asJSON, err)
-			}
-
-			query := model.CRSearchQuery{
-				Status:      normalizedStatus,
-				ScopePrefix: scope,
-				RiskTier:    normalizedRiskTier,
-				Text:        searchText,
-			}
-
-			results, err := svc.SearchCRs(query)
-			if err != nil {
-				return commandError(cmd, asJSON, err)
-			}
-
-			if asJSON {
-				items := make([]map[string]any, 0, len(results))
-				for _, r := range results {
-					items = append(items, crSearchResultToJSONMap(r))
-				}
-				return writeJSONSuccess(cmd, map[string]any{
-					"count":   len(results),
-					"results": items,
-				})
-			}
-
-			if len(results) == 0 {
-				fmt.Fprintln(cmd.OutOrStdout(), "No CRs found.")
-				return nil
-			}
-			fmt.Fprintln(cmd.OutOrStdout(), "ID\tSTATUS\tRISK\tBRANCH\tTITLE")
-			for _, r := range results {
-				fmt.Fprintf(cmd.OutOrStdout(), "%d\t%s\t%s\t%s\t%s\n", r.ID, r.Status, r.RiskTier, r.Branch, r.Title)
-			}
-			return nil
+			return renderCRSearchResults(cmd, asJSON, results, false)
 		},
 	}
 
@@ -335,70 +372,26 @@ func newCRSearchCmd() *cobra.Command {
 		Short: "Search change requests by text and filters",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			normalizedStatus, err := normalizeCRStatusFilter(status)
-			if err != nil {
-				return commandError(cmd, asJSON, err)
-			}
-			normalizedRiskTier, err := normalizeRiskTierFilter(riskTier)
-			if err != nil {
-				return commandError(cmd, asJSON, err)
-			}
-			searchText := strings.TrimSpace(text)
-			searchFlag := strings.TrimSpace(search)
-			if searchText != "" && searchFlag != "" && searchText != searchFlag {
-				err := fmt.Errorf("invalid argument: --text and --search must match when both are provided")
-				return commandError(cmd, asJSON, err)
-			}
-			if searchFlag != "" {
-				searchText = searchFlag
+			filters := crSearchCommandFilters{
+				status:   status,
+				scope:    scope,
+				riskTier: riskTier,
+				text:     text,
+				search:   search,
 			}
 			if len(args) > 0 {
-				argText := strings.TrimSpace(args[0])
-				if searchText != "" && searchText != argText {
-					err := fmt.Errorf("invalid argument: positional query and --text/--search must match when both are provided")
-					return commandError(cmd, asJSON, err)
-				}
-				searchText = argText
+				filters.hasQueryArg = true
+				filters.positionalQuery = args[0]
 			}
-
-			svc, err := newService()
+			query, err := resolveCRSearchQuery(filters)
 			if err != nil {
 				return commandError(cmd, asJSON, err)
 			}
-
-			query := model.CRSearchQuery{
-				Status:      normalizedStatus,
-				ScopePrefix: scope,
-				RiskTier:    normalizedRiskTier,
-				Text:        searchText,
-			}
-
-			results, err := svc.SearchCRs(query)
+			results, err := runCRSearchQuery(query)
 			if err != nil {
 				return commandError(cmd, asJSON, err)
 			}
-
-			if asJSON {
-				items := make([]map[string]any, 0, len(results))
-				for _, r := range results {
-					items = append(items, crSearchResultToJSONMap(r))
-				}
-				return writeJSONSuccess(cmd, map[string]any{
-					"count":   len(results),
-					"results": items,
-				})
-			}
-
-			if len(results) == 0 {
-				fmt.Fprintln(cmd.OutOrStdout(), "No CRs found.")
-				return nil
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Found %d CR(s):\n", len(results))
-			fmt.Fprintln(cmd.OutOrStdout(), "ID\tSTATUS\tRISK\tBRANCH\tTITLE")
-			for _, r := range results {
-				fmt.Fprintf(cmd.OutOrStdout(), "%d\t%s\t%s\t%s\t%s\n", r.ID, r.Status, r.RiskTier, r.Branch, r.Title)
-			}
-			return nil
+			return renderCRSearchResults(cmd, asJSON, results, true)
 		},
 	}
 
