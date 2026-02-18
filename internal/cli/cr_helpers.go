@@ -201,6 +201,34 @@ func parsePositiveIntArg(raw string, name string) (int, error) {
 	return id, nil
 }
 
+func parseIDAndService(rawID string, argName string) (int, *service.Service, error) {
+	id, err := parsePositiveIntArg(rawID, argName)
+	if err != nil {
+		return 0, nil, err
+	}
+	svc, err := newService()
+	if err != nil {
+		return 0, nil, err
+	}
+	return id, svc, nil
+}
+
+func parseCRTaskIDsAndService(rawCRID, rawTaskID string) (int, int, *service.Service, error) {
+	crID, err := parsePositiveIntArg(rawCRID, "cr-id")
+	if err != nil {
+		return 0, 0, nil, err
+	}
+	taskID, err := parsePositiveIntArg(rawTaskID, "task-id")
+	if err != nil {
+		return 0, 0, nil, err
+	}
+	svc, err := newService()
+	if err != nil {
+		return 0, 0, nil, err
+	}
+	return crID, taskID, svc, nil
+}
+
 func nonEmpty(v, fallback string) string {
 	if strings.TrimSpace(v) == "" {
 		return fallback

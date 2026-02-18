@@ -486,11 +486,7 @@ func newCRWhyCmd() *cobra.Command {
 		Short: "Show the rationale for why a CR exists",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			id, err := parsePositiveIntArg(args[0], "id")
-			if err != nil {
-				return commandError(cmd, asJSON, err)
-			}
-			svc, err := newService()
+			id, svc, err := parseIDAndService(args[0], "id")
 			if err != nil {
 				return commandError(cmd, asJSON, err)
 			}
@@ -540,11 +536,7 @@ func newCRStatusCmd() *cobra.Command {
 		Short: "Show CR merge-readiness and workspace status",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			id, err := parsePositiveIntArg(args[0], "id")
-			if err != nil {
-				return commandError(cmd, asJSON, err)
-			}
-			svc, err := newService()
+			id, svc, err := parseIDAndService(args[0], "id")
 			if err != nil {
 				return commandError(cmd, asJSON, err)
 			}
@@ -769,11 +761,7 @@ func newCRContractShowCmd() *cobra.Command {
 		Example: "  sophia cr contract show 25",
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			id, err := parsePositiveIntArg(args[0], "id")
-			if err != nil {
-				return commandError(cmd, asJSON, err)
-			}
-			svc, err := newService()
+			id, svc, err := parseIDAndService(args[0], "id")
 			if err != nil {
 				return commandError(cmd, asJSON, err)
 			}
@@ -815,11 +803,7 @@ func newCRImpactCmd() *cobra.Command {
 		Short: "Show deterministic impact and risk summary for a CR",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			id, err := parsePositiveIntArg(args[0], "id")
-			if err != nil {
-				return commandError(cmd, asJSON, err)
-			}
-			svc, err := newService()
+			id, svc, err := parseIDAndService(args[0], "id")
 			if err != nil {
 				return commandError(cmd, asJSON, err)
 			}
@@ -848,11 +832,7 @@ func newCRValidateCmd() *cobra.Command {
 		Short: "Validate CR contract completeness, scope drift, and risk signals",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			id, err := parsePositiveIntArg(args[0], "id")
-			if err != nil {
-				return commandError(cmd, asJSON, err)
-			}
-			svc, err := newService()
+			id, svc, err := parseIDAndService(args[0], "id")
 			if err != nil {
 				return commandError(cmd, asJSON, err)
 			}
@@ -999,11 +979,7 @@ func newCRHistoryCmd() *cobra.Command {
 		Short: "Show CR notes/events timeline with indices",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			id, err := parsePositiveIntArg(args[0], "id")
-			if err != nil {
-				return commandError(cmd, asJSON, err)
-			}
-			svc, err := newService()
+			id, svc, err := parseIDAndService(args[0], "id")
 			if err != nil {
 				return commandError(cmd, asJSON, err)
 			}
