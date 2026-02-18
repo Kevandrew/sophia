@@ -198,15 +198,7 @@ func subtasksFromCommitBody(body, when, actor string) []model.Subtask {
 }
 
 func parseCRBranchID(branch string) (int, bool) {
-	matches := crBranchPattern.FindStringSubmatch(strings.TrimSpace(branch))
-	if len(matches) != 2 {
-		return 0, false
-	}
-	id, err := strconv.Atoi(matches[1])
-	if err != nil || id <= 0 {
-		return 0, false
-	}
-	return id, true
+	return parseCRIDFromBranchName(branch)
 }
 
 func shortHash(hash string) string {
