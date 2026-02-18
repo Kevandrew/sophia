@@ -60,3 +60,8 @@ Checkpoint and merge commits include:
 - `Sophia-CR-UID`
 - `Sophia-Branch`
 - `Sophia-Branch-Scheme`
+
+## Related Docs
+
+- Docs index: [`index.md`](index.md)
+- Workflow lifecycle: [`workflow.md`](workflow.md)
