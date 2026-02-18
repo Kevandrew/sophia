@@ -559,6 +559,27 @@ type RangeDiffOptions struct {
 	SinceLastCheckpoint bool
 }
 
+const (
+	CRAnchorKindBase      = "base"
+	CRAnchorKindHead      = "head"
+	CRAnchorKindMergeBase = "merge-base"
+)
+
+type CRRangeAnchorsView struct {
+	CRID      int
+	Base      string
+	Head      string
+	MergeBase string
+	Warnings  []string
+}
+
+type CRRevParseView struct {
+	CRID     int
+	Kind     string
+	Commit   string
+	Warnings []string
+}
+
 type RangeDiffCommitMap struct {
 	OldIndex  string
 	OldCommit string
