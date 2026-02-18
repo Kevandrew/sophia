@@ -19,6 +19,7 @@ func newCRTaskCmd() *cobra.Command {
 	taskCmd.AddCommand(newCRTaskDoneCmd())
 	taskCmd.AddCommand(newCRTaskReopenCmd())
 	taskCmd.AddCommand(newCRTaskDiffCmd())
+	taskCmd.AddCommand(newCRTaskRangeDiffCmd())
 	taskCmd.AddCommand(newCRTaskDelegateCmd())
 	taskCmd.AddCommand(newCRTaskUndelegateCmd())
 	taskCmd.AddCommand(newCRTaskChunkCmd())
