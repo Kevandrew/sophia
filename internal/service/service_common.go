@@ -252,6 +252,8 @@ crs:
             - "Responsibilities are separated with passing tests."
           scope:
             - "internal/service"
+          acceptance_checks:
+            - "unit_tests"
         delegate_to:
           - "child_cli"
   - key: child_cli
@@ -359,7 +361,12 @@ trust:
     high: 0.95
   checks:
     freshness_hours: 24
-    definitions: []
+    definitions:
+      # Example:
+      # - key: unit_tests
+      #   command: go test ./...
+      #   tiers: [low, medium, high]
+      #   allow_exit_codes: [0]
   review_depth:
     low:
       min_samples: 0

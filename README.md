@@ -245,7 +245,11 @@ trust:
     high: 0.95
   checks:
     freshness_hours: 24
-    definitions: []
+    definitions:
+      # - key: unit_tests
+      #   command: go test ./...
+      #   tiers: [low, medium, high]
+      #   allow_exit_codes: [0]
   review_depth:
     low:
       min_samples: 0
@@ -351,6 +355,7 @@ crs:
           intent: "..."
           acceptance_criteria: ["..."]
           scope: ["internal/service"]
+          acceptance_checks: ["unit_tests"]
         delegate_to: ["child_cli"]
   - key: child_cli
     title: "Split CLI command wiring"
@@ -592,15 +597,19 @@ Behavior:
 ### Task Contract Management
 
 ```
-sophia cr task contract set <cr-id> <task-id> --intent "..." --acceptance "..." --scope internal/service
+sophia cr task contract set <cr-id> <task-id> --intent "..." --acceptance "..." --scope internal/service --acceptance-check unit_tests
 sophia cr task contract show <cr-id> <task-id>
+sophia cr task contract drift list <cr-id> <task-id>
+sophia cr task contract drift ack <cr-id> <task-id> <drift-id> --reason "..."
 ```
 
 Behavior:
 
 * Stores task-level intent contract fields for each subtask
 * Supports partial updates and records `task_contract_updated` audit events
-* Enables task-contract drift warnings in review/validation
+* Supports optional `acceptance_checks` keys that reference `trust.checks.definitions[].key`
+* Records task contract drift after checkpoint when scope widens or acceptance checks change
+* Supports drift acknowledgements and surfaces unresolved drift in trust requirements
 
 ---
 
@@ -634,12 +643,13 @@ Behavior:
 * `impact` computes deterministic risk tier/score and blast-radius signals from diff metadata
 * `impact` includes contract-driven risk scope signals and optional risk-tier floor hints when configured in CR contract
 * `validate` enforces required contract fields and scope-drift policy
+* `validate` returns hard errors when a task references unknown `acceptance_checks` keys
 * `validate` emits blocking `Errors` and non-blocking `Warnings`
 * `validate` includes task chunk metadata warnings (`task_chunk_warnings`) when chunk metadata is malformed/inconsistent
 * `validate` JSON includes trust summary, unsatisfied trust requirements, and trust warnings
 * `validate` is read-only by default; add `--record` to append a `cr_validated` audit event
-* `check status` reports required checks, freshness, and missing/stale/failing states for the CR risk tier
-* `check run` executes policy-required checks and records `command_run` evidence entries
+* `check status` reports required checks, freshness, and missing/stale/failing states for both risk-tier policy checks and done-task acceptance checks
+* `check run` executes required checks and records `command_run` evidence entries
 * For merged CRs whose branch was deleted, `validate` derives diff context from the merge commit (with task-checkpoint scope fallback)
 * Both commands support machine-readable output via `--json`
 
@@ -702,7 +712,7 @@ Displays:
 * Test file changes (basic detection)
 * Deterministic trust envelope (`trusted | needs_attention | untrusted`) with score, hard-fail reasons, dimension breakdown, required actions, and advisories
 * Trust is a deterministic review-confidence model, not a semantic correctness proof
-* Trust includes explicit deterministic requirements, check results, review-depth status, and merge-gate summary metadata
+* Trust includes explicit deterministic requirements, check results (with task/source provenance), review-depth status, contract-drift summary, and merge-gate summary metadata
 * Hard-fail is defined as validation errors or missing required contract fields
 * `untrusted` when any deterministic trust requirement is unsatisfied; otherwise threshold comparison is tier-based (`low|medium|high`)
 * `required_actions` are populated from unsatisfied deterministic requirements; non-blocking guidance is emitted under `advisories`
@@ -797,6 +807,8 @@ sophia cr base set <id> --ref <git-ref> [--rebase] [--json]
 sophia cr restack <id> [--json]
 sophia cr task contract set <cr-id> <task-id> --intent "..." [--json]
 sophia cr task contract show <cr-id> <task-id> [--json]
+sophia cr task contract drift list <cr-id> <task-id> [--json]
+sophia cr task contract drift ack <cr-id> <task-id> <drift-id> --reason "..." [--json]
 sophia cr task chunk list <cr-id> <task-id> [--path <file>] [--json]
 sophia cr task done <cr-id> <task-id> --patch-file <patch-file>
 sophia cr task done <cr-id> <task-id> --no-checkpoint [--json]
@@ -835,7 +847,7 @@ sophia cr history <id> [--show-redacted] [--json]
 * `repair` rebuilds missing local CR metadata from Git history and realigns CR IDs
 * `hook install` adds a pre-commit guard against direct commits on the base branch
 * `current/switch/reopen/base/restack` supports deterministic branch and stack context moves
-* `task contract` enforces subtask intent + acceptance + scope before completion
+* `task contract` enforces subtask intent + acceptance + scope before completion, supports optional acceptance-check keys, and records/acknowledges post-checkpoint drift
 * `task chunk list` provides deterministic hunk discovery from current working-tree diff
 * `cr diff`/`cr task diff`/`cr task chunk diff` provide deterministic intent-centric diff lenses, including explicit fallback metadata when checkpoint provenance is incomplete
 * `cr diff --critical` filters output to `risk_critical_scopes`; when none are declared, output is intentionally empty with a warning
