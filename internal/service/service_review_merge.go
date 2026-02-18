@@ -13,6 +13,10 @@ func (s *Service) ReviewCR(id int) (*Review, error) {
 	if err != nil {
 		return nil, err
 	}
+	policy, err := s.repoPolicy()
+	if err != nil {
+		return nil, err
+	}
 	diff, err := s.summarizeCRDiff(cr)
 	if err != nil {
 		return nil, err
@@ -21,7 +25,7 @@ func (s *Service) ReviewCR(id int) (*Review, error) {
 	if err != nil {
 		return nil, err
 	}
-	trust := buildTrustReport(cr, validation, diff)
+	trust := buildTrustReport(cr, validation, diff, policy.Contract.RequiredFields)
 
 	return &Review{
 		CR:                 cr,
@@ -63,11 +67,18 @@ func (s *Service) MergeCRWithWarnings(id int, keepBranch bool, overrideReason st
 	if cr.Status == model.StatusMerged {
 		return "", warnings, ErrCRAlreadyMerged
 	}
+	policy, err := s.repoPolicy()
+	if err != nil {
+		return "", warnings, err
+	}
 	validation, err := s.ValidateCR(id)
 	if err != nil {
 		return "", warnings, err
 	}
 	overrideReason = strings.TrimSpace(overrideReason)
+	if overrideReason != "" && !policyAllowsMergeOverride(policy) {
+		return "", warnings, fmt.Errorf("%w: merge override is disabled by repository policy", ErrPolicyViolation)
+	}
 	if cr.ParentCRID > 0 {
 		parent, parentErr := s.store.LoadCR(cr.ParentCRID)
 		if parentErr != nil {
@@ -293,11 +304,18 @@ func (s *Service) ResumeMergeCR(id int, keepBranch bool, overrideReason string) 
 	if cr.Status == model.StatusMerged {
 		return "", nil, ErrCRAlreadyMerged
 	}
+	policy, err := s.repoPolicy()
+	if err != nil {
+		return "", nil, err
+	}
 	validation, err := s.ValidateCR(id)
 	if err != nil {
 		return "", nil, err
 	}
 	overrideReason = strings.TrimSpace(overrideReason)
+	if overrideReason != "" && !policyAllowsMergeOverride(policy) {
+		return "", nil, fmt.Errorf("%w: merge override is disabled by repository policy", ErrPolicyViolation)
+	}
 
 	mergeGit, _, err := s.effectiveMergeGitForCR(cr)
 	if err != nil {

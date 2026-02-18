@@ -77,6 +77,10 @@ func writeJSONError(cmd *cobra.Command, err error) error {
 
 func jsonErrorCode(err error) string {
 	switch {
+	case errors.Is(err, service.ErrPolicyInvalid):
+		return "policy_invalid"
+	case errors.Is(err, service.ErrPolicyViolation):
+		return "policy_violation"
 	case errors.Is(err, service.ErrMergeConflict):
 		return "merge_conflict"
 	case errors.Is(err, service.ErrMergeInProgress):
