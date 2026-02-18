@@ -30,7 +30,13 @@ func validateDoneTaskOptions(opts DoneTaskOptions) error {
 		if opts.StageAll || opts.FromContract || len(opts.Paths) > 0 || strings.TrimSpace(opts.PatchFile) != "" {
 			return fmt.Errorf("%w: --no-checkpoint cannot be combined with --from-contract, --path, --patch-file, or --all", ErrInvalidTaskScope)
 		}
+		if strings.TrimSpace(opts.NoCheckpointReason) == "" {
+			return fmt.Errorf("%w: --no-checkpoint requires --no-checkpoint-reason", ErrInvalidTaskScope)
+		}
 		return nil
+	}
+	if strings.TrimSpace(opts.NoCheckpointReason) != "" {
+		return fmt.Errorf("%w: --no-checkpoint-reason requires --no-checkpoint", ErrInvalidTaskScope)
 	}
 	modes := 0
 	if opts.StageAll {

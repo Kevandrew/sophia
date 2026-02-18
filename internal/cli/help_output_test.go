@@ -59,7 +59,7 @@ func TestMergeAndTaskDoneHelpExamples(t *testing.T) {
 	assertHelpContains(t, doneOut,
 		"sophia cr task done 25 1 --from-contract",
 		"sophia cr task done 25 1 --patch-file /tmp/task1.patch",
-		"sophia cr task done 25 1 --no-checkpoint",
+		"sophia cr task done 25 1 --no-checkpoint --no-checkpoint-reason \"metadata-only task\"",
 	)
 }
 

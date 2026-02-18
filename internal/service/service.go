@@ -448,11 +448,12 @@ type AddEvidenceOptions struct {
 }
 
 type DoneTaskOptions struct {
-	Checkpoint   bool
-	StageAll     bool
-	Paths        []string
-	FromContract bool
-	PatchFile    string
+	Checkpoint         bool
+	StageAll           bool
+	Paths              []string
+	FromContract       bool
+	PatchFile          string
+	NoCheckpointReason string
 }
 
 type ReopenTaskOptions struct {
@@ -519,21 +520,22 @@ type TrustDimension struct {
 }
 
 type TrustReport struct {
-	Verdict         string
-	Score           int
-	Max             int
-	AdvisoryOnly    bool
-	HardFailures    []string
-	Dimensions      []TrustDimension
-	RequiredActions []string
-	Advisories      []string
-	Summary         string
-	RiskTier        string
-	Requirements    []TrustRequirement
-	CheckResults    []TrustCheckResult
-	ReviewDepth     TrustReviewDepthResult
-	ContractDrift   TaskContractDriftSummary
-	Gate            TrustGateSummary
+	Verdict          string
+	Score            int
+	Max              int
+	AdvisoryOnly     bool
+	HardFailures     []string
+	Dimensions       []TrustDimension
+	RequiredActions  []string
+	Advisories       []string
+	Summary          string
+	RiskTier         string
+	Requirements     []TrustRequirement
+	CheckResults     []TrustCheckResult
+	ReviewDepth      TrustReviewDepthResult
+	ContractDrift    TaskContractDriftSummary
+	Gate             TrustGateSummary
+	AttentionActions []string
 }
 
 type TrustRequirement struct {
@@ -585,21 +587,27 @@ type TaskContractDriftSummary struct {
 }
 
 type TrustCheckStatusReport struct {
-	CRID           int
-	CRUID          string
-	RiskTier       string
-	Requirements   []TrustRequirement
-	CheckResults   []TrustCheckResult
-	FreshnessHours int
+	CRID               int
+	CRUID              string
+	RiskTier           string
+	Requirements       []TrustRequirement
+	CheckResults       []TrustCheckResult
+	FreshnessHours     int
+	CheckMode          string
+	RequiredCheckCount int
+	Guidance           []string
 }
 
 type TrustCheckRunReport struct {
-	CRID         int
-	CRUID        string
-	RiskTier     string
-	Requirements []TrustRequirement
-	CheckResults []TrustCheckResult
-	Executed     int
+	CRID               int
+	CRUID              string
+	RiskTier           string
+	Requirements       []TrustRequirement
+	CheckResults       []TrustCheckResult
+	Executed           int
+	CheckMode          string
+	RequiredCheckCount int
+	Guidance           []string
 }
 
 type TaskContractPatch struct {

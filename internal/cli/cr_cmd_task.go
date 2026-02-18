@@ -671,6 +671,7 @@ func newCRTaskListCmd() *cobra.Command {
 
 func newCRTaskDoneCmd() *cobra.Command {
 	var noCheckpoint bool
+	var noCheckpointReason string
 	var stageAll bool
 	var fromContract bool
 	var scopePaths []string
@@ -681,7 +682,7 @@ func newCRTaskDoneCmd() *cobra.Command {
 		Use:     "done <cr-id> <task-id>",
 		Short:   "Mark a subtask as done",
 		Long:    "Complete a task with one explicit checkpoint scope mode. Prefer --from-contract once task contract scope is defined.",
-		Example: "  sophia cr task done 25 1 --from-contract\n  sophia cr task done 25 1 --path internal/service/service.go --path internal/service/service_test.go\n  sophia cr task done 25 1 --patch-file /tmp/task1.patch\n  sophia cr task done 25 1 --all\n  sophia cr task done 25 1 --no-checkpoint",
+		Example: "  sophia cr task done 25 1 --from-contract\n  sophia cr task done 25 1 --path internal/service/service.go --path internal/service/service_test.go\n  sophia cr task done 25 1 --patch-file /tmp/task1.patch\n  sophia cr task done 25 1 --all\n  sophia cr task done 25 1 --no-checkpoint --no-checkpoint-reason \"metadata-only task\"",
 		Args:    cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			crID, err := parsePositiveIntArg(args[0], "cr-id")
@@ -707,6 +708,20 @@ func newCRTaskDoneCmd() *cobra.Command {
 			}
 			if noCheckpoint && (stageAll || fromContract || len(scopePaths) > 0 || strings.TrimSpace(patchFile) != "") {
 				err := fmt.Errorf("--no-checkpoint cannot be combined with --from-contract, --path, --patch-file, or --all")
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
+				return err
+			}
+			if noCheckpoint && strings.TrimSpace(noCheckpointReason) == "" {
+				err := fmt.Errorf("--no-checkpoint requires --no-checkpoint-reason")
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
+				return err
+			}
+			if !noCheckpoint && strings.TrimSpace(noCheckpointReason) != "" {
+				err := fmt.Errorf("--no-checkpoint-reason requires --no-checkpoint")
 				if asJSON {
 					return writeJSONError(cmd, err)
 				}
@@ -742,11 +757,12 @@ func newCRTaskDoneCmd() *cobra.Command {
 				}
 			}
 			opts := service.DoneTaskOptions{
-				Checkpoint:   !noCheckpoint,
-				StageAll:     stageAll,
-				FromContract: fromContract,
-				Paths:        append([]string(nil), scopePaths...),
-				PatchFile:    strings.TrimSpace(patchFile),
+				Checkpoint:         !noCheckpoint,
+				StageAll:           stageAll,
+				FromContract:       fromContract,
+				Paths:              append([]string(nil), scopePaths...),
+				PatchFile:          strings.TrimSpace(patchFile),
+				NoCheckpointReason: strings.TrimSpace(noCheckpointReason),
 			}
 			sha, err := svc.DoneTaskWithCheckpoint(crID, taskID, opts)
 			if err != nil {
@@ -779,12 +795,19 @@ func newCRTaskDoneCmd() *cobra.Command {
 						}
 						return "unknown"
 					}(),
-					"scope_paths": stringSliceOrEmpty(scopePaths),
-					"patch_file":  strings.TrimSpace(patchFile),
+					"scope_paths":          stringSliceOrEmpty(scopePaths),
+					"patch_file":           strings.TrimSpace(patchFile),
+					"no_checkpoint_reason": strings.TrimSpace(noCheckpointReason),
+					"checkpoint_source": func() string {
+						if noCheckpoint {
+							return "task_no_checkpoint"
+						}
+						return "task_checkpoint"
+					}(),
 				})
 			}
 			if noCheckpoint {
-				fmt.Fprintf(cmd.OutOrStdout(), "Marked task %d done in CR %d (no checkpoint)\n", taskID, crID)
+				fmt.Fprintf(cmd.OutOrStdout(), "Marked task %d done in CR %d (no checkpoint): %s\n", taskID, crID, strings.TrimSpace(noCheckpointReason))
 				return nil
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "Marked task %d done in CR %d with checkpoint %s\n", taskID, crID, nonEmpty(sha, "-"))
@@ -793,6 +816,7 @@ func newCRTaskDoneCmd() *cobra.Command {
 	}
 
 	cmd.Flags().BoolVar(&noCheckpoint, "no-checkpoint", false, "Mark task done without creating a checkpoint commit")
+	cmd.Flags().StringVar(&noCheckpointReason, "no-checkpoint-reason", "", "Reason for metadata-only completion when using --no-checkpoint")
 	cmd.Flags().BoolVar(&stageAll, "all", false, "Checkpoint by staging all changes explicitly")
 	cmd.Flags().BoolVar(&fromContract, "from-contract", false, "Checkpoint by staging changed files that match task contract scope")
 	cmd.Flags().StringArrayVar(&scopePaths, "path", nil, "Checkpoint scope path (repo-relative file, repeatable)")

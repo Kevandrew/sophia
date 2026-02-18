@@ -17,6 +17,7 @@ func newCREvidenceCmd() *cobra.Command {
 	}
 	evidenceCmd.AddCommand(newCREvidenceAddCmd())
 	evidenceCmd.AddCommand(newCREvidenceShowCmd())
+	evidenceCmd.AddCommand(newCREvidenceSampleCmd())
 	return evidenceCmd
 }
 
@@ -186,4 +187,149 @@ func evidenceEntryToJSONMap(entry model.EvidenceEntry) map[string]any {
 		"summary":     entry.Summary,
 		"attachments": append([]string(nil), entry.Attachments...),
 	}
+}
+
+func newCREvidenceSampleCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "sample",
+		Short: "Add or list review_sample evidence entries",
+	}
+	cmd.AddCommand(newCREvidenceSampleAddCmd())
+	cmd.AddCommand(newCREvidenceSampleListCmd())
+	return cmd
+}
+
+func newCREvidenceSampleAddCmd() *cobra.Command {
+	var scope string
+	var summary string
+	var attachments []string
+	var asJSON bool
+
+	cmd := &cobra.Command{
+		Use:   "add <id>",
+		Short: "Add a review_sample evidence entry",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			id, err := parsePositiveIntArg(args[0], "id")
+			if err != nil {
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
+				return err
+			}
+			if strings.TrimSpace(scope) == "" {
+				err := fmt.Errorf("--scope is required")
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
+				return err
+			}
+			if strings.TrimSpace(summary) == "" {
+				err := fmt.Errorf("--summary is required")
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
+				return err
+			}
+			svc, err := newService()
+			if err != nil {
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
+				return err
+			}
+			entry, err := svc.AddEvidence(id, service.AddEvidenceOptions{
+				Type:        "review_sample",
+				Scope:       strings.TrimSpace(scope),
+				Summary:     strings.TrimSpace(summary),
+				Attachments: append([]string(nil), attachments...),
+			})
+			if err != nil {
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
+				return err
+			}
+			if asJSON {
+				return writeJSONSuccess(cmd, map[string]any{
+					"cr_id":    id,
+					"evidence": evidenceEntryToJSONMap(*entry),
+				})
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "Added review_sample evidence to CR %d for scope %s\n", id, strings.TrimSpace(scope))
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&scope, "scope", "", "Review sample scope path/prefix")
+	cmd.Flags().StringVar(&summary, "summary", "", "Review sample summary")
+	cmd.Flags().StringArrayVar(&attachments, "attachment", nil, "Optional attachment path (repeatable)")
+	cmd.Flags().BoolVar(&asJSON, "json", false, "Output in JSON format")
+	return cmd
+}
+
+func newCREvidenceSampleListCmd() *cobra.Command {
+	var asJSON bool
+	cmd := &cobra.Command{
+		Use:   "list <id>",
+		Short: "List review_sample evidence entries for a CR",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			id, err := parsePositiveIntArg(args[0], "id")
+			if err != nil {
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
+				return err
+			}
+			svc, err := newService()
+			if err != nil {
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
+				return err
+			}
+			entries, err := svc.ListEvidence(id)
+			if err != nil {
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
+				return err
+			}
+			samples := make([]model.EvidenceEntry, 0, len(entries))
+			for _, entry := range entries {
+				if strings.TrimSpace(entry.Type) != "review_sample" {
+					continue
+				}
+				samples = append(samples, entry)
+			}
+			if asJSON {
+				items := make([]map[string]any, 0, len(samples))
+				for _, entry := range samples {
+					items = append(items, evidenceEntryToJSONMap(entry))
+				}
+				return writeJSONSuccess(cmd, map[string]any{
+					"cr_id":   id,
+					"count":   len(items),
+					"samples": items,
+				})
+			}
+			if len(samples) == 0 {
+				fmt.Fprintf(cmd.OutOrStdout(), "No review_sample evidence entries found for CR %d.\n", id)
+				return nil
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "Review samples for CR %d:\n", id)
+			for i, entry := range samples {
+				fmt.Fprintf(cmd.OutOrStdout(), "- #%d %s %s\n", i+1, nonEmpty(strings.TrimSpace(entry.Scope), "-"), nonEmpty(strings.TrimSpace(entry.Summary), "-"))
+				if strings.TrimSpace(entry.TS) != "" {
+					fmt.Fprintf(cmd.OutOrStdout(), "  ts: %s\n", entry.TS)
+				}
+				if len(entry.Attachments) > 0 {
+					fmt.Fprintf(cmd.OutOrStdout(), "  attachments: %s\n", strings.Join(entry.Attachments, ", "))
+				}
+			}
+			return nil
+		},
+	}
+	cmd.Flags().BoolVar(&asJSON, "json", false, "Output in JSON format")
+	return cmd
 }

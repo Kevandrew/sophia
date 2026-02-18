@@ -157,7 +157,10 @@ func TestDoneTaskWithNoCheckpointIsMetadataOnly(t *testing.T) {
 	}
 	setValidTaskContract(t, svc, cr.ID, task.ID)
 
-	sha, err := svc.DoneTaskWithCheckpoint(cr.ID, task.ID, DoneTaskOptions{Checkpoint: false})
+	sha, err := svc.DoneTaskWithCheckpoint(cr.ID, task.ID, DoneTaskOptions{
+		Checkpoint:         false,
+		NoCheckpointReason: "metadata-only completion",
+	})
 	if err != nil {
 		t.Fatalf("DoneTaskWithCheckpoint(checkpoint=false) error = %v", err)
 	}
@@ -173,6 +176,34 @@ func TestDoneTaskWithNoCheckpointIsMetadataOnly(t *testing.T) {
 	}
 	if loaded.Subtasks[0].CheckpointCommit != "" {
 		t.Fatalf("expected no checkpoint commit metadata, got %#v", loaded.Subtasks[0])
+	}
+	if loaded.Subtasks[0].CheckpointSource != "task_no_checkpoint" {
+		t.Fatalf("expected checkpoint_source task_no_checkpoint, got %#v", loaded.Subtasks[0].CheckpointSource)
+	}
+	if strings.TrimSpace(loaded.Subtasks[0].CheckpointReason) == "" {
+		t.Fatalf("expected checkpoint_reason for no-checkpoint completion")
+	}
+}
+
+func TestDoneTaskWithNoCheckpointRequiresReason(t *testing.T) {
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	cr, err := svc.AddCR("Metadata reason", "require no-checkpoint rationale")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	task, err := svc.AddTask(cr.ID, "docs: metadata completion")
+	if err != nil {
+		t.Fatalf("AddTask() error = %v", err)
+	}
+	setValidTaskContract(t, svc, cr.ID, task.ID)
+
+	_, err = svc.DoneTaskWithCheckpoint(cr.ID, task.ID, DoneTaskOptions{Checkpoint: false})
+	if err == nil || !strings.Contains(err.Error(), "--no-checkpoint requires --no-checkpoint-reason") {
+		t.Fatalf("expected no-checkpoint reason error, got %v", err)
 	}
 }
 

@@ -85,45 +85,59 @@ func buildTrustReportWithPolicy(cr *model.CR, validation *ValidationReport, diff
 	requirements := []TrustRequirement{}
 	if len(validation.Errors) > 0 {
 		hardFailures = append(hardFailures, fmt.Sprintf("validation errors present (%d)", len(validation.Errors)))
-			requirements = append(requirements, TrustRequirement{
-				Key:       "validation_clean",
-				Title:     "Validation has no errors",
-				Satisfied: false,
-				Reason:    fmt.Sprintf("%d validation error(s) present.", len(validation.Errors)),
-				Action:    "Resolve all validation errors before trusting review data.",
-				Source:    "validation",
-			})
-		} else {
-			requirements = append(requirements, TrustRequirement{
-				Key:       "validation_clean",
-				Title:     "Validation has no errors",
-				Satisfied: true,
-				Reason:    "No validation errors.",
-				Action:    "",
-				Source:    "validation",
-			})
-		}
+		requirements = append(requirements, TrustRequirement{
+			Key:       "validation_clean",
+			Title:     "Validation has no errors",
+			Satisfied: false,
+			Reason:    fmt.Sprintf("%d validation error(s) present.", len(validation.Errors)),
+			Action:    "Resolve all validation errors before trusting review data.",
+			Source:    "validation",
+		})
+	} else {
+		requirements = append(requirements, TrustRequirement{
+			Key:       "validation_clean",
+			Title:     "Validation has no errors",
+			Satisfied: true,
+			Reason:    "No validation errors.",
+			Action:    "",
+			Source:    "validation",
+		})
+	}
 	missingContractFields := missingCRContractFields(cr.Contract, requiredCRFields)
 	if len(missingContractFields) > 0 {
 		hardFailures = append(hardFailures, fmt.Sprintf("missing required contract fields: %s", strings.Join(missingContractFields, ", ")))
-			requirements = append(requirements, TrustRequirement{
-				Key:       "contract_required_fields",
-				Title:     "CR required contract fields are complete",
-				Satisfied: false,
-				Reason:    fmt.Sprintf("Missing fields: %s.", strings.Join(missingContractFields, ", ")),
-				Action:    fmt.Sprintf("Complete required contract fields: %s.", strings.Join(missingContractFields, ", ")),
-				Source:    "contract_required_fields",
-			})
-		} else {
-			requirements = append(requirements, TrustRequirement{
-				Key:       "contract_required_fields",
-				Title:     "CR required contract fields are complete",
-				Satisfied: true,
-				Reason:    "All required contract fields are present.",
-				Action:    "",
-				Source:    "contract_required_fields",
-			})
-		}
+		requirements = append(requirements, TrustRequirement{
+			Key:       "contract_required_fields",
+			Title:     "CR required contract fields are complete",
+			Satisfied: false,
+			Reason:    fmt.Sprintf("Missing fields: %s.", strings.Join(missingContractFields, ", ")),
+			Action:    fmt.Sprintf("Complete required contract fields: %s.", strings.Join(missingContractFields, ", ")),
+			Source:    "contract_required_fields",
+		})
+	} else {
+		requirements = append(requirements, TrustRequirement{
+			Key:       "contract_required_fields",
+			Title:     "CR required contract fields are complete",
+			Satisfied: true,
+			Reason:    "All required contract fields are present.",
+			Action:    "",
+			Source:    "contract_required_fields",
+		})
+	}
+	unjustifiedNoCheckpointTasks := listUnjustifiedDoneTasksWithoutCheckpoint(cr.Subtasks)
+	checkpointExceptionRequirement := TrustRequirement{
+		Key:       "task_checkpoint_exception_justified",
+		Title:     "Done tasks without checkpoints include explicit rationale",
+		Satisfied: len(unjustifiedNoCheckpointTasks) == 0,
+		Reason:    "All done tasks are backed by checkpoint commits or explicit no-checkpoint reasons.",
+		Action:    "",
+		Source:    "task_proof_chain",
+	}
+	if len(unjustifiedNoCheckpointTasks) > 0 {
+		checkpointExceptionRequirement.Reason = fmt.Sprintf("Done task(s) missing checkpoint rationale: %s.", formatTaskIDList(unjustifiedNoCheckpointTasks))
+		checkpointExceptionRequirement.Action = fmt.Sprintf("Record rationale with `sophia cr task done %d <task-id> --no-checkpoint --no-checkpoint-reason \"...\"` or create scoped checkpoints.", cr.ID)
+	}
+	requirements = append(requirements, checkpointExceptionRequirement)
 
 	dimensions := []TrustDimension{
 		buildContractQualityDimension(cr.Contract),
@@ -137,6 +151,7 @@ func buildTrustReportWithPolicy(cr *model.CR, validation *ValidationReport, diff
 
 	score := 0
 	max := 0
+	dimensionActions := []string{}
 	for i := range dimensions {
 		dimensions[i].Score = clampMin(dimensions[i].Score, 0)
 		if dimensions[i].Score > dimensions[i].Max {
@@ -144,6 +159,7 @@ func buildTrustReportWithPolicy(cr *model.CR, validation *ValidationReport, diff
 		}
 		dimensions[i].Reasons = dedupeStrings(dimensions[i].Reasons)
 		dimensions[i].RequiredActions = dedupeStrings(dimensions[i].RequiredActions)
+		dimensionActions = append(dimensionActions, dimensions[i].RequiredActions...)
 		score += dimensions[i].Score
 		max += dimensions[i].Max
 		for _, action := range dimensions[i].RequiredActions {
@@ -256,6 +272,10 @@ func buildTrustReportWithPolicy(cr *model.CR, validation *ValidationReport, diff
 	requiredActions = dedupeStrings(requiredActions)
 
 	verdict, summary := selectTrustVerdictForPolicy(score, max, hardFailures, requirements, policy.Trust, riskTier)
+	attentionActions := []string{}
+	if verdict == trustVerdictNeedsAttention && trustRequirementsSatisfied(requirements) {
+		attentionActions = dedupeStrings(dimensionActions)
+	}
 	gate := buildTrustGateSummary(policy.Trust, riskTier, verdict)
 	if strings.EqualFold(strings.TrimSpace(impact.RiskTier), "high") &&
 		len(impact.MatchedRiskCriticalScopes) > 0 &&
@@ -265,21 +285,22 @@ func buildTrustReportWithPolicy(cr *model.CR, validation *ValidationReport, diff
 	}
 
 	return &TrustReport{
-		Verdict:         verdict,
-		Score:           score,
-		Max:             max,
-		AdvisoryOnly:    !(gate.Enabled && gate.Applies),
-		HardFailures:    dedupeStrings(hardFailures),
-		Dimensions:      dimensions,
-		RequiredActions: requiredActions,
-		Advisories:      advisories,
-		Summary:         summary,
-		RiskTier:        riskTier,
-		Requirements:    requirements,
-		CheckResults:    checkResults,
-		ReviewDepth:     reviewDepth,
-		ContractDrift:   contractDrift,
-		Gate:            gate,
+		Verdict:          verdict,
+		Score:            score,
+		Max:              max,
+		AdvisoryOnly:     !(gate.Enabled && gate.Applies),
+		HardFailures:     dedupeStrings(hardFailures),
+		Dimensions:       dimensions,
+		RequiredActions:  requiredActions,
+		Advisories:       advisories,
+		Summary:          summary,
+		AttentionActions: attentionActions,
+		RiskTier:         riskTier,
+		Requirements:     requirements,
+		CheckResults:     checkResults,
+		ReviewDepth:      reviewDepth,
+		ContractDrift:    contractDrift,
+		Gate:             gate,
 	}
 }
 
@@ -310,6 +331,15 @@ func selectTrustVerdictForPolicy(score, max int, hardFailures []string, requirem
 		return trustVerdictTrusted, "Trust evidence is strong and policy requirements are satisfied."
 	}
 	return trustVerdictNeedsAttention, "Trust requirements are satisfied, but confidence score is below the trust threshold."
+}
+
+func trustRequirementsSatisfied(requirements []TrustRequirement) bool {
+	for _, requirement := range requirements {
+		if !requirement.Satisfied {
+			return false
+		}
+	}
+	return true
 }
 
 func trustScoreRatio(score, max int) float64 {
@@ -788,13 +818,13 @@ func buildTaskProofChainDimension(tasks []model.Subtask) TrustDimension {
 	}
 
 	tasksDone := 0
-	missingCheckpoints := 0
+	unjustifiedMissingCheckpoints := 0
 	delegatedPending := false
 	for _, task := range tasks {
 		if task.Status == model.TaskStatusDone {
 			tasksDone++
-			if strings.TrimSpace(task.CheckpointCommit) == "" {
-				missingCheckpoints++
+			if strings.TrimSpace(task.CheckpointCommit) == "" && strings.TrimSpace(task.CheckpointReason) == "" {
+				unjustifiedMissingCheckpoints++
 			}
 		}
 		if task.Status == model.TaskStatusDelegated {
@@ -806,10 +836,10 @@ func buildTaskProofChainDimension(tasks []model.Subtask) TrustDimension {
 		dimension.Reasons = append(dimension.Reasons, "no completed tasks")
 		dimension.RequiredActions = append(dimension.RequiredActions, "Complete at least one scoped task checkpoint to prove implementation progress.")
 	}
-	checkpointPenalty := minInt(8, 2*missingCheckpoints)
+	checkpointPenalty := minInt(8, 2*unjustifiedMissingCheckpoints)
 	if checkpointPenalty > 0 {
 		dimension.Score -= checkpointPenalty
-		dimension.Reasons = append(dimension.Reasons, fmt.Sprintf("%d done task(s) missing checkpoint commit", missingCheckpoints))
+		dimension.Reasons = append(dimension.Reasons, fmt.Sprintf("%d done task(s) missing checkpoint commit without rationale", unjustifiedMissingCheckpoints))
 		dimension.RequiredActions = append(dimension.RequiredActions, "Add checkpoint commits (or explicit rationale) for done tasks missing proof commits.")
 	}
 	if delegatedPending {
@@ -1031,6 +1061,24 @@ func isWeakTrustText(value string) bool {
 type taskAcceptanceCheckRequirement struct {
 	TaskID int
 	Key    string
+}
+
+func listUnjustifiedDoneTasksWithoutCheckpoint(tasks []model.Subtask) []int {
+	out := []int{}
+	for _, task := range tasks {
+		if task.Status != model.TaskStatusDone {
+			continue
+		}
+		if strings.TrimSpace(task.CheckpointCommit) != "" {
+			continue
+		}
+		if strings.TrimSpace(task.CheckpointReason) != "" {
+			continue
+		}
+		out = append(out, task.ID)
+	}
+	sort.Ints(out)
+	return out
 }
 
 func requiredTaskAcceptanceChecks(tasks []model.Subtask) []taskAcceptanceCheckRequirement {

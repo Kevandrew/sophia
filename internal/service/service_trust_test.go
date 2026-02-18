@@ -59,6 +59,68 @@ func TestTrustReportTrustedWhenEvidenceStrong(t *testing.T) {
 	}
 }
 
+func TestTrustReportUntrustedWhenCheckpointExceptionIsUnjustified(t *testing.T) {
+	cr := &model.CR{
+		ID:       12,
+		Contract: validTrustContract(),
+		Subtasks: []model.Subtask{
+			{ID: 1, Status: model.TaskStatusDone},
+		},
+	}
+	report := buildTrustReport(cr, &ValidationReport{
+		Impact: &ImpactReport{
+			FilesChanged: 1,
+			RiskTier:     "low",
+			Signals:      []RiskSignal{{Code: "large_change_set", Points: 2}},
+		},
+	}, &diffSummary{
+		Files: []string{"internal/service/a.go"},
+	}, nil)
+
+	if report.Verdict != trustVerdictUntrusted {
+		t.Fatalf("expected untrusted verdict, got %q", report.Verdict)
+	}
+	req := trustRequirementByKey(t, report, "task_checkpoint_exception_justified")
+	if req.Satisfied {
+		t.Fatalf("expected unsatisfied checkpoint exception requirement, got %#v", req)
+	}
+	if req.Action == "" {
+		t.Fatalf("expected actionable remediation for checkpoint exception requirement")
+	}
+}
+
+func TestTrustReportCheckpointExceptionReasonAvoidsPenalty(t *testing.T) {
+	cr := &model.CR{
+		Contract: validTrustContract(),
+		Subtasks: []model.Subtask{
+			{
+				ID:               1,
+				Status:           model.TaskStatusDone,
+				CheckpointReason: "metadata-only task",
+				CheckpointSource: "task_no_checkpoint",
+			},
+		},
+	}
+	report := buildTrustReport(cr, &ValidationReport{
+		Impact: &ImpactReport{
+			FilesChanged: 1,
+			RiskTier:     "low",
+			Signals:      []RiskSignal{{Code: "large_change_set", Points: 2}},
+		},
+	}, &diffSummary{
+		Files: []string{"internal/service/a.go"},
+	}, nil)
+
+	req := trustRequirementByKey(t, report, "task_checkpoint_exception_justified")
+	if !req.Satisfied {
+		t.Fatalf("expected satisfied checkpoint exception requirement, got %#v", req)
+	}
+	dimension := trustDimensionByCode(t, report, "task_proof_chain")
+	if containsAny(dimension.Reasons, "missing checkpoint commit without rationale") {
+		t.Fatalf("did not expect missing-checkpoint penalty with explicit rationale, got %#v", dimension.Reasons)
+	}
+}
+
 func TestTrustReportWarningHeavyNeedsAttention(t *testing.T) {
 	cr := &model.CR{
 		Contract: validTrustContract(),
@@ -83,6 +145,9 @@ func TestTrustReportWarningHeavyNeedsAttention(t *testing.T) {
 	}
 	if len(report.HardFailures) != 0 {
 		t.Fatalf("expected no hard failures, got %#v", report.HardFailures)
+	}
+	if len(report.AttentionActions) == 0 {
+		t.Fatalf("expected attention_actions for needs_attention verdict, got %#v", report.AttentionActions)
 	}
 }
 
@@ -424,4 +489,15 @@ func trustDimensionByCode(t *testing.T, report *TrustReport, code string) TrustD
 	}
 	t.Fatalf("missing trust dimension %q in %#v", code, report.Dimensions)
 	return TrustDimension{}
+}
+
+func trustRequirementByKey(t *testing.T, report *TrustReport, key string) TrustRequirement {
+	t.Helper()
+	for _, requirement := range report.Requirements {
+		if requirement.Key == key {
+			return requirement
+		}
+	}
+	t.Fatalf("requirement %q not found in report: %#v", key, report.Requirements)
+	return TrustRequirement{}
 }

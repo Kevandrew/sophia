@@ -103,6 +103,7 @@ func printTrustSection(cmd *cobra.Command, trust *service.TrustReport) {
 		}
 	}
 	printStringSection(cmd, "Required Actions", trust.RequiredActions)
+	printStringSection(cmd, "Attention Actions", trust.AttentionActions)
 	printStringSection(cmd, "Advisories", trust.Advisories)
 	printTrustRequirements(cmd, trust.Requirements)
 	printTrustCheckResults(cmd, trust.CheckResults)

@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 
 	"sophia/internal/service"
@@ -452,13 +453,19 @@ func TestCRMutationCommandsSupportJSON(t *testing.T) {
 		t.Fatalf("expected ok envelope from second task contract set --json, got %#v", env)
 	}
 
-	out, _, runErr = runCLI(t, dir, "cr", "task", "done", "1", strconv.Itoa(secondTaskID), "--no-checkpoint", "--json")
+	out, _, runErr = runCLI(t, dir, "cr", "task", "done", "1", strconv.Itoa(secondTaskID), "--no-checkpoint", "--no-checkpoint-reason", "metadata-only completion", "--json")
 	if runErr != nil {
 		t.Fatalf("cr task done --json error = %v\noutput=%s", runErr, out)
 	}
 	env = decodeEnvelope(t, out)
 	if !env.OK {
 		t.Fatalf("expected ok envelope from task done --json, got %#v", env)
+	}
+	if source, ok := env.Data["checkpoint_source"].(string); !ok || source != "task_no_checkpoint" {
+		t.Fatalf("expected checkpoint_source task_no_checkpoint, got %#v", env.Data["checkpoint_source"])
+	}
+	if reason, ok := env.Data["no_checkpoint_reason"].(string); !ok || strings.TrimSpace(reason) == "" {
+		t.Fatalf("expected no_checkpoint_reason, got %#v", env.Data["no_checkpoint_reason"])
 	}
 
 	outPath := filepath.Join(dir, "artifacts", "cr-1.bundle.json")

@@ -210,6 +210,13 @@ func TestCRReviewJSONHighRiskMissingSpecializedEvidenceUsesAdvisories(t *testing
 	if len(requiredActions) != 0 {
 		t.Fatalf("expected empty required_actions once deterministic requirements are satisfied, got %#v", requiredActions)
 	}
+	attentionActions, ok := trust["attention_actions"].([]any)
+	if !ok {
+		t.Fatalf("expected attention_actions array, got %#v", trust["attention_actions"])
+	}
+	if len(attentionActions) == 0 {
+		t.Fatalf("expected non-empty attention_actions array for needs_attention verdict")
+	}
 	advisories, ok := trust["advisories"].([]any)
 	if !ok {
 		t.Fatalf("expected advisories array, got %#v", trust["advisories"])
