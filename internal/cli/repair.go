@@ -12,8 +12,9 @@ func newRepairCmd() *cobra.Command {
 	var refresh bool
 
 	cmd := &cobra.Command{
-		Use:   "repair",
-		Short: "Rebuild local Sophia CR metadata from Git commit history",
+		Use:     "repair",
+		Short:   "Rebuild local Sophia CR metadata from Git commit history",
+		Example: "  sophia repair\n  sophia repair --base-branch main\n  sophia repair --base-branch release/2026-q1 --refresh",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			svc, err := newService()
 			if err != nil {

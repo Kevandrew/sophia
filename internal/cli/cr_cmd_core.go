@@ -684,9 +684,10 @@ func newCRContractSetCmd() *cobra.Command {
 	var rollbackPlan string
 
 	cmd := &cobra.Command{
-		Use:   "set <id>",
-		Short: "Set/update CR intent contract fields",
-		Args:  cobra.ExactArgs(1),
+		Use:     "set <id>",
+		Short:   "Set/update CR intent contract fields",
+		Example: "  sophia cr contract set 25 --why \"Reduce merge churn\" --scope internal/service --scope internal/cli\n  sophia cr contract set 25 --risk-critical-scope internal/service --risk-tier-hint medium --risk-rationale \"Touches merge behavior\"\n  sophia cr contract set 25 --test-plan \"go test ./... && go vet ./...\" --rollback-plan \"Revert [CR-25] merge commit\"",
+		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id, err := parsePositiveIntArg(args[0], "id")
 			if err != nil {
@@ -766,9 +767,10 @@ func newCRContractSetCmd() *cobra.Command {
 
 func newCRContractShowCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "show <id>",
-		Short: "Show CR intent contract fields",
-		Args:  cobra.ExactArgs(1),
+		Use:     "show <id>",
+		Short:   "Show CR intent contract fields",
+		Example: "  sophia cr contract show 25",
+		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id, err := parsePositiveIntArg(args[0], "id")
 			if err != nil {

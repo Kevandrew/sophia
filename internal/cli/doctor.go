@@ -10,8 +10,9 @@ func newDoctorCmd() *cobra.Command {
 	var limit int
 
 	cmd := &cobra.Command{
-		Use:   "doctor",
-		Short: "Run Sophia workflow integrity checks",
+		Use:     "doctor",
+		Short:   "Run Sophia workflow integrity checks",
+		Example: "  sophia doctor\n  sophia doctor --limit 200",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			svc, err := newService()
 			if err != nil {

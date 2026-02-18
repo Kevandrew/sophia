@@ -8,8 +8,9 @@ import (
 
 func newLogCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "log",
-		Short: "Show intent-first CR history",
+		Use:     "log",
+		Short:   "Show intent-first CR history",
+		Example: "  sophia log",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			svc, err := newService()
 			if err != nil {

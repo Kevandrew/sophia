@@ -8,8 +8,9 @@ import (
 
 func newHookCmd() *cobra.Command {
 	hookCmd := &cobra.Command{
-		Use:   "hook",
-		Short: "Manage Sophia local git hooks",
+		Use:     "hook",
+		Short:   "Manage Sophia local git hooks",
+		Example: "  sophia hook install\n  sophia hook install --force-overwrite",
 	}
 	hookCmd.AddCommand(newHookInstallCmd())
 	return hookCmd
@@ -19,8 +20,9 @@ func newHookInstallCmd() *cobra.Command {
 	var forceOverwrite bool
 
 	cmd := &cobra.Command{
-		Use:   "install",
-		Short: "Install Sophia pre-commit guard hook",
+		Use:     "install",
+		Short:   "Install Sophia pre-commit guard hook",
+		Example: "  sophia hook install\n  sophia hook install --force-overwrite",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			svc, err := newService()
 			if err != nil {

@@ -11,8 +11,10 @@ import (
 
 func newCRTaskCmd() *cobra.Command {
 	taskCmd := &cobra.Command{
-		Use:   "task",
-		Short: "Manage CR subtasks",
+		Use:     "task",
+		Short:   "Manage CR subtasks",
+		Long:    "Task commands are the checkpoint layer for implementation progress. Define task contracts first, then complete tasks with explicit checkpoint scope.",
+		Example: "  sophia cr task add 25 \"Implement merge status parser\"\n  sophia cr task contract set 25 1 --intent \"Parse merge state\" --acceptance \"status command reports conflict files\" --scope internal/service\n  sophia cr task done 25 1 --from-contract\n  sophia cr task reopen 25 1 --clear-checkpoint",
 	}
 	taskCmd.AddCommand(newCRTaskAddCmd())
 	taskCmd.AddCommand(newCRTaskListCmd())
@@ -391,9 +393,11 @@ func newCRTaskDoneCmd() *cobra.Command {
 	var patchFile string
 
 	cmd := &cobra.Command{
-		Use:   "done <cr-id> <task-id>",
-		Short: "Mark a subtask as done",
-		Args:  cobra.ExactArgs(2),
+		Use:     "done <cr-id> <task-id>",
+		Short:   "Mark a subtask as done",
+		Long:    "Complete a task with one explicit checkpoint scope mode. Prefer --from-contract once task contract scope is defined.",
+		Example: "  sophia cr task done 25 1 --from-contract\n  sophia cr task done 25 1 --path internal/service/service.go --path internal/service/service_test.go\n  sophia cr task done 25 1 --patch-file /tmp/task1.patch\n  sophia cr task done 25 1 --all\n  sophia cr task done 25 1 --no-checkpoint",
+		Args:    cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			crID, err := parsePositiveIntArg(args[0], "cr-id")
 			if err != nil {
@@ -464,9 +468,10 @@ func newCRTaskReopenCmd() *cobra.Command {
 	var asJSON bool
 
 	cmd := &cobra.Command{
-		Use:   "reopen <cr-id> <task-id>",
-		Short: "Reopen a completed subtask",
-		Args:  cobra.ExactArgs(2),
+		Use:     "reopen <cr-id> <task-id>",
+		Short:   "Reopen a completed subtask",
+		Example: "  sophia cr task reopen 25 1\n  sophia cr task reopen 25 1 --clear-checkpoint\n  sophia cr task reopen 25 1 --json",
+		Args:    cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			crID, err := parsePositiveIntArg(args[0], "cr-id")
 			if err != nil {
