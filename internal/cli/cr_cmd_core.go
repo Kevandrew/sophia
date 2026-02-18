@@ -6,6 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"sophia/internal/model"
 	"sophia/internal/service"
 )
 
@@ -189,29 +190,172 @@ func newCRChildAddCmd() *cobra.Command {
 }
 
 func newCRListCmd() *cobra.Command {
-	return &cobra.Command{
+	var status string
+	var scope string
+	var riskTier string
+	var text string
+	var asJSON bool
+
+	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List all change requests",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			svc, err := newService()
 			if err != nil {
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
 				return err
 			}
-			crs, err := svc.ListCRs()
+
+			query := model.CRSearchQuery{
+				Status:      status,
+				ScopePrefix: scope,
+				RiskTier:    riskTier,
+				Text:        text,
+			}
+
+			results, err := svc.SearchCRs(query)
 			if err != nil {
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
 				return err
 			}
-			if len(crs) == 0 {
+
+			if asJSON {
+				items := make([]map[string]any, 0, len(results))
+				for _, r := range results {
+					items = append(items, map[string]any{
+						"id":          r.ID,
+						"uid":         r.UID,
+						"title":       r.Title,
+						"status":      r.Status,
+						"branch":      r.Branch,
+						"base_branch": r.BaseBranch,
+						"parent_cr_id": r.ParentCRID,
+						"risk_tier":   r.RiskTier,
+						"tasks": map[string]int{
+							"total": r.TasksTotal,
+							"open":  r.TasksOpen,
+							"done":  r.TasksDone,
+						},
+						"created_at": r.CreatedAt,
+						"updated_at": r.UpdatedAt,
+					})
+				}
+				return writeJSONSuccess(cmd, map[string]any{
+					"count":   len(results),
+					"results": items,
+				})
+			}
+
+			if len(results) == 0 {
 				fmt.Fprintln(cmd.OutOrStdout(), "No CRs found.")
 				return nil
 			}
-			fmt.Fprintln(cmd.OutOrStdout(), "ID\tSTATUS\tBRANCH\tTITLE")
-			for _, cr := range crs {
-				fmt.Fprintf(cmd.OutOrStdout(), "%d\t%s\t%s\t%s\n", cr.ID, cr.Status, cr.Branch, cr.Title)
+			fmt.Fprintln(cmd.OutOrStdout(), "ID\tSTATUS\tRISK\tBRANCH\tTITLE")
+			for _, r := range results {
+				fmt.Fprintf(cmd.OutOrStdout(), "%d\t%s\t%s\t%s\t%s\n", r.ID, r.Status, r.RiskTier, r.Branch, r.Title)
 			}
 			return nil
 		},
 	}
+
+	cmd.Flags().StringVar(&status, "status", "", "Filter by status (in_progress, merged)")
+	cmd.Flags().StringVar(&scope, "scope", "", "Filter by contract scope prefix")
+	cmd.Flags().StringVar(&riskTier, "risk-tier", "", "Filter by risk tier (low, medium, high)")
+	cmd.Flags().StringVar(&text, "text", "", "Search in title, description, notes, contract")
+	cmd.Flags().BoolVar(&asJSON, "json", false, "Output in JSON format")
+	return cmd
+}
+
+func newCRSearchCmd() *cobra.Command {
+	var status string
+	var scope string
+	var riskTier string
+	var text string
+	var asJSON bool
+
+	cmd := &cobra.Command{
+		Use:   "search [query]",
+		Short: "Search change requests by text and filters",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			svc, err := newService()
+			if err != nil {
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
+				return err
+			}
+
+			searchText := text
+			if len(args) > 0 {
+				searchText = args[0]
+			}
+
+			query := model.CRSearchQuery{
+				Status:      status,
+				ScopePrefix: scope,
+				RiskTier:    riskTier,
+				Text:        searchText,
+			}
+
+			results, err := svc.SearchCRs(query)
+			if err != nil {
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
+				return err
+			}
+
+			if asJSON {
+				items := make([]map[string]any, 0, len(results))
+				for _, r := range results {
+					items = append(items, map[string]any{
+						"id":           r.ID,
+						"uid":          r.UID,
+						"title":        r.Title,
+						"status":       r.Status,
+						"branch":       r.Branch,
+						"base_branch":  r.BaseBranch,
+						"parent_cr_id": r.ParentCRID,
+						"risk_tier":    r.RiskTier,
+						"tasks": map[string]int{
+							"total": r.TasksTotal,
+							"open":  r.TasksOpen,
+							"done":  r.TasksDone,
+						},
+						"created_at": r.CreatedAt,
+						"updated_at": r.UpdatedAt,
+					})
+				}
+				return writeJSONSuccess(cmd, map[string]any{
+					"count":   len(results),
+					"results": items,
+				})
+			}
+
+			if len(results) == 0 {
+				fmt.Fprintln(cmd.OutOrStdout(), "No CRs found.")
+				return nil
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "Found %d CR(s):\n", len(results))
+			fmt.Fprintln(cmd.OutOrStdout(), "ID\tSTATUS\tRISK\tBRANCH\tTITLE")
+			for _, r := range results {
+				fmt.Fprintf(cmd.OutOrStdout(), "%d\t%s\t%s\t%s\t%s\n", r.ID, r.Status, r.RiskTier, r.Branch, r.Title)
+			}
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&status, "status", "", "Filter by status (in_progress, merged)")
+	cmd.Flags().StringVar(&scope, "scope", "", "Filter by contract scope prefix")
+	cmd.Flags().StringVar(&riskTier, "risk-tier", "", "Filter by risk tier (low, medium, high)")
+	cmd.Flags().StringVar(&text, "text", "", "Search in title, description, notes, contract")
+	cmd.Flags().BoolVar(&asJSON, "json", false, "Output in JSON format")
+	return cmd
 }
 
 func newCRStackCmd() *cobra.Command {

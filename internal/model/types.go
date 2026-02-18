@@ -113,3 +113,26 @@ type CR struct {
 	CreatedAt         string    `yaml:"created_at"`
 	UpdatedAt         string    `yaml:"updated_at"`
 }
+
+type CRSearchQuery struct {
+	Status      string
+	ScopePrefix string
+	RiskTier    string
+	Text        string
+}
+
+type CRSearchResult struct {
+	ID          int
+	UID         string
+	Title       string
+	Status      string
+	Branch      string
+	BaseBranch  string
+	ParentCRID  int
+	RiskTier    string
+	TasksTotal  int
+	TasksOpen   int
+	TasksDone   int
+	CreatedAt   string
+	UpdatedAt   string
+}
