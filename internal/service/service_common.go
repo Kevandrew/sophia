@@ -345,6 +345,31 @@ classification:
 
 merge:
   allow_override: true
+
+trust:
+  mode: advisory
+  gate:
+    enabled: false
+    apply_risk_tiers:
+      - high
+    min_verdict: trusted
+  thresholds:
+    low: 0.85
+    medium: 0.90
+    high: 0.95
+  checks:
+    freshness_hours: 24
+    definitions: []
+  review_depth:
+    low:
+      min_samples: 0
+      require_critical_scope_coverage: false
+    medium:
+      min_samples: 0
+      require_critical_scope_coverage: false
+    high:
+      min_samples: 0
+      require_critical_scope_coverage: false
 `
 
 func ensureRepoPolicyFile(repoRoot string) error {
