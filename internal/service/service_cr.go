@@ -188,38 +188,53 @@ func (s *Service) ListCRs() ([]model.CR, error) {
 	return crs, nil
 }
 
-func (s *Service) AddNote(id int, note string) error {
-	if strings.TrimSpace(note) == "" {
-		return errors.New("note cannot be empty")
-	}
-	cr, err := s.store.LoadCR(id)
-	if err != nil {
-		return err
-	}
-	if guardErr := s.ensureNoMergeInProgressForCR(cr); guardErr != nil {
-		return guardErr
-	}
-	now := s.timestamp()
-	actor := s.git.Actor()
-	cr.Notes = append(cr.Notes, note)
-	cr.Events = append(cr.Events, model.Event{
-		TS:      now,
-		Actor:   actor,
-		Type:    "note_added",
-		Summary: note,
-		Ref:     fmt.Sprintf("cr:%d", id),
-	})
-	cr.UpdatedAt = now
-	return s.store.SaveCR(cr)
-}
-
-func (s *Service) EditCR(id int, newTitle, newDescription *string) ([]string, error) {
+func (s *Service) loadCRForMutation(id int) (*model.CR, error) {
 	cr, err := s.store.LoadCR(id)
 	if err != nil {
 		return nil, err
 	}
 	if guardErr := s.ensureNoMergeInProgressForCR(cr); guardErr != nil {
 		return nil, guardErr
+	}
+	return cr, nil
+}
+
+func (s *Service) appendCRMutationEventAndSave(cr *model.CR, event model.Event) error {
+	if strings.TrimSpace(event.TS) == "" {
+		event.TS = s.timestamp()
+	}
+	if strings.TrimSpace(event.Actor) == "" {
+		event.Actor = s.git.Actor()
+	}
+	cr.UpdatedAt = event.TS
+	cr.Events = append(cr.Events, event)
+	return s.store.SaveCR(cr)
+}
+
+func (s *Service) AddNote(id int, note string) error {
+	if strings.TrimSpace(note) == "" {
+		return errors.New("note cannot be empty")
+	}
+	cr, err := s.loadCRForMutation(id)
+	if err != nil {
+		return err
+	}
+	now := s.timestamp()
+	actor := s.git.Actor()
+	cr.Notes = append(cr.Notes, note)
+	return s.appendCRMutationEventAndSave(cr, model.Event{
+		TS:      now,
+		Actor:   actor,
+		Type:    "note_added",
+		Summary: note,
+		Ref:     fmt.Sprintf("cr:%d", id),
+	})
+}
+
+func (s *Service) EditCR(id int, newTitle, newDescription *string) ([]string, error) {
+	cr, err := s.loadCRForMutation(id)
+	if err != nil {
+		return nil, err
 	}
 
 	changedFields := make([]string, 0, 2)
@@ -237,8 +252,7 @@ func (s *Service) EditCR(id int, newTitle, newDescription *string) ([]string, er
 
 	now := s.timestamp()
 	actor := s.git.Actor()
-	cr.UpdatedAt = now
-	cr.Events = append(cr.Events, model.Event{
+	if err := s.appendCRMutationEventAndSave(cr, model.Event{
 		TS:      now,
 		Actor:   actor,
 		Type:    "cr_amended",
@@ -247,20 +261,16 @@ func (s *Service) EditCR(id int, newTitle, newDescription *string) ([]string, er
 		Meta: map[string]string{
 			"fields": strings.Join(changedFields, ","),
 		},
-	})
-	if err := s.store.SaveCR(cr); err != nil {
+	}); err != nil {
 		return nil, err
 	}
 	return changedFields, nil
 }
 
 func (s *Service) SetCRContract(id int, patch ContractPatch) ([]string, error) {
-	cr, err := s.store.LoadCR(id)
+	cr, err := s.loadCRForMutation(id)
 	if err != nil {
 		return nil, err
-	}
-	if guardErr := s.ensureNoMergeInProgressForCR(cr); guardErr != nil {
-		return nil, guardErr
 	}
 	policy, err := s.repoPolicy()
 	if err != nil {
@@ -356,8 +366,7 @@ func (s *Service) SetCRContract(id int, patch ContractPatch) ([]string, error) {
 	actor := s.git.Actor()
 	cr.Contract.UpdatedAt = now
 	cr.Contract.UpdatedBy = actor
-	cr.UpdatedAt = now
-	cr.Events = append(cr.Events, model.Event{
+	if err := s.appendCRMutationEventAndSave(cr, model.Event{
 		TS:      now,
 		Actor:   actor,
 		Type:    "contract_updated",
@@ -366,8 +375,7 @@ func (s *Service) SetCRContract(id int, patch ContractPatch) ([]string, error) {
 		Meta: map[string]string{
 			"fields": strings.Join(changed, ","),
 		},
-	})
-	if err := s.store.SaveCR(cr); err != nil {
+	}); err != nil {
 		return nil, err
 	}
 	return changed, nil

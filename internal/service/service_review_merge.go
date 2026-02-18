@@ -243,8 +243,7 @@ func (s *Service) AbortMergeCR(id int) error {
 	}
 	now := s.timestamp()
 	actor := s.git.Actor()
-	cr.UpdatedAt = now
-	cr.Events = append(cr.Events, model.Event{
+	return s.appendCRMutationEventAndSave(cr, model.Event{
 		TS:      now,
 		Actor:   actor,
 		Type:    "cr_merge_aborted",
@@ -255,7 +254,6 @@ func (s *Service) AbortMergeCR(id int) error {
 			"conflict_count": strconv.Itoa(len(status.ConflictFiles)),
 		},
 	})
-	return s.store.SaveCR(cr)
 }
 
 func (s *Service) ResumeMergeCR(id int, keepBranch bool, overrideReason string) (string, []string, error) {
@@ -463,7 +461,7 @@ func (s *Service) recordMergeConflictEvent(cr *model.CR, actor, worktreePath str
 	if cause != nil {
 		meta["cause"] = strings.TrimSpace(cause.Error())
 	}
-	cr.Events = append(cr.Events, model.Event{
+	return s.appendCRMutationEventAndSave(cr, model.Event{
 		TS:      now,
 		Actor:   actor,
 		Type:    "cr_merge_conflict",
@@ -471,8 +469,6 @@ func (s *Service) recordMergeConflictEvent(cr *model.CR, actor, worktreePath str
 		Ref:     fmt.Sprintf("cr:%d", cr.ID),
 		Meta:    meta,
 	})
-	cr.UpdatedAt = now
-	return s.store.SaveCR(cr)
 }
 
 func (s *Service) Doctor(limit int) (*DoctorReport, error) {
