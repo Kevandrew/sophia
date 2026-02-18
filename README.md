@@ -353,6 +353,22 @@ Behavior:
 
 ---
 
+### One-Call Context Pack
+
+```
+sophia cr pack <id> --json
+sophia cr pack <id> --json --events-limit 40 --checkpoints-limit 20
+```
+
+Behavior:
+
+* Aggregates contract, tasks, canonical anchors, status, validation/trust, and diff summary in one response
+* Includes recent events and recent checkpoint history with bounded defaults
+* Defaults: `--events-limit 20`, `--checkpoints-limit 10`
+* Returns truncation metadata so agents know when history was clipped
+
+---
+
 ### List CRs
 
 ```
