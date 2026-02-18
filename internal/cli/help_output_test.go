@@ -31,6 +31,7 @@ func TestCRHelpNavigationMap(t *testing.T) {
 		"Navigation:",
 		"Intake and planning:",
 		"Implementation lenses:",
+		"range, rev-parse",
 		"Merge and recovery:",
 		"sophia cr add \"Worktree-safe parsing\"",
 	)

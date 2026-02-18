@@ -256,6 +256,25 @@ Behavior:
 
 ---
 
+### Canonical CR Anchors
+
+```
+sophia cr range <id>
+sophia cr range <id> --json
+sophia cr rev-parse <id> --kind base
+sophia cr rev-parse <id> --kind head
+sophia cr rev-parse <id> --kind merge-base --json
+```
+
+Behavior:
+
+* `cr range` returns the canonical base/head/merge-base commit anchors for a CR
+* `cr rev-parse` resolves one anchor (`base`, `head`, or `merge-base`) for script usage
+* In text mode, `cr rev-parse` prints only one commit hash line
+* `--json` exposes stable machine-readable payloads for agent workflows
+
+---
+
 ### List CRs
 
 ```
