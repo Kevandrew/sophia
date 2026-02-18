@@ -1,0 +1,179 @@
+package service
+
+import (
+	"fmt"
+	"sort"
+	"strings"
+
+	"sophia/internal/model"
+)
+
+const (
+	defaultPackEventsLimit      = 20
+	defaultPackCheckpointsLimit = 10
+)
+
+func (s *Service) PackCR(id int, opts PackOptions) (*CRPackView, error) {
+	eventsLimit, checkpointsLimit, err := normalizePackOptions(opts)
+	if err != nil {
+		return nil, err
+	}
+	review, err := s.ReviewCR(id)
+	if err != nil {
+		return nil, err
+	}
+	if review == nil || review.CR == nil {
+		return nil, fmt.Errorf("cr %d is unavailable", id)
+	}
+	anchors, err := s.RangeCR(id)
+	if err != nil {
+		return nil, err
+	}
+	status, err := s.StatusCR(id)
+	if err != nil {
+		return nil, err
+	}
+
+	events, eventsMeta := selectRecentEvents(review.CR.Events, eventsLimit)
+	checkpoints, checkpointsMeta := selectRecentCheckpoints(review.CR.Subtasks, checkpointsLimit)
+	validation := &ValidationReport{
+		Valid:    len(review.ValidationErrors) == 0,
+		Errors:   append([]string(nil), review.ValidationErrors...),
+		Warnings: append([]string(nil), review.ValidationWarnings...),
+		Impact:   review.Impact,
+	}
+
+	warnings := append([]string(nil), anchors.Warnings...)
+	if eventsMeta.Truncated > 0 {
+		warnings = appendUniqueString(warnings, fmt.Sprintf("events truncated: %d hidden", eventsMeta.Truncated))
+	}
+	if checkpointsMeta.Truncated > 0 {
+		warnings = appendUniqueString(warnings, fmt.Sprintf("checkpoints truncated: %d hidden", checkpointsMeta.Truncated))
+	}
+
+	tasks := append([]model.Subtask(nil), review.CR.Subtasks...)
+	return &CRPackView{
+		CR:                review.CR,
+		Contract:          review.CR.Contract,
+		Tasks:             tasks,
+		Anchors:           anchors,
+		Status:            status,
+		RecentEvents:      events,
+		EventsMeta:        eventsMeta,
+		RecentCheckpoints: checkpoints,
+		CheckpointsMeta:   checkpointsMeta,
+		DiffStat:          strings.TrimSpace(review.ShortStat),
+		FilesChanged:      append([]string(nil), review.Files...),
+		Impact:            review.Impact,
+		Validation:        validation,
+		Trust:             review.Trust,
+		Warnings:          warnings,
+	}, nil
+}
+
+func normalizePackOptions(opts PackOptions) (int, int, error) {
+	if opts.EventsLimit < 0 {
+		return 0, 0, fmt.Errorf("--events-limit must be >= 0")
+	}
+	if opts.CheckpointsLimit < 0 {
+		return 0, 0, fmt.Errorf("--checkpoints-limit must be >= 0")
+	}
+	eventsLimit := opts.EventsLimit
+	if eventsLimit == 0 {
+		eventsLimit = defaultPackEventsLimit
+	}
+	checkpointsLimit := opts.CheckpointsLimit
+	if checkpointsLimit == 0 {
+		checkpointsLimit = defaultPackCheckpointsLimit
+	}
+	return eventsLimit, checkpointsLimit, nil
+}
+
+func selectRecentEvents(events []model.Event, limit int) ([]model.Event, PackSliceMeta) {
+	total := len(events)
+	if limit < 0 {
+		limit = 0
+	}
+	if limit > total {
+		limit = total
+	}
+	out := make([]model.Event, 0, limit)
+	for i := total - 1; i >= total-limit; i-- {
+		if i < 0 {
+			break
+		}
+		out = append(out, events[i])
+	}
+	return out, PackSliceMeta{
+		Total:     total,
+		Returned:  len(out),
+		Truncated: maxInt(total-len(out), 0),
+	}
+}
+
+func selectRecentCheckpoints(tasks []model.Subtask, limit int) ([]CRPackCheckpoint, PackSliceMeta) {
+	checkpoints := make([]CRPackCheckpoint, 0, len(tasks))
+	for _, task := range tasks {
+		commit := strings.TrimSpace(task.CheckpointCommit)
+		if commit == "" {
+			continue
+		}
+		checkpoints = append(checkpoints, CRPackCheckpoint{
+			TaskID:  task.ID,
+			Title:   task.Title,
+			Status:  task.Status,
+			Commit:  commit,
+			At:      strings.TrimSpace(task.CheckpointAt),
+			Message: strings.TrimSpace(task.CheckpointMessage),
+			Scope:   append([]string(nil), task.CheckpointScope...),
+			Source:  strings.TrimSpace(task.CheckpointSource),
+			Orphan:  task.CheckpointOrphan,
+			Reason:  strings.TrimSpace(task.CheckpointReason),
+		})
+	}
+	sort.Slice(checkpoints, func(i, j int) bool {
+		ti := parseRFC3339OrZero(checkpoints[i].At)
+		tj := parseRFC3339OrZero(checkpoints[j].At)
+		if !ti.Equal(tj) {
+			return tj.Before(ti)
+		}
+		if checkpoints[i].TaskID != checkpoints[j].TaskID {
+			return checkpoints[i].TaskID > checkpoints[j].TaskID
+		}
+		return checkpoints[i].Commit > checkpoints[j].Commit
+	})
+
+	total := len(checkpoints)
+	if limit < 0 {
+		limit = 0
+	}
+	if limit > total {
+		limit = total
+	}
+	selected := append([]CRPackCheckpoint(nil), checkpoints[:limit]...)
+	return selected, PackSliceMeta{
+		Total:     total,
+		Returned:  len(selected),
+		Truncated: maxInt(total-len(selected), 0),
+	}
+}
+
+func appendUniqueString(items []string, value string) []string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return items
+	}
+	for _, existing := range items {
+		if strings.TrimSpace(existing) == value {
+			return items
+		}
+	}
+	return append(items, value)
+}
+
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
