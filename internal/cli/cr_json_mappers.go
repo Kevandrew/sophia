@@ -167,6 +167,23 @@ func trustToJSONMap(trust *service.TrustReport) map[string]any {
 	}
 }
 
+func validationToJSONMap(report *service.ValidationReport) map[string]any {
+	if report == nil {
+		return map[string]any{
+			"valid":    false,
+			"errors":   []string{},
+			"warnings": []string{},
+			"impact":   map[string]any{},
+		}
+	}
+	return map[string]any{
+		"valid":    report.Valid,
+		"errors":   report.Errors,
+		"warnings": report.Warnings,
+		"impact":   impactToJSONMap(report.Impact),
+	}
+}
+
 func mergeStatusToJSONMap(status *service.MergeStatusView) map[string]any {
 	if status == nil {
 		return map[string]any{}
@@ -182,6 +199,55 @@ func mergeStatusToJSONMap(status *service.MergeStatusView) map[string]any {
 		"target_matches": status.TargetMatches,
 		"merge_head":     status.MergeHead,
 		"advice":         status.Advice,
+	}
+}
+
+func crStatusToJSONMap(status *service.CRStatusView) map[string]any {
+	if status == nil {
+		return map[string]any{}
+	}
+	return map[string]any{
+		"id":            status.ID,
+		"uid":           status.UID,
+		"title":         status.Title,
+		"status":        status.Status,
+		"base":          status.BaseBranch,
+		"base_ref":      status.BaseRef,
+		"base_commit":   status.BaseCommit,
+		"parent_cr_id":  status.ParentCRID,
+		"parent_status": status.ParentStatus,
+		"branch":        status.Branch,
+		"branch_context": map[string]any{
+			"current_branch": status.CurrentBranch,
+			"branch_match":   status.BranchMatch,
+		},
+		"working_tree": map[string]any{
+			"modified_staged_count": status.ModifiedStagedCount,
+			"untracked_count":       status.UntrackedCount,
+			"dirty":                 status.Dirty,
+		},
+		"tasks": map[string]any{
+			"total":             status.TasksTotal,
+			"open":              status.TasksOpen,
+			"done":              status.TasksDone,
+			"delegated":         status.TasksDelegated,
+			"delegated_pending": status.TasksDelegatedPending,
+		},
+		"contract": map[string]any{
+			"complete":       status.ContractComplete,
+			"missing_fields": status.ContractMissingFields,
+		},
+		"validation": map[string]any{
+			"valid":    status.ValidationValid,
+			"errors":   status.ValidationErrors,
+			"warnings": status.ValidationWarnings,
+			"risk": map[string]any{
+				"tier":  status.RiskTier,
+				"score": status.RiskScore,
+			},
+		},
+		"merge_blocked":  status.MergeBlocked,
+		"merge_blockers": status.MergeBlockers,
 	}
 }
 
@@ -401,5 +467,138 @@ func crRevParseToJSONMap(view *service.CRRevParseView) map[string]any {
 		"kind":     view.Kind,
 		"commit":   view.Commit,
 		"warnings": view.Warnings,
+	}
+}
+
+func crPackToJSONMap(view *service.CRPackView) map[string]any {
+	if view == nil || view.CR == nil {
+		return map[string]any{}
+	}
+	tasks := make([]map[string]any, 0, len(view.Tasks))
+	for _, task := range view.Tasks {
+		chunks := make([]map[string]any, 0, len(task.CheckpointChunks))
+		for _, chunk := range task.CheckpointChunks {
+			chunks = append(chunks, map[string]any{
+				"chunk_id":  chunk.ID,
+				"path":      chunk.Path,
+				"old_start": chunk.OldStart,
+				"old_lines": chunk.OldLines,
+				"new_start": chunk.NewStart,
+				"new_lines": chunk.NewLines,
+			})
+		}
+		tasks = append(tasks, map[string]any{
+			"id":                 task.ID,
+			"title":              task.Title,
+			"status":             task.Status,
+			"checkpoint_commit":  task.CheckpointCommit,
+			"checkpoint_at":      task.CheckpointAt,
+			"checkpoint_message": task.CheckpointMessage,
+			"checkpoint_scope":   task.CheckpointScope,
+			"checkpoint_source":  task.CheckpointSource,
+			"checkpoint_orphan":  task.CheckpointOrphan,
+			"checkpoint_reason":  task.CheckpointReason,
+			"checkpoint_chunks":  chunks,
+			"contract": map[string]any{
+				"intent":              task.Contract.Intent,
+				"acceptance_criteria": task.Contract.AcceptanceCriteria,
+				"scope":               task.Contract.Scope,
+				"updated_at":          task.Contract.UpdatedAt,
+				"updated_by":          task.Contract.UpdatedBy,
+			},
+		})
+	}
+
+	events := make([]map[string]any, 0, len(view.RecentEvents))
+	for _, event := range view.RecentEvents {
+		events = append(events, map[string]any{
+			"ts":      event.TS,
+			"actor":   event.Actor,
+			"type":    event.Type,
+			"summary": event.Summary,
+			"ref":     event.Ref,
+			"meta":    event.Meta,
+		})
+	}
+
+	checkpoints := make([]map[string]any, 0, len(view.RecentCheckpoints))
+	for _, checkpoint := range view.RecentCheckpoints {
+		checkpoints = append(checkpoints, map[string]any{
+			"task_id": checkpoint.TaskID,
+			"title":   checkpoint.Title,
+			"status":  checkpoint.Status,
+			"commit":  checkpoint.Commit,
+			"at":      checkpoint.At,
+			"message": checkpoint.Message,
+			"scope":   checkpoint.Scope,
+			"source":  checkpoint.Source,
+			"orphan":  checkpoint.Orphan,
+			"reason":  checkpoint.Reason,
+		})
+	}
+
+	anchors := map[string]any{}
+	if view.Anchors != nil {
+		anchors = map[string]any{
+			"base":       view.Anchors.Base,
+			"head":       view.Anchors.Head,
+			"merge_base": view.Anchors.MergeBase,
+			"warnings":   view.Anchors.Warnings,
+		}
+	}
+
+	return map[string]any{
+		"cr": map[string]any{
+			"id":            view.CR.ID,
+			"uid":           view.CR.UID,
+			"title":         view.CR.Title,
+			"description":   view.CR.Description,
+			"status":        view.CR.Status,
+			"base_branch":   view.CR.BaseBranch,
+			"base_ref":      view.CR.BaseRef,
+			"base_commit":   view.CR.BaseCommit,
+			"parent_cr_id":  view.CR.ParentCRID,
+			"branch":        view.CR.Branch,
+			"merged_at":     view.CR.MergedAt,
+			"merged_by":     view.CR.MergedBy,
+			"merged_commit": view.CR.MergedCommit,
+			"created_at":    view.CR.CreatedAt,
+			"updated_at":    view.CR.UpdatedAt,
+		},
+		"contract": map[string]any{
+			"why":                  view.Contract.Why,
+			"scope":                view.Contract.Scope,
+			"non_goals":            view.Contract.NonGoals,
+			"invariants":           view.Contract.Invariants,
+			"blast_radius":         view.Contract.BlastRadius,
+			"risk_critical_scopes": view.Contract.RiskCriticalScopes,
+			"risk_tier_hint":       view.Contract.RiskTierHint,
+			"risk_rationale":       view.Contract.RiskRationale,
+			"test_plan":            view.Contract.TestPlan,
+			"rollback_plan":        view.Contract.RollbackPlan,
+			"updated_at":           view.Contract.UpdatedAt,
+			"updated_by":           view.Contract.UpdatedBy,
+		},
+		"tasks":              tasks,
+		"anchors":            anchors,
+		"status":             crStatusToJSONMap(view.Status),
+		"recent_events":      events,
+		"events_meta":        packSliceMetaToJSONMap(view.EventsMeta),
+		"recent_checkpoints": checkpoints,
+		"checkpoints_meta":   packSliceMetaToJSONMap(view.CheckpointsMeta),
+		"diff_stat":          view.DiffStat,
+		"files_changed":      view.FilesChanged,
+		"impact":             impactToJSONMap(view.Impact),
+		"validation":         validationToJSONMap(view.Validation),
+		"trust":              trustToJSONMap(view.Trust),
+		"warnings":           view.Warnings,
+	}
+}
+
+func packSliceMetaToJSONMap(meta service.PackSliceMeta) map[string]any {
+	return map[string]any{
+		"total":     meta.Total,
+		"returned":  meta.Returned,
+		"truncated": meta.Truncated,
 	}
 }
