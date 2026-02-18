@@ -293,6 +293,73 @@ func ensureCRPlanSample(sophiaDir string) error {
 	return nil
 }
 
+const repoPolicyTemplate = `version: v1
+
+contract:
+  required_fields:
+    - why
+    - scope
+    - non_goals
+    - invariants
+    - blast_radius
+    - test_plan
+    - rollback_plan
+
+task_contract:
+  required_fields:
+    - intent
+    - acceptance_criteria
+    - scope
+
+scope:
+  allowed_prefixes:
+    - "."
+
+classification:
+  test:
+    suffixes:
+      - "_test.go"
+      - ".spec.js"
+      - ".spec.ts"
+      - ".spec.jsx"
+      - ".spec.tsx"
+      - ".test.js"
+      - ".test.ts"
+      - ".test.jsx"
+      - ".test.tsx"
+    path_contains:
+      - "/test/"
+      - "/tests/"
+  dependency:
+    file_names:
+      - "go.mod"
+      - "go.sum"
+      - "package.json"
+      - "package-lock.json"
+      - "pnpm-lock.yaml"
+      - "yarn.lock"
+      - "cargo.toml"
+      - "cargo.lock"
+      - "requirements.txt"
+      - "poetry.lock"
+
+merge:
+  allow_override: true
+`
+
+func ensureRepoPolicyFile(repoRoot string) error {
+	path := filepath.Join(repoRoot, repoPolicyFileName)
+	if _, err := os.Stat(path); err == nil {
+		return nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("stat %s: %w", path, err)
+	}
+	if err := os.WriteFile(path, []byte(repoPolicyTemplate), 0o644); err != nil {
+		return fmt.Errorf("write %s: %w", path, err)
+	}
+	return nil
+}
+
 func (s *Service) ensureNextCRIDFloor(baseBranch string) error {
 	idx, err := s.store.LoadIndex()
 	if err != nil {
@@ -347,6 +414,13 @@ func (s *Service) timestamp() string {
 func (s *Service) isIgnorableWorktreeEntry(entry gitx.StatusEntry) bool {
 	if entry.Code != "??" {
 		return false
+	}
+	if strings.TrimSpace(entry.Path) == repoPolicyFileName {
+		data, err := os.ReadFile(filepath.Join(s.git.WorkDir, repoPolicyFileName))
+		if err != nil {
+			return false
+		}
+		return strings.TrimSpace(string(data)) == strings.TrimSpace(repoPolicyTemplate)
 	}
 	if strings.TrimSpace(entry.Path) != ".gitignore" {
 		return false
