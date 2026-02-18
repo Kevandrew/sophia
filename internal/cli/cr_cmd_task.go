@@ -552,6 +552,111 @@ func newCRTaskListCmd() *cobra.Command {
 	return cmd
 }
 
+type taskDoneFlags struct {
+	noCheckpoint       bool
+	noCheckpointReason string
+	stageAll           bool
+	fromContract       bool
+	scopePaths         []string
+	patchFile          string
+}
+
+func validateTaskDoneFlags(flags taskDoneFlags) error {
+	trimmedReason := strings.TrimSpace(flags.noCheckpointReason)
+	trimmedPatchFile := strings.TrimSpace(flags.patchFile)
+	if flags.noCheckpoint && (flags.stageAll || flags.fromContract || len(flags.scopePaths) > 0 || trimmedPatchFile != "") {
+		return fmt.Errorf("--no-checkpoint cannot be combined with --from-contract, --path, --patch-file, or --all")
+	}
+	if flags.noCheckpoint && trimmedReason == "" {
+		return fmt.Errorf("--no-checkpoint requires --no-checkpoint-reason")
+	}
+	if !flags.noCheckpoint && trimmedReason != "" {
+		return fmt.Errorf("--no-checkpoint-reason requires --no-checkpoint")
+	}
+	if flags.noCheckpoint {
+		return nil
+	}
+	modeCount := 0
+	if flags.stageAll {
+		modeCount++
+	}
+	if flags.fromContract {
+		modeCount++
+	}
+	if len(flags.scopePaths) > 0 {
+		modeCount++
+	}
+	if trimmedPatchFile != "" {
+		modeCount++
+	}
+	if modeCount > 1 {
+		return fmt.Errorf("exactly one checkpoint scope mode is required: --from-contract, --path <file> (repeatable), --patch-file <file>, or --all")
+	}
+	if modeCount == 0 {
+		return fmt.Errorf("checkpoint scope required: use --from-contract, --path <file> (repeatable), --patch-file <file>, or --all")
+	}
+	return nil
+}
+
+func buildTaskDoneOptions(flags taskDoneFlags) service.DoneTaskOptions {
+	return service.DoneTaskOptions{
+		Checkpoint:         !flags.noCheckpoint,
+		StageAll:           flags.stageAll,
+		FromContract:       flags.fromContract,
+		Paths:              append([]string(nil), flags.scopePaths...),
+		PatchFile:          strings.TrimSpace(flags.patchFile),
+		NoCheckpointReason: strings.TrimSpace(flags.noCheckpointReason),
+	}
+}
+
+func taskDoneScopeMode(flags taskDoneFlags) string {
+	if flags.noCheckpoint {
+		return "none"
+	}
+	if flags.stageAll {
+		return "all"
+	}
+	if flags.fromContract {
+		return "from_contract"
+	}
+	if len(flags.scopePaths) > 0 {
+		return "path"
+	}
+	if strings.TrimSpace(flags.patchFile) != "" {
+		return "patch_file"
+	}
+	return "unknown"
+}
+
+func taskDoneCheckpointSource(flags taskDoneFlags) string {
+	if flags.noCheckpoint {
+		return "task_no_checkpoint"
+	}
+	return "task_checkpoint"
+}
+
+func writeTaskDoneResult(cmd *cobra.Command, asJSON bool, crID, taskID int, sha string, flags taskDoneFlags) error {
+	if asJSON {
+		return writeJSONSuccess(cmd, map[string]any{
+			"cr_id":                crID,
+			"task_id":              taskID,
+			"checkpoint":           !flags.noCheckpoint,
+			"checkpoint_commit":    strings.TrimSpace(sha),
+			"scope_mode":           taskDoneScopeMode(flags),
+			"scope_paths":          stringSliceOrEmpty(flags.scopePaths),
+			"patch_file":           strings.TrimSpace(flags.patchFile),
+			"no_checkpoint_reason": strings.TrimSpace(flags.noCheckpointReason),
+			"checkpoint_source":    taskDoneCheckpointSource(flags),
+		})
+	}
+	if flags.noCheckpoint {
+		fmt.Fprintf(cmd.OutOrStdout(), "Marked task %d done in CR %d (no checkpoint): %s\n", taskID, crID, strings.TrimSpace(flags.noCheckpointReason))
+		return nil
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "Marked task %d done in CR %d with checkpoint %s\n", taskID, crID, nonEmpty(sha, "-"))
+	return nil
+}
+
 func newCRTaskDoneCmd() *cobra.Command {
 	var noCheckpoint bool
 	var noCheckpointReason string
@@ -576,98 +681,27 @@ func newCRTaskDoneCmd() *cobra.Command {
 			if err != nil {
 				return commandError(cmd, asJSON, err)
 			}
+			flags := taskDoneFlags{
+				noCheckpoint:       noCheckpoint,
+				noCheckpointReason: noCheckpointReason,
+				stageAll:           stageAll,
+				fromContract:       fromContract,
+				scopePaths:         append([]string(nil), scopePaths...),
+				patchFile:          patchFile,
+			}
 			svc, err := newService()
 			if err != nil {
 				return commandError(cmd, asJSON, err)
 			}
-			if noCheckpoint && (stageAll || fromContract || len(scopePaths) > 0 || strings.TrimSpace(patchFile) != "") {
-				err := fmt.Errorf("--no-checkpoint cannot be combined with --from-contract, --path, --patch-file, or --all")
+			if err := validateTaskDoneFlags(flags); err != nil {
 				return commandError(cmd, asJSON, err)
 			}
-			if noCheckpoint && strings.TrimSpace(noCheckpointReason) == "" {
-				err := fmt.Errorf("--no-checkpoint requires --no-checkpoint-reason")
-				return commandError(cmd, asJSON, err)
-			}
-			if !noCheckpoint && strings.TrimSpace(noCheckpointReason) != "" {
-				err := fmt.Errorf("--no-checkpoint-reason requires --no-checkpoint")
-				return commandError(cmd, asJSON, err)
-			}
-			if !noCheckpoint {
-				modeCount := 0
-				if stageAll {
-					modeCount++
-				}
-				if fromContract {
-					modeCount++
-				}
-				if len(scopePaths) > 0 {
-					modeCount++
-				}
-				if strings.TrimSpace(patchFile) != "" {
-					modeCount++
-				}
-				if modeCount > 1 {
-					err := fmt.Errorf("exactly one checkpoint scope mode is required: --from-contract, --path <file> (repeatable), --patch-file <file>, or --all")
-					return commandError(cmd, asJSON, err)
-				}
-				if modeCount == 0 {
-					err := fmt.Errorf("checkpoint scope required: use --from-contract, --path <file> (repeatable), --patch-file <file>, or --all")
-					return commandError(cmd, asJSON, err)
-				}
-			}
-			opts := service.DoneTaskOptions{
-				Checkpoint:         !noCheckpoint,
-				StageAll:           stageAll,
-				FromContract:       fromContract,
-				Paths:              append([]string(nil), scopePaths...),
-				PatchFile:          strings.TrimSpace(patchFile),
-				NoCheckpointReason: strings.TrimSpace(noCheckpointReason),
-			}
+			opts := buildTaskDoneOptions(flags)
 			sha, err := svc.DoneTaskWithCheckpoint(crID, taskID, opts)
 			if err != nil {
 				return commandError(cmd, asJSON, err)
 			}
-			if asJSON {
-				return writeJSONSuccess(cmd, map[string]any{
-					"cr_id":             crID,
-					"task_id":           taskID,
-					"checkpoint":        !noCheckpoint,
-					"checkpoint_commit": strings.TrimSpace(sha),
-					"scope_mode": func() string {
-						if noCheckpoint {
-							return "none"
-						}
-						if stageAll {
-							return "all"
-						}
-						if fromContract {
-							return "from_contract"
-						}
-						if len(scopePaths) > 0 {
-							return "path"
-						}
-						if strings.TrimSpace(patchFile) != "" {
-							return "patch_file"
-						}
-						return "unknown"
-					}(),
-					"scope_paths":          stringSliceOrEmpty(scopePaths),
-					"patch_file":           strings.TrimSpace(patchFile),
-					"no_checkpoint_reason": strings.TrimSpace(noCheckpointReason),
-					"checkpoint_source": func() string {
-						if noCheckpoint {
-							return "task_no_checkpoint"
-						}
-						return "task_checkpoint"
-					}(),
-				})
-			}
-			if noCheckpoint {
-				fmt.Fprintf(cmd.OutOrStdout(), "Marked task %d done in CR %d (no checkpoint): %s\n", taskID, crID, strings.TrimSpace(noCheckpointReason))
-				return nil
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Marked task %d done in CR %d with checkpoint %s\n", taskID, crID, nonEmpty(sha, "-"))
-			return nil
+			return writeTaskDoneResult(cmd, asJSON, crID, taskID, sha, flags)
 		},
 	}
 
