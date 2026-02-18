@@ -212,6 +212,9 @@ func (s *Store) LoadCR(id int) (*model.CR, error) {
 	if cr.Notes == nil {
 		cr.Notes = []string{}
 	}
+	if cr.Evidence == nil {
+		cr.Evidence = []model.EvidenceEntry{}
+	}
 	if cr.Subtasks == nil {
 		cr.Subtasks = []model.Subtask{}
 	}
@@ -230,6 +233,9 @@ func (s *Store) SaveCR(cr *model.CR) error {
 	}
 	if cr.Notes == nil {
 		cr.Notes = []string{}
+	}
+	if cr.Evidence == nil {
+		cr.Evidence = []model.EvidenceEntry{}
 	}
 	if cr.Subtasks == nil {
 		cr.Subtasks = []model.Subtask{}
@@ -259,6 +265,9 @@ func (s *Store) ListCRs() ([]model.CR, error) {
 		}
 		if cr.Notes == nil {
 			cr.Notes = []string{}
+		}
+		if cr.Evidence == nil {
+			cr.Evidence = []model.EvidenceEntry{}
 		}
 		if cr.Subtasks == nil {
 			cr.Subtasks = []model.Subtask{}

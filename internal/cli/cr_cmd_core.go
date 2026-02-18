@@ -227,14 +227,14 @@ func newCRListCmd() *cobra.Command {
 				items := make([]map[string]any, 0, len(results))
 				for _, r := range results {
 					items = append(items, map[string]any{
-						"id":          r.ID,
-						"uid":         r.UID,
-						"title":       r.Title,
-						"status":      r.Status,
-						"branch":      r.Branch,
-						"base_branch": r.BaseBranch,
+						"id":           r.ID,
+						"uid":          r.UID,
+						"title":        r.Title,
+						"status":       r.Status,
+						"branch":       r.Branch,
+						"base_branch":  r.BaseBranch,
 						"parent_cr_id": r.ParentCRID,
-						"risk_tier":   r.RiskTier,
+						"risk_tier":    r.RiskTier,
 						"tasks": map[string]int{
 							"total": r.TasksTotal,
 							"open":  r.TasksOpen,
@@ -994,6 +994,30 @@ func newCRHistoryCmd() *cobra.Command {
 						suffix = " [redacted]"
 					}
 					fmt.Fprintf(cmd.OutOrStdout(), "- #%d %s%s\n", note.Index, note.Text, suffix)
+				}
+			}
+
+			fmt.Fprintln(cmd.OutOrStdout(), "\nEvidence:")
+			if len(history.Evidence) == 0 {
+				fmt.Fprintln(cmd.OutOrStdout(), "- (none)")
+			} else {
+				for _, evidence := range history.Evidence {
+					fmt.Fprintf(cmd.OutOrStdout(), "- #%d %s %s %s: %s\n", evidence.Index, nonEmpty(strings.TrimSpace(evidence.TS), "-"), nonEmpty(strings.TrimSpace(evidence.Type), "-"), nonEmpty(strings.TrimSpace(evidence.Actor), "-"), nonEmpty(strings.TrimSpace(evidence.Summary), "-"))
+					if strings.TrimSpace(evidence.Scope) != "" {
+						fmt.Fprintf(cmd.OutOrStdout(), "  scope: %s\n", evidence.Scope)
+					}
+					if strings.TrimSpace(evidence.Command) != "" {
+						fmt.Fprintf(cmd.OutOrStdout(), "  command: %s\n", evidence.Command)
+					}
+					if evidence.ExitCode != nil {
+						fmt.Fprintf(cmd.OutOrStdout(), "  exit_code: %d\n", *evidence.ExitCode)
+					}
+					if strings.TrimSpace(evidence.OutputHash) != "" {
+						fmt.Fprintf(cmd.OutOrStdout(), "  output_hash: %s\n", evidence.OutputHash)
+					}
+					if len(evidence.Attachments) > 0 {
+						fmt.Fprintf(cmd.OutOrStdout(), "  attachments: %s\n", strings.Join(evidence.Attachments, ", "))
+					}
 				}
 			}
 

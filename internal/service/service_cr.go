@@ -117,6 +117,7 @@ func (s *Service) AddCRWithOptionsWithWarnings(title, description string, opts A
 		ParentCRID:  parentID,
 		Branch:      branch,
 		Notes:       []string{},
+		Evidence:    []model.EvidenceEntry{},
 		Subtasks:    []model.Subtask{},
 		Events: []model.Event{
 			{
@@ -768,6 +769,7 @@ func (s *Service) HistoryCR(id int, showRedacted bool) (*CRHistory, error) {
 		Status:      cr.Status,
 		Description: cr.Description,
 		Notes:       make([]HistoryNote, 0, len(cr.Notes)),
+		Evidence:    make([]HistoryEvidence, 0, len(cr.Evidence)),
 		Events:      make([]HistoryEvent, 0, len(cr.Events)),
 	}
 
@@ -781,6 +783,27 @@ func (s *Service) HistoryCR(id int, showRedacted bool) (*CRHistory, error) {
 			Index:    i + 1,
 			Text:     text,
 			Redacted: redacted,
+		})
+	}
+
+	for i, entry := range cr.Evidence {
+		attachments := append([]string(nil), entry.Attachments...)
+		var exitCode *int
+		if entry.ExitCode != nil {
+			value := *entry.ExitCode
+			exitCode = &value
+		}
+		history.Evidence = append(history.Evidence, HistoryEvidence{
+			Index:       i + 1,
+			TS:          entry.TS,
+			Actor:       entry.Actor,
+			Type:        entry.Type,
+			Scope:       entry.Scope,
+			Command:     entry.Command,
+			ExitCode:    exitCode,
+			OutputHash:  entry.OutputHash,
+			Summary:     entry.Summary,
+			Attachments: attachments,
 		})
 	}
 

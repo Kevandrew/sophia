@@ -32,6 +32,7 @@ var (
 	ErrNoTaskScopeMatches     = errors.New("no changed files match task contract scope")
 	ErrTaskDelegated          = errors.New("task is delegated")
 	ErrTaskNotDone            = errors.New("task is not done")
+	ErrInvalidEvidenceType    = errors.New("invalid evidence type")
 )
 
 var (
@@ -262,13 +263,37 @@ type HistoryEvent struct {
 	Meta            map[string]string
 }
 
+type HistoryEvidence struct {
+	Index       int
+	TS          string
+	Actor       string
+	Type        string
+	Scope       string
+	Command     string
+	ExitCode    *int
+	OutputHash  string
+	Summary     string
+	Attachments []string
+}
+
 type CRHistory struct {
 	CRID        int
 	Title       string
 	Status      string
 	Description string
 	Notes       []HistoryNote
+	Evidence    []HistoryEvidence
 	Events      []HistoryEvent
+}
+
+type AddEvidenceOptions struct {
+	Type        string
+	Scope       string
+	Summary     string
+	Command     string
+	Capture     bool
+	ExitCode    *int
+	Attachments []string
 }
 
 type DoneTaskOptions struct {

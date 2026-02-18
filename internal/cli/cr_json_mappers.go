@@ -89,6 +89,10 @@ func reviewToJSONMap(review *service.Review) map[string]any {
 			"delegations":       delegationMaps,
 		})
 	}
+	evidence := make([]map[string]any, 0, len(review.CR.Evidence))
+	for _, entry := range review.CR.Evidence {
+		evidence = append(evidence, evidenceEntryToJSONMap(entry))
+	}
 	return map[string]any{
 		"cr": map[string]any{
 			"id":           review.CR.ID,
@@ -116,6 +120,7 @@ func reviewToJSONMap(review *service.Review) map[string]any {
 		},
 		"subtasks":            subtasks,
 		"notes":               review.CR.Notes,
+		"evidence":            evidence,
 		"new_files":           review.NewFiles,
 		"modified_files":      review.ModifiedFiles,
 		"deleted_files":       review.DeletedFiles,

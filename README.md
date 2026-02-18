@@ -283,6 +283,23 @@ Agents should also be instructed to append notes.
 
 ---
 
+### Add/Show Evidence Ledger Entries
+
+```
+sophia cr evidence add <id> --type manual_note --text "Reviewed detached worktree parsing edge cases." --scope internal/gitx/git.go
+sophia cr evidence add <id> --type command_run --cmd "go test ./..." --capture
+sophia cr evidence show <id>
+sophia cr evidence show <id> --json
+```
+
+Behavior:
+
+* Supports evidence types: `command_run`, `manual_note`, `environment`, `benchmark`, `reproduction_steps`
+* Captured command evidence stores deterministic facts (`exit_code`, `output_hash`, summary) without changing merge policy
+* Evidence entries are append-only metadata facts and are visible in review/history surfaces
+
+---
+
 ### Complete Task (Checkpoint by Default)
 
 ```
@@ -465,6 +482,7 @@ Displays:
 
 * Title
 * Notes
+* Evidence ledger entries
 * Files changed (`git diff --name-only`)
 * Insertions/deletions
 * Test file changes (basic detection)
@@ -573,6 +591,8 @@ sophia cr contract set <id> --why "..."
 sophia cr contract show <id>
 sophia cr impact <id>
 sophia cr validate <id>
+sophia cr evidence add <id> --type command_run --cmd "go test ./..." --capture
+sophia cr evidence show <id> [--json]
 sophia cr review <id> --json
 sophia cr redact <id> --note-index 1 --reason "..."
 sophia cr history <id>

@@ -33,6 +33,18 @@ type Event struct {
 	Meta            map[string]string `yaml:"meta,omitempty"`
 }
 
+type EvidenceEntry struct {
+	TS          string   `yaml:"ts"`
+	Actor       string   `yaml:"actor"`
+	Type        string   `yaml:"type"`
+	Scope       string   `yaml:"scope,omitempty"`
+	Command     string   `yaml:"command,omitempty"`
+	ExitCode    *int     `yaml:"exit_code,omitempty"`
+	OutputHash  string   `yaml:"output_hash,omitempty"`
+	Summary     string   `yaml:"summary"`
+	Attachments []string `yaml:"attachments,omitempty"`
+}
+
 type CheckpointChunk struct {
 	ID       string `yaml:"id"`
 	Path     string `yaml:"path"`
@@ -92,26 +104,27 @@ type Contract struct {
 }
 
 type CR struct {
-	ID                int       `yaml:"id"`
-	UID               string    `yaml:"uid,omitempty"`
-	Title             string    `yaml:"title"`
-	Description       string    `yaml:"description"`
-	Status            string    `yaml:"status"`
-	BaseBranch        string    `yaml:"base_branch"`
-	BaseRef           string    `yaml:"base_ref,omitempty"`
-	BaseCommit        string    `yaml:"base_commit,omitempty"`
-	ParentCRID        int       `yaml:"parent_cr_id,omitempty"`
-	Branch            string    `yaml:"branch"`
-	Notes             []string  `yaml:"notes"`
-	Contract          Contract  `yaml:"contract,omitempty"`
-	Subtasks          []Subtask `yaml:"subtasks"`
-	Events            []Event   `yaml:"events"`
-	MergedAt          string    `yaml:"merged_at,omitempty"`
-	MergedBy          string    `yaml:"merged_by,omitempty"`
-	MergedCommit      string    `yaml:"merged_commit,omitempty"`
-	FilesTouchedCount int       `yaml:"files_touched_count,omitempty"`
-	CreatedAt         string    `yaml:"created_at"`
-	UpdatedAt         string    `yaml:"updated_at"`
+	ID                int             `yaml:"id"`
+	UID               string          `yaml:"uid,omitempty"`
+	Title             string          `yaml:"title"`
+	Description       string          `yaml:"description"`
+	Status            string          `yaml:"status"`
+	BaseBranch        string          `yaml:"base_branch"`
+	BaseRef           string          `yaml:"base_ref,omitempty"`
+	BaseCommit        string          `yaml:"base_commit,omitempty"`
+	ParentCRID        int             `yaml:"parent_cr_id,omitempty"`
+	Branch            string          `yaml:"branch"`
+	Notes             []string        `yaml:"notes"`
+	Evidence          []EvidenceEntry `yaml:"evidence,omitempty"`
+	Contract          Contract        `yaml:"contract,omitempty"`
+	Subtasks          []Subtask       `yaml:"subtasks"`
+	Events            []Event         `yaml:"events"`
+	MergedAt          string          `yaml:"merged_at,omitempty"`
+	MergedBy          string          `yaml:"merged_by,omitempty"`
+	MergedCommit      string          `yaml:"merged_commit,omitempty"`
+	FilesTouchedCount int             `yaml:"files_touched_count,omitempty"`
+	CreatedAt         string          `yaml:"created_at"`
+	UpdatedAt         string          `yaml:"updated_at"`
 }
 
 type CRSearchQuery struct {
@@ -122,17 +135,17 @@ type CRSearchQuery struct {
 }
 
 type CRSearchResult struct {
-	ID          int
-	UID         string
-	Title       string
-	Status      string
-	Branch      string
-	BaseBranch  string
-	ParentCRID  int
-	RiskTier    string
-	TasksTotal  int
-	TasksOpen   int
-	TasksDone   int
-	CreatedAt   string
-	UpdatedAt   string
+	ID         int
+	UID        string
+	Title      string
+	Status     string
+	Branch     string
+	BaseBranch string
+	ParentCRID int
+	RiskTier   string
+	TasksTotal int
+	TasksOpen  int
+	TasksDone  int
+	CreatedAt  string
+	UpdatedAt  string
 }
