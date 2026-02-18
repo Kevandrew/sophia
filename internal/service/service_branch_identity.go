@@ -107,6 +107,18 @@ func parseCRIDFromBranchName(branch string) (int, bool) {
 	return 0, false
 }
 
+func detectCRBranchScheme(branch string) string {
+	trimmed := strings.TrimSpace(branch)
+	switch {
+	case legacyCRBranchPattern.MatchString(trimmed):
+		return "legacy_v0"
+	case humanCRBranchPattern.MatchString(trimmed):
+		return "human_alias_v1"
+	default:
+		return "custom"
+	}
+}
+
 func validateCRBranchAliasShape(alias string) (string, error) {
 	trimmed := strings.TrimSpace(alias)
 	if trimmed == "" {
