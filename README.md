@@ -501,6 +501,8 @@ Agents should also be instructed to append notes.
 ```
 sophia cr evidence add <id> --type manual_note --text "Reviewed detached worktree parsing edge cases." --scope internal/gitx/git.go
 sophia cr evidence add <id> --type command_run --cmd "go test ./..." --capture
+sophia cr evidence sample add <id> --scope internal/service --summary "Spot-checked merge path behavior."
+sophia cr evidence sample list <id>
 sophia cr evidence show <id>
 sophia cr evidence show <id> --json
 ```
@@ -509,6 +511,7 @@ Behavior:
 
 * Supports evidence types: `command_run`, `manual_note`, `environment`, `benchmark`, `reproduction_steps`
 * Supports `review_sample` evidence for deterministic review-depth coverage
+* Includes dedicated `evidence sample add/list` wrappers for scoped review-sample recording
 * Captured command evidence stores deterministic facts (`exit_code`, `output_hash`, summary) without changing merge policy
 * Evidence entries are append-only metadata facts and are visible in review/history surfaces
 
@@ -531,11 +534,13 @@ Behavior:
 * Records checkpoint metadata on the task (`commit`, `timestamp`, message, `checkpoint_scope`, `checkpoint_chunks`)
 * Requires active branch to match the CR branch
 * Rejects checkpoint completion for delegated tasks until delegation links are resolved
+* `--no-checkpoint` requires `--no-checkpoint-reason` and records deterministic `checkpoint_source=task_no_checkpoint` metadata
 
 Optional metadata-only completion:
 
 ```
 sophia cr task done <cr-id> <task-id> --no-checkpoint
+sophia cr task done <cr-id> <task-id> --no-checkpoint --no-checkpoint-reason "metadata-only completion"
 ```
 
 Reopen a completed task (metadata-only):
@@ -650,6 +655,7 @@ Behavior:
 * `validate` is read-only by default; add `--record` to append a `cr_validated` audit event
 * `check status` reports required checks, freshness, and missing/stale/failing states for both risk-tier policy checks and done-task acceptance checks
 * `check run` executes required checks and records `command_run` evidence entries
+* When no checks are required, `check status/run` return explicit `check_mode=none` guidance instead of ambiguous empty results
 * For merged CRs whose branch was deleted, `validate` derives diff context from the merge commit (with task-checkpoint scope fallback)
 * Both commands support machine-readable output via `--json`
 
@@ -715,7 +721,8 @@ Displays:
 * Trust includes explicit deterministic requirements, check results (with task/source provenance), review-depth status, contract-drift summary, and merge-gate summary metadata
 * Hard-fail is defined as validation errors or missing required contract fields
 * `untrusted` when any deterministic trust requirement is unsatisfied; otherwise threshold comparison is tier-based (`low|medium|high`)
-* `required_actions` are populated from unsatisfied deterministic requirements; non-blocking guidance is emitted under `advisories`
+* `required_actions` are populated from unsatisfied deterministic requirements; `attention_actions` capture non-blocking next steps when verdict is `needs_attention`
+* Non-blocking guidance is emitted under `advisories`
 * High-risk specialized evidence (integration/worktree/doctor/repair coverage signals) is advisory-only guidance, not a trust gate
 * For merged CRs whose branch was deleted, review diff context is derived from merge metadata instead of live branch diff
 * Supports machine-readable output via `--json`
@@ -811,7 +818,7 @@ sophia cr task contract drift list <cr-id> <task-id> [--json]
 sophia cr task contract drift ack <cr-id> <task-id> <drift-id> --reason "..." [--json]
 sophia cr task chunk list <cr-id> <task-id> [--path <file>] [--json]
 sophia cr task done <cr-id> <task-id> --patch-file <patch-file>
-sophia cr task done <cr-id> <task-id> --no-checkpoint [--json]
+sophia cr task done <cr-id> <task-id> --no-checkpoint --no-checkpoint-reason "..." [--json]
 sophia cr task reopen <cr-id> <task-id> [--clear-checkpoint] [--json]
 sophia cr task delegate <parent-cr-id> <task-id> --child <child-cr-id> [--json]
 sophia cr task undelegate <parent-cr-id> <task-id> --child <child-cr-id> [--json]
@@ -831,6 +838,8 @@ sophia cr contract show <id> [--json]
 sophia cr impact <id>
 sophia cr validate <id> [--record] [--json]
 sophia cr evidence add <id> --type command_run --cmd "go test ./..." --capture
+sophia cr evidence sample add <id> --scope internal/service --summary "..."
+sophia cr evidence sample list <id> [--json]
 sophia cr evidence show <id> [--json]
 sophia cr export <id> --format json [--include diffs] [--out <path>] [--json]
 sophia cr review <id> --json
@@ -839,7 +848,7 @@ sophia cr history <id> [--show-redacted] [--json]
 ```
 
 * `doctor` flags workflow drift (dirty tree, non-CR branch, stale merged CR branches)
-* `cr doctor` flags CR integrity drift (done tasks missing checkpoints, unreachable checkpoint commits, duplicate checkpoint association, base drift, and parent/base metadata mismatch)
+* `cr doctor` flags CR integrity drift (done tasks missing checkpoints without explicit rationale, unreachable checkpoint commits, duplicate checkpoint association, base drift, and parent/base metadata mismatch)
 * `cr reconcile` reconciles checkpoint metadata from commit footers, marks unresolved links as orphaned, relinks `parent_cr_id` from `base_ref` anchors when unambiguous, and can optionally regenerate derived diff metadata
 * `log` shows intent-first CR history and can reconstruct merged CRs from Git commit metadata
 * `blame` shows Sophia-enriched per-line attribution (`CR`, intent) with fallback to commit summary when CR metadata is unavailable

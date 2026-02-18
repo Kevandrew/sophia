@@ -65,6 +65,8 @@ trust:
   checks:
     freshness_hours: 24
     definitions:
+      # When definitions stay empty, `sophia cr check status/run` reports `check_mode: none`
+      # with guidance instead of silently returning empty check results.
       # Example:
       # - key: unit_tests
       #   command: go test ./...
