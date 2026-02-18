@@ -18,6 +18,8 @@ func newCRCmd() *cobra.Command {
 	crCmd.AddCommand(newCRStackCmd())
 	crCmd.AddCommand(newCRWhyCmd())
 	crCmd.AddCommand(newCRStatusCmd())
+	crCmd.AddCommand(newCRDoctorCmd())
+	crCmd.AddCommand(newCRReconcileCmd())
 	crCmd.AddCommand(newCRNoteCmd())
 	crCmd.AddCommand(newCREvidenceCmd())
 	crCmd.AddCommand(newCRReviewCmd())

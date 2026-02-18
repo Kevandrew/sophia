@@ -79,14 +79,18 @@ func reviewToJSONMap(review *service.Review) map[string]any {
 			})
 		}
 		subtasks = append(subtasks, map[string]any{
-			"id":                task.ID,
-			"title":             task.Title,
-			"status":            task.Status,
-			"checkpoint_commit": task.CheckpointCommit,
-			"checkpoint_at":     task.CheckpointAt,
-			"checkpoint_scope":  task.CheckpointScope,
-			"checkpoint_chunks": chunkMaps,
-			"delegations":       delegationMaps,
+			"id":                 task.ID,
+			"title":              task.Title,
+			"status":             task.Status,
+			"checkpoint_commit":  task.CheckpointCommit,
+			"checkpoint_at":      task.CheckpointAt,
+			"checkpoint_orphan":  task.CheckpointOrphan,
+			"checkpoint_reason":  task.CheckpointReason,
+			"checkpoint_source":  task.CheckpointSource,
+			"checkpoint_sync_at": task.CheckpointSyncAt,
+			"checkpoint_scope":   task.CheckpointScope,
+			"checkpoint_chunks":  chunkMaps,
+			"delegations":        delegationMaps,
 		})
 	}
 	evidence := make([]map[string]any, 0, len(review.CR.Evidence))
@@ -221,5 +225,83 @@ func applyPlanToJSONMap(result *service.ApplyCRPlanResult) map[string]any {
 		"created_tasks":      createdTasks,
 		"delegations":        delegations,
 		"warnings":           result.Warnings,
+	}
+}
+
+func crDoctorToJSONMap(report *service.CRDoctorReport) map[string]any {
+	if report == nil {
+		return map[string]any{}
+	}
+	findings := make([]map[string]any, 0, len(report.Findings))
+	for _, finding := range report.Findings {
+		findings = append(findings, map[string]any{
+			"code":    finding.Code,
+			"message": finding.Message,
+			"task_id": finding.TaskID,
+			"commit":  finding.Commit,
+		})
+	}
+	return map[string]any{
+		"cr_id":                 report.CRID,
+		"cr_uid":                report.CRUID,
+		"branch":                report.Branch,
+		"branch_exists":         report.BranchExists,
+		"branch_head":           report.BranchHead,
+		"base_ref":              report.BaseRef,
+		"base_commit":           report.BaseCommit,
+		"resolved_base_ref":     report.ResolvedBaseRef,
+		"parent_cr_id":          report.ParentCRID,
+		"expected_parent_cr_id": report.ExpectedParentID,
+		"findings":              findings,
+	}
+}
+
+func reconcileCRToJSONMap(report *service.ReconcileCRReport) map[string]any {
+	if report == nil {
+		return map[string]any{}
+	}
+	findings := make([]map[string]any, 0, len(report.Findings))
+	for _, finding := range report.Findings {
+		findings = append(findings, map[string]any{
+			"code":    finding.Code,
+			"message": finding.Message,
+			"task_id": finding.TaskID,
+			"commit":  finding.Commit,
+		})
+	}
+	taskResults := make([]map[string]any, 0, len(report.TaskResults))
+	for _, result := range report.TaskResults {
+		taskResults = append(taskResults, map[string]any{
+			"task_id":           result.TaskID,
+			"title":             result.Title,
+			"status":            result.Status,
+			"previous_commit":   result.PreviousCommit,
+			"current_commit":    result.CurrentCommit,
+			"action":            result.Action,
+			"reason":            result.Reason,
+			"source":            result.Source,
+			"checkpoint_at":     result.CheckpointAt,
+			"checkpoint_orphan": result.CheckpointOrphan,
+		})
+	}
+	return map[string]any{
+		"cr_id":              report.CRID,
+		"cr_uid":             report.CRUID,
+		"branch":             report.Branch,
+		"branch_exists":      report.BranchExists,
+		"previous_parent_id": report.PreviousParentID,
+		"current_parent_id":  report.CurrentParentID,
+		"parent_relinked":    report.ParentRelinked,
+		"scan_ref":           report.ScanRef,
+		"scanned_commits":    report.ScannedCommits,
+		"relinked":           report.Relinked,
+		"orphaned":           report.Orphaned,
+		"cleared_orphans":    report.ClearedOrphans,
+		"regenerated":        report.Regenerated,
+		"files_changed":      report.FilesChanged,
+		"diff_stat":          report.DiffStat,
+		"warnings":           report.Warnings,
+		"findings":           findings,
+		"task_results":       taskResults,
 	}
 }

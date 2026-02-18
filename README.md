@@ -569,6 +569,8 @@ sophia repair
 sophia hook install
 sophia cr why <id>
 sophia cr status <id>
+sophia cr doctor <id> [--json]
+sophia cr reconcile <id> [--regenerate] [--json]
 sophia cr current
 sophia cr switch <id>
 sophia cr reopen <id>
@@ -599,6 +601,8 @@ sophia cr history <id>
 ```
 
 * `doctor` flags workflow drift (dirty tree, non-CR branch, stale merged CR branches)
+* `cr doctor` flags CR integrity drift (done tasks missing checkpoints, unreachable checkpoint commits, duplicate checkpoint association, base drift, and parent/base metadata mismatch)
+* `cr reconcile` reconciles checkpoint metadata from commit footers, marks unresolved links as orphaned, relinks `parent_cr_id` from `base_ref` anchors when unambiguous, and can optionally regenerate derived diff metadata
 * `log` shows intent-first CR history and can reconstruct merged CRs from Git commit metadata
 * `blame` shows Sophia-enriched per-line attribution (`CR`, intent) with fallback to commit summary when CR metadata is unavailable
 * Worktree-safe local metadata keeps CR IDs/state shared across worktrees and avoids branch checkout collisions during init/add/merge flows
