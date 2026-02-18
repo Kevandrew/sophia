@@ -120,6 +120,7 @@ Recommended first-run path:
 ```
 sophia init
 sophia cr add "<title>" --description "<why>"
+sophia cr switch <cr-id>            # optional explicit navigation into CR workspace
 sophia cr task add <cr-id> "<task>"
 sophia cr task done <cr-id> <task-id> --from-contract
 sophia cr validate <cr-id>
@@ -233,6 +234,7 @@ merge:
 
 ```
 sophia cr add "Add billing retries"
+sophia cr add "Add billing retries" --switch
 sophia cr add "Add billing retries" --base release/2026-q1
 sophia cr add "Add billing retries" --parent 12
 sophia cr child add "Implement parser split" --description "Delegated from active parent CR."
@@ -242,11 +244,12 @@ Behavior:
 
 * Generate new CR ID
 * Create branch `sophia/cr-<id>`
+* Keep current branch by default and print `sophia cr switch <id>` guidance
+* `--switch` opts into immediate branch checkout
 * Supports per-CR base refs via `--base <git-ref>`
 * Supports stacked child CR creation via `--parent <cr-id>` (mutually exclusive with `--base`)
 * Supports child CR creation from active CR context via `cr child add`
 * Write CR YAML file
-* Checkout branch
 
 ---
 
@@ -323,6 +326,7 @@ Behavior:
 ```
 sophia cr base set <id> --ref <git-ref> [--rebase]
 sophia cr restack <id>
+sophia cr refresh <id> [--dry-run] [--strategy auto|restack|rebase]
 ```
 
 Behavior:
@@ -330,6 +334,7 @@ Behavior:
 * `cr base set` retargets a CR onto a new base ref and stores resolved base commit metadata
 * `--rebase` performs an immediate Git rebase of the CR branch onto the new base
 * `cr restack` rebases a child CR onto its parent effective head (parent branch when open, merged commit when closed)
+* `cr refresh` auto-selects `restack` for stacked CRs and `rebase` for root CRs (override with `--strategy`)
 * Parent-child metadata is preserved for deterministic review/validate diffs
 
 ---
