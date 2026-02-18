@@ -1,6 +1,11 @@
 package service
 
-import "fmt"
+import (
+	"fmt"
+	"sophia/internal/model"
+	"sort"
+	"strings"
+)
 
 func (s *Service) TrustCheckStatusCR(id int) (*TrustCheckStatusReport, error) {
 	cr, err := s.store.LoadCR(id)
@@ -31,6 +36,10 @@ func (s *Service) TrustCheckStatusCR(id int) (*TrustCheckStatusReport, error) {
 }
 
 func (s *Service) RunTrustChecksCR(id int) (*TrustCheckRunReport, error) {
+	cr, err := s.store.LoadCR(id)
+	if err != nil {
+		return nil, err
+	}
 	policy, err := s.repoPolicy()
 	if err != nil {
 		return nil, err
@@ -45,6 +54,36 @@ func (s *Service) RunTrustChecksCR(id int) (*TrustCheckRunReport, error) {
 		riskTier = normalizedRiskTier(impact.RiskTier)
 	}
 	requiredChecks := requiredTrustCheckDefinitions(policy.Trust.Checks.Definitions, riskTier)
+	taskRequirements := requiredTaskAcceptanceChecks(cr.Subtasks)
+	taskChecksByKey := taskAcceptanceCheckTaskMap(taskRequirements)
+	definitionsByKey := map[string]model.PolicyTrustCheckDefinition{}
+	for _, definition := range policy.Trust.Checks.Definitions {
+		key := strings.TrimSpace(definition.Key)
+		if key == "" {
+			continue
+		}
+		definitionsByKey[key] = definition
+	}
+	for key := range taskChecksByKey {
+		definition, ok := definitionsByKey[key]
+		if !ok {
+			continue
+		}
+		alreadyRequired := false
+		for _, current := range requiredChecks {
+			if strings.TrimSpace(current.Key) == key {
+				alreadyRequired = true
+				break
+			}
+		}
+		if alreadyRequired {
+			continue
+		}
+		requiredChecks = append(requiredChecks, definition)
+	}
+	sort.Slice(requiredChecks, func(i, j int) bool {
+		return requiredChecks[i].Key < requiredChecks[j].Key
+	})
 	for _, definition := range requiredChecks {
 		if _, addErr := s.AddEvidence(id, AddEvidenceOptions{
 			Type:    evidenceTypeCommandRun,
