@@ -251,6 +251,23 @@ func crStatusToJSONMap(status *service.CRStatusView) map[string]any {
 	}
 }
 
+func crRefreshToJSONMap(view *service.CRRefreshView) map[string]any {
+	if view == nil {
+		return map[string]any{}
+	}
+	return map[string]any{
+		"cr_id":       view.CRID,
+		"strategy":    view.Strategy,
+		"dry_run":     view.DryRun,
+		"applied":     view.Applied,
+		"base_ref":    view.BaseRef,
+		"target_ref":  view.TargetRef,
+		"before_head": view.BeforeHead,
+		"after_head":  view.AfterHead,
+		"warnings":    view.Warnings,
+	}
+}
+
 func applyPlanToJSONMap(result *service.ApplyCRPlanResult) map[string]any {
 	if result == nil {
 		return map[string]any{}

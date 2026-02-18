@@ -253,6 +253,11 @@ func (c *Client) CreateBranchFrom(branch, ref string) error {
 	return err
 }
 
+func (c *Client) CreateBranchAt(branch, ref string) error {
+	_, err := c.run("branch", branch, ref)
+	return err
+}
+
 func (c *Client) ResolveRef(ref string) (string, error) {
 	out, err := c.run("rev-parse", "--verify", ref)
 	if err != nil {

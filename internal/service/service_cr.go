@@ -10,12 +10,12 @@ import (
 )
 
 func (s *Service) AddCR(title, description string) (*model.CR, error) {
-	cr, _, err := s.AddCRWithOptionsWithWarnings(title, description, AddCROptions{})
+	cr, _, err := s.AddCRWithOptionsWithWarnings(title, description, AddCROptions{Switch: true})
 	return cr, err
 }
 
 func (s *Service) AddCRWithWarnings(title, description string) (*model.CR, []string, error) {
-	return s.AddCRWithOptionsWithWarnings(title, description, AddCROptions{})
+	return s.AddCRWithOptionsWithWarnings(title, description, AddCROptions{Switch: true})
 }
 
 func (s *Service) AddCRWithOptionsWithWarnings(title, description string, opts AddCROptions) (*model.CR, []string, error) {
@@ -99,8 +99,22 @@ func (s *Service) AddCRWithOptionsWithWarnings(title, description string, opts A
 	if s.git.BranchExists(branch) {
 		return nil, nil, fmt.Errorf("branch %q already exists", branch)
 	}
-	if err := s.git.CreateBranchFrom(branch, baseCommit); err != nil {
-		return nil, nil, err
+	switchBranch := true
+	if opts.NoSwitch {
+		switchBranch = false
+	}
+	if opts.Switch {
+		switchBranch = true
+	}
+
+	if switchBranch {
+		if err := s.git.CreateBranchFrom(branch, baseCommit); err != nil {
+			return nil, nil, err
+		}
+	} else {
+		if err := s.git.CreateBranchAt(branch, baseCommit); err != nil {
+			return nil, nil, err
+		}
 	}
 
 	now := s.timestamp()

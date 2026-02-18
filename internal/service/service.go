@@ -142,6 +142,31 @@ type CurrentCRContext struct {
 type AddCROptions struct {
 	BaseRef    string
 	ParentCRID int
+	Switch     bool
+	NoSwitch   bool
+}
+
+const (
+	RefreshStrategyAuto    = "auto"
+	RefreshStrategyRestack = "restack"
+	RefreshStrategyRebase  = "rebase"
+)
+
+type RefreshOptions struct {
+	Strategy string
+	DryRun   bool
+}
+
+type CRRefreshView struct {
+	CRID       int
+	Strategy   string
+	DryRun     bool
+	Applied    bool
+	BaseRef    string
+	TargetRef  string
+	BeforeHead string
+	AfterHead  string
+	Warnings   []string
 }
 
 type LogEntry struct {

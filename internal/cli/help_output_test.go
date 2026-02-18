@@ -15,6 +15,7 @@ func TestRootHelpStartPath(t *testing.T) {
 		"Start Here:",
 		"sophia init",
 		"sophia cr add \"<title>\" --description \"<why>\"",
+		"sophia cr switch <cr-id>",
 		"sophia cr review <cr-id>",
 		"sophia cr merge <cr-id>",
 	)
@@ -33,6 +34,7 @@ func TestCRHelpNavigationMap(t *testing.T) {
 		"Implementation lenses:",
 		"range, rev-parse, pack",
 		"Merge and recovery:",
+		"refresh",
 		"sophia cr add \"Worktree-safe parsing\"",
 	)
 }

@@ -8,8 +8,8 @@ func newCRCmd() *cobra.Command {
 	crCmd := &cobra.Command{
 		Use:     "cr",
 		Short:   "Manage change requests",
-		Long:    "Change-request commands grouped by intent:\n\nNavigation:\n  current, switch, list, search, stack, status, why\n\nIntake and planning:\n  add, child add, apply, contract set/show, task add, task contract set/show\n\nImplementation lenses:\n  range, rev-parse, pack, diff, task diff, task chunk list/diff, rangediff\n\nValidation and review:\n  impact, validate, review\n\nMerge and recovery:\n  merge, merge status, merge resume, merge abort\n\nMetadata and repair:\n  note, evidence, edit, redact, history, doctor, reconcile, export, reopen, base set, restack",
-		Example: "  sophia cr add \"Worktree-safe parsing\" --description \"Handle detached worktree edge cases\"\n  sophia cr contract set 25 --why \"Avoid branch context drift\" --scope internal/gitx\n  sophia cr task add 25 \"Add detached-worktree parser test\"\n  sophia cr task done 25 1 --from-contract\n  sophia cr diff 25 --task 1\n  sophia cr review 25\n  sophia cr merge 25",
+		Long:    "Change-request commands grouped by intent:\n\nNavigation:\n  current, switch, list, search, stack, status, why\n\nIntake and planning:\n  add, child add, apply, contract set/show, task add, task contract set/show\n\nImplementation lenses:\n  range, rev-parse, pack, diff, task diff, task chunk list/diff, rangediff\n\nValidation and review:\n  impact, validate, review\n\nMerge and recovery:\n  merge, merge status, merge resume, merge abort\n\nMetadata and repair:\n  note, evidence, edit, redact, history, doctor, reconcile, export, reopen, refresh, base set, restack",
+		Example: "  sophia cr add \"Worktree-safe parsing\" --description \"Handle detached worktree edge cases\"\n  sophia cr switch 25\n  sophia cr contract set 25 --why \"Avoid branch context drift\" --scope internal/gitx\n  sophia cr task add 25 \"Add detached-worktree parser test\"\n  sophia cr task done 25 1 --from-contract\n  sophia cr diff 25 --task 1\n  sophia cr review 25\n  sophia cr merge 25",
 	}
 
 	crCmd.AddCommand(newCRAddCmd())
@@ -37,6 +37,7 @@ func newCRCmd() *cobra.Command {
 	crCmd.AddCommand(newCRReopenCmd())
 	crCmd.AddCommand(newCRBaseCmd())
 	crCmd.AddCommand(newCRRestackCmd())
+	crCmd.AddCommand(newCRRefreshCmd())
 	crCmd.AddCommand(newCREditCmd())
 	crCmd.AddCommand(newCRContractCmd())
 	crCmd.AddCommand(newCRImpactCmd())

@@ -14,6 +14,7 @@ func newCRAddCmd() *cobra.Command {
 	var description string
 	var baseRef string
 	var parentID int
+	var switchBranch bool
 
 	cmd := &cobra.Command{
 		Use:   "add <title>",
@@ -30,12 +31,19 @@ func newCRAddCmd() *cobra.Command {
 			opts := service.AddCROptions{
 				BaseRef:    strings.TrimSpace(baseRef),
 				ParentCRID: parentID,
+				Switch:     switchBranch,
+				NoSwitch:   !switchBranch,
 			}
 			cr, warnings, err := svc.AddCRWithOptionsWithWarnings(args[0], description, opts)
 			if err != nil {
 				return err
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "Created CR %d on branch %s\n", cr.ID, cr.Branch)
+			if switchBranch {
+				fmt.Fprintf(cmd.OutOrStdout(), "Active branch: %s\n", cr.Branch)
+			} else {
+				fmt.Fprintf(cmd.OutOrStdout(), "Run: sophia cr switch %d\n", cr.ID)
+			}
 			if len(warnings) > 0 {
 				fmt.Fprintln(cmd.OutOrStdout(), "Overlap warnings:")
 				for _, warning := range warnings {
@@ -49,6 +57,7 @@ func newCRAddCmd() *cobra.Command {
 	cmd.Flags().StringVar(&description, "description", "", "Description/rationale for the CR")
 	cmd.Flags().StringVar(&baseRef, "base", "", "Base Git ref for this CR")
 	cmd.Flags().IntVar(&parentID, "parent", 0, "Parent CR id for stacked workflow")
+	cmd.Flags().BoolVar(&switchBranch, "switch", false, "Switch to the CR branch immediately after creation")
 	return cmd
 }
 
@@ -160,6 +169,7 @@ func newCRChildCmd() *cobra.Command {
 
 func newCRChildAddCmd() *cobra.Command {
 	var description string
+	var switchBranch bool
 
 	cmd := &cobra.Command{
 		Use:   "add <title>",
@@ -170,11 +180,27 @@ func newCRChildAddCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			cr, warnings, err := svc.AddChildCRFromCurrent(args[0], description)
+			ctx, ctxErr := svc.CurrentCR()
+			if ctxErr != nil {
+				if errorsIs(ctxErr, service.ErrNoActiveCRContext) {
+					return fmt.Errorf("current branch is not a CR branch; run `sophia cr switch <id>` or use `sophia cr add <title> --parent <id>`")
+				}
+				return ctxErr
+			}
+			cr, warnings, err := svc.AddCRWithOptionsWithWarnings(args[0], description, service.AddCROptions{
+				ParentCRID: ctx.CR.ID,
+				Switch:     switchBranch,
+				NoSwitch:   !switchBranch,
+			})
 			if err != nil {
 				return err
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "Created child CR %d on branch %s\n", cr.ID, cr.Branch)
+			if switchBranch {
+				fmt.Fprintf(cmd.OutOrStdout(), "Active branch: %s\n", cr.Branch)
+			} else {
+				fmt.Fprintf(cmd.OutOrStdout(), "Run: sophia cr switch %d\n", cr.ID)
+			}
 			if len(warnings) > 0 {
 				fmt.Fprintln(cmd.OutOrStdout(), "Overlap warnings:")
 				for _, warning := range warnings {
@@ -186,6 +212,7 @@ func newCRChildAddCmd() *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&description, "description", "", "Description/rationale for the child CR")
+	cmd.Flags().BoolVar(&switchBranch, "switch", false, "Switch to the child CR branch immediately after creation")
 	return cmd
 }
 
@@ -1231,6 +1258,71 @@ func newCRRestackCmd() *cobra.Command {
 			return nil
 		},
 	}
+}
+
+func newCRRefreshCmd() *cobra.Command {
+	var strategy string
+	var dryRun bool
+	var asJSON bool
+
+	cmd := &cobra.Command{
+		Use:   "refresh <id>",
+		Short: "Refresh a CR onto latest base/parent with an explicit strategy",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			id, err := parsePositiveIntArg(args[0], "id")
+			if err != nil {
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
+				return err
+			}
+			svc, err := newService()
+			if err != nil {
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
+				return err
+			}
+			view, err := svc.RefreshCR(id, service.RefreshOptions{
+				Strategy: strategy,
+				DryRun:   dryRun,
+			})
+			if err != nil {
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
+				return err
+			}
+			if asJSON {
+				return writeJSONSuccess(cmd, crRefreshToJSONMap(view))
+			}
+
+			action := "Refreshed"
+			if view.DryRun {
+				action = "Would refresh"
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "%s CR %d using strategy %s\n", action, view.CRID, view.Strategy)
+			fmt.Fprintf(cmd.OutOrStdout(), "Base Ref: %s\n", nonEmpty(strings.TrimSpace(view.BaseRef), "-"))
+			fmt.Fprintf(cmd.OutOrStdout(), "Target Ref: %s\n", nonEmpty(strings.TrimSpace(view.TargetRef), "-"))
+			fmt.Fprintf(cmd.OutOrStdout(), "Before Head: %s\n", nonEmpty(strings.TrimSpace(view.BeforeHead), "-"))
+			if strings.TrimSpace(view.AfterHead) != "" {
+				fmt.Fprintf(cmd.OutOrStdout(), "After Head: %s\n", strings.TrimSpace(view.AfterHead))
+			}
+			if len(view.Warnings) > 0 {
+				fmt.Fprintln(cmd.OutOrStdout(), "Warnings:")
+				for _, warning := range view.Warnings {
+					fmt.Fprintf(cmd.OutOrStdout(), "- %s\n", warning)
+				}
+			}
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&strategy, "strategy", service.RefreshStrategyAuto, "Refresh strategy: auto|restack|rebase")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview strategy/target without mutating branch history")
+	cmd.Flags().BoolVar(&asJSON, "json", false, "Output in JSON format")
+	return cmd
 }
 
 func newCRNoteCmd() *cobra.Command {
