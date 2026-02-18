@@ -17,15 +17,16 @@ const (
 	evidenceTypeEnvironment      = "environment"
 	evidenceTypeBenchmark        = "benchmark"
 	evidenceTypeReproductionStep = "reproduction_steps"
+	evidenceTypeReviewSample     = "review_sample"
 )
 
 func normalizeEvidenceType(raw string) (string, error) {
 	value := strings.ToLower(strings.TrimSpace(raw))
 	switch value {
-	case evidenceTypeCommandRun, evidenceTypeManualNote, evidenceTypeEnvironment, evidenceTypeBenchmark, evidenceTypeReproductionStep:
+	case evidenceTypeCommandRun, evidenceTypeManualNote, evidenceTypeEnvironment, evidenceTypeBenchmark, evidenceTypeReproductionStep, evidenceTypeReviewSample:
 		return value, nil
 	default:
-		return "", fmt.Errorf("%w: %q (allowed: %s, %s, %s, %s, %s)", ErrInvalidEvidenceType, raw, evidenceTypeCommandRun, evidenceTypeManualNote, evidenceTypeEnvironment, evidenceTypeBenchmark, evidenceTypeReproductionStep)
+		return "", fmt.Errorf("%w: %q (allowed: %s, %s, %s, %s, %s, %s)", ErrInvalidEvidenceType, raw, evidenceTypeCommandRun, evidenceTypeManualNote, evidenceTypeEnvironment, evidenceTypeBenchmark, evidenceTypeReproductionStep, evidenceTypeReviewSample)
 	}
 }
 

@@ -7,6 +7,7 @@ type RepoPolicy struct {
 	Scope          PolicyScope          `yaml:"scope,omitempty"`
 	Classification PolicyClassification `yaml:"classification,omitempty"`
 	Merge          PolicyMerge          `yaml:"merge,omitempty"`
+	Trust          PolicyTrust          `yaml:"trust,omitempty"`
 }
 
 type PolicyContract struct {
@@ -39,3 +40,45 @@ type PolicyMerge struct {
 	AllowOverride *bool `yaml:"allow_override,omitempty"`
 }
 
+type PolicyTrust struct {
+	Mode        string                 `yaml:"mode,omitempty"`
+	Gate        PolicyTrustGate        `yaml:"gate,omitempty"`
+	Thresholds  PolicyTrustThresholds  `yaml:"thresholds,omitempty"`
+	Checks      PolicyTrustChecks      `yaml:"checks,omitempty"`
+	ReviewDepth PolicyTrustReviewDepth `yaml:"review_depth,omitempty"`
+}
+
+type PolicyTrustGate struct {
+	Enabled        *bool    `yaml:"enabled,omitempty"`
+	ApplyRiskTiers []string `yaml:"apply_risk_tiers,omitempty"`
+	MinVerdict     string   `yaml:"min_verdict,omitempty"`
+}
+
+type PolicyTrustThresholds struct {
+	Low    *float64 `yaml:"low,omitempty"`
+	Medium *float64 `yaml:"medium,omitempty"`
+	High   *float64 `yaml:"high,omitempty"`
+}
+
+type PolicyTrustChecks struct {
+	FreshnessHours *int                         `yaml:"freshness_hours,omitempty"`
+	Definitions    []PolicyTrustCheckDefinition `yaml:"definitions,omitempty"`
+}
+
+type PolicyTrustCheckDefinition struct {
+	Key            string   `yaml:"key,omitempty"`
+	Command        string   `yaml:"command,omitempty"`
+	Tiers          []string `yaml:"tiers,omitempty"`
+	AllowExitCodes []int    `yaml:"allow_exit_codes,omitempty"`
+}
+
+type PolicyTrustReviewDepth struct {
+	Low    PolicyTrustReviewTier `yaml:"low,omitempty"`
+	Medium PolicyTrustReviewTier `yaml:"medium,omitempty"`
+	High   PolicyTrustReviewTier `yaml:"high,omitempty"`
+}
+
+type PolicyTrustReviewTier struct {
+	MinSamples                   *int  `yaml:"min_samples,omitempty"`
+	RequireCriticalScopeCoverage *bool `yaml:"require_critical_scope_coverage,omitempty"`
+}

@@ -68,6 +68,11 @@ func TestCRReviewJSONIncludesTrustEnvelope(t *testing.T) {
 	if _, ok := trust["advisories"]; !ok {
 		t.Fatalf("expected advisories key, got %#v", trust)
 	}
+	for _, key := range []string{"risk_tier", "requirements", "check_results", "review_depth", "gate"} {
+		if _, ok := trust[key]; !ok {
+			t.Fatalf("expected trust key %q, got %#v", key, trust)
+		}
+	}
 	dimensions, ok := trust["dimensions"].([]any)
 	if !ok || len(dimensions) == 0 {
 		t.Fatalf("expected trust dimensions array, got %#v", trust["dimensions"])
@@ -153,6 +158,37 @@ func TestCRReviewJSONHighRiskMissingSpecializedEvidenceUsesAdvisories(t *testing
 	}
 	runGit(t, dir, "add", "internal/service/service_trust.go", "internal/service/service_trust_test.go")
 	runGit(t, dir, "commit", "-m", "feat: trust high-risk advisory fixture")
+	exitCode := 0
+	if _, err := svc.AddEvidence(cr.ID, service.AddEvidenceOptions{
+		Type:     "command_run",
+		Command:  "go test ./...",
+		ExitCode: &exitCode,
+		Summary:  "test pass",
+	}); err != nil {
+		t.Fatalf("AddEvidence(go test) error = %v", err)
+	}
+	if _, err := svc.AddEvidence(cr.ID, service.AddEvidenceOptions{
+		Type:     "command_run",
+		Command:  "go vet ./...",
+		ExitCode: &exitCode,
+		Summary:  "vet pass",
+	}); err != nil {
+		t.Fatalf("AddEvidence(go vet) error = %v", err)
+	}
+	if _, err := svc.AddEvidence(cr.ID, service.AddEvidenceOptions{
+		Type:    "review_sample",
+		Scope:   "internal/service/service_trust.go",
+		Summary: "review sample 1",
+	}); err != nil {
+		t.Fatalf("AddEvidence(review sample 1) error = %v", err)
+	}
+	if _, err := svc.AddEvidence(cr.ID, service.AddEvidenceOptions{
+		Type:    "review_sample",
+		Scope:   "internal/service",
+		Summary: "review sample 2",
+	}); err != nil {
+		t.Fatalf("AddEvidence(review sample 2) error = %v", err)
+	}
 
 	out, _, runErr := runCLI(t, dir, "cr", "review", "1", "--json")
 	if runErr != nil {
@@ -164,15 +200,15 @@ func TestCRReviewJSONHighRiskMissingSpecializedEvidenceUsesAdvisories(t *testing
 		t.Fatalf("expected trust object, got %#v", env.Data["trust"])
 	}
 	verdict, _ := trust["verdict"].(string)
-	if verdict != "trusted" {
-		t.Fatalf("expected trusted verdict, got %#v", trust["verdict"])
+	if verdict != "needs_attention" {
+		t.Fatalf("expected needs_attention verdict, got %#v", trust["verdict"])
 	}
 	requiredActions, ok := trust["required_actions"].([]any)
 	if !ok {
 		t.Fatalf("expected required_actions array, got %#v", trust["required_actions"])
 	}
 	if len(requiredActions) != 0 {
-		t.Fatalf("expected empty required_actions for advisory-only high-risk evidence, got %#v", requiredActions)
+		t.Fatalf("expected empty required_actions once deterministic requirements are satisfied, got %#v", requiredActions)
 	}
 	advisories, ok := trust["advisories"].([]any)
 	if !ok {
@@ -237,7 +273,7 @@ func TestCRReviewTextIncludesTrustSection(t *testing.T) {
 	if runErr != nil {
 		t.Fatalf("cr review error = %v\noutput=%s", runErr, out)
 	}
-	for _, required := range []string{"Trust:", "Verdict:", "Score:", "Advisory Only:", "Dimensions:", "Required Actions:", "Advisories:", "Contract Completeness", "Change Magnitude"} {
+	for _, required := range []string{"Trust:", "Verdict:", "Score:", "Advisory Only:", "Dimensions:", "Requirements:", "Check Results:", "Review Depth:", "Gate:", "Required Actions:", "Advisories:", "Contract Completeness", "Change Magnitude"} {
 		if !strings.Contains(out, required) {
 			t.Fatalf("expected review output to contain %q, got:\n%s", required, out)
 		}

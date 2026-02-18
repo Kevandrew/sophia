@@ -25,7 +25,7 @@ func (s *Service) ReviewCR(id int) (*Review, error) {
 	if err != nil {
 		return nil, err
 	}
-	trust := buildTrustReport(cr, validation, diff, policy.Contract.RequiredFields)
+	trust := buildTrustReportWithPolicy(cr, validation, diff, policy.Contract.RequiredFields, policy)
 
 	return &Review{
 		CR:                 cr,
@@ -75,6 +75,11 @@ func (s *Service) MergeCRWithWarnings(id int, keepBranch bool, overrideReason st
 	if err != nil {
 		return "", warnings, err
 	}
+	diff, err := s.summarizeCRDiff(cr)
+	if err != nil {
+		return "", warnings, err
+	}
+	trust := buildTrustReportWithPolicy(cr, validation, diff, policy.Contract.RequiredFields, policy)
 	overrideReason = strings.TrimSpace(overrideReason)
 	if overrideReason != "" && !policyAllowsMergeOverride(policy) {
 		return "", warnings, fmt.Errorf("%w: merge override is disabled by repository policy", ErrPolicyViolation)
@@ -90,6 +95,9 @@ func (s *Service) MergeCRWithWarnings(id int, keepBranch bool, overrideReason st
 	}
 	if !validation.Valid && overrideReason == "" {
 		return "", warnings, fmt.Errorf("%w: %s", ErrCRValidationFailed, strings.Join(validation.Errors, "; "))
+	}
+	if overrideReason == "" && trust.Gate.Blocked {
+		return "", warnings, fmt.Errorf("merge blocked: %s", strings.TrimSpace(trust.Gate.Reason))
 	}
 	if overrideReason == "" {
 		blockers := s.mergeBlockersForCR(cr, validation)
@@ -168,7 +176,7 @@ func (s *Service) MergeCRWithWarnings(id int, keepBranch bool, overrideReason st
 		return "", warnings, err
 	}
 
-	if err := s.finalizeCRMergedState(cr, validation, overrideReason, actor, mergedAt, sha, false); err != nil {
+	if err := s.finalizeCRMergedState(cr, validation, trust, overrideReason, actor, mergedAt, sha, false); err != nil {
 		return "", warnings, err
 	}
 
@@ -312,9 +320,17 @@ func (s *Service) ResumeMergeCR(id int, keepBranch bool, overrideReason string) 
 	if err != nil {
 		return "", nil, err
 	}
+	diff, err := s.summarizeCRDiff(cr)
+	if err != nil {
+		return "", nil, err
+	}
+	trust := buildTrustReportWithPolicy(cr, validation, diff, policy.Contract.RequiredFields, policy)
 	overrideReason = strings.TrimSpace(overrideReason)
 	if overrideReason != "" && !policyAllowsMergeOverride(policy) {
 		return "", nil, fmt.Errorf("%w: merge override is disabled by repository policy", ErrPolicyViolation)
+	}
+	if overrideReason == "" && trust.Gate.Blocked {
+		return "", nil, fmt.Errorf("merge blocked: %s", strings.TrimSpace(trust.Gate.Reason))
 	}
 
 	mergeGit, _, err := s.effectiveMergeGitForCR(cr)
@@ -342,13 +358,13 @@ func (s *Service) ResumeMergeCR(id int, keepBranch bool, overrideReason string) 
 	}
 	mergedAt := s.timestamp()
 	actor := mergeGit.Actor()
-	if err := s.finalizeCRMergedState(cr, validation, overrideReason, actor, mergedAt, sha, true); err != nil {
+	if err := s.finalizeCRMergedState(cr, validation, trust, overrideReason, actor, mergedAt, sha, true); err != nil {
 		return "", warnings, err
 	}
 	return sha, warnings, nil
 }
 
-func (s *Service) finalizeCRMergedState(cr *model.CR, validation *ValidationReport, overrideReason, actor, mergedAt, sha string, resumed bool) error {
+func (s *Service) finalizeCRMergedState(cr *model.CR, validation *ValidationReport, trust *TrustReport, overrideReason, actor, mergedAt, sha string, resumed bool) error {
 	if count, err := s.git.ChangedFileCount(sha); err == nil && count > 0 {
 		cr.FilesTouchedCount = count
 	} else if validation != nil && validation.Impact != nil && validation.Impact.FilesChanged > 0 {
@@ -378,11 +394,17 @@ func (s *Service) finalizeCRMergedState(cr *model.CR, validation *ValidationRepo
 	if strings.TrimSpace(overrideReason) != "" {
 		riskTier := "-"
 		validationErrors := "0"
+		trustVerdict := "-"
+		trustGateBlocked := "false"
 		if validation != nil {
 			validationErrors = strconv.Itoa(len(validation.Errors))
 			if validation.Impact != nil {
 				riskTier = nonEmptyTrimmed(validation.Impact.RiskTier, "-")
 			}
+		}
+		if trust != nil {
+			trustVerdict = nonEmptyTrimmed(trust.Verdict, "-")
+			trustGateBlocked = strconv.FormatBool(trust.Gate.Blocked)
 		}
 		cr.Events = append(cr.Events, model.Event{
 			TS:      mergedAt,
@@ -391,9 +413,11 @@ func (s *Service) finalizeCRMergedState(cr *model.CR, validation *ValidationRepo
 			Summary: fmt.Sprintf("Merged with validation override: %s", overrideReason),
 			Ref:     fmt.Sprintf("cr:%d", cr.ID),
 			Meta: map[string]string{
-				"override_reason":   overrideReason,
-				"risk_tier":         riskTier,
-				"validation_errors": validationErrors,
+				"override_reason":    overrideReason,
+				"risk_tier":          riskTier,
+				"validation_errors":  validationErrors,
+				"trust_verdict":      trustVerdict,
+				"trust_gate_blocked": trustGateBlocked,
 			},
 		})
 	}

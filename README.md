@@ -126,6 +126,7 @@ sophia cr switch <cr-id>            # optional explicit navigation into CR works
 sophia cr task add <cr-id> "<task>"
 sophia cr task done <cr-id> <task-id> --from-contract
 sophia cr validate <cr-id>
+sophia cr check run <cr-id>
 sophia cr review <cr-id>
 sophia cr merge <cr-id>
 ```
@@ -172,6 +173,8 @@ Policy controls:
 * Scope allowlist conventions (`scope.allowed_prefixes`)
 * File classification hints for tests/dependencies (`classification.*`)
 * Merge override allowance (`merge.allow_override`)
+* Trust policy, executable checks, review-depth sampling, and optional merge gating (`trust.*`)
+* Trust defaults are intentionally neutral primitives (no required checks/samples until policy is configured)
 
 Default template:
 
@@ -228,6 +231,31 @@ classification:
 
 merge:
   allow_override: true
+
+trust:
+  mode: advisory
+  gate:
+    enabled: false
+    apply_risk_tiers:
+      - high
+    min_verdict: trusted
+  thresholds:
+    low: 0.85
+    medium: 0.90
+    high: 0.95
+  checks:
+    freshness_hours: 24
+    definitions: []
+  review_depth:
+    low:
+      min_samples: 0
+      require_critical_scope_coverage: false
+    medium:
+      min_samples: 0
+      require_critical_scope_coverage: false
+    high:
+      min_samples: 0
+      require_critical_scope_coverage: false
 ```
 
 ---
@@ -475,6 +503,7 @@ sophia cr evidence show <id> --json
 Behavior:
 
 * Supports evidence types: `command_run`, `manual_note`, `environment`, `benchmark`, `reproduction_steps`
+* Supports `review_sample` evidence for deterministic review-depth coverage
 * Captured command evidence stores deterministic facts (`exit_code`, `output_hash`, summary) without changing merge policy
 * Evidence entries are append-only metadata facts and are visible in review/history surfaces
 
@@ -596,6 +625,8 @@ Behavior:
 ```
 sophia cr impact <id>
 sophia cr validate <id> [--record]
+sophia cr check status <id>
+sophia cr check run <id>
 ```
 
 Behavior:
@@ -605,7 +636,10 @@ Behavior:
 * `validate` enforces required contract fields and scope-drift policy
 * `validate` emits blocking `Errors` and non-blocking `Warnings`
 * `validate` includes task chunk metadata warnings (`task_chunk_warnings`) when chunk metadata is malformed/inconsistent
+* `validate` JSON includes trust summary, unsatisfied trust requirements, and trust warnings
 * `validate` is read-only by default; add `--record` to append a `cr_validated` audit event
+* `check status` reports required checks, freshness, and missing/stale/failing states for the CR risk tier
+* `check run` executes policy-required checks and records `command_run` evidence entries
 * For merged CRs whose branch was deleted, `validate` derives diff context from the merge commit (with task-checkpoint scope fallback)
 * Both commands support machine-readable output via `--json`
 
@@ -668,10 +702,10 @@ Displays:
 * Test file changes (basic detection)
 * Deterministic trust envelope (`trusted | needs_attention | untrusted`) with score, hard-fail reasons, dimension breakdown, required actions, and advisories
 * Trust is a deterministic review-confidence model, not a semantic correctness proof
-* Trust is advisory-only in v1 (no merge gating change); verdict thresholds use score ratio: `trusted >= 0.85`, `needs_attention 0.60..0.849...`, `untrusted < 0.60` or any hard-fail
-* Hard-fail is defined as either `validation errors > 0` or missing required CR contract fields; the missing-fields check is intentionally listed separately for explicit reviewer consistency, even though it usually overlaps validation errors
-* Evidence signals are derived from scope drift, validation warnings/errors, task checkpoint presence/missing proof commits, tests touched, dependency files touched, delegated-task blockers/pending state, and deterministic change-magnitude penalties
-* `required_actions` are reserved for gating/failure conditions; non-blocking guidance is emitted under `advisories`
+* Trust includes explicit deterministic requirements, check results, review-depth status, and merge-gate summary metadata
+* Hard-fail is defined as validation errors or missing required contract fields
+* `untrusted` when any deterministic trust requirement is unsatisfied; otherwise threshold comparison is tier-based (`low|medium|high`)
+* `required_actions` are populated from unsatisfied deterministic requirements; non-blocking guidance is emitted under `advisories`
 * High-risk specialized evidence (integration/worktree/doctor/repair coverage signals) is advisory-only guidance, not a trust gate
 * For merged CRs whose branch was deleted, review diff context is derived from merge metadata instead of live branch diff
 * Supports machine-readable output via `--json`
@@ -693,6 +727,8 @@ Behavior:
 
 * Creates an intent-rich merge commit into base (non-linear Git graph)
 * Runs CR validation first and blocks merge on validation errors by default
+* When `trust.gate.enabled=true` and risk tier applies, merge blocks if trust verdict is below `trust.gate.min_verdict`
+* `--override-reason` still provides audited bypass when allowed by policy
 * Generates a structured commit message:
 
 ```

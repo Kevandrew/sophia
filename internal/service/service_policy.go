@@ -60,6 +60,28 @@ var (
 		"requirements.txt",
 		"poetry.lock",
 	}
+	defaultTrustGateApplyRiskTiers = []string{"high"}
+	defaultTrustCheckTiers         = []string{"low", "medium", "high"}
+)
+
+const (
+	policyTrustModeAdvisory = "advisory"
+	policyTrustModeGate     = "gate"
+
+	policyTrustCheckStatusPass    = "pass"
+	policyTrustCheckStatusFail    = "fail"
+	policyTrustCheckStatusMissing = "missing"
+	policyTrustCheckStatusStale   = "stale"
+
+	defaultTrustThresholdLow    = 0.85
+	defaultTrustThresholdMedium = 0.90
+	defaultTrustThresholdHigh   = 0.95
+
+	defaultTrustCheckFreshnessHours = 24
+
+	defaultTrustReviewLowMinSamples    = 0
+	defaultTrustReviewMediumMinSamples = 0
+	defaultTrustReviewHighMinSamples   = 0
 )
 
 func defaultRepoPolicy() *model.RepoPolicy {
@@ -86,11 +108,54 @@ func defaultRepoPolicy() *model.RepoPolicy {
 		Merge: model.PolicyMerge{
 			AllowOverride: boolPtr(true),
 		},
+		Trust: *defaultPolicyTrust(),
 	}
 }
 
 func boolPtr(v bool) *bool {
 	return &v
+}
+
+func intPtr(v int) *int {
+	return &v
+}
+
+func floatPtr(v float64) *float64 {
+	return &v
+}
+
+func defaultPolicyTrust() *model.PolicyTrust {
+	return &model.PolicyTrust{
+		Mode: policyTrustModeAdvisory,
+		Gate: model.PolicyTrustGate{
+			Enabled:        boolPtr(false),
+			ApplyRiskTiers: append([]string(nil), defaultTrustGateApplyRiskTiers...),
+			MinVerdict:     trustVerdictTrusted,
+		},
+		Thresholds: model.PolicyTrustThresholds{
+			Low:    floatPtr(defaultTrustThresholdLow),
+			Medium: floatPtr(defaultTrustThresholdMedium),
+			High:   floatPtr(defaultTrustThresholdHigh),
+		},
+		Checks: model.PolicyTrustChecks{
+			FreshnessHours: intPtr(defaultTrustCheckFreshnessHours),
+			Definitions:    []model.PolicyTrustCheckDefinition{},
+		},
+		ReviewDepth: model.PolicyTrustReviewDepth{
+			Low: model.PolicyTrustReviewTier{
+				MinSamples:                   intPtr(defaultTrustReviewLowMinSamples),
+				RequireCriticalScopeCoverage: boolPtr(false),
+			},
+			Medium: model.PolicyTrustReviewTier{
+				MinSamples:                   intPtr(defaultTrustReviewMediumMinSamples),
+				RequireCriticalScopeCoverage: boolPtr(false),
+			},
+			High: model.PolicyTrustReviewTier{
+				MinSamples:                   intPtr(defaultTrustReviewHighMinSamples),
+				RequireCriticalScopeCoverage: boolPtr(false),
+			},
+		},
+	}
 }
 
 func (s *Service) repoPolicy() (*model.RepoPolicy, error) {
@@ -192,6 +257,11 @@ func (s *Service) normalizeRepoPolicy(input *model.RepoPolicy) (*model.RepoPolic
 	if input.Merge.AllowOverride != nil {
 		normalized.Merge.AllowOverride = boolPtr(*input.Merge.AllowOverride)
 	}
+	trust, trustErr := normalizePolicyTrust(input.Trust)
+	if trustErr != nil {
+		return nil, trustErr
+	}
+	normalized.Trust = trust
 	return normalized, nil
 }
 
@@ -234,6 +304,220 @@ func normalizePolicyStringList(values []string, lower bool) []string {
 		normalized = append(normalized, candidate)
 	}
 	sort.Strings(normalized)
+	return normalized
+}
+
+func normalizePolicyTrust(input model.PolicyTrust) (model.PolicyTrust, error) {
+	normalized := *defaultPolicyTrust()
+
+	mode, err := normalizePolicyTrustMode(input.Mode)
+	if err != nil {
+		return model.PolicyTrust{}, err
+	}
+	normalized.Mode = mode
+
+	if input.Gate.Enabled != nil {
+		normalized.Gate.Enabled = boolPtr(*input.Gate.Enabled)
+	}
+	if len(input.Gate.ApplyRiskTiers) > 0 {
+		tiers, tierErr := normalizePolicyRiskTiers(input.Gate.ApplyRiskTiers, "trust.gate.apply_risk_tiers")
+		if tierErr != nil {
+			return model.PolicyTrust{}, tierErr
+		}
+		normalized.Gate.ApplyRiskTiers = tiers
+	}
+	if strings.TrimSpace(input.Gate.MinVerdict) != "" {
+		minVerdict, minVerdictErr := normalizePolicyTrustMinVerdict(input.Gate.MinVerdict)
+		if minVerdictErr != nil {
+			return model.PolicyTrust{}, minVerdictErr
+		}
+		normalized.Gate.MinVerdict = minVerdict
+	}
+
+	if input.Thresholds.Low != nil {
+		if thresholdErr := validatePolicyTrustThreshold(*input.Thresholds.Low, "trust.thresholds.low"); thresholdErr != nil {
+			return model.PolicyTrust{}, thresholdErr
+		}
+		normalized.Thresholds.Low = floatPtr(*input.Thresholds.Low)
+	}
+	if input.Thresholds.Medium != nil {
+		if thresholdErr := validatePolicyTrustThreshold(*input.Thresholds.Medium, "trust.thresholds.medium"); thresholdErr != nil {
+			return model.PolicyTrust{}, thresholdErr
+		}
+		normalized.Thresholds.Medium = floatPtr(*input.Thresholds.Medium)
+	}
+	if input.Thresholds.High != nil {
+		if thresholdErr := validatePolicyTrustThreshold(*input.Thresholds.High, "trust.thresholds.high"); thresholdErr != nil {
+			return model.PolicyTrust{}, thresholdErr
+		}
+		normalized.Thresholds.High = floatPtr(*input.Thresholds.High)
+	}
+	if *normalized.Thresholds.Low > *normalized.Thresholds.Medium || *normalized.Thresholds.Medium > *normalized.Thresholds.High {
+		return model.PolicyTrust{}, fmt.Errorf("%w: trust.thresholds must satisfy low <= medium <= high", ErrPolicyInvalid)
+	}
+
+	if input.Checks.FreshnessHours != nil {
+		if *input.Checks.FreshnessHours <= 0 {
+			return model.PolicyTrust{}, fmt.Errorf("%w: trust.checks.freshness_hours must be > 0", ErrPolicyInvalid)
+		}
+		normalized.Checks.FreshnessHours = intPtr(*input.Checks.FreshnessHours)
+	}
+	checks, checksErr := normalizePolicyTrustCheckDefinitions(input.Checks.Definitions)
+	if checksErr != nil {
+		return model.PolicyTrust{}, checksErr
+	}
+	if input.Checks.Definitions != nil {
+		normalized.Checks.Definitions = checks
+	}
+
+	lowTier, lowErr := normalizePolicyTrustReviewTier(input.ReviewDepth.Low, normalized.ReviewDepth.Low, "trust.review_depth.low")
+	if lowErr != nil {
+		return model.PolicyTrust{}, lowErr
+	}
+	mediumTier, mediumErr := normalizePolicyTrustReviewTier(input.ReviewDepth.Medium, normalized.ReviewDepth.Medium, "trust.review_depth.medium")
+	if mediumErr != nil {
+		return model.PolicyTrust{}, mediumErr
+	}
+	highTier, highErr := normalizePolicyTrustReviewTier(input.ReviewDepth.High, normalized.ReviewDepth.High, "trust.review_depth.high")
+	if highErr != nil {
+		return model.PolicyTrust{}, highErr
+	}
+	normalized.ReviewDepth.Low = lowTier
+	normalized.ReviewDepth.Medium = mediumTier
+	normalized.ReviewDepth.High = highTier
+
+	return normalized, nil
+}
+
+func normalizePolicyTrustReviewTier(input model.PolicyTrustReviewTier, fallback model.PolicyTrustReviewTier, path string) (model.PolicyTrustReviewTier, error) {
+	out := model.PolicyTrustReviewTier{
+		MinSamples:                   intPtr(*fallback.MinSamples),
+		RequireCriticalScopeCoverage: boolPtr(*fallback.RequireCriticalScopeCoverage),
+	}
+	if input.MinSamples != nil {
+		if *input.MinSamples < 0 {
+			return model.PolicyTrustReviewTier{}, fmt.Errorf("%w: %s.min_samples must be >= 0", ErrPolicyInvalid, path)
+		}
+		out.MinSamples = intPtr(*input.MinSamples)
+	}
+	if input.RequireCriticalScopeCoverage != nil {
+		out.RequireCriticalScopeCoverage = boolPtr(*input.RequireCriticalScopeCoverage)
+	}
+	return out, nil
+}
+
+func normalizePolicyTrustCheckDefinitions(values []model.PolicyTrustCheckDefinition) ([]model.PolicyTrustCheckDefinition, error) {
+	out := make([]model.PolicyTrustCheckDefinition, 0, len(values))
+	seen := map[string]struct{}{}
+	for idx, raw := range values {
+		path := fmt.Sprintf("trust.checks.definitions[%d]", idx)
+		key := strings.TrimSpace(raw.Key)
+		if key == "" {
+			return nil, fmt.Errorf("%w: %s.key cannot be empty", ErrPolicyInvalid, path)
+		}
+		if _, ok := seen[key]; ok {
+			return nil, fmt.Errorf("%w: duplicate %s.key %q", ErrPolicyInvalid, path, key)
+		}
+		seen[key] = struct{}{}
+		command := strings.TrimSpace(raw.Command)
+		if command == "" {
+			return nil, fmt.Errorf("%w: %s.command cannot be empty", ErrPolicyInvalid, path)
+		}
+
+		tiers := append([]string(nil), defaultTrustCheckTiers...)
+		if len(raw.Tiers) > 0 {
+			normalizedTiers, tierErr := normalizePolicyRiskTiers(raw.Tiers, path+".tiers")
+			if tierErr != nil {
+				return nil, tierErr
+			}
+			tiers = normalizedTiers
+		}
+
+		allowCodes := normalizeIntList(raw.AllowExitCodes)
+		if len(allowCodes) == 0 {
+			allowCodes = []int{0}
+		}
+
+		out = append(out, model.PolicyTrustCheckDefinition{
+			Key:            key,
+			Command:        command,
+			Tiers:          tiers,
+			AllowExitCodes: allowCodes,
+		})
+	}
+	return out, nil
+}
+
+func normalizePolicyRiskTiers(values []string, label string) ([]string, error) {
+	normalized := []string{}
+	seen := map[string]struct{}{}
+	for _, raw := range values {
+		tier := strings.ToLower(strings.TrimSpace(raw))
+		if tier == "" {
+			continue
+		}
+		switch tier {
+		case "low", "medium", "high":
+		default:
+			return nil, fmt.Errorf("%w: %s contains invalid tier %q", ErrPolicyInvalid, label, raw)
+		}
+		if _, ok := seen[tier]; ok {
+			continue
+		}
+		seen[tier] = struct{}{}
+		normalized = append(normalized, tier)
+	}
+	sort.Strings(normalized)
+	return normalized, nil
+}
+
+func normalizePolicyTrustMode(raw string) (string, error) {
+	mode := strings.ToLower(strings.TrimSpace(raw))
+	if mode == "" {
+		return policyTrustModeAdvisory, nil
+	}
+	switch mode {
+	case policyTrustModeAdvisory, policyTrustModeGate:
+		return mode, nil
+	default:
+		return "", fmt.Errorf("%w: trust.mode %q is invalid (expected advisory or gate)", ErrPolicyInvalid, raw)
+	}
+}
+
+func normalizePolicyTrustMinVerdict(raw string) (string, error) {
+	value := strings.ToLower(strings.TrimSpace(raw))
+	if value == "" {
+		return trustVerdictTrusted, nil
+	}
+	switch value {
+	case trustVerdictTrusted, trustVerdictNeedsAttention:
+		return value, nil
+	default:
+		return "", fmt.Errorf("%w: trust.gate.min_verdict %q is invalid (expected trusted or needs_attention)", ErrPolicyInvalid, raw)
+	}
+}
+
+func validatePolicyTrustThreshold(value float64, label string) error {
+	if value <= 0 || value > 1 {
+		return fmt.Errorf("%w: %s must be within (0,1], got %.6f", ErrPolicyInvalid, label, value)
+	}
+	return nil
+}
+
+func normalizeIntList(values []int) []int {
+	if len(values) == 0 {
+		return []int{}
+	}
+	seen := map[int]struct{}{}
+	normalized := make([]int, 0, len(values))
+	for _, value := range values {
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		normalized = append(normalized, value)
+	}
+	sort.Ints(normalized)
 	return normalized
 }
 

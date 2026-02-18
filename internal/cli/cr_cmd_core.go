@@ -1005,6 +1005,13 @@ func newCRValidateCmd() *cobra.Command {
 				}
 				return err
 			}
+			review, err := svc.ReviewCR(id)
+			if err != nil {
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
+				return err
+			}
 			if record {
 				if err := svc.RecordCRValidation(id, report); err != nil {
 					if asJSON {
@@ -1013,12 +1020,30 @@ func newCRValidateCmd() *cobra.Command {
 					return err
 				}
 			}
+			trustWarnings := []string{}
+			trustRequirementsUnsatisfied := []string{}
+			if review.Trust != nil {
+				for _, requirement := range review.Trust.Requirements {
+					if requirement.Satisfied {
+						continue
+					}
+					trustRequirementsUnsatisfied = append(trustRequirementsUnsatisfied, requirement.Key)
+					if strings.TrimSpace(requirement.Reason) != "" {
+						trustWarnings = append(trustWarnings, requirement.Reason)
+					}
+				}
+			}
+			trustWarnings = dedupeStringValues(trustWarnings)
+			trustRequirementsUnsatisfied = dedupeStringValues(trustRequirementsUnsatisfied)
 			if asJSON {
 				if !report.Valid {
 					return writeJSONError(cmd, fmt.Errorf("validation failed with %d error(s): %s", len(report.Errors), strings.Join(report.Errors, "; ")))
 				}
 				payload := validationToJSONMap(report)
 				payload["recorded"] = record
+				payload["trust"] = trustToJSONMap(review.Trust)
+				payload["trust_warnings"] = trustWarnings
+				payload["trust_requirements_unsatisfied"] = trustRequirementsUnsatisfied
 				return writeJSONSuccess(cmd, payload)
 			}
 
@@ -1031,6 +1056,7 @@ func newCRValidateCmd() *cobra.Command {
 			printImpactSection(cmd, report.Impact)
 			printStringSection(cmd, "Errors", report.Errors)
 			printStringSection(cmd, "Warnings", report.Warnings)
+			printTrustSection(cmd, review.Trust)
 			fmt.Fprintf(cmd.OutOrStdout(), "\nRecorded: %t\n", record)
 			if !report.Valid {
 				return fmt.Errorf("validation failed with %d error(s)", len(report.Errors))

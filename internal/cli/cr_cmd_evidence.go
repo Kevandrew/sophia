@@ -86,7 +86,7 @@ func newCREvidenceAddCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&evidenceType, "type", "", "Evidence type (command_run, manual_note, environment, benchmark, reproduction_steps)")
+	cmd.Flags().StringVar(&evidenceType, "type", "", "Evidence type (command_run, manual_note, environment, benchmark, reproduction_steps, review_sample)")
 	cmd.Flags().StringVar(&scope, "scope", "", "Optional evidence scope path/prefix")
 	cmd.Flags().StringVar(&summary, "summary", "", "Evidence summary text")
 	cmd.Flags().StringVar(&text, "text", "", "Alias for --summary (useful for manual_note)")
