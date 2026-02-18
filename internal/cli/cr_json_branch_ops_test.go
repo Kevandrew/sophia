@@ -46,12 +46,54 @@ func TestCRAddDefaultsToNoSwitchAndSupportsSwitchFlag(t *testing.T) {
 	if runErr != nil {
 		t.Fatalf("cr add --switch error = %v\noutput=%s", runErr, out)
 	}
-	if !strings.Contains(out, "Active branch: sophia/cr-2") {
+	if !strings.Contains(out, "Active branch: ") {
 		t.Fatalf("expected active branch output, got %q", out)
 	}
+	activePrefix := "Active branch: "
+	activeIdx := strings.Index(out, activePrefix)
+	activeBranch := ""
+	if activeIdx >= 0 {
+		remaining := strings.TrimSpace(out[activeIdx+len(activePrefix):])
+		fields := strings.Fields(remaining)
+		if len(fields) > 0 {
+			activeBranch = fields[0]
+		}
+	}
+	if !strings.Contains(activeBranch, "cr-2-") {
+		t.Fatalf("expected CR-2 branch alias, got %q", activeBranch)
+	}
 	current = runGit(t, dir, "branch", "--show-current")
-	if current != "sophia/cr-2" {
-		t.Fatalf("expected switched branch sophia/cr-2, got %q", current)
+	if current != activeBranch {
+		t.Fatalf("expected switched branch %q, got %q", activeBranch, current)
+	}
+}
+
+func TestCRAddSupportsOwnerPrefixAndExplicitBranchAlias(t *testing.T) {
+	dir := t.TempDir()
+	if _, _, initErr := runCLI(t, dir, "init", "--base-branch", "main", "--branch-owner-prefix", "kevandrew"); initErr != nil {
+		t.Fatalf("init with owner prefix error = %v", initErr)
+	}
+
+	out, _, runErr := runCLI(t, dir, "cr", "add", "Prefix default", "--switch")
+	if runErr != nil {
+		t.Fatalf("cr add with owner-prefix default error = %v\noutput=%s", runErr, out)
+	}
+	if !strings.Contains(out, "Active branch: kevandrew/cr-1-") {
+		t.Fatalf("expected owner-prefixed active branch output, got %q", out)
+	}
+
+	runGit(t, dir, "checkout", "main")
+	out, _, runErr = runCLI(t, dir, "cr", "add", "Alias explicit", "--branch-alias", "kevandrew/cr-2-explicit", "--switch")
+	if runErr != nil {
+		t.Fatalf("cr add with explicit alias error = %v\noutput=%s", runErr, out)
+	}
+	if !strings.Contains(out, "Active branch: kevandrew/cr-2-explicit") {
+		t.Fatalf("expected explicit alias output, got %q", out)
+	}
+
+	_, _, runErr = runCLI(t, dir, "cr", "add", "Conflict", "--branch-alias", "cr-3-conflict", "--owner-prefix", "foo")
+	if runErr == nil || !strings.Contains(runErr.Error(), "--branch-alias and --owner-prefix cannot be combined") {
+		t.Fatalf("expected branch-alias/owner-prefix conflict error, got %v", runErr)
 	}
 }
 
