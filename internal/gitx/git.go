@@ -482,6 +482,47 @@ func (c *Client) CommitByHash(hash string) (*Commit, error) {
 	}, nil
 }
 
+func (c *Client) CommitFiles(hash string) ([]string, error) {
+	hash = strings.TrimSpace(hash)
+	if hash == "" {
+		return nil, fmt.Errorf("commit hash cannot be empty")
+	}
+	out, err := c.run("show", "--pretty=format:", "--name-only", hash)
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(out) == "" {
+		return []string{}, nil
+	}
+	seen := map[string]struct{}{}
+	files := []string{}
+	for _, line := range strings.Split(out, "\n") {
+		path := strings.TrimSpace(line)
+		if path == "" {
+			continue
+		}
+		if _, ok := seen[path]; ok {
+			continue
+		}
+		seen[path] = struct{}{}
+		files = append(files, path)
+	}
+	sort.Strings(files)
+	return files, nil
+}
+
+func (c *Client) CommitPatch(hash string) (string, error) {
+	hash = strings.TrimSpace(hash)
+	if hash == "" {
+		return "", fmt.Errorf("commit hash cannot be empty")
+	}
+	out, err := c.run("show", "--format=", "--patch", hash)
+	if err != nil {
+		return "", err
+	}
+	return out, nil
+}
+
 func (c *Client) BlameLinePorcelain(path string, rev string, ranges []BlameRange) ([]BlameLine, error) {
 	path = strings.TrimSpace(path)
 	if path == "" {

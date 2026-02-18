@@ -34,6 +34,7 @@ func newCRCmd() *cobra.Command {
 	crCmd.AddCommand(newCRContractCmd())
 	crCmd.AddCommand(newCRImpactCmd())
 	crCmd.AddCommand(newCRValidateCmd())
+	crCmd.AddCommand(newCRExportCmd())
 	crCmd.AddCommand(newCRRedactCmd())
 	crCmd.AddCommand(newCRHistoryCmd())
 

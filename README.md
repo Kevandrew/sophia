@@ -595,6 +595,7 @@ sophia cr impact <id>
 sophia cr validate <id>
 sophia cr evidence add <id> --type command_run --cmd "go test ./..." --capture
 sophia cr evidence show <id> [--json]
+sophia cr export <id> --format json [--include diffs] [--out <path>]
 sophia cr review <id> --json
 sophia cr redact <id> --note-index 1 --reason "..."
 sophia cr history <id>
@@ -614,6 +615,7 @@ sophia cr history <id>
 * `task done --patch-file` checkpoints selected hunks from a patch manifest
 * `task reopen` reopens done tasks without rewriting Git history and can optionally clear checkpoint metadata
 * `contract/impact/validate` provide intent integrity and blast-radius review context
+* `cr export` emits a canonical schema-versioned JSON bundle containing CR metadata, derived impact/trust/validation context, checkpoint inventory, referenced commits, and optional task patch sections (`--include diffs`)
 * `--json` on read/check commands provides stable machine-readable envelopes for agents
 * JSON read/check outputs include immutable CR uid fields and per-CR base/parent metadata for stacked workflows
 * `edit/redact/history` supports retroactive metadata hygiene with audit-safe events

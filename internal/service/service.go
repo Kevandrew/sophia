@@ -200,6 +200,60 @@ type ReconcileCRReport struct {
 	TaskResults      []ReconcileTaskResult
 }
 
+type ExportCROptions struct {
+	Format  string
+	Include []string
+}
+
+type CRExportBundle struct {
+	SchemaVersion     string                `json:"schema_version"`
+	Format            string                `json:"format"`
+	CR                *model.CR             `json:"cr"`
+	CRYAML            string                `json:"cr_yaml"`
+	Evidence          []model.EvidenceEntry `json:"evidence"`
+	Derived           CRExportDerived       `json:"derived"`
+	Checkpoints       []CRExportCheckpoint  `json:"checkpoints"`
+	ReferencedCommits []string              `json:"referenced_commits"`
+	Includes          []string              `json:"includes,omitempty"`
+	TaskDiffs         []CRExportTaskDiff    `json:"task_diffs,omitempty"`
+	Warnings          []string              `json:"warnings,omitempty"`
+}
+
+type CRExportDerived struct {
+	FilesChanged    []string          `json:"files_changed"`
+	NewFiles        []string          `json:"new_files"`
+	ModifiedFiles   []string          `json:"modified_files"`
+	DeletedFiles    []string          `json:"deleted_files"`
+	TestFiles       []string          `json:"test_files"`
+	DependencyFiles []string          `json:"dependency_files"`
+	DiffStat        string            `json:"diff_stat"`
+	Impact          *ImpactReport     `json:"impact"`
+	Trust           *TrustReport      `json:"trust"`
+	Validation      *ValidationReport `json:"validation"`
+}
+
+type CRExportCheckpoint struct {
+	TaskID  int                     `json:"task_id"`
+	Title   string                  `json:"title"`
+	Status  string                  `json:"status"`
+	Commit  string                  `json:"commit,omitempty"`
+	At      string                  `json:"at,omitempty"`
+	Message string                  `json:"message,omitempty"`
+	Scope   []string                `json:"scope,omitempty"`
+	Chunks  []model.CheckpointChunk `json:"chunks,omitempty"`
+	Source  string                  `json:"source,omitempty"`
+	Orphan  bool                    `json:"orphan,omitempty"`
+	Reason  string                  `json:"reason,omitempty"`
+}
+
+type CRExportTaskDiff struct {
+	TaskID int      `json:"task_id"`
+	Title  string   `json:"title"`
+	Commit string   `json:"commit"`
+	Files  []string `json:"files,omitempty"`
+	Patch  string   `json:"patch,omitempty"`
+}
+
 type WhyView struct {
 	CRID              int
 	CRUID             string
