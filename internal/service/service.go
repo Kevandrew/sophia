@@ -528,6 +528,66 @@ type TrustReport struct {
 	RequiredActions []string
 	Advisories      []string
 	Summary         string
+	RiskTier        string
+	Requirements    []TrustRequirement
+	CheckResults    []TrustCheckResult
+	ReviewDepth     TrustReviewDepthResult
+	Gate            TrustGateSummary
+}
+
+type TrustRequirement struct {
+	Key       string
+	Title     string
+	Satisfied bool
+	Reason    string
+	Action    string
+}
+
+type TrustCheckResult struct {
+	Key            string
+	Command        string
+	Required       bool
+	Status         string
+	Reason         string
+	AllowExitCodes []int
+	ExitCode       *int
+	LastRunAt      string
+	FreshnessHours int
+}
+
+type TrustReviewDepthResult struct {
+	RiskTier                     string
+	RequiredSamples              int
+	SampleCount                  int
+	RequireCriticalScopeCoverage bool
+	CoveredCriticalScopes        []string
+	MissingCriticalScopes        []string
+	Satisfied                    bool
+}
+
+type TrustGateSummary struct {
+	Enabled bool
+	Applies bool
+	Blocked bool
+	Reason  string
+}
+
+type TrustCheckStatusReport struct {
+	CRID           int
+	CRUID          string
+	RiskTier       string
+	Requirements   []TrustRequirement
+	CheckResults   []TrustCheckResult
+	FreshnessHours int
+}
+
+type TrustCheckRunReport struct {
+	CRID         int
+	CRUID        string
+	RiskTier     string
+	Requirements []TrustRequirement
+	CheckResults []TrustCheckResult
+	Executed     int
 }
 
 type TaskContractPatch struct {

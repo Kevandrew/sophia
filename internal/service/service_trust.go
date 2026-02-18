@@ -6,6 +6,7 @@ import (
 	"sophia/internal/model"
 	"strconv"
 	"strings"
+	"time"
 )
 
 const (
@@ -19,6 +20,22 @@ const (
 var leadingIntPattern = regexp.MustCompile(`^\d+`)
 
 func buildTrustReport(cr *model.CR, validation *ValidationReport, diff *diffSummary, requiredCRFields []string) *TrustReport {
+	policy := defaultRepoPolicy()
+	// Compatibility wrapper for unit tests that exercise dimension scoring in isolation.
+	policy.Trust.Checks.Definitions = []model.PolicyTrustCheckDefinition{}
+	policy.Trust.ReviewDepth.Low.MinSamples = intPtr(0)
+	policy.Trust.ReviewDepth.Low.RequireCriticalScopeCoverage = boolPtr(false)
+	policy.Trust.ReviewDepth.Medium.MinSamples = intPtr(0)
+	policy.Trust.ReviewDepth.Medium.RequireCriticalScopeCoverage = boolPtr(false)
+	policy.Trust.ReviewDepth.High.MinSamples = intPtr(0)
+	policy.Trust.ReviewDepth.High.RequireCriticalScopeCoverage = boolPtr(false)
+	policy.Trust.Thresholds.Low = floatPtr(trustTrustedMinRatio)
+	policy.Trust.Thresholds.Medium = floatPtr(trustTrustedMinRatio)
+	policy.Trust.Thresholds.High = floatPtr(trustTrustedMinRatio)
+	return buildTrustReportWithPolicy(cr, validation, diff, requiredCRFields, policy)
+}
+
+func buildTrustReportWithPolicy(cr *model.CR, validation *ValidationReport, diff *diffSummary, requiredCRFields []string, policy *model.RepoPolicy) *TrustReport {
 	if cr == nil {
 		return &TrustReport{
 			Verdict:      trustVerdictUntrusted,
@@ -32,7 +49,16 @@ func buildTrustReport(cr *model.CR, validation *ValidationReport, diff *diffSumm
 			},
 			Advisories: []string{},
 			Summary:    "Trust evidence unavailable because CR metadata is missing.",
+			Gate: TrustGateSummary{
+				Enabled: false,
+				Applies: false,
+				Blocked: false,
+				Reason:  "CR metadata is missing.",
+			},
 		}
+	}
+	if policy == nil {
+		policy = defaultRepoPolicy()
 	}
 	if validation == nil {
 		validation = &ValidationReport{}
@@ -54,15 +80,44 @@ func buildTrustReport(cr *model.CR, validation *ValidationReport, diff *diffSumm
 	}
 
 	hardFailures := []string{}
-	requiredActions := []string{}
 	advisories := []string{}
+	requirements := []TrustRequirement{}
 	if len(validation.Errors) > 0 {
 		hardFailures = append(hardFailures, fmt.Sprintf("validation errors present (%d)", len(validation.Errors)))
-		requiredActions = append(requiredActions, "Resolve all validation errors before trusting review data.")
+		requirements = append(requirements, TrustRequirement{
+			Key:       "validation_clean",
+			Title:     "Validation has no errors",
+			Satisfied: false,
+			Reason:    fmt.Sprintf("%d validation error(s) present.", len(validation.Errors)),
+			Action:    "Resolve all validation errors before trusting review data.",
+		})
+	} else {
+		requirements = append(requirements, TrustRequirement{
+			Key:       "validation_clean",
+			Title:     "Validation has no errors",
+			Satisfied: true,
+			Reason:    "No validation errors.",
+			Action:    "",
+		})
 	}
-	if missing := missingCRContractFields(cr.Contract, requiredCRFields); len(missing) > 0 {
-		hardFailures = append(hardFailures, fmt.Sprintf("missing required contract fields: %s", strings.Join(missing, ", ")))
-		requiredActions = append(requiredActions, fmt.Sprintf("Complete required contract fields: %s.", strings.Join(missing, ", ")))
+	missingContractFields := missingCRContractFields(cr.Contract, requiredCRFields)
+	if len(missingContractFields) > 0 {
+		hardFailures = append(hardFailures, fmt.Sprintf("missing required contract fields: %s", strings.Join(missingContractFields, ", ")))
+		requirements = append(requirements, TrustRequirement{
+			Key:       "contract_required_fields",
+			Title:     "CR required contract fields are complete",
+			Satisfied: false,
+			Reason:    fmt.Sprintf("Missing fields: %s.", strings.Join(missingContractFields, ", ")),
+			Action:    fmt.Sprintf("Complete required contract fields: %s.", strings.Join(missingContractFields, ", ")),
+		})
+	} else {
+		requirements = append(requirements, TrustRequirement{
+			Key:       "contract_required_fields",
+			Title:     "CR required contract fields are complete",
+			Satisfied: true,
+			Reason:    "All required contract fields are present.",
+			Action:    "",
+		})
 	}
 
 	dimensions := []TrustDimension{
@@ -93,14 +148,67 @@ func buildTrustReport(cr *model.CR, validation *ValidationReport, diff *diffSumm
 			advisories = append(advisories, action)
 		}
 	}
-	requiredActions = dedupeStrings(requiredActions)
 	advisories = dedupeStrings(advisories)
+
+	riskTier := normalizedRiskTier(impact.RiskTier)
+	checkResults := evaluateTrustChecks(cr.Evidence, policy.Trust, riskTier, time.Now().UTC())
+	checkRequirements := make([]TrustRequirement, 0, len(checkResults))
+	for _, check := range checkResults {
+		satisfied := check.Status == policyTrustCheckStatusPass
+		action := ""
+		if !satisfied {
+			action = fmt.Sprintf("Run required check %q (%s) and record a passing fresh result.", check.Key, check.Command)
+		}
+		checkRequirements = append(checkRequirements, TrustRequirement{
+			Key:       "check:" + check.Key,
+			Title:     fmt.Sprintf("Required check %q is passing and fresh", check.Key),
+			Satisfied: satisfied,
+			Reason:    check.Reason,
+			Action:    action,
+		})
+	}
+	requirements = append(requirements, checkRequirements...)
+
+	reviewDepth := evaluateTrustReviewDepth(cr, policy.Trust, riskTier)
+	reviewDepthReq := TrustRequirement{
+		Key:       "review_depth",
+		Title:     "Review-depth sampling requirement is satisfied",
+		Satisfied: reviewDepth.Satisfied,
+		Reason:    fmt.Sprintf("Samples: %d/%d.", reviewDepth.SampleCount, reviewDepth.RequiredSamples),
+		Action:    "",
+	}
+	if !reviewDepth.Satisfied {
+		reviewDepthReq.Action = fmt.Sprintf("Add review_sample evidence entries until at least %d sample(s) are recorded.", reviewDepth.RequiredSamples)
+	}
+	if reviewDepth.RequireCriticalScopeCoverage && len(reviewDepth.MissingCriticalScopes) > 0 {
+		reviewDepthReq.Reason = fmt.Sprintf("Missing critical scope coverage for: %s.", strings.Join(reviewDepth.MissingCriticalScopes, ", "))
+		if reviewDepthReq.Action == "" {
+			reviewDepthReq.Action = "Add review_sample evidence with scope prefixes covering each risk_critical_scope."
+		}
+	}
+	requirements = append(requirements, reviewDepthReq)
+
 	if strings.EqualFold(strings.TrimSpace(impact.RiskTier), "high") && len(impact.MatchedRiskCriticalScopes) > 0 {
 		advisories = append(advisories, fmt.Sprintf("Spot-check critical scopes: %s.", strings.Join(impact.MatchedRiskCriticalScopes, ", ")))
 	}
 	advisories = dedupeStrings(advisories)
 
-	verdict, summary := selectTrustVerdict(score, max, hardFailures)
+	if reviewDepth.RequireCriticalScopeCoverage && len(cr.Contract.RiskCriticalScopes) == 0 {
+		advisories = append(advisories, "Declare risk_critical_scopes in the CR contract to enforce high-tier critical-scope coverage checks.")
+		advisories = dedupeStrings(advisories)
+	}
+
+	requiredActions := []string{}
+	for _, requirement := range requirements {
+		if requirement.Satisfied || strings.TrimSpace(requirement.Action) == "" {
+			continue
+		}
+		requiredActions = append(requiredActions, requirement.Action)
+	}
+	requiredActions = dedupeStrings(requiredActions)
+
+	verdict, summary := selectTrustVerdictForPolicy(score, max, hardFailures, requirements, policy.Trust, riskTier)
+	gate := buildTrustGateSummary(policy.Trust, riskTier, verdict)
 	if strings.EqualFold(strings.TrimSpace(impact.RiskTier), "high") &&
 		len(impact.MatchedRiskCriticalScopes) > 0 &&
 		!hasSpecializedHighRiskEvidence(impact, diff) {
@@ -112,12 +220,17 @@ func buildTrustReport(cr *model.CR, validation *ValidationReport, diff *diffSumm
 		Verdict:         verdict,
 		Score:           score,
 		Max:             max,
-		AdvisoryOnly:    true,
+		AdvisoryOnly:    !(gate.Enabled && gate.Applies),
 		HardFailures:    dedupeStrings(hardFailures),
 		Dimensions:      dimensions,
 		RequiredActions: requiredActions,
 		Advisories:      advisories,
 		Summary:         summary,
+		RiskTier:        riskTier,
+		Requirements:    requirements,
+		CheckResults:    checkResults,
+		ReviewDepth:     reviewDepth,
+		Gate:            gate,
 	}
 }
 
@@ -131,6 +244,23 @@ func selectTrustVerdict(score, max int, hardFailures []string) (string, string) 
 	default:
 		return trustVerdictNeedsAttention, "Trust evidence has gaps; address required actions before treating diffs as optional."
 	}
+}
+
+func selectTrustVerdictForPolicy(score, max int, hardFailures []string, requirements []TrustRequirement, trust model.PolicyTrust, riskTier string) (string, string) {
+	if len(hardFailures) > 0 {
+		return trustVerdictUntrusted, "Trust evidence is insufficient; validation/contract requirements are failing."
+	}
+	for _, requirement := range requirements {
+		if !requirement.Satisfied {
+			return trustVerdictUntrusted, "Trust evidence requirements are unsatisfied; complete required actions before treating review as trusted."
+		}
+	}
+	ratio := trustScoreRatio(score, max)
+	threshold := trustThresholdForTier(trust, riskTier)
+	if ratio >= threshold {
+		return trustVerdictTrusted, "Trust evidence is strong and policy requirements are satisfied."
+	}
+	return trustVerdictNeedsAttention, "Trust requirements are satisfied, but confidence score is below the trust threshold."
 }
 
 func trustScoreRatio(score, max int) float64 {
@@ -153,6 +283,269 @@ func isTrustGatingAction(action string) bool {
 	}
 	if strings.Contains(lower, "required contract fields") {
 		return true
+	}
+	return false
+}
+
+func trustThresholdForTier(trust model.PolicyTrust, riskTier string) float64 {
+	switch normalizedRiskTier(riskTier) {
+	case "high":
+		return floatValueOrDefault(trust.Thresholds.High, defaultTrustThresholdHigh)
+	case "medium":
+		return floatValueOrDefault(trust.Thresholds.Medium, defaultTrustThresholdMedium)
+	default:
+		return floatValueOrDefault(trust.Thresholds.Low, defaultTrustThresholdLow)
+	}
+}
+
+func normalizedRiskTier(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "high":
+		return "high"
+	case "medium":
+		return "medium"
+	default:
+		return "low"
+	}
+}
+
+func evaluateTrustChecks(evidence []model.EvidenceEntry, trust model.PolicyTrust, riskTier string, now time.Time) []TrustCheckResult {
+	required := requiredTrustCheckDefinitions(trust.Checks.Definitions, riskTier)
+	freshnessHours := intValueOrDefault(trust.Checks.FreshnessHours, defaultTrustCheckFreshnessHours)
+	results := make([]TrustCheckResult, 0, len(required))
+	for _, definition := range required {
+		result := evaluateTrustCheckResult(evidence, definition, freshnessHours, now)
+		results = append(results, result)
+	}
+	return results
+}
+
+func requiredTrustCheckDefinitions(definitions []model.PolicyTrustCheckDefinition, riskTier string) []model.PolicyTrustCheckDefinition {
+	tier := normalizedRiskTier(riskTier)
+	required := []model.PolicyTrustCheckDefinition{}
+	for _, definition := range definitions {
+		if stringSliceContains(definition.Tiers, tier) {
+			required = append(required, definition)
+		}
+	}
+	return required
+}
+
+func evaluateTrustCheckResult(evidence []model.EvidenceEntry, definition model.PolicyTrustCheckDefinition, freshnessHours int, now time.Time) TrustCheckResult {
+	result := TrustCheckResult{
+		Key:            definition.Key,
+		Command:        definition.Command,
+		Required:       true,
+		Status:         policyTrustCheckStatusMissing,
+		Reason:         "No command_run evidence found.",
+		AllowExitCodes: append([]int(nil), definition.AllowExitCodes...),
+		FreshnessHours: freshnessHours,
+	}
+	entry, found := latestTrustCheckEvidence(evidence, definition.Command)
+	if !found {
+		return result
+	}
+	result.LastRunAt = strings.TrimSpace(entry.TS)
+	if entry.ExitCode != nil {
+		exit := *entry.ExitCode
+		result.ExitCode = &exit
+	}
+	entryTime := parseRFC3339OrZero(entry.TS)
+	if entryTime.IsZero() {
+		result.Status = policyTrustCheckStatusStale
+		result.Reason = "Latest evidence timestamp is invalid."
+		return result
+	}
+	if now.Sub(entryTime.UTC()) > time.Duration(freshnessHours)*time.Hour {
+		result.Status = policyTrustCheckStatusStale
+		result.Reason = fmt.Sprintf("Latest check run is older than %d hour(s).", freshnessHours)
+		return result
+	}
+	if entry.ExitCode == nil {
+		result.Status = policyTrustCheckStatusFail
+		result.Reason = "Latest check run is missing exit code."
+		return result
+	}
+	if containsInt(definition.AllowExitCodes, *entry.ExitCode) {
+		result.Status = policyTrustCheckStatusPass
+		result.Reason = fmt.Sprintf("Latest check run passed with exit code %d.", *entry.ExitCode)
+		return result
+	}
+	result.Status = policyTrustCheckStatusFail
+	result.Reason = fmt.Sprintf("Latest check run exit code %d is not allowed.", *entry.ExitCode)
+	return result
+}
+
+func latestTrustCheckEvidence(evidence []model.EvidenceEntry, command string) (model.EvidenceEntry, bool) {
+	var (
+		best     model.EvidenceEntry
+		bestTime time.Time
+		found    bool
+	)
+	for _, entry := range evidence {
+		if strings.TrimSpace(entry.Type) != evidenceTypeCommandRun {
+			continue
+		}
+		if strings.TrimSpace(entry.Command) != strings.TrimSpace(command) {
+			continue
+		}
+		current := parseRFC3339OrZero(entry.TS)
+		if !found || current.After(bestTime) {
+			best = entry
+			bestTime = current
+			found = true
+		}
+	}
+	return best, found
+}
+
+func evaluateTrustReviewDepth(cr *model.CR, trust model.PolicyTrust, riskTier string) TrustReviewDepthResult {
+	out := TrustReviewDepthResult{
+		RiskTier: normalizedRiskTier(riskTier),
+	}
+	reviewTier := trust.ReviewDepth.Low
+	switch out.RiskTier {
+	case "high":
+		reviewTier = trust.ReviewDepth.High
+	case "medium":
+		reviewTier = trust.ReviewDepth.Medium
+	}
+
+	out.RequiredSamples = intValueOrDefault(reviewTier.MinSamples, 0)
+	out.RequireCriticalScopeCoverage = boolValueOrDefault(reviewTier.RequireCriticalScopeCoverage, false)
+	sampleScopes := []string{}
+	for _, entry := range cr.Evidence {
+		if strings.TrimSpace(entry.Type) != evidenceTypeReviewSample {
+			continue
+		}
+		out.SampleCount++
+		scope := strings.TrimSpace(entry.Scope)
+		if scope != "" {
+			sampleScopes = append(sampleScopes, scope)
+		}
+	}
+	out.Satisfied = out.SampleCount >= out.RequiredSamples
+	if out.RequireCriticalScopeCoverage && len(cr.Contract.RiskCriticalScopes) > 0 {
+		covered := []string{}
+		missing := []string{}
+		for _, critical := range cr.Contract.RiskCriticalScopes {
+			if sampleScopesMatchCriticalScope(sampleScopes, critical) {
+				covered = append(covered, critical)
+				continue
+			}
+			missing = append(missing, critical)
+		}
+		out.CoveredCriticalScopes = dedupeStrings(covered)
+		out.MissingCriticalScopes = dedupeStrings(missing)
+		out.Satisfied = out.Satisfied && len(out.MissingCriticalScopes) == 0
+	}
+	return out
+}
+
+func sampleScopesMatchCriticalScope(sampleScopes []string, criticalScope string) bool {
+	critical := strings.TrimSpace(criticalScope)
+	if critical == "" {
+		return false
+	}
+	for _, sample := range sampleScopes {
+		scope := strings.TrimSpace(sample)
+		if scope == "" {
+			continue
+		}
+		if pathMatchesScopePrefix(critical, scope) || pathMatchesScopePrefix(scope, critical) {
+			return true
+		}
+	}
+	return false
+}
+
+func buildTrustGateSummary(trust model.PolicyTrust, riskTier, verdict string) TrustGateSummary {
+	summary := TrustGateSummary{
+		Enabled: false,
+		Applies: false,
+		Blocked: false,
+		Reason:  "Trust gate is disabled.",
+	}
+	if !policyTrustGateEnabled(trust) {
+		return summary
+	}
+	summary.Enabled = true
+	if !trustGateAppliesToRiskTier(trust, riskTier) {
+		summary.Reason = fmt.Sprintf("Trust gate enabled but not configured for risk tier %q.", normalizedRiskTier(riskTier))
+		return summary
+	}
+	summary.Applies = true
+	minVerdict := strings.TrimSpace(trust.Gate.MinVerdict)
+	if minVerdict == "" {
+		minVerdict = trustVerdictTrusted
+	}
+	if trustVerdictRank(verdict) < trustVerdictRank(minVerdict) {
+		summary.Blocked = true
+		summary.Reason = fmt.Sprintf("Trust gate blocked merge: verdict %q is below minimum %q.", verdict, minVerdict)
+		return summary
+	}
+	summary.Reason = "Trust gate satisfied."
+	return summary
+}
+
+func policyTrustGateEnabled(trust model.PolicyTrust) bool {
+	return strings.EqualFold(strings.TrimSpace(trust.Mode), policyTrustModeGate) && boolValueOrDefault(trust.Gate.Enabled, false)
+}
+
+func trustGateAppliesToRiskTier(trust model.PolicyTrust, riskTier string) bool {
+	tiers := trust.Gate.ApplyRiskTiers
+	if len(tiers) == 0 {
+		tiers = defaultTrustGateApplyRiskTiers
+	}
+	return stringSliceContains(tiers, normalizedRiskTier(riskTier))
+}
+
+func trustVerdictRank(verdict string) int {
+	switch strings.ToLower(strings.TrimSpace(verdict)) {
+	case trustVerdictTrusted:
+		return 2
+	case trustVerdictNeedsAttention:
+		return 1
+	default:
+		return 0
+	}
+}
+
+func boolValueOrDefault(value *bool, fallback bool) bool {
+	if value == nil {
+		return fallback
+	}
+	return *value
+}
+
+func intValueOrDefault(value *int, fallback int) int {
+	if value == nil {
+		return fallback
+	}
+	return *value
+}
+
+func floatValueOrDefault(value *float64, fallback float64) float64 {
+	if value == nil {
+		return fallback
+	}
+	return *value
+}
+
+func containsInt(values []int, target int) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
+}
+
+func stringSliceContains(values []string, target string) bool {
+	for _, value := range values {
+		if strings.EqualFold(strings.TrimSpace(value), strings.TrimSpace(target)) {
+			return true
+		}
 	}
 	return false
 }

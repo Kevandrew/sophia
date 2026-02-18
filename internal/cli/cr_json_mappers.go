@@ -428,16 +428,122 @@ func trustToJSONMap(trust *service.TrustReport) map[string]any {
 			"required_actions": dimension.RequiredActions,
 		})
 	}
+	requirements := make([]map[string]any, 0, len(trust.Requirements))
+	for _, requirement := range trust.Requirements {
+		requirements = append(requirements, trustRequirementToJSONMap(requirement))
+	}
+	checkResults := make([]map[string]any, 0, len(trust.CheckResults))
+	for _, check := range trust.CheckResults {
+		checkResults = append(checkResults, trustCheckResultToJSONMap(check))
+	}
 	return map[string]any{
 		"verdict":          trust.Verdict,
 		"score":            trust.Score,
 		"max":              trust.Max,
 		"advisory_only":    trust.AdvisoryOnly,
+		"risk_tier":        trust.RiskTier,
 		"hard_failures":    stringSliceOrEmpty(trust.HardFailures),
 		"dimensions":       dimensions,
+		"requirements":     requirements,
+		"check_results":    checkResults,
+		"review_depth":     trustReviewDepthToJSONMap(trust.ReviewDepth),
+		"gate":             trustGateToJSONMap(trust.Gate),
 		"required_actions": stringSliceOrEmpty(trust.RequiredActions),
 		"advisories":       stringSliceOrEmpty(trust.Advisories),
 		"summary":          trust.Summary,
+	}
+}
+
+func trustRequirementToJSONMap(requirement service.TrustRequirement) map[string]any {
+	return map[string]any{
+		"key":       requirement.Key,
+		"title":     requirement.Title,
+		"satisfied": requirement.Satisfied,
+		"reason":    requirement.Reason,
+		"action":    requirement.Action,
+	}
+}
+
+func trustCheckResultToJSONMap(check service.TrustCheckResult) map[string]any {
+	var exitCode any
+	if check.ExitCode != nil {
+		exitCode = *check.ExitCode
+	}
+	return map[string]any{
+		"key":              check.Key,
+		"command":          check.Command,
+		"required":         check.Required,
+		"status":           check.Status,
+		"reason":           check.Reason,
+		"allow_exit_codes": append([]int(nil), check.AllowExitCodes...),
+		"exit_code":        exitCode,
+		"last_run_at":      check.LastRunAt,
+		"freshness_hours":  check.FreshnessHours,
+	}
+}
+
+func trustReviewDepthToJSONMap(depth service.TrustReviewDepthResult) map[string]any {
+	return map[string]any{
+		"risk_tier":                       depth.RiskTier,
+		"required_samples":                depth.RequiredSamples,
+		"sample_count":                    depth.SampleCount,
+		"require_critical_scope_coverage": depth.RequireCriticalScopeCoverage,
+		"covered_critical_scopes":         stringSliceOrEmpty(depth.CoveredCriticalScopes),
+		"missing_critical_scopes":         stringSliceOrEmpty(depth.MissingCriticalScopes),
+		"satisfied":                       depth.Satisfied,
+	}
+}
+
+func trustGateToJSONMap(gate service.TrustGateSummary) map[string]any {
+	return map[string]any{
+		"enabled": gate.Enabled,
+		"applies": gate.Applies,
+		"blocked": gate.Blocked,
+		"reason":  gate.Reason,
+	}
+}
+
+func trustCheckStatusToJSONMap(report *service.TrustCheckStatusReport) map[string]any {
+	if report == nil {
+		return map[string]any{}
+	}
+	requirements := make([]map[string]any, 0, len(report.Requirements))
+	for _, requirement := range report.Requirements {
+		requirements = append(requirements, trustRequirementToJSONMap(requirement))
+	}
+	checkResults := make([]map[string]any, 0, len(report.CheckResults))
+	for _, check := range report.CheckResults {
+		checkResults = append(checkResults, trustCheckResultToJSONMap(check))
+	}
+	return map[string]any{
+		"cr_id":           report.CRID,
+		"cr_uid":          report.CRUID,
+		"risk_tier":       report.RiskTier,
+		"freshness_hours": report.FreshnessHours,
+		"requirements":    requirements,
+		"check_results":   checkResults,
+	}
+}
+
+func trustCheckRunToJSONMap(report *service.TrustCheckRunReport) map[string]any {
+	if report == nil {
+		return map[string]any{}
+	}
+	requirements := make([]map[string]any, 0, len(report.Requirements))
+	for _, requirement := range report.Requirements {
+		requirements = append(requirements, trustRequirementToJSONMap(requirement))
+	}
+	checkResults := make([]map[string]any, 0, len(report.CheckResults))
+	for _, check := range report.CheckResults {
+		checkResults = append(checkResults, trustCheckResultToJSONMap(check))
+	}
+	return map[string]any{
+		"cr_id":         report.CRID,
+		"cr_uid":        report.CRUID,
+		"risk_tier":     report.RiskTier,
+		"executed":      report.Executed,
+		"requirements":  requirements,
+		"check_results": checkResults,
 	}
 }
 

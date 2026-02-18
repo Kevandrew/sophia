@@ -84,6 +84,7 @@ func printTrustSection(cmd *cobra.Command, trust *service.TrustReport) {
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "Verdict: %s\n", nonEmpty(strings.TrimSpace(trust.Verdict), "-"))
 	fmt.Fprintf(cmd.OutOrStdout(), "Score: %d/%d\n", trust.Score, trust.Max)
+	fmt.Fprintf(cmd.OutOrStdout(), "Risk Tier: %s\n", nonEmpty(strings.TrimSpace(trust.RiskTier), "-"))
 	fmt.Fprintf(cmd.OutOrStdout(), "Advisory Only: %t\n", trust.AdvisoryOnly)
 	printStringSection(cmd, "Hard Failures", trust.HardFailures)
 	fmt.Fprintln(cmd.OutOrStdout(), "\nDimensions:")
@@ -103,8 +104,70 @@ func printTrustSection(cmd *cobra.Command, trust *service.TrustReport) {
 	}
 	printStringSection(cmd, "Required Actions", trust.RequiredActions)
 	printStringSection(cmd, "Advisories", trust.Advisories)
+	printTrustRequirements(cmd, trust.Requirements)
+	printTrustCheckResults(cmd, trust.CheckResults)
+	fmt.Fprintln(cmd.OutOrStdout(), "\nReview Depth:")
+	fmt.Fprintf(cmd.OutOrStdout(), "- risk_tier: %s\n", nonEmpty(strings.TrimSpace(trust.ReviewDepth.RiskTier), "-"))
+	fmt.Fprintf(cmd.OutOrStdout(), "- required_samples: %d\n", trust.ReviewDepth.RequiredSamples)
+	fmt.Fprintf(cmd.OutOrStdout(), "- sample_count: %d\n", trust.ReviewDepth.SampleCount)
+	fmt.Fprintf(cmd.OutOrStdout(), "- require_critical_scope_coverage: %t\n", trust.ReviewDepth.RequireCriticalScopeCoverage)
+	fmt.Fprintf(cmd.OutOrStdout(), "- satisfied: %t\n", trust.ReviewDepth.Satisfied)
+	if len(trust.ReviewDepth.CoveredCriticalScopes) > 0 {
+		fmt.Fprintf(cmd.OutOrStdout(), "- covered_critical_scopes: %s\n", strings.Join(trust.ReviewDepth.CoveredCriticalScopes, ", "))
+	}
+	if len(trust.ReviewDepth.MissingCriticalScopes) > 0 {
+		fmt.Fprintf(cmd.OutOrStdout(), "- missing_critical_scopes: %s\n", strings.Join(trust.ReviewDepth.MissingCriticalScopes, ", "))
+	}
+	fmt.Fprintln(cmd.OutOrStdout(), "\nGate:")
+	fmt.Fprintf(cmd.OutOrStdout(), "- enabled: %t\n", trust.Gate.Enabled)
+	fmt.Fprintf(cmd.OutOrStdout(), "- applies: %t\n", trust.Gate.Applies)
+	fmt.Fprintf(cmd.OutOrStdout(), "- blocked: %t\n", trust.Gate.Blocked)
+	if strings.TrimSpace(trust.Gate.Reason) != "" {
+		fmt.Fprintf(cmd.OutOrStdout(), "- reason: %s\n", trust.Gate.Reason)
+	}
 	if strings.TrimSpace(trust.Summary) != "" {
 		fmt.Fprintf(cmd.OutOrStdout(), "\nSummary:\n%s\n", trust.Summary)
+	}
+}
+
+func printTrustRequirements(cmd *cobra.Command, requirements []service.TrustRequirement) {
+	fmt.Fprintln(cmd.OutOrStdout(), "\nRequirements:")
+	if len(requirements) == 0 {
+		fmt.Fprintln(cmd.OutOrStdout(), "- (none)")
+		return
+	}
+	for _, requirement := range requirements {
+		status := "unsatisfied"
+		if requirement.Satisfied {
+			status = "satisfied"
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "- [%s] %s (%s)\n", requirement.Key, nonEmpty(strings.TrimSpace(requirement.Title), "-"), status)
+		if strings.TrimSpace(requirement.Reason) != "" {
+			fmt.Fprintf(cmd.OutOrStdout(), "  reason: %s\n", requirement.Reason)
+		}
+		if !requirement.Satisfied && strings.TrimSpace(requirement.Action) != "" {
+			fmt.Fprintf(cmd.OutOrStdout(), "  action: %s\n", requirement.Action)
+		}
+	}
+}
+
+func printTrustCheckResults(cmd *cobra.Command, checks []service.TrustCheckResult) {
+	fmt.Fprintln(cmd.OutOrStdout(), "\nCheck Results:")
+	if len(checks) == 0 {
+		fmt.Fprintln(cmd.OutOrStdout(), "- (none)")
+		return
+	}
+	for _, check := range checks {
+		fmt.Fprintf(cmd.OutOrStdout(), "- [%s] %s -> %s\n", check.Key, nonEmpty(strings.TrimSpace(check.Command), "-"), nonEmpty(strings.TrimSpace(check.Status), "-"))
+		if strings.TrimSpace(check.Reason) != "" {
+			fmt.Fprintf(cmd.OutOrStdout(), "  reason: %s\n", check.Reason)
+		}
+		if strings.TrimSpace(check.LastRunAt) != "" {
+			fmt.Fprintf(cmd.OutOrStdout(), "  last_run_at: %s\n", check.LastRunAt)
+		}
+		if check.ExitCode != nil {
+			fmt.Fprintf(cmd.OutOrStdout(), "  exit_code: %d\n", *check.ExitCode)
+		}
 	}
 }
 
@@ -193,4 +256,24 @@ func rewriteCRSelectorArg(cmd *cobra.Command, args []string) error {
 	}
 	args[0] = strconv.Itoa(resolved)
 	return nil
+}
+
+func dedupeStringValues(values []string) []string {
+	if len(values) == 0 {
+		return []string{}
+	}
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			continue
+		}
+		if _, ok := seen[trimmed]; ok {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		out = append(out, trimmed)
+	}
+	return out
 }
