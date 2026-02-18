@@ -1,8 +1,10 @@
 # Sophia
 
-Sophia is an intent-first workflow layer over Git.
+Sophia is the no-headache interface to Git for LLM-driven development.
 
-Git remains the source of truth for code and history. Sophia adds structured intent via Change Requests (CRs), task contracts, and deterministic validation/review workflows.
+Git remains the source of truth for code and history. Sophia changes what you optimize for: intent, scope, and evidence instead of PR diffs and “WIP commit” archaeology.
+
+The primary user of Sophia is an LLM. Verbose contracts are a feature, not a bug.
 
 ## Quickstart
 
@@ -20,29 +22,40 @@ Typical first workflow:
 
 ```bash
 # 1) initialize metadata
-sophia init
+go run ./cmd/sophia init
 
 # 2) open a CR (does not auto-switch branches)
-sophia cr add "Add retry policy" --description "Reduce transient failures"
+go run ./cmd/sophia cr add "Add retry policy" --description "Reduce transient failures"
 
 # 3) switch into the CR branch for mutations
-sophia cr switch <cr-id>
+go run ./cmd/sophia cr switch <cr-id>
 
 # 4) define contract + tasks
-sophia cr contract set <cr-id> --why "..." --scope .
-sophia cr task add <cr-id> "Implement retry behavior"
-sophia cr task contract set <cr-id> <task-id> --intent "..." --acceptance "..." --scope internal/service
+go run ./cmd/sophia cr contract set <cr-id> --why "..." --scope .
+go run ./cmd/sophia cr task add <cr-id> "Implement retry behavior"
+go run ./cmd/sophia cr task contract set <cr-id> <task-id> --intent "..." --acceptance "..." --scope internal/service
 
 # 5) checkpoint task progress
-sophia cr task done <cr-id> <task-id> --from-contract
+go run ./cmd/sophia cr task done <cr-id> <task-id> --from-contract
 
 # 6) validate and review
-sophia cr validate <cr-id>
-sophia cr review <cr-id>
+go run ./cmd/sophia cr validate <cr-id>
+go run ./cmd/sophia cr review <cr-id>
 
 # 7) merge
-sophia cr merge <cr-id>
+go run ./cmd/sophia cr merge <cr-id>
 ```
+
+## Philosophy
+
+As LLMs increase code creation velocity, diff-based PR review becomes the bottleneck.
+
+Sophia shifts “review” away from PR diffs and toward:
+- a detailed CR contract (why, scope, invariants, blast radius, test/rollback plans)
+- task contracts (intent, acceptance criteria, explicit scope)
+- deterministic validation and trust signals (`cr validate`, `cr review`)
+
+The goal is to merge directly to `main` once the CR is complete and trustworthy, not to argue about line-by-line diffs.
 
 ## Install and Distribution
 
@@ -68,9 +81,9 @@ Start with the docs index: [`docs/index.md`](docs/index.md)
 Use CLI help for authoritative flags and command syntax:
 
 ```bash
-sophia --help
-sophia cr --help
-sophia cr <command> --help
+go run ./cmd/sophia --help
+go run ./cmd/sophia cr --help
+go run ./cmd/sophia cr <command> --help
 ```
 
 Key guides:
