@@ -51,31 +51,19 @@ func newCRTaskChunkListCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			crID, err := parsePositiveIntArg(args[0], "cr-id")
 			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 			taskID, err := parsePositiveIntArg(args[1], "task-id")
 			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 			svc, err := newService()
 			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 			chunks, err := svc.ListTaskChunks(crID, taskID, append([]string(nil), scopePaths...))
 			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 			if asJSON {
 				chunkMaps := make([]map[string]any, 0, len(chunks))
@@ -133,17 +121,11 @@ func newCRTaskContractSetCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			crID, err := parsePositiveIntArg(args[0], "cr-id")
 			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 			taskID, err := parsePositiveIntArg(args[1], "task-id")
 			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 
 			patch := service.TaskContractPatch{}
@@ -169,25 +151,16 @@ func newCRTaskContractSetCmd() *cobra.Command {
 			}
 			if patch.Intent == nil && patch.AcceptanceCriteria == nil && patch.Scope == nil && patch.AcceptanceChecks == nil {
 				err := fmt.Errorf("provide at least one of --intent, --acceptance, --scope, or --acceptance-check")
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 
 			svc, err := newService()
 			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 			changed, err := svc.SetTaskContract(crID, taskID, patch)
 			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 			if asJSON {
 				return writeJSONSuccess(cmd, map[string]any{
@@ -220,31 +193,19 @@ func newCRTaskContractShowCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			crID, err := parsePositiveIntArg(args[0], "cr-id")
 			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 			taskID, err := parsePositiveIntArg(args[1], "task-id")
 			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 			svc, err := newService()
 			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 			contract, err := svc.GetTaskContract(crID, taskID)
 			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 			if asJSON {
 				return writeJSONSuccess(cmd, map[string]any{
@@ -295,31 +256,19 @@ func newCRTaskContractDriftListCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			crID, err := parsePositiveIntArg(args[0], "cr-id")
 			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 			taskID, err := parsePositiveIntArg(args[1], "task-id")
 			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 			svc, err := newService()
 			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 			drifts, err := svc.ListTaskContractDrifts(crID, taskID)
 			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 			if asJSON {
 				return writeJSONSuccess(cmd, map[string]any{
@@ -355,45 +304,27 @@ func newCRTaskContractDriftAckCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			crID, err := parsePositiveIntArg(args[0], "cr-id")
 			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 			taskID, err := parsePositiveIntArg(args[1], "task-id")
 			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 			driftID, err := parsePositiveIntArg(args[2], "drift-id")
 			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 			if strings.TrimSpace(reason) == "" {
 				err := fmt.Errorf("--reason is required")
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 			svc, err := newService()
 			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 			drift, err := svc.AckTaskContractDrift(crID, taskID, driftID, reason)
 			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 			if asJSON {
 				return writeJSONSuccess(cmd, map[string]any{
@@ -450,38 +381,23 @@ func newCRTaskDelegateCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			crID, err := parsePositiveIntArg(args[0], "cr-id")
 			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 			taskID, err := parsePositiveIntArg(args[1], "task-id")
 			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 			if childID <= 0 {
 				err := fmt.Errorf("--child must be >= 1")
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 			svc, err := newService()
 			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 			result, err := svc.DelegateTaskToChild(crID, taskID, childID)
 			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 			if asJSON {
 				return writeJSONSuccess(cmd, map[string]any{
@@ -514,38 +430,23 @@ func newCRTaskUndelegateCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			crID, err := parsePositiveIntArg(args[0], "cr-id")
 			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 			taskID, err := parsePositiveIntArg(args[1], "task-id")
 			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 			if childID <= 0 {
 				err := fmt.Errorf("--child must be >= 1")
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 			svc, err := newService()
 			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 			result, err := svc.UndelegateTaskFromChild(crID, taskID, childID)
 			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 			if asJSON {
 				return writeJSONSuccess(cmd, map[string]any{
@@ -577,24 +478,15 @@ func newCRTaskAddCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			crID, err := parsePositiveIntArg(args[0], "cr-id")
 			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 			svc, err := newService()
 			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 			task, err := svc.AddTask(crID, args[1])
 			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 			if asJSON {
 				return writeJSONSuccess(cmd, map[string]any{
@@ -620,24 +512,15 @@ func newCRTaskListCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			crID, err := parsePositiveIntArg(args[0], "cr-id")
 			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 			svc, err := newService()
 			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 			tasks, err := svc.ListTasks(crID)
 			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 			if asJSON {
 				taskMaps := make([]map[string]any, 0, len(tasks))
@@ -687,45 +570,27 @@ func newCRTaskDoneCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			crID, err := parsePositiveIntArg(args[0], "cr-id")
 			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 			taskID, err := parsePositiveIntArg(args[1], "task-id")
 			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 			svc, err := newService()
 			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 			if noCheckpoint && (stageAll || fromContract || len(scopePaths) > 0 || strings.TrimSpace(patchFile) != "") {
 				err := fmt.Errorf("--no-checkpoint cannot be combined with --from-contract, --path, --patch-file, or --all")
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 			if noCheckpoint && strings.TrimSpace(noCheckpointReason) == "" {
 				err := fmt.Errorf("--no-checkpoint requires --no-checkpoint-reason")
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 			if !noCheckpoint && strings.TrimSpace(noCheckpointReason) != "" {
 				err := fmt.Errorf("--no-checkpoint-reason requires --no-checkpoint")
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 			if !noCheckpoint {
 				modeCount := 0
@@ -743,17 +608,11 @@ func newCRTaskDoneCmd() *cobra.Command {
 				}
 				if modeCount > 1 {
 					err := fmt.Errorf("exactly one checkpoint scope mode is required: --from-contract, --path <file> (repeatable), --patch-file <file>, or --all")
-					if asJSON {
-						return writeJSONError(cmd, err)
-					}
-					return err
+					return commandError(cmd, asJSON, err)
 				}
 				if modeCount == 0 {
 					err := fmt.Errorf("checkpoint scope required: use --from-contract, --path <file> (repeatable), --patch-file <file>, or --all")
-					if asJSON {
-						return writeJSONError(cmd, err)
-					}
-					return err
+					return commandError(cmd, asJSON, err)
 				}
 			}
 			opts := service.DoneTaskOptions{
@@ -766,10 +625,7 @@ func newCRTaskDoneCmd() *cobra.Command {
 			}
 			sha, err := svc.DoneTaskWithCheckpoint(crID, taskID, opts)
 			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 			if asJSON {
 				return writeJSONSuccess(cmd, map[string]any{
@@ -837,33 +693,21 @@ func newCRTaskReopenCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			crID, err := parsePositiveIntArg(args[0], "cr-id")
 			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 			taskID, err := parsePositiveIntArg(args[1], "task-id")
 			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 			svc, err := newService()
 			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 			task, err := svc.ReopenTask(crID, taskID, service.ReopenTaskOptions{
 				ClearCheckpoint: clearCheckpoint,
 			})
 			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
+				return commandError(cmd, asJSON, err)
 			}
 			if asJSON {
 				return writeJSONSuccess(cmd, map[string]any{

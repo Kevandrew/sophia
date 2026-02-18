@@ -83,6 +83,16 @@ func writeJSONError(cmd *cobra.Command, err error) error {
 	return markHandled(err)
 }
 
+func commandError(cmd *cobra.Command, asJSON bool, err error) error {
+	if err == nil {
+		return nil
+	}
+	if asJSON {
+		return writeJSONError(cmd, err)
+	}
+	return err
+}
+
 func jsonErrorCode(err error) string {
 	switch {
 	case errors.Is(err, service.ErrPolicyInvalid):
