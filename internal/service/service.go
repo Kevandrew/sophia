@@ -509,6 +509,50 @@ type TaskChunk struct {
 	Preview  string
 }
 
+type CRDiffOptions struct {
+	TaskID       int
+	CriticalOnly bool
+}
+
+type TaskDiffOptions struct {
+	ChunksOnly   bool
+	CriticalOnly bool
+}
+
+type DiffHunkView struct {
+	ChunkID  string
+	Path     string
+	OldStart int
+	OldLines int
+	NewStart int
+	NewLines int
+	Header   string
+	Preview  string
+	Source   string
+}
+
+type DiffFileView struct {
+	Path  string
+	Hunks []DiffHunkView
+}
+
+type CRDiffView struct {
+	CRID           int
+	TaskID         int
+	Mode           string
+	CriticalOnly   bool
+	ChunksOnly     bool
+	BaseRef        string
+	BaseCommit     string
+	TargetRef      string
+	Files          []DiffFileView
+	FilesChanged   int
+	ShortStat      string
+	FallbackUsed   bool
+	FallbackReason string
+	Warnings       []string
+}
+
 type BlameRange struct {
 	Start int
 	End   int
