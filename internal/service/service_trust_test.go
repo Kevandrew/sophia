@@ -18,7 +18,7 @@ func TestTrustReportValidationErrorsHardFail(t *testing.T) {
 		},
 	}, &diffSummary{
 		Files: []string{"internal/service/a.go"},
-	})
+	}, nil)
 
 	if report.Verdict != trustVerdictUntrusted {
 		t.Fatalf("expected untrusted verdict, got %q", report.Verdict)
@@ -46,7 +46,7 @@ func TestTrustReportTrustedWhenEvidenceStrong(t *testing.T) {
 	}, &diffSummary{
 		Files:     []string{"internal/service/a.go", "internal/service/a_test.go"},
 		TestFiles: []string{"internal/service/a_test.go"},
-	})
+	}, nil)
 
 	if report.Verdict != trustVerdictTrusted {
 		t.Fatalf("expected trusted verdict, got %q (score=%d)", report.Verdict, report.Score)
@@ -72,7 +72,7 @@ func TestTrustReportWarningHeavyNeedsAttention(t *testing.T) {
 		},
 	}, &diffSummary{
 		Files: []string{"internal/service/a.go"},
-	})
+	}, nil)
 
 	if report.Verdict != trustVerdictNeedsAttention {
 		t.Fatalf("expected needs_attention verdict, got %q (score=%d)", report.Verdict, report.Score)
@@ -104,7 +104,7 @@ func TestTrustReportAppliesWeakContractTextPenalties(t *testing.T) {
 		},
 	}, &diffSummary{
 		Files: []string{"internal/service/a.go"},
-	})
+	}, nil)
 
 	dimension := trustDimensionByCode(t, report, "contract_quality")
 	if dimension.Score != 4 {
@@ -128,7 +128,7 @@ func TestTrustReportPenalizesDependencyChangesWithoutTests(t *testing.T) {
 	}, &diffSummary{
 		Files:           []string{"go.mod"},
 		DependencyFiles: []string{"go.mod"},
-	})
+	}, nil)
 
 	dimension := trustDimensionByCode(t, report, "test_evidence")
 	if dimension.Score != 4 {
@@ -156,7 +156,7 @@ func TestTrustReportPenalizesDelegatedPendingTasks(t *testing.T) {
 	}, &diffSummary{
 		Files:     []string{"internal/service/a.go", "internal/service/a_test.go"},
 		TestFiles: []string{"internal/service/a_test.go"},
-	})
+	}, nil)
 
 	dimension := trustDimensionByCode(t, report, "task_proof_chain")
 	if dimension.Score != 17 {
@@ -180,7 +180,7 @@ func TestTrustReportNoTaskCanStillBeNeedsAttention(t *testing.T) {
 		},
 	}, &diffSummary{
 		Files: []string{"internal/service/a.go"},
-	})
+	}, nil)
 
 	if report.Verdict != trustVerdictNeedsAttention {
 		t.Fatalf("expected needs_attention verdict, got %q (score=%d)", report.Verdict, report.Score)
@@ -283,7 +283,7 @@ func TestTrustReportAppliesChangeMagnitudePenalties(t *testing.T) {
 		Files:     []string{"a.go", "b.go"},
 		TestFiles: []string{"a_test.go"},
 		ShortStat: "21 files changed, 995 insertions(+), 70 deletions(-)",
-	})
+	}, nil)
 
 	dimension := trustDimensionByCode(t, report, "change_magnitude")
 	if dimension.Score != 4 {
@@ -319,7 +319,7 @@ func TestTrustReportHighRiskWithoutSpecializedEvidenceAddsAdvisory(t *testing.T)
 		Files:     []string{"internal/service/service_trust.go", "internal/service/service_trust_test.go"},
 		TestFiles: []string{"internal/service/service_trust_test.go"},
 		ShortStat: "2 files changed, 20 insertions(+), 3 deletions(-)",
-	})
+	}, nil)
 
 	if report.Verdict != trustVerdictTrusted {
 		t.Fatalf("expected trusted verdict for high-risk without specialized evidence, got %q", report.Verdict)
@@ -354,7 +354,7 @@ func TestTrustReportHighRiskWithSpecializedEvidenceCanBeTrusted(t *testing.T) {
 		Files:     []string{"internal/service/service_trust.go", "internal/service/worktree_integration_test.go"},
 		TestFiles: []string{"internal/service/worktree_integration_test.go"},
 		ShortStat: "2 files changed, 20 insertions(+), 3 deletions(-)",
-	})
+	}, nil)
 
 	if report.Verdict != trustVerdictTrusted {
 		t.Fatalf("expected trusted verdict when specialized evidence exists, got %q", report.Verdict)
@@ -384,7 +384,7 @@ func TestTrustDimensionsKeepCodesAndUseUpdatedLabels(t *testing.T) {
 		Files:     []string{"internal/service/a.go", "internal/service/a_test.go"},
 		TestFiles: []string{"internal/service/a_test.go"},
 		ShortStat: "2 files changed, 10 insertions(+), 2 deletions(-)",
-	})
+	}, nil)
 
 	expected := map[string]string{
 		"contract_quality":    "Contract Completeness",

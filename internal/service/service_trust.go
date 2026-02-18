@@ -18,7 +18,7 @@ const (
 
 var leadingIntPattern = regexp.MustCompile(`^\d+`)
 
-func buildTrustReport(cr *model.CR, validation *ValidationReport, diff *diffSummary) *TrustReport {
+func buildTrustReport(cr *model.CR, validation *ValidationReport, diff *diffSummary, requiredCRFields []string) *TrustReport {
 	if cr == nil {
 		return &TrustReport{
 			Verdict:      trustVerdictUntrusted,
@@ -60,7 +60,7 @@ func buildTrustReport(cr *model.CR, validation *ValidationReport, diff *diffSumm
 		hardFailures = append(hardFailures, fmt.Sprintf("validation errors present (%d)", len(validation.Errors)))
 		requiredActions = append(requiredActions, "Resolve all validation errors before trusting review data.")
 	}
-	if missing := missingCRContractFields(cr.Contract); len(missing) > 0 {
+	if missing := missingCRContractFields(cr.Contract, requiredCRFields); len(missing) > 0 {
 		hardFailures = append(hardFailures, fmt.Sprintf("missing required contract fields: %s", strings.Join(missing, ", ")))
 		requiredActions = append(requiredActions, fmt.Sprintf("Complete required contract fields: %s.", strings.Join(missing, ", ")))
 	}

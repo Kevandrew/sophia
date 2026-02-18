@@ -55,6 +55,10 @@ func (s *Service) SetTaskContract(crID, taskID int, patch TaskContractPatch) ([]
 	if guardErr := s.ensureNoMergeInProgressForCR(cr); guardErr != nil {
 		return nil, guardErr
 	}
+	policy, err := s.repoPolicy()
+	if err != nil {
+		return nil, err
+	}
 	taskIndex := indexOfTask(cr.Subtasks, taskID)
 	if taskIndex < 0 {
 		return nil, fmt.Errorf("task %d not found in cr %d", taskID, crID)
@@ -80,6 +84,9 @@ func (s *Service) SetTaskContract(crID, taskID int, patch TaskContractPatch) ([]
 		normalized, normalizeErr := s.normalizeContractScopePrefixes(*patch.Scope)
 		if normalizeErr != nil {
 			return nil, normalizeErr
+		}
+		if scopeErr := enforceScopeAllowlist(normalized, policy.Scope.AllowedPrefixes, "task contract scope"); scopeErr != nil {
+			return nil, scopeErr
 		}
 		if !equalStringSlices(task.Contract.Scope, normalized) {
 			task.Contract.Scope = normalized
@@ -283,6 +290,10 @@ func (s *Service) DoneTaskWithCheckpoint(crID, taskID int, opts DoneTaskOptions)
 	if _, err := s.ensureCRBaseFields(cr, true); err != nil {
 		return "", err
 	}
+	policy, err := s.repoPolicy()
+	if err != nil {
+		return "", err
+	}
 	if cr.Status != model.StatusInProgress {
 		return "", fmt.Errorf("cr %d is not in progress", crID)
 	}
@@ -309,7 +320,7 @@ func (s *Service) DoneTaskWithCheckpoint(crID, taskID int, opts DoneTaskOptions)
 	if cr.Subtasks[taskIndex].Status == model.TaskStatusDelegated {
 		return "", fmt.Errorf("%w: task %d in cr %d is delegated to child CRs", ErrTaskDelegated, taskID, crID)
 	}
-	missingContractFields := missingTaskContractFields(cr.Subtasks[taskIndex].Contract)
+	missingContractFields := missingTaskContractFields(cr.Subtasks[taskIndex].Contract, policy.TaskContract.RequiredFields)
 	if len(missingContractFields) > 0 {
 		return "", fmt.Errorf("%w: task %d missing %s", ErrTaskContractIncomplete, taskID, strings.Join(missingContractFields, ","))
 	}
