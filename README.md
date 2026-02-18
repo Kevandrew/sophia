@@ -1,10 +1,71 @@
 # Sophia
 
-Sophia is the no-headache interface to Git for LLM-driven development.
+Sophia is the no-headache replacement interface to Git for LLM-driven development.
 
 Git remains the source of truth for code and history. Sophia changes what you optimize for: intent, scope, and evidence instead of PR diffs and “WIP commit” archaeology.
 
+Your codebase is going to be written by LLMs. Your bottleneck is going to be review, coordination, and “why did we do this?” archaeology.
+
+Sophia makes intent the primary artifact:
+- merge commits are CR-shaped and carry intent summaries
+- task checkpoints carry CR and task identity in commit footers
+- CRs have an event ledger you can replay (contract updates, checkpoints, edits/redactions)
+
 The primary user of Sophia is an LLM. Verbose contracts are a feature, not a bug.
+
+## What It Feels Like
+
+You don’t “open a PR and hope reviewers read the diff”.
+
+You iterate with an LLM until the contract is crisp, then Sophia turns that intent into a deterministic, auditable merge:
+1. Create a CR (the unit of intent)
+2. Write the CR contract (why, scope, blast radius, test/rollback)
+3. Decompose into scoped tasks and checkpoint progress
+4. Run `cr validate` and `cr review`
+5. Merge to `main`
+
+## Proof: This Repo Is Built With Sophia
+
+You can see intent in the Git graph without opening a diff:
+
+```bash
+git log --oneline --decorate --graph --all -n 25
+```
+
+Example (real history from this repo):
+
+```text
+*   b6c1137 (main) [CR-46] Maintenance: reduce CLI/service code smell and DRY debt
+|\\
+| * 1bbb8d7 chore(cr-46/task-15): Deduplicate equivalent CLI list printing helpers
+| * 89d4d18 chore(cr-46/task-1): Create shared JSON/plaintext RunE error wrapper
+|/
+```
+
+The merge commit itself carries intent and metadata (again, in Git):
+
+```bash
+git show -s --format=fuller b6c1137
+```
+
+Sophia also anchors CR identity in Git refs (so CRs can be resolved even when branches move/delete):
+
+```bash
+git for-each-ref refs/sophia/cr --format='%(refname:short) %(objectname:short)' | head
+git for-each-ref refs/sophia/cr/uid --format='%(refname:short) %(objectname:short)' | head
+```
+
+And the CR itself has a replayable event log that shows exactly what happened and when:
+
+```bash
+go run ./cmd/sophia cr history 46
+```
+
+Finally, the “intent timeline” is a first-class view:
+
+```bash
+go run ./cmd/sophia log
+```
 
 ## Quickstart
 
@@ -57,6 +118,17 @@ Sophia shifts “review” away from PR diffs and toward:
 
 The goal is to merge directly to `main` once the CR is complete and trustworthy, not to argue about line-by-line diffs.
 
+## What Sophia Replaces
+
+This is not “a nicer PR template”. It’s a different default.
+
+| Old world | Sophia |
+| --- | --- |
+| PR description | CR contract |
+| “LGTM” on diffs | `cr validate` + `cr review` (contract compliance + evidence) |
+| WIP commits | scoped task checkpoints |
+| scattered context | CR history + intent-rich merge commits |
+
 ## Install and Distribution
 
 | Channel | Status | Notes |
@@ -101,6 +173,12 @@ Minimum pre-commit baseline:
 go test ./...
 go vet ./...
 ```
+
+## Status
+
+Sophia today is local-first and dogfooded in this repository.
+
+“Sophia HQ” (planned) is the collaboration layer: shared CR creation, discussion, and online review surfaces that preserve the same contract-first workflow.
 
 ## Community and Governance
 
