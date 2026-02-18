@@ -18,6 +18,12 @@ func (s *Service) AddCRWithWarnings(title, description string) (*model.CR, []str
 	return s.AddCRWithOptionsWithWarnings(title, description, AddCROptions{Switch: true})
 }
 
+type addCRBaseContext struct {
+	baseRef    string
+	baseCommit string
+	parentID   int
+}
+
 func (s *Service) AddCRWithOptionsWithWarnings(title, description string, opts AddCROptions) (*model.CR, []string, error) {
 	if strings.TrimSpace(title) == "" {
 		return nil, nil, errors.New("title cannot be empty")
@@ -59,34 +65,9 @@ func (s *Service) AddCRWithOptionsWithWarnings(title, description string, opts A
 		return nil, nil, fmt.Errorf("align cr id sequence: %w", err)
 	}
 
-	baseRef := strings.TrimSpace(opts.BaseRef)
-	baseCommit := ""
-	parentID := 0
-	if opts.ParentCRID > 0 {
-		parent, err := s.store.LoadCR(opts.ParentCRID)
-		if err != nil {
-			return nil, nil, err
-		}
-		if guardErr := s.ensureNoMergeInProgressForCR(parent); guardErr != nil {
-			return nil, nil, guardErr
-		}
-		ref, commit, err := s.parentBaseAnchor(parent)
-		if err != nil {
-			return nil, nil, err
-		}
-		baseRef = ref
-		baseCommit = commit
-		parentID = parent.ID
-	}
-	if baseRef == "" {
-		baseRef = cfg.BaseBranch
-	}
-	if strings.TrimSpace(baseCommit) == "" {
-		resolved, err := s.git.ResolveRef(baseRef)
-		if err != nil {
-			return nil, nil, fmt.Errorf("resolve base ref %q: %w", baseRef, err)
-		}
-		baseCommit = resolved
+	baseContext, err := s.resolveAddCRBaseContext(cfg, opts)
+	if err != nil {
+		return nil, nil, err
 	}
 
 	id, err := s.store.NextCRID()
@@ -98,27 +79,85 @@ func (s *Service) AddCRWithOptionsWithWarnings(title, description string, opts A
 		return nil, nil, err
 	}
 
-	branch := ""
-	if strings.TrimSpace(opts.BranchAlias) != "" {
-		normalizedAlias, aliasErr := validateExplicitCRBranchAlias(opts.BranchAlias, id)
-		if aliasErr != nil {
-			return nil, nil, aliasErr
-		}
-		branch = normalizedAlias
-	} else {
-		ownerPrefix := cfg.BranchOwnerPrefix
-		if opts.OwnerPrefixSet {
-			ownerPrefix = opts.OwnerPrefix
-		}
-		formattedBranch, branchErr := formatCRBranchAlias(id, title, ownerPrefix)
-		if branchErr != nil {
-			return nil, nil, branchErr
-		}
-		branch = formattedBranch
+	branch, err := resolveAddCRBranch(cfg, opts, id, title)
+	if err != nil {
+		return nil, nil, err
 	}
 	if s.git.BranchExists(branch) {
 		return nil, nil, fmt.Errorf("branch %q already exists", branch)
 	}
+	switchBranch := shouldSwitchForAddCR(opts)
+
+	if switchBranch {
+		if err := s.git.CreateBranchFrom(branch, baseContext.baseCommit); err != nil {
+			return nil, nil, err
+		}
+	} else {
+		if err := s.git.CreateBranchAt(branch, baseContext.baseCommit); err != nil {
+			return nil, nil, err
+		}
+	}
+
+	now := s.timestamp()
+	actor := s.git.Actor()
+	cr := buildCRForAdd(id, uid, title, description, cfg, baseContext, branch, now, actor)
+
+	if err := s.store.SaveCR(cr); err != nil {
+		return nil, nil, err
+	}
+	if err := s.syncCRRef(cr); err != nil {
+		return nil, nil, err
+	}
+
+	warnings := s.computeOverlapWarnings(referenceDirs, cr.ID)
+	return cr, warnings, nil
+}
+
+func (s *Service) resolveAddCRBaseContext(cfg model.Config, opts AddCROptions) (addCRBaseContext, error) {
+	baseContext := addCRBaseContext{
+		baseRef: strings.TrimSpace(opts.BaseRef),
+	}
+	if opts.ParentCRID > 0 {
+		parent, err := s.store.LoadCR(opts.ParentCRID)
+		if err != nil {
+			return addCRBaseContext{}, err
+		}
+		if guardErr := s.ensureNoMergeInProgressForCR(parent); guardErr != nil {
+			return addCRBaseContext{}, guardErr
+		}
+		ref, commit, err := s.parentBaseAnchor(parent)
+		if err != nil {
+			return addCRBaseContext{}, err
+		}
+		baseContext.baseRef = ref
+		baseContext.baseCommit = commit
+		baseContext.parentID = parent.ID
+	}
+	if baseContext.baseRef == "" {
+		baseContext.baseRef = cfg.BaseBranch
+	}
+	if strings.TrimSpace(baseContext.baseCommit) == "" {
+		resolved, err := s.git.ResolveRef(baseContext.baseRef)
+		if err != nil {
+			return addCRBaseContext{}, fmt.Errorf("resolve base ref %q: %w", baseContext.baseRef, err)
+		}
+		baseContext.baseCommit = resolved
+	}
+	return baseContext, nil
+}
+
+func resolveAddCRBranch(cfg model.Config, opts AddCROptions, id int, title string) (string, error) {
+	if strings.TrimSpace(opts.BranchAlias) != "" {
+		return validateExplicitCRBranchAlias(opts.BranchAlias, id)
+	}
+	ownerPrefix := cfg.BranchOwnerPrefix
+	if opts.OwnerPrefixSet {
+		ownerPrefix = opts.OwnerPrefix
+	}
+	return formatCRBranchAlias(id, title, ownerPrefix)
+}
+
+func shouldSwitchForAddCR(opts AddCROptions) bool {
 	switchBranch := true
 	if opts.NoSwitch {
 		switchBranch = false
@@ -126,29 +165,20 @@ func (s *Service) AddCRWithOptionsWithWarnings(title, description string, opts A
 	if opts.Switch {
 		switchBranch = true
 	}
+	return switchBranch
+}
 
-	if switchBranch {
-		if err := s.git.CreateBranchFrom(branch, baseCommit); err != nil {
-			return nil, nil, err
-		}
-	} else {
-		if err := s.git.CreateBranchAt(branch, baseCommit); err != nil {
-			return nil, nil, err
-		}
-	}
-
-	now := s.timestamp()
-	actor := s.git.Actor()
-	cr := &model.CR{
+func buildCRForAdd(id int, uid, title, description string, cfg model.Config, baseContext addCRBaseContext, branch, now, actor string) *model.CR {
+	return &model.CR{
 		ID:          id,
 		UID:         uid,
 		Title:       title,
 		Description: description,
 		Status:      model.StatusInProgress,
 		BaseBranch:  cfg.BaseBranch,
-		BaseRef:     baseRef,
-		BaseCommit:  baseCommit,
-		ParentCRID:  parentID,
+		BaseRef:     baseContext.baseRef,
+		BaseCommit:  baseContext.baseCommit,
+		ParentCRID:  baseContext.parentID,
 		Branch:      branch,
 		Notes:       []string{},
 		Evidence:    []model.EvidenceEntry{},
@@ -165,16 +195,6 @@ func (s *Service) AddCRWithOptionsWithWarnings(title, description string, opts A
 		CreatedAt: now,
 		UpdatedAt: now,
 	}
-
-	if err := s.store.SaveCR(cr); err != nil {
-		return nil, nil, err
-	}
-	if err := s.syncCRRef(cr); err != nil {
-		return nil, nil, err
-	}
-
-	warnings := s.computeOverlapWarnings(referenceDirs, cr.ID)
-	return cr, warnings, nil
 }
 
 func (s *Service) ListCRs() ([]model.CR, error) {
