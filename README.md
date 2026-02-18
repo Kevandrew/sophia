@@ -588,6 +588,8 @@ sophia cr stack [<id>] [--json]
 sophia cr diff <id> [--task <task-id>] [--critical] [--json]
 sophia cr task diff <cr-id> <task-id> [--chunks] [--json]
 sophia cr task chunk diff <cr-id> <task-id> <chunk-id> [--json]
+sophia cr rangediff <id> [--from <ref>] [--to <ref>] [--since-last-checkpoint] [--json]
+sophia cr task rangediff <cr-id> <task-id> [--from <ref>] [--to <ref>] [--since-last-checkpoint] [--json]
 sophia cr merge status <id> [--json]
 sophia cr merge abort <id> [--json]
 sophia cr merge resume <id> [--json]
@@ -617,6 +619,8 @@ sophia cr history <id>
 * `task chunk list` provides deterministic hunk discovery from current working-tree diff
 * `cr diff`/`cr task diff`/`cr task chunk diff` provide deterministic intent-centric diff lenses, including explicit fallback metadata when checkpoint provenance is incomplete
 * `cr diff --critical` filters output to `risk_critical_scopes`; when none are declared, output is intentionally empty with a warning
+* `cr rangediff`/`cr task rangediff` provide deterministic rewrite-aware commit mapping and file/stat summaries across explicit or checkpoint-derived anchors
+* `--since-last-checkpoint` uses the latest done-task checkpoint commit as the `--from` anchor and returns actionable errors when checkpoint anchors are unavailable
 * `task done --patch-file` checkpoints selected hunks from a patch manifest
 * `task reopen` reopens done tasks without rewriting Git history and can optionally clear checkpoint metadata
 * `contract/impact/validate` provide intent integrity and blast-radius review context
