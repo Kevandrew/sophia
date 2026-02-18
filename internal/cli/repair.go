@@ -10,19 +10,39 @@ import (
 func newRepairCmd() *cobra.Command {
 	var baseBranch string
 	var refresh bool
+	var asJSON bool
 
 	cmd := &cobra.Command{
 		Use:     "repair",
 		Short:   "Rebuild local Sophia CR metadata from Git commit history",
-		Example: "  sophia repair\n  sophia repair --base-branch main\n  sophia repair --base-branch release/2026-q1 --refresh",
+		Example: "  sophia repair\n  sophia repair --base-branch main\n  sophia repair --base-branch release/2026-q1 --refresh\n  sophia repair --json",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			svc, err := newService()
 			if err != nil {
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
 				return err
 			}
 			report, err := svc.RepairFromGit(baseBranch, refresh)
 			if err != nil {
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
 				return err
+			}
+			if asJSON {
+				return writeJSONSuccess(cmd, map[string]any{
+					"base_branch":     report.BaseBranch,
+					"scanned":         report.Scanned,
+					"imported":        report.Imported,
+					"updated":         report.Updated,
+					"skipped":         report.Skipped,
+					"highest_cr_id":   report.HighestCRID,
+					"next_id":         report.NextID,
+					"repaired_cr_ids": intSliceOrEmpty(report.RepairedCRIDs),
+					"refreshed":       refresh,
+				})
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "Repaired Sophia metadata from base branch %s\n", report.BaseBranch)
 			fmt.Fprintf(cmd.OutOrStdout(), "Scanned commits: %d\n", report.Scanned)
@@ -44,5 +64,6 @@ func newRepairCmd() *cobra.Command {
 
 	cmd.Flags().StringVar(&baseBranch, "base-branch", "", "Base branch to scan for CR commits")
 	cmd.Flags().BoolVar(&refresh, "refresh", false, "Update existing merged CR files from Git (in-progress CRs remain untouched)")
+	cmd.Flags().BoolVar(&asJSON, "json", false, "Output in JSON format")
 	return cmd
 }

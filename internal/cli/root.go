@@ -37,19 +37,31 @@ func newRootCmd() *cobra.Command {
 func newInitCmd() *cobra.Command {
 	var baseBranch string
 	var metadataMode string
+	var asJSON bool
 
 	cmd := &cobra.Command{
 		Use:     "init",
 		Short:   "Initialize Sophia metadata in the current repository",
-		Example: "  sophia init\n  sophia init --base-branch main\n  sophia init --metadata-mode tracked",
+		Example: "  sophia init\n  sophia init --base-branch main\n  sophia init --metadata-mode tracked\n  sophia init --json",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			svc, err := newService()
 			if err != nil {
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
 				return err
 			}
 			base, err := svc.Init(baseBranch, metadataMode)
 			if err != nil {
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
 				return err
+			}
+			if asJSON {
+				return writeJSONSuccess(cmd, map[string]any{
+					"base_branch": base,
+				})
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "Initialized Sophia (base branch: %s)\n", base)
 			return nil
@@ -58,6 +70,7 @@ func newInitCmd() *cobra.Command {
 
 	cmd.Flags().StringVar(&baseBranch, "base-branch", "", "Base branch to use for CR merges")
 	cmd.Flags().StringVar(&metadataMode, "metadata-mode", "", "Metadata mode: local or tracked (default: local)")
+	cmd.Flags().BoolVar(&asJSON, "json", false, "Output in JSON format")
 	return cmd
 }
 

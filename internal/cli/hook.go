@@ -18,19 +18,33 @@ func newHookCmd() *cobra.Command {
 
 func newHookInstallCmd() *cobra.Command {
 	var forceOverwrite bool
+	var asJSON bool
 
 	cmd := &cobra.Command{
 		Use:     "install",
 		Short:   "Install Sophia pre-commit guard hook",
-		Example: "  sophia hook install\n  sophia hook install --force-overwrite",
+		Example: "  sophia hook install\n  sophia hook install --force-overwrite\n  sophia hook install --json",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			svc, err := newService()
 			if err != nil {
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
 				return err
 			}
 			hookPath, err := svc.InstallHook(forceOverwrite)
 			if err != nil {
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
 				return err
+			}
+			if asJSON {
+				return writeJSONSuccess(cmd, map[string]any{
+					"hook_path":       hookPath,
+					"force_overwrite": forceOverwrite,
+					"bypass_hint":     "git commit --no-verify",
+				})
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "Installed Sophia pre-commit hook: %s\n", hookPath)
 			fmt.Fprintln(cmd.OutOrStdout(), "Bypass intentionally with: git commit --no-verify")
@@ -39,5 +53,6 @@ func newHookInstallCmd() *cobra.Command {
 	}
 
 	cmd.Flags().BoolVar(&forceOverwrite, "force-overwrite", false, "Overwrite an existing non-Sophia pre-commit hook")
+	cmd.Flags().BoolVar(&asJSON, "json", false, "Output in JSON format")
 	return cmd
 }
