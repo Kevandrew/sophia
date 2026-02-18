@@ -174,6 +174,43 @@ func taskContractDriftMaps(drifts []model.TaskContractDrift) []map[string]any {
 	return out
 }
 
+type taskJSONProjectionOptions struct {
+	includeCheckpointMessage bool
+	includeCheckpointSyncAt  bool
+	includeDelegations       bool
+	includeContract          bool
+}
+
+func projectTaskJSON(task model.Subtask, opts taskJSONProjectionOptions) map[string]any {
+	out := map[string]any{
+		"id":                task.ID,
+		"title":             task.Title,
+		"status":            task.Status,
+		"checkpoint_commit": task.CheckpointCommit,
+		"checkpoint_at":     task.CheckpointAt,
+		"checkpoint_scope":  stringSliceOrEmpty(task.CheckpointScope),
+		"checkpoint_source": task.CheckpointSource,
+		"checkpoint_orphan": task.CheckpointOrphan,
+		"checkpoint_reason": task.CheckpointReason,
+		"checkpoint_chunks": checkpointChunkDiffMaps(task.CheckpointChunks),
+	}
+	if opts.includeCheckpointMessage {
+		out["checkpoint_message"] = task.CheckpointMessage
+	}
+	if opts.includeCheckpointSyncAt {
+		out["checkpoint_sync_at"] = task.CheckpointSyncAt
+	}
+	if opts.includeDelegations {
+		out["delegations"] = taskDelegationMaps(task.Delegations)
+	}
+	if opts.includeContract {
+		out["contract"] = taskContractToJSONMap(task.Contract)
+		out["contract_baseline"] = taskContractBaselineToJSONMap(task.ContractBaseline)
+		out["contract_drifts"] = taskContractDriftMaps(task.ContractDrifts)
+	}
+	return out
+}
+
 func taskToJSONMap(task model.Subtask) map[string]any {
 	return map[string]any{
 		"id":                 task.ID,
@@ -408,20 +445,10 @@ func reviewToJSONMap(review *service.Review) map[string]any {
 	}
 	subtasks := make([]map[string]any, 0, len(review.CR.Subtasks))
 	for _, task := range review.CR.Subtasks {
-		subtasks = append(subtasks, map[string]any{
-			"id":                 task.ID,
-			"title":              task.Title,
-			"status":             task.Status,
-			"checkpoint_commit":  task.CheckpointCommit,
-			"checkpoint_at":      task.CheckpointAt,
-			"checkpoint_orphan":  task.CheckpointOrphan,
-			"checkpoint_reason":  task.CheckpointReason,
-			"checkpoint_source":  task.CheckpointSource,
-			"checkpoint_sync_at": task.CheckpointSyncAt,
-			"checkpoint_scope":   stringSliceOrEmpty(task.CheckpointScope),
-			"checkpoint_chunks":  checkpointChunkDiffMaps(task.CheckpointChunks),
-			"delegations":        taskDelegationMaps(task.Delegations),
-		})
+		subtasks = append(subtasks, projectTaskJSON(task, taskJSONProjectionOptions{
+			includeCheckpointSyncAt: true,
+			includeDelegations:      true,
+		}))
 	}
 	evidence := make([]map[string]any, 0, len(review.CR.Evidence))
 	for _, entry := range review.CR.Evidence {
@@ -944,22 +971,10 @@ func crPackToJSONMap(view *service.CRPackView) map[string]any {
 	}
 	tasks := make([]map[string]any, 0, len(view.Tasks))
 	for _, task := range view.Tasks {
-		tasks = append(tasks, map[string]any{
-			"id":                 task.ID,
-			"title":              task.Title,
-			"status":             task.Status,
-			"checkpoint_commit":  task.CheckpointCommit,
-			"checkpoint_at":      task.CheckpointAt,
-			"checkpoint_message": task.CheckpointMessage,
-			"checkpoint_scope":   stringSliceOrEmpty(task.CheckpointScope),
-			"checkpoint_source":  task.CheckpointSource,
-			"checkpoint_orphan":  task.CheckpointOrphan,
-			"checkpoint_reason":  task.CheckpointReason,
-			"checkpoint_chunks":  checkpointChunkDiffMaps(task.CheckpointChunks),
-			"contract":           taskContractToJSONMap(task.Contract),
-			"contract_baseline":  taskContractBaselineToJSONMap(task.ContractBaseline),
-			"contract_drifts":    taskContractDriftMaps(task.ContractDrifts),
-		})
+		tasks = append(tasks, projectTaskJSON(task, taskJSONProjectionOptions{
+			includeCheckpointMessage: true,
+			includeContract:          true,
+		}))
 	}
 
 	events := make([]map[string]any, 0, len(view.RecentEvents))
