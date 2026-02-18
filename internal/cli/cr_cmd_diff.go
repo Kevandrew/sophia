@@ -210,3 +210,179 @@ func printCRDiffView(cmd *cobra.Command, view *service.CRDiffView) {
 		}
 	}
 }
+
+func newCRRangeDiffCmd() *cobra.Command {
+	var fromRef string
+	var toRef string
+	var sinceLastCheckpoint bool
+	var asJSON bool
+
+	cmd := &cobra.Command{
+		Use:   "rangediff <id>",
+		Short: "Show deterministic range-diff view for a CR",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			id, err := parsePositiveIntArg(args[0], "id")
+			if err != nil {
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
+				return err
+			}
+			if sinceLastCheckpoint && strings.TrimSpace(fromRef) != "" {
+				err := fmt.Errorf("--from and --since-last-checkpoint are mutually exclusive")
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
+				return err
+			}
+			if !sinceLastCheckpoint && strings.TrimSpace(fromRef) == "" {
+				err := fmt.Errorf("either --from or --since-last-checkpoint is required")
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
+				return err
+			}
+			svc, err := newService()
+			if err != nil {
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
+				return err
+			}
+			view, err := svc.RangeDiffCR(id, service.RangeDiffOptions{
+				FromRef:             strings.TrimSpace(fromRef),
+				ToRef:               strings.TrimSpace(toRef),
+				SinceLastCheckpoint: sinceLastCheckpoint,
+			})
+			if err != nil {
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
+				return err
+			}
+			if asJSON {
+				return writeJSONSuccess(cmd, rangeDiffToJSONMap(view))
+			}
+			printRangeDiffView(cmd, view)
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&fromRef, "from", "", "Source anchor ref")
+	cmd.Flags().StringVar(&toRef, "to", "", "Target anchor ref (default: CR branch/merged commit)")
+	cmd.Flags().BoolVar(&sinceLastCheckpoint, "since-last-checkpoint", false, "Use latest done checkpoint commit as --from anchor")
+	cmd.Flags().BoolVar(&asJSON, "json", false, "Output in JSON format")
+	return cmd
+}
+
+func newCRTaskRangeDiffCmd() *cobra.Command {
+	var fromRef string
+	var toRef string
+	var sinceLastCheckpoint bool
+	var asJSON bool
+
+	cmd := &cobra.Command{
+		Use:   "rangediff <cr-id> <task-id>",
+		Short: "Show deterministic range-diff view for one task",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			crID, err := parsePositiveIntArg(args[0], "cr-id")
+			if err != nil {
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
+				return err
+			}
+			taskID, err := parsePositiveIntArg(args[1], "task-id")
+			if err != nil {
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
+				return err
+			}
+			if sinceLastCheckpoint && strings.TrimSpace(fromRef) != "" {
+				err := fmt.Errorf("--from and --since-last-checkpoint are mutually exclusive")
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
+				return err
+			}
+			if !sinceLastCheckpoint && strings.TrimSpace(fromRef) == "" {
+				err := fmt.Errorf("either --from or --since-last-checkpoint is required")
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
+				return err
+			}
+			svc, err := newService()
+			if err != nil {
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
+				return err
+			}
+			view, err := svc.RangeDiffTask(crID, taskID, service.RangeDiffOptions{
+				FromRef:             strings.TrimSpace(fromRef),
+				ToRef:               strings.TrimSpace(toRef),
+				SinceLastCheckpoint: sinceLastCheckpoint,
+			})
+			if err != nil {
+				if asJSON {
+					return writeJSONError(cmd, err)
+				}
+				return err
+			}
+			if asJSON {
+				return writeJSONSuccess(cmd, rangeDiffToJSONMap(view))
+			}
+			printRangeDiffView(cmd, view)
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&fromRef, "from", "", "Source anchor ref")
+	cmd.Flags().StringVar(&toRef, "to", "", "Target anchor ref (default: CR branch/merged commit)")
+	cmd.Flags().BoolVar(&sinceLastCheckpoint, "since-last-checkpoint", false, "Use latest done checkpoint commit as --from anchor")
+	cmd.Flags().BoolVar(&asJSON, "json", false, "Output in JSON format")
+	return cmd
+}
+
+func printRangeDiffView(cmd *cobra.Command, view *service.RangeDiffView) {
+	if view == nil {
+		fmt.Fprintln(cmd.OutOrStdout(), "No range-diff view available.")
+		return
+	}
+	fmt.Fprintln(cmd.OutOrStdout(), "RangeDiff View")
+	fmt.Fprintf(cmd.OutOrStdout(), "CR: %d\n", view.CRID)
+	if view.TaskID > 0 {
+		fmt.Fprintf(cmd.OutOrStdout(), "Task: %d\n", view.TaskID)
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "From: %s\n", nonEmpty(strings.TrimSpace(view.FromRef), "-"))
+	fmt.Fprintf(cmd.OutOrStdout(), "To: %s\n", nonEmpty(strings.TrimSpace(view.ToRef), "-"))
+	fmt.Fprintf(cmd.OutOrStdout(), "Base: %s\n", nonEmpty(strings.TrimSpace(view.BaseRef), "-"))
+	fmt.Fprintf(cmd.OutOrStdout(), "Old Range: %s\n", nonEmpty(strings.TrimSpace(view.OldRange), "-"))
+	fmt.Fprintf(cmd.OutOrStdout(), "New Range: %s\n", nonEmpty(strings.TrimSpace(view.NewRange), "-"))
+	fmt.Fprintf(cmd.OutOrStdout(), "Diff Stat: %s\n", nonEmpty(strings.TrimSpace(view.ShortStat), "-"))
+	printListSection(cmd, "Files Changed", view.FilesChanged)
+	fmt.Fprintln(cmd.OutOrStdout(), "\nCommit Mapping:")
+	if len(view.Mapping) == 0 {
+		fmt.Fprintln(cmd.OutOrStdout(), "- (none)")
+	} else {
+		for _, row := range view.Mapping {
+			fmt.Fprintf(cmd.OutOrStdout(), "- old=(%s %s) relation=%s new=(%s %s) subject=%s\n",
+				nonEmpty(strings.TrimSpace(row.OldIndex), "-"),
+				nonEmpty(strings.TrimSpace(row.OldCommit), "-"),
+				nonEmpty(strings.TrimSpace(row.Relation), "-"),
+				nonEmpty(strings.TrimSpace(row.NewIndex), "-"),
+				nonEmpty(strings.TrimSpace(row.NewCommit), "-"),
+				nonEmpty(strings.TrimSpace(row.Subject), "-"))
+		}
+	}
+	if len(view.Warnings) > 0 {
+		fmt.Fprintln(cmd.OutOrStdout(), "\nWarnings:")
+		for _, warning := range view.Warnings {
+			fmt.Fprintf(cmd.OutOrStdout(), "- %s\n", warning)
+		}
+	}
+}

@@ -348,3 +348,33 @@ func crDiffToJSONMap(view *service.CRDiffView) map[string]any {
 		"warnings":        view.Warnings,
 	}
 }
+
+func rangeDiffToJSONMap(view *service.RangeDiffView) map[string]any {
+	if view == nil {
+		return map[string]any{}
+	}
+	mapping := make([]map[string]any, 0, len(view.Mapping))
+	for _, row := range view.Mapping {
+		mapping = append(mapping, map[string]any{
+			"old_index":  row.OldIndex,
+			"old_commit": row.OldCommit,
+			"relation":   row.Relation,
+			"new_index":  row.NewIndex,
+			"new_commit": row.NewCommit,
+			"subject":    row.Subject,
+		})
+	}
+	return map[string]any{
+		"cr_id":         view.CRID,
+		"task_id":       view.TaskID,
+		"from_ref":      view.FromRef,
+		"to_ref":        view.ToRef,
+		"base_ref":      view.BaseRef,
+		"old_range":     view.OldRange,
+		"new_range":     view.NewRange,
+		"mapping":       mapping,
+		"files_changed": view.FilesChanged,
+		"short_stat":    view.ShortStat,
+		"warnings":      view.Warnings,
+	}
+}
