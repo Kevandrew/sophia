@@ -585,6 +585,9 @@ sophia cr task delegate <parent-cr-id> <task-id> --child <child-cr-id>
 sophia cr task undelegate <parent-cr-id> <task-id> --child <child-cr-id>
 sophia cr child add "<title>" --description "..."
 sophia cr stack [<id>] [--json]
+sophia cr diff <id> [--task <task-id>] [--critical] [--json]
+sophia cr task diff <cr-id> <task-id> [--chunks] [--json]
+sophia cr task chunk diff <cr-id> <task-id> <chunk-id> [--json]
 sophia cr merge status <id> [--json]
 sophia cr merge abort <id> [--json]
 sophia cr merge resume <id> [--json]
@@ -612,6 +615,8 @@ sophia cr history <id>
 * `current/switch/reopen/base/restack` supports deterministic branch and stack context moves
 * `task contract` enforces subtask intent + acceptance + scope before completion
 * `task chunk list` provides deterministic hunk discovery from current working-tree diff
+* `cr diff`/`cr task diff`/`cr task chunk diff` provide deterministic intent-centric diff lenses, including explicit fallback metadata when checkpoint provenance is incomplete
+* `cr diff --critical` filters output to `risk_critical_scopes`; when none are declared, output is intentionally empty with a warning
 * `task done --patch-file` checkpoints selected hunks from a patch manifest
 * `task reopen` reopens done tasks without rewriting Git history and can optionally clear checkpoint metadata
 * `contract/impact/validate` provide intent integrity and blast-radius review context

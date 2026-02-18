@@ -16,6 +16,7 @@ func newCRCmd() *cobra.Command {
 	crCmd.AddCommand(newCRListCmd())
 	crCmd.AddCommand(newCRSearchCmd())
 	crCmd.AddCommand(newCRStackCmd())
+	crCmd.AddCommand(newCRDiffCmd())
 	crCmd.AddCommand(newCRWhyCmd())
 	crCmd.AddCommand(newCRStatusCmd())
 	crCmd.AddCommand(newCRDoctorCmd())

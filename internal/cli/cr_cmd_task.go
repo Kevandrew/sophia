@@ -18,6 +18,7 @@ func newCRTaskCmd() *cobra.Command {
 	taskCmd.AddCommand(newCRTaskListCmd())
 	taskCmd.AddCommand(newCRTaskDoneCmd())
 	taskCmd.AddCommand(newCRTaskReopenCmd())
+	taskCmd.AddCommand(newCRTaskDiffCmd())
 	taskCmd.AddCommand(newCRTaskDelegateCmd())
 	taskCmd.AddCommand(newCRTaskUndelegateCmd())
 	taskCmd.AddCommand(newCRTaskChunkCmd())
@@ -31,6 +32,7 @@ func newCRTaskChunkCmd() *cobra.Command {
 		Short: "Inspect task checkpoint chunks",
 	}
 	chunkCmd.AddCommand(newCRTaskChunkListCmd())
+	chunkCmd.AddCommand(newCRTaskChunkDiffCmd())
 	return chunkCmd
 }
 

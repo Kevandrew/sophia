@@ -305,3 +305,46 @@ func reconcileCRToJSONMap(report *service.ReconcileCRReport) map[string]any {
 		"task_results":       taskResults,
 	}
 }
+
+func crDiffToJSONMap(view *service.CRDiffView) map[string]any {
+	if view == nil {
+		return map[string]any{}
+	}
+	files := make([]map[string]any, 0, len(view.Files))
+	for _, file := range view.Files {
+		hunks := make([]map[string]any, 0, len(file.Hunks))
+		for _, hunk := range file.Hunks {
+			hunks = append(hunks, map[string]any{
+				"chunk_id":  hunk.ChunkID,
+				"path":      hunk.Path,
+				"old_start": hunk.OldStart,
+				"old_lines": hunk.OldLines,
+				"new_start": hunk.NewStart,
+				"new_lines": hunk.NewLines,
+				"header":    hunk.Header,
+				"preview":   hunk.Preview,
+				"source":    hunk.Source,
+			})
+		}
+		files = append(files, map[string]any{
+			"path":  file.Path,
+			"hunks": hunks,
+		})
+	}
+	return map[string]any{
+		"cr_id":           view.CRID,
+		"task_id":         view.TaskID,
+		"mode":            view.Mode,
+		"critical_only":   view.CriticalOnly,
+		"chunks_only":     view.ChunksOnly,
+		"base_ref":        view.BaseRef,
+		"base_commit":     view.BaseCommit,
+		"target_ref":      view.TargetRef,
+		"files":           files,
+		"files_changed":   view.FilesChanged,
+		"short_stat":      view.ShortStat,
+		"fallback_used":   view.FallbackUsed,
+		"fallback_reason": view.FallbackReason,
+		"warnings":        view.Warnings,
+	}
+}
