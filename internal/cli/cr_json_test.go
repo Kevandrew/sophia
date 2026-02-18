@@ -71,6 +71,8 @@ func TestCRJSONCommandsReturnEnvelope(t *testing.T) {
 		{args: []string{"cr", "task", "contract", "show", "1", "1", "--json"}, keys: []string{"cr_id", "task_id", "task_contract"}},
 		{args: []string{"cr", "why", "1", "--json"}, keys: []string{"cr_uid", "base_ref", "base_commit", "parent_cr_id", "effective_why", "source"}},
 		{args: []string{"cr", "status", "1", "--json"}, keys: []string{"id", "uid", "base_ref", "base_commit", "parent_cr_id", "parent_status", "title", "working_tree", "validation", "merge_blocked"}},
+		{args: []string{"cr", "doctor", "1", "--json"}, keys: []string{"cr_id", "cr_uid", "base_ref", "parent_cr_id", "findings"}},
+		{args: []string{"cr", "reconcile", "1", "--json"}, keys: []string{"cr_id", "scan_ref", "relinked", "task_results", "findings"}},
 		{args: []string{"cr", "impact", "1", "--json"}, keys: []string{"cr_id", "cr_uid", "base_ref", "base_commit", "parent_cr_id", "risk_tier", "risk_score", "risk_tier_hint", "risk_tier_floor_applied", "matched_risk_critical_scopes"}},
 		{args: []string{"cr", "review", "1", "--json"}, keys: []string{"cr", "impact", "trust", "validation_errors", "validation_warnings"}},
 		{args: []string{"cr", "validate", "1", "--json"}, keys: []string{"valid", "errors", "warnings", "impact"}},

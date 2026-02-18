@@ -76,6 +76,10 @@ type Subtask struct {
 	CheckpointMessage string            `yaml:"checkpoint_message,omitempty"`
 	CheckpointScope   []string          `yaml:"checkpoint_scope,omitempty"`
 	CheckpointChunks  []CheckpointChunk `yaml:"checkpoint_chunks,omitempty"`
+	CheckpointOrphan  bool              `yaml:"checkpoint_orphan,omitempty"`
+	CheckpointReason  string            `yaml:"checkpoint_reason,omitempty"`
+	CheckpointSource  string            `yaml:"checkpoint_source,omitempty"`
+	CheckpointSyncAt  string            `yaml:"checkpoint_sync_at,omitempty"`
 	Delegations       []TaskDelegation  `yaml:"delegations,omitempty"`
 	Contract          TaskContract      `yaml:"contract,omitempty"`
 }
