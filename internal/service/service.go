@@ -871,6 +871,12 @@ type parsedPatchChunk struct {
 	Preview  string
 }
 
+type parsedPatchFile struct {
+	Path        string
+	HeaderLines []string
+	Hunks       []parsedPatchChunk
+}
+
 func New(root string) *Service {
 	svc := &Service{
 		git: gitx.New(root),
