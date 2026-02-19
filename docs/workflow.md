@@ -70,6 +70,19 @@ sophia cr task done <cr-id> <task-id> --from-contract
 
 Checkpoint commits are generated as task progress artifacts.
 
+When you need precise hunk-level checkpoint scope, generate a patch manifest from working-tree chunks before completing the task:
+
+```bash
+sophia cr task chunk list <cr-id> <task-id>
+sophia cr task chunk show <cr-id> <task-id> <chunk-id>
+sophia cr task chunk export <cr-id> <task-id> --chunk <chunk-id> --out task.patch
+sophia cr task done <cr-id> <task-id> --patch-file task.patch
+```
+
+Notes:
+- Chunk commands operate on unstaged working-tree diffs and require a clean index.
+- `chunk diff` remains checkpoint-oriented (inspects chunks from the recorded checkpoint commit).
+
 ## 5) Validate, Review, and Merge
 
 ```bash
