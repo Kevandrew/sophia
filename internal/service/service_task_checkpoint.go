@@ -380,3 +380,93 @@ func checkpointChunkPaths(chunks []parsedPatchChunk) []string {
 	sort.Strings(paths)
 	return paths
 }
+
+func buildPatchFromSelectedChunkIDs(files []parsedPatchFile, ids []string) (string, []parsedPatchChunk, error) {
+	if len(ids) == 0 {
+		return "", nil, fmt.Errorf("%w: at least one --chunk is required", ErrInvalidTaskScope)
+	}
+	requested := map[string]struct{}{}
+	order := make([]string, 0, len(ids))
+	for _, raw := range ids {
+		id := strings.TrimSpace(raw)
+		if id == "" {
+			return "", nil, fmt.Errorf("%w: empty chunk id", ErrInvalidTaskScope)
+		}
+		if _, exists := requested[id]; exists {
+			continue
+		}
+		requested[id] = struct{}{}
+		order = append(order, id)
+	}
+
+	chunkByID := map[string]parsedPatchChunk{}
+	for _, file := range files {
+		for _, hunk := range file.Hunks {
+			chunkByID[hunk.ID] = hunk
+		}
+	}
+	for _, id := range order {
+		if _, ok := chunkByID[id]; !ok {
+			return "", nil, fmt.Errorf("chunk %q not found", id)
+		}
+	}
+
+	selectedByPath := map[string][]parsedPatchChunk{}
+	selectedPaths := []string{}
+	pathSeen := map[string]struct{}{}
+	selected := make([]parsedPatchChunk, 0, len(order))
+	for _, id := range order {
+		chunk := chunkByID[id]
+		selected = append(selected, chunk)
+		if _, seen := pathSeen[chunk.Path]; !seen {
+			pathSeen[chunk.Path] = struct{}{}
+			selectedPaths = append(selectedPaths, chunk.Path)
+		}
+		selectedByPath[chunk.Path] = append(selectedByPath[chunk.Path], chunk)
+	}
+	sort.Strings(selectedPaths)
+
+	headerByPath := map[string][]string{}
+	for _, file := range files {
+		if len(file.Hunks) == 0 {
+			continue
+		}
+		if _, ok := selectedByPath[file.Path]; !ok {
+			continue
+		}
+		headerByPath[file.Path] = append([]string(nil), file.HeaderLines...)
+	}
+
+	out := make([]string, 0)
+	for _, path := range selectedPaths {
+		header := headerByPath[path]
+		if len(header) == 0 {
+			header = []string{
+				fmt.Sprintf("diff --git a/%s b/%s", path, path),
+				fmt.Sprintf("--- a/%s", path),
+				fmt.Sprintf("+++ b/%s", path),
+			}
+		}
+		out = append(out, header...)
+		hunks := selectedByPath[path]
+		sort.SliceStable(hunks, func(i, j int) bool {
+			if hunks[i].OldStart != hunks[j].OldStart {
+				return hunks[i].OldStart < hunks[j].OldStart
+			}
+			if hunks[i].NewStart != hunks[j].NewStart {
+				return hunks[i].NewStart < hunks[j].NewStart
+			}
+			return hunks[i].ID < hunks[j].ID
+		})
+		for _, hunk := range hunks {
+			out = append(out, hunk.Header)
+			if strings.TrimSpace(hunk.Body) != "" {
+				out = append(out, strings.Split(hunk.Body, "\n")...)
+			}
+		}
+	}
+	if len(out) == 0 {
+		return "", []parsedPatchChunk{}, nil
+	}
+	return strings.Join(out, "\n") + "\n", selected, nil
+}
