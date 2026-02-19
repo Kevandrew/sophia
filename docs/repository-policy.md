@@ -74,6 +74,14 @@ Before requesting merge:
 3. Validation and review are run on the target CR.
 4. Test/quality commands in `test_plan` are executed and failures resolved.
 
+Before release/documentation updates, run:
+
+```bash
+scripts/check-doc-commands.sh
+```
+
+This checks that documented `sophia ... --help` command surfaces still exist.
+
 ## Related Docs
 
 - Workflow lifecycle: [`workflow.md`](workflow.md)
