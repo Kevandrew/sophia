@@ -156,16 +156,58 @@ func (s *Service) normalizePatchFilePath(raw string) (string, error) {
 }
 
 func parsePatchChunks(diff string) ([]parsedPatchChunk, error) {
+	files, err := parsePatchFiles(diff)
+	if err != nil {
+		return nil, err
+	}
+	chunks := make([]parsedPatchChunk, 0)
+	for _, file := range files {
+		chunks = append(chunks, file.Hunks...)
+	}
+	return chunks, nil
+}
+
+func parsePatchFiles(diff string) ([]parsedPatchFile, error) {
 	diff = strings.ReplaceAll(diff, "\r\n", "\n")
 	if strings.TrimSpace(diff) == "" {
-		return []parsedPatchChunk{}, nil
+		return []parsedPatchFile{}, nil
 	}
 
 	lines := strings.Split(diff, "\n")
-	chunks := make([]parsedPatchChunk, 0)
+	files := make([]parsedPatchFile, 0)
 	currentPath := ""
+	currentFileHeader := []string{}
 	currentHeader := ""
 	currentBody := []string{}
+	currentHunks := make([]parsedPatchChunk, 0)
+
+	flushFile := func() {
+		if strings.TrimSpace(currentPath) == "" {
+			currentFileHeader = nil
+			currentHunks = nil
+			return
+		}
+		if len(currentHunks) == 0 {
+			currentFileHeader = nil
+			currentHunks = nil
+			return
+		}
+		header := append([]string(nil), currentFileHeader...)
+		if len(header) == 0 {
+			header = []string{
+				fmt.Sprintf("diff --git a/%s b/%s", currentPath, currentPath),
+				fmt.Sprintf("--- a/%s", currentPath),
+				fmt.Sprintf("+++ b/%s", currentPath),
+			}
+		}
+		files = append(files, parsedPatchFile{
+			Path:        currentPath,
+			HeaderLines: header,
+			Hunks:       append([]parsedPatchChunk(nil), currentHunks...),
+		})
+		currentFileHeader = nil
+		currentHunks = nil
+	}
 
 	flush := func() error {
 		if currentHeader == "" {
@@ -179,7 +221,7 @@ func parsePatchChunks(diff string) ([]parsedPatchChunk, error) {
 			return err
 		}
 		body := strings.Join(currentBody, "\n")
-		chunks = append(chunks, parsedPatchChunk{
+		currentHunks = append(currentHunks, parsedPatchChunk{
 			ID:       chunkIDFor(currentPath, currentHeader, body),
 			Path:     currentPath,
 			OldStart: oldStart,
@@ -202,12 +244,21 @@ func parsePatchChunks(diff string) ([]parsedPatchChunk, error) {
 			if err := flush(); err != nil {
 				return nil, err
 			}
+			flushFile()
 			currentPath = pathFromDiffHeader(line)
+			currentFileHeader = []string{line}
 		case strings.HasPrefix(line, "+++ "):
 			nextPath := pathFromPatchLine(line)
 			if nextPath != "" {
 				currentPath = nextPath
 			}
+			currentFileHeader = append(currentFileHeader, line)
+		case strings.HasPrefix(line, "--- "):
+			currentFileHeader = append(currentFileHeader, line)
+		case strings.HasPrefix(line, "index "):
+			currentFileHeader = append(currentFileHeader, line)
+		case strings.HasPrefix(line, "new file mode ") || strings.HasPrefix(line, "deleted file mode ") || strings.HasPrefix(line, "similarity index ") || strings.HasPrefix(line, "rename from ") || strings.HasPrefix(line, "rename to ") || strings.HasPrefix(line, "old mode ") || strings.HasPrefix(line, "new mode "):
+			currentFileHeader = append(currentFileHeader, line)
 		case strings.HasPrefix(line, "@@ "):
 			if err := flush(); err != nil {
 				return nil, err
@@ -223,7 +274,8 @@ func parsePatchChunks(diff string) ([]parsedPatchChunk, error) {
 	if err := flush(); err != nil {
 		return nil, err
 	}
-	return chunks, nil
+	flushFile()
+	return files, nil
 }
 
 func pathFromDiffHeader(line string) string {
@@ -327,4 +379,94 @@ func checkpointChunkPaths(chunks []parsedPatchChunk) []string {
 	}
 	sort.Strings(paths)
 	return paths
+}
+
+func buildPatchFromSelectedChunkIDs(files []parsedPatchFile, ids []string) (string, []parsedPatchChunk, error) {
+	if len(ids) == 0 {
+		return "", nil, fmt.Errorf("%w: at least one --chunk is required", ErrInvalidTaskScope)
+	}
+	requested := map[string]struct{}{}
+	order := make([]string, 0, len(ids))
+	for _, raw := range ids {
+		id := strings.TrimSpace(raw)
+		if id == "" {
+			return "", nil, fmt.Errorf("%w: empty chunk id", ErrInvalidTaskScope)
+		}
+		if _, exists := requested[id]; exists {
+			continue
+		}
+		requested[id] = struct{}{}
+		order = append(order, id)
+	}
+
+	chunkByID := map[string]parsedPatchChunk{}
+	for _, file := range files {
+		for _, hunk := range file.Hunks {
+			chunkByID[hunk.ID] = hunk
+		}
+	}
+	for _, id := range order {
+		if _, ok := chunkByID[id]; !ok {
+			return "", nil, fmt.Errorf("chunk %q not found", id)
+		}
+	}
+
+	selectedByPath := map[string][]parsedPatchChunk{}
+	selectedPaths := []string{}
+	pathSeen := map[string]struct{}{}
+	selected := make([]parsedPatchChunk, 0, len(order))
+	for _, id := range order {
+		chunk := chunkByID[id]
+		selected = append(selected, chunk)
+		if _, seen := pathSeen[chunk.Path]; !seen {
+			pathSeen[chunk.Path] = struct{}{}
+			selectedPaths = append(selectedPaths, chunk.Path)
+		}
+		selectedByPath[chunk.Path] = append(selectedByPath[chunk.Path], chunk)
+	}
+	sort.Strings(selectedPaths)
+
+	headerByPath := map[string][]string{}
+	for _, file := range files {
+		if len(file.Hunks) == 0 {
+			continue
+		}
+		if _, ok := selectedByPath[file.Path]; !ok {
+			continue
+		}
+		headerByPath[file.Path] = append([]string(nil), file.HeaderLines...)
+	}
+
+	out := make([]string, 0)
+	for _, path := range selectedPaths {
+		header := headerByPath[path]
+		if len(header) == 0 {
+			header = []string{
+				fmt.Sprintf("diff --git a/%s b/%s", path, path),
+				fmt.Sprintf("--- a/%s", path),
+				fmt.Sprintf("+++ b/%s", path),
+			}
+		}
+		out = append(out, header...)
+		hunks := selectedByPath[path]
+		sort.SliceStable(hunks, func(i, j int) bool {
+			if hunks[i].OldStart != hunks[j].OldStart {
+				return hunks[i].OldStart < hunks[j].OldStart
+			}
+			if hunks[i].NewStart != hunks[j].NewStart {
+				return hunks[i].NewStart < hunks[j].NewStart
+			}
+			return hunks[i].ID < hunks[j].ID
+		})
+		for _, hunk := range hunks {
+			out = append(out, hunk.Header)
+			if strings.TrimSpace(hunk.Body) != "" {
+				out = append(out, strings.Split(hunk.Body, "\n")...)
+			}
+		}
+	}
+	if len(out) == 0 {
+		return "", []parsedPatchChunk{}, nil
+	}
+	return strings.Join(out, "\n") + "\n", selected, nil
 }

@@ -402,42 +402,53 @@ func (s *Service) ListTasks(crID int) ([]model.Subtask, error) {
 }
 
 func (s *Service) ListTaskChunks(crID, taskID int, paths []string) ([]TaskChunk, error) {
-	cr, err := s.store.LoadCR(crID)
+	_, chunks, _, err := s.loadWorkingTreeTaskChunks(crID, taskID, paths)
 	if err != nil {
 		return nil, err
 	}
-	if cr.Status != model.StatusInProgress {
-		return nil, fmt.Errorf("cr %d is not in progress", crID)
+	return chunks, nil
+}
+
+func (s *Service) TaskChunkWorkingTreePatch(crID, taskID int, chunkID string, paths []string) (TaskChunk, string, error) {
+	chunkID = strings.TrimSpace(chunkID)
+	if chunkID == "" {
+		return TaskChunk{}, "", fmt.Errorf("chunk id is required")
 	}
-	if indexOfTask(cr.Subtasks, taskID) < 0 {
-		return nil, fmt.Errorf("task %d not found in cr %d", taskID, crID)
-	}
-	currentBranch, branchErr := s.git.CurrentBranch()
-	if branchErr != nil {
-		return nil, branchErr
-	}
-	if currentBranch != cr.Branch {
-		return nil, fmt.Errorf("chunk list requires active CR branch %q, current branch is %q; run `sophia cr switch %d`", cr.Branch, currentBranch, cr.ID)
-	}
-	normalizedPaths := []string{}
-	if len(paths) > 0 {
-		normalized, normalizeErr := s.normalizeTaskScopePaths(paths)
-		if normalizeErr != nil {
-			return nil, normalizeErr
-		}
-		normalizedPaths = normalized
-	}
-	diff, err := s.git.WorkingTreeUnifiedDiff(normalizedPaths, 0)
+	files, _, _, err := s.loadWorkingTreeTaskChunks(crID, taskID, paths)
 	if err != nil {
-		return nil, err
+		return TaskChunk{}, "", err
 	}
-	parsed, err := parsePatchChunks(diff)
+	patch, selected, err := buildPatchFromSelectedChunkIDs(files, []string{chunkID})
 	if err != nil {
-		return nil, fmt.Errorf("parse working tree diff chunks: %w", err)
+		return TaskChunk{}, "", err
 	}
-	chunks := make([]TaskChunk, 0, len(parsed))
-	for _, chunk := range parsed {
-		chunks = append(chunks, TaskChunk{
+	if len(selected) != 1 {
+		return TaskChunk{}, "", fmt.Errorf("chunk %q not found", chunkID)
+	}
+	chunk := selected[0]
+	return TaskChunk{
+		ID:       chunk.ID,
+		Path:     chunk.Path,
+		OldStart: chunk.OldStart,
+		OldLines: chunk.OldLines,
+		NewStart: chunk.NewStart,
+		NewLines: chunk.NewLines,
+		Preview:  chunk.Preview,
+	}, patch, nil
+}
+
+func (s *Service) ExportTaskChunkWorkingTreePatch(crID, taskID int, chunkIDs, paths []string) ([]TaskChunk, string, error) {
+	files, _, _, err := s.loadWorkingTreeTaskChunks(crID, taskID, paths)
+	if err != nil {
+		return nil, "", err
+	}
+	patch, selected, err := buildPatchFromSelectedChunkIDs(files, chunkIDs)
+	if err != nil {
+		return nil, "", err
+	}
+	out := make([]TaskChunk, 0, len(selected))
+	for _, chunk := range selected {
+		out = append(out, TaskChunk{
 			ID:       chunk.ID,
 			Path:     chunk.Path,
 			OldStart: chunk.OldStart,
@@ -446,6 +457,64 @@ func (s *Service) ListTaskChunks(crID, taskID int, paths []string) ([]TaskChunk,
 			NewLines: chunk.NewLines,
 			Preview:  chunk.Preview,
 		})
+	}
+	return out, patch, nil
+}
+
+func (s *Service) loadWorkingTreeTaskChunks(crID, taskID int, paths []string) ([]parsedPatchFile, []TaskChunk, string, error) {
+	cr, err := s.store.LoadCR(crID)
+	if err != nil {
+		return nil, nil, "", err
+	}
+	if cr.Status != model.StatusInProgress {
+		return nil, nil, "", fmt.Errorf("cr %d is not in progress", crID)
+	}
+	if indexOfTask(cr.Subtasks, taskID) < 0 {
+		return nil, nil, "", fmt.Errorf("task %d not found in cr %d", taskID, crID)
+	}
+	currentBranch, branchErr := s.git.CurrentBranch()
+	if branchErr != nil {
+		return nil, nil, "", branchErr
+	}
+	if currentBranch != cr.Branch {
+		return nil, nil, "", fmt.Errorf("task chunk commands requires active CR branch %q, current branch is %q; run `sophia cr switch %d`", cr.Branch, currentBranch, cr.ID)
+	}
+	hasStaged, stagedErr := s.git.HasStagedChanges()
+	if stagedErr != nil {
+		return nil, nil, "", stagedErr
+	}
+	if hasStaged {
+		return nil, nil, "", fmt.Errorf("%w: unstage changes before running task chunk commands", ErrPreStagedChanges)
+	}
+	normalizedPaths := []string{}
+	if len(paths) > 0 {
+		normalized, normalizeErr := s.normalizeTaskScopePaths(paths)
+		if normalizeErr != nil {
+			return nil, nil, "", normalizeErr
+		}
+		normalizedPaths = normalized
+	}
+	diff, err := s.git.WorkingTreeUnifiedDiff(normalizedPaths, 0)
+	if err != nil {
+		return nil, nil, "", err
+	}
+	files, err := parsePatchFiles(diff)
+	if err != nil {
+		return nil, nil, "", fmt.Errorf("parse working tree diff chunks: %w", err)
+	}
+	chunks := make([]TaskChunk, 0)
+	for _, file := range files {
+		for _, chunk := range file.Hunks {
+			chunks = append(chunks, TaskChunk{
+				ID:       chunk.ID,
+				Path:     chunk.Path,
+				OldStart: chunk.OldStart,
+				OldLines: chunk.OldLines,
+				NewStart: chunk.NewStart,
+				NewLines: chunk.NewLines,
+				Preview:  chunk.Preview,
+			})
+		}
 	}
 	sort.Slice(chunks, func(i, j int) bool {
 		if chunks[i].Path != chunks[j].Path {
@@ -459,7 +528,7 @@ func (s *Service) ListTaskChunks(crID, taskID int, paths []string) ([]TaskChunk,
 		}
 		return chunks[i].ID < chunks[j].ID
 	})
-	return chunks, nil
+	return files, chunks, diff, nil
 }
 
 func (s *Service) DoneTask(crID, taskID int) error {

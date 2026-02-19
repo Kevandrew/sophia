@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -36,6 +37,8 @@ func newCRTaskChunkCmd() *cobra.Command {
 		Short: "Inspect task checkpoint chunks",
 	}
 	chunkCmd.AddCommand(newCRTaskChunkListCmd())
+	chunkCmd.AddCommand(newCRTaskChunkShowCmd())
+	chunkCmd.AddCommand(newCRTaskChunkExportCmd())
 	chunkCmd.AddCommand(newCRTaskChunkDiffCmd())
 	return chunkCmd
 }
@@ -84,6 +87,116 @@ func newCRTaskChunkListCmd() *cobra.Command {
 
 	cmd.Flags().BoolVar(&asJSON, "json", false, "Output in JSON format")
 	cmd.Flags().StringArrayVar(&scopePaths, "path", nil, "Filter chunk listing to repo-relative file path(s)")
+	return cmd
+}
+
+func newCRTaskChunkShowCmd() *cobra.Command {
+	var asJSON bool
+	var scopePaths []string
+
+	cmd := &cobra.Command{
+		Use:   "show <cr-id> <task-id> <chunk-id>",
+		Short: "Show applyable patch snippet for a working-tree chunk",
+		Args:  cobra.ExactArgs(3),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			crID, err := parsePositiveIntArg(args[0], "cr-id")
+			if err != nil {
+				return commandError(cmd, asJSON, err)
+			}
+			taskID, err := parsePositiveIntArg(args[1], "task-id")
+			if err != nil {
+				return commandError(cmd, asJSON, err)
+			}
+			chunkID := strings.TrimSpace(args[2])
+			if chunkID == "" {
+				return commandError(cmd, asJSON, fmt.Errorf("chunk-id cannot be empty"))
+			}
+			svc, err := newService()
+			if err != nil {
+				return commandError(cmd, asJSON, err)
+			}
+			chunk, patch, err := svc.TaskChunkWorkingTreePatch(crID, taskID, chunkID, append([]string(nil), scopePaths...))
+			if err != nil {
+				return commandError(cmd, asJSON, err)
+			}
+			if asJSON {
+				return writeJSONSuccess(cmd, map[string]any{
+					"cr_id":   crID,
+					"task_id": taskID,
+					"chunk":   chunkToJSONMap(chunk),
+					"patch":   patch,
+				})
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "Chunk %s (%s %d,%d -> %d,%d)\n", chunk.ID, chunk.Path, chunk.OldStart, chunk.OldLines, chunk.NewStart, chunk.NewLines)
+			fmt.Fprint(cmd.OutOrStdout(), patch)
+			return nil
+		},
+	}
+
+	cmd.Flags().BoolVar(&asJSON, "json", false, "Output in JSON format")
+	cmd.Flags().StringArrayVar(&scopePaths, "path", nil, "Filter chunk selection to repo-relative file path(s)")
+	return cmd
+}
+
+func newCRTaskChunkExportCmd() *cobra.Command {
+	var asJSON bool
+	var scopePaths []string
+	var chunkIDs []string
+	var outPath string
+
+	cmd := &cobra.Command{
+		Use:   "export <cr-id> <task-id> --chunk <chunk-id> --out <path>",
+		Short: "Export selected working-tree chunks to a patch manifest",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			crID, err := parsePositiveIntArg(args[0], "cr-id")
+			if err != nil {
+				return commandError(cmd, asJSON, err)
+			}
+			taskID, err := parsePositiveIntArg(args[1], "task-id")
+			if err != nil {
+				return commandError(cmd, asJSON, err)
+			}
+			out := strings.TrimSpace(outPath)
+			if out == "" {
+				return commandError(cmd, asJSON, fmt.Errorf("--out is required"))
+			}
+			svc, err := newService()
+			if err != nil {
+				return commandError(cmd, asJSON, err)
+			}
+			chunks, patch, err := svc.ExportTaskChunkWorkingTreePatch(crID, taskID, append([]string(nil), chunkIDs...), append([]string(nil), scopePaths...))
+			if err != nil {
+				return commandError(cmd, asJSON, err)
+			}
+			if writeErr := os.WriteFile(out, []byte(patch), 0o644); writeErr != nil {
+				return commandError(cmd, asJSON, fmt.Errorf("write patch file %q: %w", out, writeErr))
+			}
+			if asJSON {
+				chunkMaps := make([]map[string]any, 0, len(chunks))
+				ids := make([]string, 0, len(chunks))
+				for _, chunk := range chunks {
+					chunkMaps = append(chunkMaps, chunkToJSONMap(chunk))
+					ids = append(ids, chunk.ID)
+				}
+				return writeJSONSuccess(cmd, map[string]any{
+					"cr_id":         crID,
+					"task_id":       taskID,
+					"out":           out,
+					"written_bytes": len([]byte(patch)),
+					"chunk_ids":     ids,
+					"chunks":        chunkMaps,
+				})
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "Exported %d chunk(s) to %s (%d bytes)\n", len(chunks), out, len([]byte(patch)))
+			return nil
+		},
+	}
+
+	cmd.Flags().BoolVar(&asJSON, "json", false, "Output in JSON format")
+	cmd.Flags().StringArrayVar(&scopePaths, "path", nil, "Filter chunk selection to repo-relative file path(s)")
+	cmd.Flags().StringArrayVar(&chunkIDs, "chunk", nil, "Chunk id to include (repeatable)")
+	cmd.Flags().StringVar(&outPath, "out", "", "Output patch file path")
 	return cmd
 }
 

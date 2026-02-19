@@ -51,6 +51,21 @@ sophia cr task done <cr-id> <task-id> --patch-file <patch-manifest>
 sophia cr task done <cr-id> <task-id> --all
 ```
 
+Pre-checkpoint chunk slicing for patch manifests:
+
+```bash
+# list working-tree chunk ids (requires clean index)
+sophia cr task chunk list <cr-id> <task-id> [--path <file>] [--json]
+
+# inspect one chunk as applyable patch text
+sophia cr task chunk show <cr-id> <task-id> <chunk-id> [--path <file>] [--json]
+
+# export selected chunks into a patch file usable by --patch-file
+sophia cr task chunk export <cr-id> <task-id> \
+  --chunk <chunk-id> --chunk <chunk-id> \
+  --out task.patch [--path <file>] [--json]
+```
+
 Readiness and merge:
 
 ```bash
