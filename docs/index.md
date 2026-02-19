@@ -1,31 +1,37 @@
-# Sophia Documentation
+# Sophia Docs
 
-This directory contains public-facing documentation for operators, contributors, and automation agents.
+Pick the path that matches what you need to do right now.
 
-Repository entrypoint: [`README.md`](../README.md)
+Repository overview: [`README.md`](../README.md)
 
-## Start Here
+## Agent Quickstart
+
+- [`agent-quickstart.md`](agent-quickstart.md)
+- Install with `brew install sophia`, install the in-repo skill, and run first prompts.
+
+## Author Workflow
 
 - [`getting-started.md`](getting-started.md)
-  - Audience: first-time users and contributors.
-  - Covers setup, first CR flow, and core day-1 commands.
+- [`workflow.md`](workflow.md)
+- First-success lifecycle and daily author loop with explicit checkpoint scopes.
 
-## Command and Workflow Guides
+## Reviewer Workflow
+
+- [`reviewer-workflow.md`](reviewer-workflow.md)
+- Trust/evidence-first review process using `status`, `validate`, `review`, and `evidence show`.
+
+## Collaboration (No HQ)
+
+- [`collaboration.md`](collaboration.md)
+- Bundle export/import and patch preview/apply flows for local-first collaboration.
+
+## Troubleshooting
+
+- [`troubleshooting.md`](troubleshooting.md)
+- Deterministic recovery using `doctor`, `repair`, `reconcile`, and merge recovery commands.
+
+## Reference
 
 - [`cli-reference.md`](cli-reference.md)
-  - Audience: users who need a curated map of command families.
-  - Covers command groups, common usage, and practical examples.
-
-- [`workflow.md`](workflow.md)
-  - Audience: contributors maintaining CR quality and merge safety.
-  - Covers intent lifecycle, contracts, checkpoints, validation/review, and merge recovery.
-
-## Policy and Repository Conventions
-
 - [`repository-policy.md`](repository-policy.md)
-  - Audience: maintainers and contributors editing `SOPHIA.yaml` policy.
-  - Covers required contract fields, scope conventions, trust settings, and merge implications.
-
 - [`branch-identity.md`](branch-identity.md)
-  - Audience: users operating branch aliases/UID mapping and migration flows.
-  - Covers branch alias format, selectors, refs, and commit footer metadata.
