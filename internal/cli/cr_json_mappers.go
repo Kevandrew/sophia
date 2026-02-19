@@ -1058,3 +1058,31 @@ func packSliceMetaToJSONMap(meta service.PackSliceMeta) map[string]any {
 		"truncated": meta.Truncated,
 	}
 }
+
+func crPatchApplyResultToJSON(result *service.CRPatchApplyResult) map[string]any {
+	if result == nil {
+		return map[string]any{}
+	}
+	conflicts := make([]map[string]any, 0, len(result.Conflicts))
+	for _, conflict := range result.Conflicts {
+		conflicts = append(conflicts, map[string]any{
+			"op_index": conflict.OpIndex,
+			"op":       conflict.Op,
+			"field":    conflict.Field,
+			"message":  conflict.Message,
+			"expected": conflict.Expected,
+			"current":  conflict.Current,
+		})
+	}
+	return map[string]any{
+		"cr_id":            result.CRID,
+		"cr_uid":           result.CRUID,
+		"base_fingerprint": result.BaseFingerprint,
+		"new_fingerprint":  result.NewFingerprint,
+		"applied_ops":      append([]int(nil), result.AppliedOps...),
+		"skipped_ops":      append([]int(nil), result.SkippedOps...),
+		"warnings":         stringSliceOrEmpty(result.Warnings),
+		"conflicts":        conflicts,
+		"preview":          result.Preview,
+	}
+}

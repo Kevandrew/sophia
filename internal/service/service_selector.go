@@ -2,6 +2,7 @@ package service
 
 import (
 	"fmt"
+	"sophia/internal/model"
 	"strconv"
 	"strings"
 )
@@ -12,6 +13,10 @@ func (s *Service) ResolveCRIDByUID(uid string) (int, error) {
 		return 0, err
 	}
 	return cr.ID, nil
+}
+
+func (s *Service) ResolveCRByUID(uid string) (*model.CR, error) {
+	return s.store.LoadCRByUID(uid)
 }
 
 func (s *Service) ResolveCRID(selector string) (int, error) {

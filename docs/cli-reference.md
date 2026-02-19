@@ -60,6 +60,21 @@ sophia cr review <cr-id>
 sophia cr merge <cr-id>
 ```
 
+Collaboration artifacts:
+
+```bash
+# canonical CR bundle export
+sophia cr export <cr-id> --format json --out cr.bundle.json
+
+# import bundle into local metadata
+sophia cr import --file cr.bundle.json --mode create
+sophia cr import --file cr.bundle.json --mode replace
+
+# apply/preview structured collaboration patches
+sophia cr patch apply <cr-id-or-uid> --file cr.patch.json
+sophia cr patch preview <cr-id-or-uid> --file cr.patch.json --json
+```
+
 ## Merge Recovery
 
 When a merge stops due to conflicts:
@@ -90,6 +105,9 @@ Use `--json` for deterministic agent/tooling integration:
 sophia cr status <cr-id> --json
 sophia cr validate <cr-id> --json
 sophia cr review <cr-id> --json
+sophia cr import --file cr.bundle.json --mode create --json
+sophia cr patch apply <cr-id-or-uid> --file cr.patch.json --json
+sophia cr patch preview <cr-id-or-uid> --file cr.patch.json --json
 sophia doctor --json
 ```
 

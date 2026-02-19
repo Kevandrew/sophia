@@ -102,6 +102,31 @@ For larger efforts:
 - Use `sophia cr task delegate` for parent task ownership via child CRs
 - Use `sophia cr stack` and `sophia cr restack` for topology maintenance
 
+## 8) Collaboration Artifacts (Platform-Agnostic)
+
+Sophia keeps workflow execution local. Collaboration tools can exchange CR state through artifacts:
+
+```bash
+# export local CR context for sharing
+sophia cr export <cr-id> --format json --out cr.bundle.json
+
+# import shared CR context locally
+sophia cr import --file cr.bundle.json --mode create
+# or replace existing local CR with same UID
+sophia cr import --file cr.bundle.json --mode replace
+
+# apply structured suggestions
+sophia cr patch apply <cr-id-or-uid> --file cr.patch.json
+
+# preview patch without writes
+sophia cr patch preview <cr-id-or-uid> --file cr.patch.json --json
+```
+
+Conflict behavior:
+- Patch ops compare `before` against current CR state.
+- On mismatch, Sophia returns structured conflicts and does not write.
+- `--force` allows apply despite `before` mismatch and records warnings.
+
 ## Related Docs
 
 - Command map: [`cli-reference.md`](cli-reference.md)
