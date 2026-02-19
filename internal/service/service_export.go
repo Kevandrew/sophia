@@ -37,6 +37,11 @@ func (s *Service) ExportCRBundle(id int, opts ExportCROptions) (*CRExportBundle,
 	if review == nil || review.CR == nil {
 		return nil, nil, fmt.Errorf("cr %d is unavailable", id)
 	}
+	doc := canonicalCRDoc(review.CR)
+	fingerprint, fpErr := fingerprintCRDoc(doc)
+	if fpErr != nil {
+		return nil, nil, fmt.Errorf("fingerprint cr doc: %w", fpErr)
+	}
 
 	crPath := s.store.CRPath(id)
 	rawCRYAML, readErr := os.ReadFile(crPath)
@@ -90,13 +95,28 @@ func (s *Service) ExportCRBundle(id int, opts ExportCROptions) (*CRExportBundle,
 		Warnings: append([]string(nil), review.ValidationWarnings...),
 		Impact:   review.Impact,
 	}
+	var anchors *CRExportAnchors
+	if resolved, anchorErr := s.resolveCRAnchors(review.CR); anchorErr == nil && resolved != nil {
+		anchors = &CRExportAnchors{
+			BaseRef:    strings.TrimSpace(resolved.baseRef),
+			BaseCommit: strings.TrimSpace(resolved.baseCommit),
+			HeadRef:    strings.TrimSpace(resolved.headRef),
+			HeadCommit: strings.TrimSpace(resolved.headCommit),
+			MergeBase:  strings.TrimSpace(resolved.mergeBase),
+		}
+	}
 
 	bundle := &CRExportBundle{
-		SchemaVersion: exportSchemaV1,
-		Format:        format,
-		CR:            review.CR,
-		CRYAML:        string(rawCRYAML),
-		Evidence:      append([]model.EvidenceEntry(nil), review.CR.Evidence...),
+		SchemaVersion:    exportSchemaV1,
+		Format:           format,
+		CRUID:            strings.TrimSpace(review.CR.UID),
+		CRFingerprint:    fingerprint,
+		DocSchemaVersion: crDocSchemaV1,
+		Doc:              doc,
+		Anchors:          anchors,
+		CR:               review.CR,
+		CRYAML:           string(rawCRYAML),
+		Evidence:         append([]model.EvidenceEntry(nil), review.CR.Evidence...),
 		Derived: CRExportDerived{
 			FilesChanged:    append([]string(nil), review.Files...),
 			NewFiles:        append([]string(nil), review.NewFiles...),
