@@ -477,7 +477,14 @@ func (s *Service) loadWorkingTreeTaskChunks(crID, taskID int, paths []string) ([
 		return nil, nil, "", branchErr
 	}
 	if currentBranch != cr.Branch {
-		return nil, fmt.Errorf("chunk list requires active CR branch %q, current branch is %q; run `sophia cr switch %d`", cr.Branch, currentBranch, cr.ID)
+		return nil, nil, "", fmt.Errorf("task chunk commands requires active CR branch %q, current branch is %q; run `sophia cr switch %d`", cr.Branch, currentBranch, cr.ID)
+	}
+	hasStaged, stagedErr := s.git.HasStagedChanges()
+	if stagedErr != nil {
+		return nil, nil, "", stagedErr
+	}
+	if hasStaged {
+		return nil, nil, "", fmt.Errorf("%w: unstage changes before running task chunk commands", ErrPreStagedChanges)
 	}
 	normalizedPaths := []string{}
 	if len(paths) > 0 {
