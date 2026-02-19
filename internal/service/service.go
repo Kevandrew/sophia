@@ -245,6 +245,11 @@ type ExportCROptions struct {
 type CRExportBundle struct {
 	SchemaVersion     string                `json:"schema_version"`
 	Format            string                `json:"format"`
+	CRUID             string                `json:"cr_uid"`
+	CRFingerprint     string                `json:"cr_fingerprint"`
+	DocSchemaVersion  string                `json:"doc_schema_version"`
+	Doc               *CRDoc                `json:"doc,omitempty"`
+	Anchors           *CRExportAnchors      `json:"anchors,omitempty"`
 	CR                *model.CR             `json:"cr"`
 	CRYAML            string                `json:"cr_yaml"`
 	Evidence          []model.EvidenceEntry `json:"evidence"`
@@ -289,6 +294,54 @@ type CRExportTaskDiff struct {
 	Commit string   `json:"commit"`
 	Files  []string `json:"files,omitempty"`
 	Patch  string   `json:"patch,omitempty"`
+}
+
+type CRExportAnchors struct {
+	BaseRef    string `json:"base_ref,omitempty"`
+	BaseCommit string `json:"base_commit,omitempty"`
+	HeadRef    string `json:"head_ref,omitempty"`
+	HeadCommit string `json:"head_commit,omitempty"`
+	MergeBase  string `json:"merge_base,omitempty"`
+}
+
+type CRDocMetaEntry struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
+}
+
+type CRDocEvent struct {
+	TS              string           `json:"ts"`
+	Actor           string           `json:"actor"`
+	Type            string           `json:"type"`
+	Summary         string           `json:"summary"`
+	Ref             string           `json:"ref,omitempty"`
+	Redacted        bool             `json:"redacted,omitempty"`
+	RedactionReason string           `json:"redaction_reason,omitempty"`
+	Meta            []CRDocMetaEntry `json:"meta,omitempty"`
+}
+
+type CRDoc struct {
+	ID                int                   `json:"id"`
+	UID               string                `json:"uid,omitempty"`
+	Title             string                `json:"title"`
+	Description       string                `json:"description"`
+	Status            string                `json:"status"`
+	BaseBranch        string                `json:"base_branch"`
+	BaseRef           string                `json:"base_ref,omitempty"`
+	BaseCommit        string                `json:"base_commit,omitempty"`
+	ParentCRID        int                   `json:"parent_cr_id,omitempty"`
+	Branch            string                `json:"branch"`
+	Notes             []string              `json:"notes"`
+	Evidence          []model.EvidenceEntry `json:"evidence,omitempty"`
+	Contract          model.Contract        `json:"contract,omitempty"`
+	Subtasks          []model.Subtask       `json:"subtasks"`
+	Events            []CRDocEvent          `json:"events"`
+	MergedAt          string                `json:"merged_at,omitempty"`
+	MergedBy          string                `json:"merged_by,omitempty"`
+	MergedCommit      string                `json:"merged_commit,omitempty"`
+	FilesTouchedCount int                   `json:"files_touched_count,omitempty"`
+	CreatedAt         string                `json:"created_at"`
+	UpdatedAt         string                `json:"updated_at"`
 }
 
 type WhyView struct {
