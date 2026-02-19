@@ -597,6 +597,178 @@ func TestListTaskChunksReturnsSortedChunksAndPathFilter(t *testing.T) {
 	}
 }
 
+func TestTaskChunkWorkingTreePatchIsApplyable(t *testing.T) {
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	runGit(t, dir, "config", "user.name", "Test User")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+
+	if err := os.WriteFile(filepath.Join(dir, "alpha.txt"), []byte("a1\na2\na3\na4\na5\na6\na7\na8\n"), 0o644); err != nil {
+		t.Fatalf("write alpha file: %v", err)
+	}
+	runGit(t, dir, "add", "alpha.txt")
+	runGit(t, dir, "commit", "-m", "chore: seed file")
+
+	cr, err := svc.AddCR("Chunk show", "patch output for one chunk")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	task, err := svc.AddTask(cr.ID, "feat: chunk show")
+	if err != nil {
+		t.Fatalf("AddTask() error = %v", err)
+	}
+	setValidTaskContract(t, svc, cr.ID, task.ID)
+
+	if err := os.WriteFile(filepath.Join(dir, "alpha.txt"), []byte("a1\na2-edited\na3\na4\na5\na6\na7-edited\na8\n"), 0o644); err != nil {
+		t.Fatalf("write alpha modifications: %v", err)
+	}
+	chunks, err := svc.ListTaskChunks(cr.ID, task.ID, nil)
+	if err != nil {
+		t.Fatalf("ListTaskChunks() error = %v", err)
+	}
+	if len(chunks) < 1 {
+		t.Fatalf("expected at least one chunk, got %#v", chunks)
+	}
+
+	chunk, patch, err := svc.TaskChunkWorkingTreePatch(cr.ID, task.ID, chunks[0].ID, nil)
+	if err != nil {
+		t.Fatalf("TaskChunkWorkingTreePatch() error = %v", err)
+	}
+	if chunk.ID != chunks[0].ID {
+		t.Fatalf("expected chunk id %q, got %q", chunks[0].ID, chunk.ID)
+	}
+	if !strings.Contains(patch, "diff --git") || !strings.Contains(patch, "@@") {
+		t.Fatalf("expected full patch output, got %q", patch)
+	}
+
+	patchPath := filepath.Join(dir, "single.patch")
+	if err := os.WriteFile(patchPath, []byte(patch), 0o644); err != nil {
+		t.Fatalf("write patch file: %v", err)
+	}
+	runGit(t, dir, "apply", "--cached", "--unidiff-zero", "--recount", patchPath)
+	staged := runGit(t, dir, "diff", "--cached", "--name-only")
+	if !strings.Contains(staged, "alpha.txt") {
+		t.Fatalf("expected alpha.txt staged after patch apply, got %q", staged)
+	}
+}
+
+func TestExportTaskChunkWorkingTreePatchAcrossFiles(t *testing.T) {
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	runGit(t, dir, "config", "user.name", "Test User")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+
+	if err := os.WriteFile(filepath.Join(dir, "alpha.txt"), []byte("a1\na2\na3\na4\na5\na6\na7\na8\n"), 0o644); err != nil {
+		t.Fatalf("write alpha file: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "beta.txt"), []byte("b1\nb2\n"), 0o644); err != nil {
+		t.Fatalf("write beta file: %v", err)
+	}
+	runGit(t, dir, "add", "alpha.txt", "beta.txt")
+	runGit(t, dir, "commit", "-m", "chore: seed files")
+
+	cr, err := svc.AddCR("Chunk export", "patch output for multiple chunks")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	task, err := svc.AddTask(cr.ID, "feat: chunk export")
+	if err != nil {
+		t.Fatalf("AddTask() error = %v", err)
+	}
+	setValidTaskContract(t, svc, cr.ID, task.ID)
+
+	if err := os.WriteFile(filepath.Join(dir, "alpha.txt"), []byte("a1\na2-edited\na3\na4\na5\na6\na7-edited\na8\n"), 0o644); err != nil {
+		t.Fatalf("write alpha modifications: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "beta.txt"), []byte("b1\nb2-edited\n"), 0o644); err != nil {
+		t.Fatalf("write beta modifications: %v", err)
+	}
+	chunks, err := svc.ListTaskChunks(cr.ID, task.ID, nil)
+	if err != nil {
+		t.Fatalf("ListTaskChunks() error = %v", err)
+	}
+	var alphaID, betaID string
+	for _, chunk := range chunks {
+		if chunk.Path == "alpha.txt" && alphaID == "" {
+			alphaID = chunk.ID
+		}
+		if chunk.Path == "beta.txt" && betaID == "" {
+			betaID = chunk.ID
+		}
+	}
+	if alphaID == "" || betaID == "" {
+		t.Fatalf("expected chunk ids for alpha and beta, got %#v", chunks)
+	}
+
+	selected, patch, err := svc.ExportTaskChunkWorkingTreePatch(cr.ID, task.ID, []string{alphaID, betaID}, nil)
+	if err != nil {
+		t.Fatalf("ExportTaskChunkWorkingTreePatch() error = %v", err)
+	}
+	if len(selected) != 2 {
+		t.Fatalf("expected 2 selected chunks, got %#v", selected)
+	}
+	if !strings.Contains(patch, "diff --git a/alpha.txt b/alpha.txt") || !strings.Contains(patch, "diff --git a/beta.txt b/beta.txt") {
+		t.Fatalf("expected multi-file patch, got %q", patch)
+	}
+
+	patchPath := filepath.Join(dir, "selected.patch")
+	if err := os.WriteFile(patchPath, []byte(patch), 0o644); err != nil {
+		t.Fatalf("write patch file: %v", err)
+	}
+	runGit(t, dir, "apply", "--cached", "--unidiff-zero", "--recount", patchPath)
+	staged := strings.TrimSpace(runGit(t, dir, "diff", "--cached", "--name-only"))
+	if staged != "alpha.txt\nbeta.txt" && staged != "beta.txt\nalpha.txt" {
+		t.Fatalf("expected alpha.txt and beta.txt staged, got %q", staged)
+	}
+}
+
+func TestTaskChunkCommandsRejectPreStagedChanges(t *testing.T) {
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	runGit(t, dir, "config", "user.name", "Test User")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+
+	if err := os.WriteFile(filepath.Join(dir, "alpha.txt"), []byte("a1\na2\n"), 0o644); err != nil {
+		t.Fatalf("write alpha file: %v", err)
+	}
+	runGit(t, dir, "add", "alpha.txt")
+	runGit(t, dir, "commit", "-m", "chore: seed file")
+
+	cr, err := svc.AddCR("Chunk pre-staged", "reject staged changes")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	task, err := svc.AddTask(cr.ID, "feat: pre-staged check")
+	if err != nil {
+		t.Fatalf("AddTask() error = %v", err)
+	}
+	setValidTaskContract(t, svc, cr.ID, task.ID)
+
+	if err := os.WriteFile(filepath.Join(dir, "alpha.txt"), []byte("a1\na2-edited\n"), 0o644); err != nil {
+		t.Fatalf("write alpha modifications: %v", err)
+	}
+	runGit(t, dir, "add", "alpha.txt")
+
+	if _, err := svc.ListTaskChunks(cr.ID, task.ID, nil); !errors.Is(err, ErrPreStagedChanges) {
+		t.Fatalf("expected ErrPreStagedChanges from ListTaskChunks, got %v", err)
+	}
+	if _, _, err := svc.TaskChunkWorkingTreePatch(cr.ID, task.ID, "chk_missing", nil); !errors.Is(err, ErrPreStagedChanges) {
+		t.Fatalf("expected ErrPreStagedChanges from TaskChunkWorkingTreePatch, got %v", err)
+	}
+	if _, _, err := svc.ExportTaskChunkWorkingTreePatch(cr.ID, task.ID, []string{"chk_missing"}, nil); !errors.Is(err, ErrPreStagedChanges) {
+		t.Fatalf("expected ErrPreStagedChanges from ExportTaskChunkWorkingTreePatch, got %v", err)
+	}
+}
+
 func TestDoneTaskWithCheckpointRequiresExplicitScope(t *testing.T) {
 	dir := t.TempDir()
 	svc := New(dir)
