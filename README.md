@@ -81,11 +81,22 @@ Sophia has a complete command-line interface for direct control. See the [CLI Re
 
 </details>
 
+## Collaboration Model
+
+Sophia remains local-first and network-agnostic. Collaboration works through portable artifacts:
+
+- `sophia cr export <id>` emits a canonical bundle (`sophia.cr_bundle.v1`) including CR identity and fingerprint.
+- `sophia cr import --file <bundle.json> --mode create|replace` materializes shared CR state locally.
+- `sophia cr patch apply <selector> --file <patch.json>` applies structured suggestions with conflict detection.
+- `sophia cr patch preview <selector> --file <patch.json> --json` checks patch compatibility without mutating state.
+
+This keeps the core CLI MIT and platform-agnostic. A separate team platform/tool can own auth, storage, and collaboration UX while calling Sophia locally.
+
 ## What's next
 
 **Today** — Sophia runs locally. No accounts, no servers. Everything stays in your repo.
 
-**Sophia HQ** (coming soon) — the same workflow, for teams. Shared change requests, collaborative review, and real-time contract tracking across your organization.
+**Sophia HQ** (coming soon) — managed collaboration built on top of Sophia artifacts (bundle + patch) for shared CR review and orchestration.
 
 ## Learn more
 
