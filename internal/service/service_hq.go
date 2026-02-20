@@ -341,7 +341,7 @@ func (s *Service) HQGetCR(uid string) (*HQCRDetail, error) {
 	fingerprint := strings.TrimSpace(remoteCR.CRFingerprint)
 	if fingerprint == "" {
 		var fpErr error
-		fingerprint, fpErr = fingerprintCRDoc(&doc)
+		fingerprint, fpErr = fingerprintHQIntentCR(localCR)
 		if fpErr != nil {
 			return nil, fpErr
 		}
@@ -570,8 +570,12 @@ func (s *Service) applyHQPatch(uid string, ops []json.RawMessage, message string
 		if err := json.Unmarshal(docRaw, &doc); err != nil {
 			return nil, fmt.Errorf("decode remote CR doc: %w", err)
 		}
+		decodedCR := crFromDoc(&doc)
+		if decodedCR == nil {
+			return nil, fmt.Errorf("%w: invalid remote CR doc payload", ErrHQRemoteMalformedResponse)
+		}
 		var fpErr error
-		fingerprint, fpErr = fingerprintCRDoc(&doc)
+		fingerprint, fpErr = fingerprintHQIntentCR(decodedCR)
 		if fpErr != nil {
 			return nil, fpErr
 		}

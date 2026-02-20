@@ -139,6 +139,14 @@ func jsonErrorCode(err error) string {
 		return "hq_tracked_mode_blocked"
 	case errors.Is(err, service.ErrHQRemoteMalformedResponse):
 		return "hq_malformed_response"
+	case errors.Is(err, service.ErrHQIntentDiverged):
+		return "hq_intent_diverged"
+	case errors.Is(err, service.ErrHQUpstreamMoved):
+		return "hq_upstream_moved"
+	case errors.Is(err, service.ErrHQPatchConflict):
+		return "hq_patch_conflict"
+	case errors.Is(err, service.ErrHQTaskSyncUnsupported):
+		return "hq_task_sync_unsupported"
 	}
 	lower := strings.ToLower(strings.TrimSpace(err.Error()))
 	switch {

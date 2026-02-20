@@ -27,6 +27,18 @@ type HQGetCRResponse struct {
 	CR            json.RawMessage `json:"cr,omitempty"`
 }
 
+type HQUpsertCRRequest struct {
+	SchemaVersion    string          `json:"schema_version"`
+	DocSchemaVersion string          `json:"doc_schema_version"`
+	Doc              json.RawMessage `json:"doc"`
+}
+
+type HQUpsertCRResponse struct {
+	SchemaVersion string `json:"schema_version,omitempty"`
+	CRUID         string `json:"cr_uid,omitempty"`
+	CRFingerprint string `json:"cr_fingerprint,omitempty"`
+}
+
 type HQPatchApplyRequest struct {
 	SchemaVersion string  `json:"schema_version"`
 	Patch         CRPatch `json:"patch"`
