@@ -726,6 +726,27 @@ func crStatusToJSONMap(status *service.CRStatusView) map[string]any {
 	}
 }
 
+func hqSyncStatusToJSONMap(view *service.HQSyncStatusView) map[string]any {
+	if view == nil {
+		return map[string]any{}
+	}
+	return map[string]any{
+		"configured":           view.Configured,
+		"base_url":             view.BaseURL,
+		"repo_id":              view.RepoID,
+		"remote_alias":         view.RemoteAlias,
+		"has_token":            view.HasToken,
+		"linked":               view.Linked,
+		"local_fingerprint":    view.LocalFingerprint,
+		"upstream_fingerprint": view.UpstreamFingerprint,
+		"remote_exists":        view.RemoteExists,
+		"remote_checked":       view.RemoteChecked,
+		"remote_fingerprint":   view.RemoteFingerprint,
+		"state":                view.State,
+		"suggested_actions":    stringSliceOrEmpty(view.SuggestedActions),
+	}
+}
+
 func crRefreshToJSONMap(view *service.CRRefreshView) map[string]any {
 	if view == nil {
 		return map[string]any{}

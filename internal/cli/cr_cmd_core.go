@@ -537,6 +537,7 @@ func newCRWhyCmd() *cobra.Command {
 
 func newCRStatusCmd() *cobra.Command {
 	var asJSON bool
+	var includeHQ bool
 
 	cmd := &cobra.Command{
 		Use:   "status <id>",
@@ -551,8 +552,19 @@ func newCRStatusCmd() *cobra.Command {
 			if err != nil {
 				return commandError(cmd, asJSON, err)
 			}
+			var hqStatus *service.HQSyncStatusView
+			if includeHQ {
+				hqStatus, err = svc.HQSyncStatusCR(id)
+				if err != nil {
+					return commandError(cmd, asJSON, err)
+				}
+			}
 			if asJSON {
-				return writeJSONSuccess(cmd, crStatusToJSONMap(status))
+				payload := crStatusToJSONMap(status)
+				if includeHQ {
+					payload["hq_sync"] = hqSyncStatusToJSONMap(hqStatus)
+				}
+				return writeJSONSuccess(cmd, payload)
 			}
 
 			fmt.Fprintf(cmd.OutOrStdout(), "CR %d: %s\n", status.ID, status.Title)
@@ -582,11 +594,30 @@ func newCRStatusCmd() *cobra.Command {
 					fmt.Fprintf(cmd.OutOrStdout(), "- %s\n", blocker)
 				}
 			}
+			if includeHQ && hqStatus != nil {
+				fmt.Fprintln(cmd.OutOrStdout(), "\nHQ Sync:")
+				fmt.Fprintf(cmd.OutOrStdout(), "- configured: %t\n", hqStatus.Configured)
+				fmt.Fprintf(cmd.OutOrStdout(), "- base_url: %s\n", nonEmpty(hqStatus.BaseURL, "(missing)"))
+				fmt.Fprintf(cmd.OutOrStdout(), "- repo_id: %s\n", nonEmpty(hqStatus.RepoID, "(missing)"))
+				fmt.Fprintf(cmd.OutOrStdout(), "- remote_alias: %s\n", nonEmpty(hqStatus.RemoteAlias, "(missing)"))
+				fmt.Fprintf(cmd.OutOrStdout(), "- has_token: %t\n", hqStatus.HasToken)
+				fmt.Fprintf(cmd.OutOrStdout(), "- linked: %t\n", hqStatus.Linked)
+				fmt.Fprintf(cmd.OutOrStdout(), "- state: %s\n", nonEmpty(hqStatus.State, "(missing)"))
+				if len(hqStatus.SuggestedActions) == 0 {
+					fmt.Fprintln(cmd.OutOrStdout(), "- suggested_actions: (none)")
+				} else {
+					fmt.Fprintln(cmd.OutOrStdout(), "- suggested_actions:")
+					for _, action := range hqStatus.SuggestedActions {
+						fmt.Fprintf(cmd.OutOrStdout(), "  - %s\n", action)
+					}
+				}
+			}
 			return nil
 		},
 	}
 
 	cmd.Flags().BoolVar(&asJSON, "json", false, "Output in JSON format")
+	cmd.Flags().BoolVar(&includeHQ, "hq", false, "Include HQ intent sync status")
 	return cmd
 }
 
