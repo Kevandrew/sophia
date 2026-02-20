@@ -1,7 +1,17 @@
 <p align="center">
-  <h1 align="center">Sophia</h1>
-  <p align="center"><strong>Your AI builds the code. Sophia makes sure it's right.</strong></p>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/branding/logo.svg">
+    <source media="(prefers-color-scheme: light)" srcset="docs/assets/branding/logo-light.svg">
+    <img src="docs/assets/branding/logo-light.svg" alt="Sophia logo" width="110">
+  </picture>
 </p>
+<h1 align="center">Sophia</h1>
+<p align="center"><strong>Your AI builds the code. Sophia makes sure it's right.</strong></p>
+
+<details>
+<summary>Logo preview (new vs legacy)</summary>
+
+</details>
 
 ---
 
@@ -101,6 +111,7 @@ This keeps the core CLI MIT and platform-agnostic. A separate team platform/tool
 ## Learn more
 
 [Agent Quickstart](docs/agent-quickstart.md) · [Getting Started](docs/getting-started.md) · [Workflow](docs/workflow.md) · [CLI Reference](docs/cli-reference.md)
+
 
 ## Community
 
