@@ -140,6 +140,51 @@ type Contract struct {
 	UpdatedBy          string   `yaml:"updated_by,omitempty"`
 }
 
+type HQIntentContractSnapshot struct {
+	Why                string   `yaml:"why,omitempty" json:"why,omitempty"`
+	Scope              []string `yaml:"scope,omitempty" json:"scope,omitempty"`
+	NonGoals           []string `yaml:"non_goals,omitempty" json:"non_goals,omitempty"`
+	Invariants         []string `yaml:"invariants,omitempty" json:"invariants,omitempty"`
+	BlastRadius        string   `yaml:"blast_radius,omitempty" json:"blast_radius,omitempty"`
+	RiskCriticalScopes []string `yaml:"risk_critical_scopes,omitempty" json:"risk_critical_scopes,omitempty"`
+	RiskTierHint       string   `yaml:"risk_tier_hint,omitempty" json:"risk_tier_hint,omitempty"`
+	RiskRationale      string   `yaml:"risk_rationale,omitempty" json:"risk_rationale,omitempty"`
+	TestPlan           string   `yaml:"test_plan,omitempty" json:"test_plan,omitempty"`
+	RollbackPlan       string   `yaml:"rollback_plan,omitempty" json:"rollback_plan,omitempty"`
+}
+
+type HQIntentTaskContractSnapshot struct {
+	Intent             string   `yaml:"intent,omitempty" json:"intent,omitempty"`
+	AcceptanceCriteria []string `yaml:"acceptance_criteria,omitempty" json:"acceptance_criteria,omitempty"`
+	Scope              []string `yaml:"scope,omitempty" json:"scope,omitempty"`
+	AcceptanceChecks   []string `yaml:"acceptance_checks,omitempty" json:"acceptance_checks,omitempty"`
+}
+
+type HQIntentTaskSnapshot struct {
+	ID       int                          `yaml:"id" json:"id"`
+	Title    string                       `yaml:"title,omitempty" json:"title,omitempty"`
+	Status   string                       `yaml:"status,omitempty" json:"status,omitempty"`
+	Contract HQIntentTaskContractSnapshot `yaml:"contract,omitempty" json:"contract,omitempty"`
+}
+
+type HQIntentSnapshot struct {
+	Title       string                   `yaml:"title,omitempty" json:"title,omitempty"`
+	Description string                   `yaml:"description,omitempty" json:"description,omitempty"`
+	Status      string                   `yaml:"status,omitempty" json:"status,omitempty"`
+	Contract    HQIntentContractSnapshot `yaml:"contract,omitempty" json:"contract,omitempty"`
+	Notes       []string                 `yaml:"notes,omitempty" json:"notes,omitempty"`
+	Subtasks    []HQIntentTaskSnapshot   `yaml:"subtasks,omitempty" json:"subtasks,omitempty"`
+}
+
+type CRHQState struct {
+	RemoteAlias         string            `yaml:"remote_alias,omitempty"`
+	RepoID              string            `yaml:"repo_id,omitempty"`
+	UpstreamFingerprint string            `yaml:"upstream_fingerprint,omitempty"`
+	UpstreamIntent      *HQIntentSnapshot `yaml:"upstream_intent,omitempty"`
+	LastPullAt          string            `yaml:"last_pull_at,omitempty"`
+	LastPushAt          string            `yaml:"last_push_at,omitempty"`
+}
+
 type CR struct {
 	ID                int             `yaml:"id"`
 	UID               string          `yaml:"uid,omitempty"`
@@ -160,6 +205,7 @@ type CR struct {
 	MergedBy          string          `yaml:"merged_by,omitempty"`
 	MergedCommit      string          `yaml:"merged_commit,omitempty"`
 	FilesTouchedCount int             `yaml:"files_touched_count,omitempty"`
+	HQ                CRHQState       `yaml:"hq,omitempty"`
 	CreatedAt         string          `yaml:"created_at"`
 	UpdatedAt         string          `yaml:"updated_at"`
 }
