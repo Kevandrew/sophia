@@ -17,6 +17,9 @@ type Config struct {
 	BaseBranch        string `yaml:"base_branch"`
 	MetadataMode      string `yaml:"metadata_mode,omitempty"`
 	BranchOwnerPrefix string `yaml:"branch_owner_prefix,omitempty"`
+	HQRemote          string `yaml:"hq_remote,omitempty"`
+	HQRepoID          string `yaml:"hq_repo_id,omitempty"`
+	HQBaseURL         string `yaml:"hq_base_url,omitempty"`
 }
 
 type Index struct {
