@@ -1,147 +1,112 @@
-# Workflow Lifecycle
+# Author Workflow
 
-Sophia centers work around intent-bearing CRs rather than ad hoc commits.
+This is the canonical day-to-day author loop for Sophia.
 
-## Lifecycle Overview
+## Lifecycle
 
-1. Open CR intent
-2. Define CR contract
-3. Decompose into tasks
-4. Define task contracts
-5. Implement and checkpoint task-by-task
-6. Validate and review
-7. Merge or recover from conflicts
+1. Open CR intent.
+2. Define CR contract.
+3. Add tasks and task contracts.
+4. Implement and checkpoint each task with explicit scope.
+5. Attach evidence when checks are required.
+6. Validate, review, and merge.
 
-## 1) Open Intent
+## Start work
 
 ```bash
 sophia cr add "<title>" --description "<why>"
-```
-
-`cr add` does not switch by default. Enter CR context explicitly:
-
-```bash
 sophia cr switch <cr-id>
 ```
 
-## 2) Define the CR Contract
-
-Typical required fields (policy-controlled):
-- `why`
-- `scope`
-- `non_goals`
-- `invariants`
-- `blast_radius`
-- `test_plan`
-- `rollback_plan`
-
-Set/update contract:
+## Define contract and tasks
 
 ```bash
 sophia cr contract set <cr-id> \
   --why "..." \
-  --scope . \
-  --non-goal "..." \
-  --invariant "..." \
-  --blast-radius "..." \
+  --scope <prefix> \
   --test-plan "go test ./... && go vet ./..." \
   --rollback-plan "Revert CR merge commit"
-```
 
-## 3) Task Decomposition and Contracts
-
-```bash
-sophia cr task add <cr-id> "<task title>"
+sophia cr task add <cr-id> "<task>"
 sophia cr task contract set <cr-id> <task-id> \
   --intent "..." \
   --acceptance "..." \
   --scope <prefix>
 ```
 
-Task contracts must be complete before task completion.
+## Checkpoint scope modes (decision guide)
 
-## 4) Checkpointing and Progress
+Use exactly one completion scope mode per `task done` call:
 
-Preferred mode:
+- `--path` when changed files are known and explicit.
+- `--patch-file` when only specific hunks/chunks should be checkpointed.
+- `--from-contract` when contract scope is accurate and broad enough.
+- `--all` only when full stage is intentionally required.
+- `--no-checkpoint` only for metadata-only completion (must include reason).
+
+Examples:
 
 ```bash
-sophia cr task done <cr-id> <task-id> --from-contract
+sophia cr task done <cr-id> <task-id> \
+  --path internal/service/retry.go \
+  --path internal/service/retry_test.go
+
+sophia cr task done <cr-id> <task-id> --patch-file task.patch
+sophia cr task done <cr-id> <task-id> --all
+sophia cr task done <cr-id> <task-id> --no-checkpoint --no-checkpoint-reason "metadata-only"
 ```
 
-Checkpoint commits are generated as task progress artifacts.
+## Chunk flow (pre-checkpoint)
 
-When you need precise hunk-level checkpoint scope, generate a patch manifest from working-tree chunks before completing the task:
+Use chunk mode when you need hunk-level control:
 
 ```bash
-sophia cr task chunk list <cr-id> <task-id>
-sophia cr task chunk show <cr-id> <task-id> <chunk-id>
+sophia cr task chunk list <cr-id> <task-id> [--path <file>] [--json]
+sophia cr task chunk show <cr-id> <task-id> <chunk-id> [--path <file>] [--json]
 sophia cr task chunk export <cr-id> <task-id> --chunk <chunk-id> --out task.patch
 sophia cr task done <cr-id> <task-id> --patch-file task.patch
 ```
 
-Notes:
-- Chunk commands operate on unstaged working-tree diffs and require a clean index.
-- `chunk diff` remains checkpoint-oriented (inspects chunks from the recorded checkpoint commit).
+Chunk commands inspect unstaged working-tree changes and require a clean index.
 
-## 5) Validate, Review, and Merge
+## Evidence and readiness
 
 ```bash
 sophia cr validate <cr-id>
 sophia cr review <cr-id>
-sophia cr merge <cr-id>
+sophia cr status <cr-id>
 ```
 
-Use `sophia cr status <cr-id>` as a compact readiness snapshot.
+If contracts name specific checks, attach logs:
 
-## 6) Merge Conflict Recovery
+```bash
+sophia cr evidence add <cr-id> \
+  --type command_run \
+  --summary "targeted tests" \
+  --cmd "go test ./..." \
+  --exit-code 0 \
+  --attachment _docs/cr-<cr-id>-evidence/tests.log
+```
 
-If merge enters conflict state:
+## If you see X, do Y
+
+- `task_contract_incomplete`: run `sophia cr task contract set <cr-id> <task-id> ...` and provide missing fields.
+- `pre_staged_changes`: unstage first (`git restore --staged <file>`), then retry with explicit scope.
+- `no_task_scope_matches`: use `--path` or `--patch-file` with actual changed files, or update task scope.
+- `merge_in_progress`: use `sophia cr merge status <cr-id>`, then `merge resume` or `merge abort` before other mutations.
+
+## Merge recovery
 
 ```bash
 sophia cr merge status <cr-id>
-# resolve conflicts manually
+# resolve conflicts
 sophia cr merge resume <cr-id>
 # or cancel
 sophia cr merge abort <cr-id>
 ```
 
-During unresolved merge state, many mutating CR commands are intentionally blocked until resume/abort completes.
+## Related docs
 
-## 7) Stack and Delegation Patterns
-
-For larger efforts:
-
-- Create child CRs (`cr child add` or `cr add --parent`)
-- Use `sophia cr task delegate` for parent task ownership via child CRs
-- Use `sophia cr stack` and `sophia cr restack` for topology maintenance
-
-## 8) Collaboration Artifacts (Platform-Agnostic)
-
-Sophia keeps workflow execution local. Collaboration tools can exchange CR state through artifacts:
-
-```bash
-# export local CR context for sharing
-sophia cr export <cr-id> --format json --out cr.bundle.json
-
-# import shared CR context locally
-sophia cr import --file cr.bundle.json --mode create
-# or replace existing local CR with same UID
-sophia cr import --file cr.bundle.json --mode replace
-
-# apply structured suggestions
-sophia cr patch apply <cr-id-or-uid> --file cr.patch.json
-
-# preview patch without writes
-sophia cr patch preview <cr-id-or-uid> --file cr.patch.json --json
-```
-
-Conflict behavior:
-- Patch ops compare `before` against current CR state.
-- On mismatch, Sophia returns structured conflicts and does not write.
-- `--force` allows apply despite `before` mismatch and records warnings.
-
-## Related Docs
-
-- Command map: [`cli-reference.md`](cli-reference.md)
-- Policy model: [`repository-policy.md`](repository-policy.md)
-- Branch identity details: [`branch-identity.md`](branch-identity.md)
+- First success walkthrough: [`getting-started.md`](getting-started.md)
+- Reviewer flow: [`reviewer-workflow.md`](reviewer-workflow.md)
+- Collaboration without HQ: [`collaboration.md`](collaboration.md)

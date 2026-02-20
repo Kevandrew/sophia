@@ -1,93 +1,116 @@
 # Getting Started
 
-This guide walks through the first successful Sophia workflow from repository setup to CR merge.
+This walkthrough is the first-success lifecycle for agent-first Sophia usage.
+
+Use this mental model:
+- your agent executes most commands,
+- you review intent, scope, evidence, and merge readiness.
 
 ## Prerequisites
 
-- Git repository initialized
-- Go 1.22+ installed
-- Local environment can run `go run ./cmd/sophia`
+- `brew install sophia`
+- a Git repository
+- an agent session with the Sophia skill enabled (see [`agent-quickstart.md`](agent-quickstart.md))
 
-## 1) Initialize Sophia
+## 1) Initialize the repository
 
 ```bash
 sophia init
 ```
 
-What this does:
-- Validates Git repository context
-- Initializes Sophia metadata (local-first by default)
-- Seeds policy/template files when missing
+This creates Sophia metadata and policy scaffolding.
 
-## 2) Create a CR
+## 2) Open intent
 
 ```bash
-sophia cr add "Add retry policy" --description "Reduce transient failures"
-```
-
-By default, `cr add` does not switch your branch.
-
-Switch explicitly before mutating work:
-
-```bash
+sophia cr add "Add jittered retries for outbound API calls" \
+  --description "Reduce transient failure retries without overloading providers"
 sophia cr switch <cr-id>
 ```
 
-## 3) Define the CR Contract
+Expected outcome:
+- CR exists with a dedicated branch.
+- Work is now scoped to that CR context.
+
+## 3) Set CR contract before coding
 
 ```bash
 sophia cr contract set <cr-id> \
-  --why "Reduce retry-related incidents" \
+  --why "Lower transient incident rate while preserving request ordering guarantees" \
   --scope internal/service \
   --test-plan "go test ./... && go vet ./..." \
   --rollback-plan "Revert CR merge commit"
 ```
 
-`SOPHIA.yaml` may require additional fields (`non_goal`, `invariant`, `blast_radius`, etc.), so check your local policy.
+Expected outcome:
+- policy-required fields are complete,
+- reviewer has outcome, scope boundary, and rollback plan before diffs exist.
 
-## 4) Add Tasks and Task Contracts
+## 4) Decompose into tasks with task contracts
 
 ```bash
-sophia cr task add <cr-id> "Implement jittered backoff"
+sophia cr task add <cr-id> "Implement bounded jitter strategy"
 sophia cr task contract set <cr-id> <task-id> \
-  --intent "Add bounded jittered retry backoff" \
-  --acceptance "Retries follow bounded exponential policy" \
+  --intent "Bound retry jitter and preserve deterministic backoff floor" \
+  --acceptance "Retries stay in configured bounds and pass existing integration tests" \
   --scope internal/service
 ```
 
-## 5) Complete Tasks with Explicit Scope
+Expected outcome:
+- tasks become checkpoint units,
+- each task has explicit acceptance and scope.
 
-Preferred checkpoint mode:
+## 5) Implement and checkpoint with explicit scope
 
 ```bash
-sophia cr task done <cr-id> <task-id> --from-contract
+sophia cr task done <cr-id> <task-id> \
+  --path internal/service/retry.go \
+  --path internal/service/retry_test.go
 ```
 
-Other explicit scope modes:
-- `--path <file>` (repeatable)
-- `--patch-file <manifest>`
-- `--all`
+For hunk-level checkpoints:
 
-## 6) Validate and Review
+```bash
+sophia cr task chunk list <cr-id> <task-id>
+sophia cr task chunk export <cr-id> <task-id> --chunk <chunk-id> --out task.patch
+sophia cr task done <cr-id> <task-id> --patch-file task.patch
+```
+
+Expected outcome:
+- a checkpoint commit is created,
+- scope is explicit and auditable.
+
+## 6) Attach evidence when contracts call for specific checks
+
+If acceptance criteria or test plans require targeted commands, persist the proof:
+
+```bash
+go test ./... 2>&1 | tee _docs/cr-<cr-id>-evidence/tests.log
+
+sophia cr evidence add <cr-id> \
+  --type command_run \
+  --summary "Full suite before merge" \
+  --cmd "go test ./..." \
+  --exit-code 0 \
+  --attachment _docs/cr-<cr-id>-evidence/tests.log
+```
+
+Expected outcome:
+- evidence chain links intent, checkpoint, and verification outputs.
+
+## 7) Validate, review, and merge
 
 ```bash
 sophia cr validate <cr-id>
 sophia cr review <cr-id>
-```
-
-Use JSON output when integrating with tools:
-
-```bash
-sophia cr status <cr-id> --json
-sophia cr validate <cr-id> --json
-sophia cr check status <cr-id> --json
-```
-
-## 7) Merge
-
-```bash
+sophia cr status <cr-id>
 sophia cr merge <cr-id>
 ```
+
+Expected outcome:
+- validation errors are zero,
+- review required actions are addressed,
+- CR merges cleanly.
 
 If merge conflicts occur:
 
@@ -95,12 +118,13 @@ If merge conflicts occur:
 sophia cr merge status <cr-id>
 # resolve conflicts
 sophia cr merge resume <cr-id>
-# or abort
+# or cancel
 sophia cr merge abort <cr-id>
 ```
 
-## Next Documents
+## Where to go next
 
-- Command map: [`cli-reference.md`](cli-reference.md)
-- Lifecycle details: [`workflow.md`](workflow.md)
-- Policy model: [`repository-policy.md`](repository-policy.md)
+- Canonical author UX: [`workflow.md`](workflow.md)
+- Reviewer checklist: [`reviewer-workflow.md`](reviewer-workflow.md)
+- Collaboration without HQ: [`collaboration.md`](collaboration.md)
+- Troubleshooting and repair: [`troubleshooting.md`](troubleshooting.md)

@@ -47,8 +47,8 @@ No commands to learn. Your agent does the work. Sophia keeps it honest.
 Sophia ships as an **agent skill**. Install it once, and your AI already knows how to use it — no setup, no learning curve.
 
 > **Install the Sophia skill:**
-> - [Codex]() — OpenAI Codex agents
-> - [Claude Code]() — Anthropic Claude agents
+> - [Agent Quickstart](docs/agent-quickstart.md) — install via `brew`, then install the in-repo skill
+> - [Skill file](skills/sophia/SKILL.md) — source artifact to install into your agent skills directory
 
 Keep talking to your agent the way you always do. Sophia runs underneath.
 
@@ -69,10 +69,10 @@ Sophia closes the gap. You review *what the code was supposed to do*, not what i
 ## Get started
 
 ```bash
-brew install sophia && sophia init
+brew install sophia
 ```
 
-Install the skill. Start building. That's it.
+Then follow the [Agent Quickstart](docs/agent-quickstart.md) for skill install and first prompts.
 
 <details>
 <summary>Full CLI for power users</summary>
@@ -100,7 +100,7 @@ This keeps the core CLI MIT and platform-agnostic. A separate team platform/tool
 
 ## Learn more
 
-[Getting Started](docs/getting-started.md) · [Workflow](docs/workflow.md) · [CLI Reference](docs/cli-reference.md)
+[Agent Quickstart](docs/agent-quickstart.md) · [Getting Started](docs/getting-started.md) · [Workflow](docs/workflow.md) · [CLI Reference](docs/cli-reference.md)
 
 ## Community
 

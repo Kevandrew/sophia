@@ -1,6 +1,13 @@
-# CLI Reference (Curated)
+# CLI Reference
 
-This guide maps Sophia command families for everyday operation. Use help output for full flag details:
+Use this page as a command map, not a tutorial.
+
+If you are starting or implementing day-to-day work, go here first:
+
+- Agent onboarding: [`agent-quickstart.md`](agent-quickstart.md)
+- Author lifecycle: [`workflow.md`](workflow.md)
+
+For exact flags, always use `--help`:
 
 ```bash
 sophia --help
@@ -8,126 +15,75 @@ sophia cr --help
 sophia cr <command> --help
 ```
 
-## Root Commands
+## Root command map
 
-- `sophia init`
-  - Initialize Sophia metadata and policy templates.
-- `sophia doctor`
-  - Run workflow integrity diagnostics.
-- `sophia log`
-  - View intent-first CR history.
-- `sophia repair`
-  - Rebuild metadata from Git history.
-- `sophia hook install`
-  - Install local Git guardrails.
+- `sophia init` initialize repository metadata.
+- `sophia version` print version, commit, and build date.
+- `sophia doctor` run workflow integrity diagnostics.
+- `sophia log` inspect intent-first history.
+- `sophia repair` rebuild metadata from Git history.
+- `sophia hook install` install local Git guardrails.
 
-## CR Lifecycle
+## CR command families
 
-Create and navigate CR context:
+Navigation:
+
+```bash
+sophia cr current
+sophia cr switch <cr-id>
+sophia cr list
+sophia cr search "<query>"
+sophia cr status <cr-id>
+```
+
+Planning:
 
 ```bash
 sophia cr add "<title>" --description "<why>"
-sophia cr switch <cr-id>
-sophia cr current
-sophia cr list
-sophia cr search "<query>"
-```
-
-Contract and tasks:
-
-```bash
-sophia cr contract set <cr-id> --why "..." --scope .
-sophia cr task add <cr-id> "<task title>"
+sophia cr contract set <cr-id> --why "..." --scope <prefix>
+sophia cr task add <cr-id> "<task>"
 sophia cr task contract set <cr-id> <task-id> --intent "..." --acceptance "..." --scope <prefix>
 ```
 
-Task completion/checkpoint:
+Implementation and checkpoints:
 
 ```bash
-sophia cr task done <cr-id> <task-id> --from-contract
-# alternatives:
-sophia cr task done <cr-id> <task-id> --path <file>
-sophia cr task done <cr-id> <task-id> --patch-file <patch-manifest>
-sophia cr task done <cr-id> <task-id> --all
+sophia cr task done <cr-id> <task-id> --path <file> --path <file>
+sophia cr task chunk list <cr-id> <task-id>
+sophia cr task chunk export <cr-id> <task-id> --chunk <chunk-id> --out task.patch
+sophia cr task done <cr-id> <task-id> --patch-file task.patch
 ```
 
-Pre-checkpoint chunk slicing for patch manifests:
+Validation/review/merge:
 
 ```bash
-# list working-tree chunk ids (requires clean index)
-sophia cr task chunk list <cr-id> <task-id> [--path <file>] [--json]
-
-# inspect one chunk as applyable patch text
-sophia cr task chunk show <cr-id> <task-id> <chunk-id> [--path <file>] [--json]
-
-# export selected chunks into a patch file usable by --patch-file
-sophia cr task chunk export <cr-id> <task-id> \
-  --chunk <chunk-id> --chunk <chunk-id> \
-  --out task.patch [--path <file>] [--json]
-```
-
-Readiness and merge:
-
-```bash
-sophia cr status <cr-id>
 sophia cr validate <cr-id>
 sophia cr review <cr-id>
 sophia cr merge <cr-id>
 ```
 
-Collaboration artifacts:
-
-```bash
-# canonical CR bundle export
-sophia cr export <cr-id> --format json --out cr.bundle.json
-
-# import bundle into local metadata
-sophia cr import --file cr.bundle.json --mode create
-sophia cr import --file cr.bundle.json --mode replace
-
-# apply/preview structured collaboration patches
-sophia cr patch apply <cr-id-or-uid> --file cr.patch.json
-sophia cr patch preview <cr-id-or-uid> --file cr.patch.json --json
-```
-
-## Merge Recovery
-
-When a merge stops due to conflicts:
+Merge recovery:
 
 ```bash
 sophia cr merge status <cr-id>
-# resolve conflicts in working tree
 sophia cr merge resume <cr-id>
-# or abandon merge flow
 sophia cr merge abort <cr-id>
 ```
 
-## Stacks and Base Management
+Collaboration artifacts:
 
 ```bash
-sophia cr child add "<title>" --description "<why>"
-sophia cr stack
-sophia cr base set <cr-id> --ref <git-ref>
-sophia cr restack <cr-id>
-sophia cr refresh <cr-id>
+sophia cr export <cr-id> --format json --out cr.bundle.json
+sophia cr import --file cr.bundle.json --mode create
+sophia cr patch preview <cr-id-or-uid> --file cr.patch.json --json
+sophia cr patch apply <cr-id-or-uid> --file cr.patch.json
 ```
 
-## Machine-Readable Outputs
-
-Use `--json` for deterministic agent/tooling integration:
+## JSON surfaces
 
 ```bash
 sophia cr status <cr-id> --json
 sophia cr validate <cr-id> --json
 sophia cr review <cr-id> --json
-sophia cr import --file cr.bundle.json --mode create --json
-sophia cr patch apply <cr-id-or-uid> --file cr.patch.json --json
-sophia cr patch preview <cr-id-or-uid> --file cr.patch.json --json
 sophia doctor --json
 ```
-
-## Related Docs
-
-- Lifecycle details: [`workflow.md`](workflow.md)
-- Policy model: [`repository-policy.md`](repository-policy.md)
-- First-run setup: [`getting-started.md`](getting-started.md)
