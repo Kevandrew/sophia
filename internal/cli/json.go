@@ -131,6 +131,14 @@ func jsonErrorCode(err error) string {
 		return "no_task_scope_matches"
 	case errors.Is(err, service.ErrTaskNotDone):
 		return "task_not_done"
+	case errors.Is(err, service.ErrHQNotConfigured):
+		return "hq_not_configured"
+	case errors.Is(err, service.ErrHQRepoIDRequired):
+		return "hq_repo_id_required"
+	case errors.Is(err, service.ErrHQTrackedModeBlocked):
+		return "hq_tracked_mode_blocked"
+	case errors.Is(err, service.ErrHQRemoteMalformedResponse):
+		return "hq_malformed_response"
 	}
 	lower := strings.ToLower(strings.TrimSpace(err.Error()))
 	switch {
