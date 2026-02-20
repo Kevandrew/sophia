@@ -39,6 +39,10 @@ var (
 	ErrHQRepoIDRequired          = errors.New("hq repo identity is required")
 	ErrHQTrackedModeBlocked      = errors.New("hq write/sync commands are blocked when metadata_mode=tracked")
 	ErrHQRemoteMalformedResponse = errors.New("hq remote response is invalid")
+	ErrHQIntentDiverged          = errors.New("hq intent diverged")
+	ErrHQUpstreamMoved           = errors.New("hq upstream moved")
+	ErrHQPatchConflict           = errors.New("hq patch conflict")
+	ErrHQTaskSyncUnsupported     = errors.New("hq task sync unsupported")
 )
 
 var (
