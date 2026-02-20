@@ -161,6 +161,48 @@ Treat these as current UX defaults unless `--help` shows otherwise:
 - `sophia cr validate` is read-only by default; add `--record` when an audit event is desired.
 - Operational root/CR/task commands now expose `--json` envelope output; still confirm leaf `--help` for exact payload shape.
 
+## Managed Remote Collaboration (HQ)
+This is the agent-first collaboration loop for syncing CR *intent metadata* (not code/branches) with a managed remote.
+
+Setup (repo + user):
+
+```bash
+# configure repo identity (required)
+sophia hq config set --repo-id <org/repo>
+
+# optional (defaults to https://sophiahq.com)
+sophia hq config set --base-url https://sophiahq.com
+
+# store token (per-user)
+printf '%s' "$SOPHIAHQ_TOKEN" | sophia hq login --token-stdin
+```
+
+Daily loop (status-first; deterministic):
+
+```bash
+sophia cr status <id|uid> --hq --json
+```
+
+Interpret `data.hq_sync.state`:
+
+- `not_configured`: run `sophia hq config set ...` and `sophia hq login --token-stdin`
+- `remote_missing`: run `sophia cr push <id|uid>`
+- `unlinked`: run `sophia cr pull <id|uid>` (links upstream intent fingerprint)
+- `local_ahead`: run `sophia cr push <id|uid>`
+- `remote_ahead`: run `sophia cr pull <id|uid>`
+- `up_to_date`: no action
+- `diverged`: do not guess. Surface conflict details and ask the user whether to:
+  - accept remote as canonical: `sophia cr pull <id|uid> --force`
+  - overwrite remote as canonical: `sophia cr push <id|uid> --force`
+  - reconcile in the remote UI, then pull again
+
+Error playbooks (JSON code -> next action):
+
+- `hq_upstream_moved`: run `sophia cr pull <id|uid> --json` (then retry push if needed).
+- `hq_intent_diverged`: surface `details.conflicts` and `details.local_changed_fields/remote_changed_fields`; do not auto-force without user approval.
+- `hq_patch_conflict`: pull latest, then retry push; if conflicts persist, reconcile in UI.
+- `hq_malformed_response`: stop; the remote is missing required fields or is incompatible.
+
 ## Creating Detailed CRs (Recommended Agent Behavior)
 When a user asks to “make a CR” or “write a CR plan”, bias toward generating:
 1. A crisp CR title and description (why).
