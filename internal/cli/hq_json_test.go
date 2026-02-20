@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -162,5 +163,275 @@ func TestCRSyncJSONMalformedHQResponse(t *testing.T) {
 	}
 	if env.Error.Code != "hq_malformed_response" {
 		t.Fatalf("expected hq_malformed_response code, got %#v", env.Error)
+	}
+}
+
+func TestCRPushJSONUpstreamMoved(t *testing.T) {
+	dir := t.TempDir()
+	configHome := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+
+	if out, _, err := runCLI(t, dir, "init", "--json"); err != nil {
+		t.Fatalf("init --json error = %v\noutput=%s", err, out)
+	}
+	addOut, _, addErr := runCLI(t, dir, "cr", "add", "push-json", "--description", "upstream moved", "--json")
+	if addErr != nil {
+		t.Fatalf("cr add --json error = %v\noutput=%s", addErr, addOut)
+	}
+	addEnv := decodeEnvelope(t, addOut)
+	if !addEnv.OK {
+		t.Fatalf("expected ok envelope from add, got %#v", addEnv)
+	}
+	crMap, ok := addEnv.Data["cr"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected cr object in add response, got %#v", addEnv.Data["cr"])
+	}
+	uid, _ := crMap["uid"].(string)
+	idFloat, _ := crMap["id"].(float64)
+	crID := int(idFloat)
+	if uid == "" || crID <= 0 {
+		t.Fatalf("expected uid/id from current response, got uid=%q id=%d", uid, crID)
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if r.URL.Path != "/api/v1/repos/repo-one/crs/"+uid {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"schema_version": "sophia.hq.v1",
+			"cr_uid":         uid,
+			"cr_fingerprint": "fp_remote_existing",
+			"doc":            hqJSONCRDoc(uid, "Remote has existing edits"),
+		})
+	}))
+	defer server.Close()
+
+	if out, _, err := runCLI(t, dir, "hq", "config", "set", "--repo-id", "repo-one", "--base-url", server.URL, "--json"); err != nil {
+		t.Fatalf("hq config set --json error = %v\noutput=%s", err, out)
+	}
+
+	out, _, runErr := runCLI(t, dir, "cr", "push", fmt.Sprintf("%d", crID), "--json")
+	if runErr == nil {
+		t.Fatalf("expected cr push --json to fail with upstream moved")
+	}
+	env := decodeEnvelope(t, out)
+	if env.OK {
+		t.Fatalf("expected non-ok envelope, got %#v", env)
+	}
+	if env.Error == nil {
+		t.Fatalf("expected error payload, got %#v", env)
+	}
+	if env.Error.Code != "hq_upstream_moved" {
+		t.Fatalf("expected hq_upstream_moved code, got %#v", env.Error)
+	}
+}
+
+func TestCRPushJSONPatchConflict(t *testing.T) {
+	dir := t.TempDir()
+	configHome := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+
+	if out, _, err := runCLI(t, dir, "init", "--json"); err != nil {
+		t.Fatalf("init --json error = %v\noutput=%s", err, out)
+	}
+	addOut, _, addErr := runCLI(t, dir, "cr", "add", "push-conflict", "--description", "patch conflict", "--json")
+	if addErr != nil {
+		t.Fatalf("cr add --json error = %v\noutput=%s", addErr, addOut)
+	}
+	addEnv := decodeEnvelope(t, addOut)
+	if !addEnv.OK {
+		t.Fatalf("expected ok envelope from add, got %#v", addEnv)
+	}
+	crMap, ok := addEnv.Data["cr"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected cr object in add response, got %#v", addEnv.Data["cr"])
+	}
+	uid, _ := crMap["uid"].(string)
+	idFloat, _ := crMap["id"].(float64)
+	crID := int(idFloat)
+	if uid == "" || crID <= 0 {
+		t.Fatalf("expected uid/id from add response, got uid=%q id=%d", uid, crID)
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			if r.URL.Path != "/api/v1/repos/repo-one/crs/"+uid {
+				http.Error(w, "not found", http.StatusNotFound)
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"schema_version": "sophia.hq.v1",
+				"cr_uid":         uid,
+				"cr_fingerprint": "fp_base",
+				"doc":            hqJSONCRDoc(uid, "Baseline"),
+			})
+			return
+		case http.MethodPost:
+			if r.URL.Path != "/api/v1/repos/repo-one/crs/"+uid+"/patch" {
+				http.Error(w, "not found", http.StatusNotFound)
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"schema_version": "sophia.hq.v1",
+				"cr_uid":         uid,
+				"cr_fingerprint": "fp_after",
+				"conflicts": []map[string]any{
+					{"op_index": 0, "op": "set_field", "field": "cr.title", "message": "before mismatch"},
+				},
+			})
+			return
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+	}))
+	defer server.Close()
+
+	if out, _, err := runCLI(t, dir, "hq", "config", "set", "--repo-id", "repo-one", "--base-url", server.URL, "--json"); err != nil {
+		t.Fatalf("hq config set --json error = %v\noutput=%s", err, out)
+	}
+	if out, _, err := runCLI(t, dir, "cr", "pull", fmt.Sprintf("%d", crID), "--force", "--json"); err != nil {
+		t.Fatalf("initial cr pull --force --json error = %v\noutput=%s", err, out)
+	}
+	if out, _, err := runCLI(t, dir, "cr", "edit", fmt.Sprintf("%d", crID), "--title", "Local changed", "--json"); err != nil {
+		t.Fatalf("cr edit --json error = %v\noutput=%s", err, out)
+	}
+
+	out, _, runErr := runCLI(t, dir, "cr", "push", fmt.Sprintf("%d", crID), "--json")
+	if runErr == nil {
+		t.Fatalf("expected cr push --json to fail with patch conflict")
+	}
+	env := decodeEnvelope(t, out)
+	if env.OK {
+		t.Fatalf("expected non-ok envelope, got %#v", env)
+	}
+	if env.Error == nil {
+		t.Fatalf("expected error payload, got %#v", env)
+	}
+	if env.Error.Code != "hq_patch_conflict" {
+		t.Fatalf("expected hq_patch_conflict code, got %#v", env.Error)
+	}
+	if env.Error.Details == nil {
+		t.Fatalf("expected error details, got %#v", env.Error)
+	}
+	if _, ok := env.Error.Details["conflicts"]; !ok {
+		t.Fatalf("expected conflicts in details, got %#v", env.Error.Details)
+	}
+}
+
+func TestCRPullJSONDiverged(t *testing.T) {
+	dir := t.TempDir()
+	configHome := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+
+	if out, _, err := runCLI(t, dir, "init", "--json"); err != nil {
+		t.Fatalf("init --json error = %v\noutput=%s", err, out)
+	}
+	addOut, _, addErr := runCLI(t, dir, "cr", "add", "pull-diverged", "--description", "baseline", "--json")
+	if addErr != nil {
+		t.Fatalf("cr add --json error = %v\noutput=%s", addErr, addOut)
+	}
+	addEnv := decodeEnvelope(t, addOut)
+	if !addEnv.OK {
+		t.Fatalf("expected ok envelope from add, got %#v", addEnv)
+	}
+	crMap, ok := addEnv.Data["cr"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected cr object in add response, got %#v", addEnv.Data["cr"])
+	}
+	uid, _ := crMap["uid"].(string)
+	idFloat, _ := crMap["id"].(float64)
+	crID := int(idFloat)
+	if uid == "" || crID <= 0 {
+		t.Fatalf("expected uid/id from current response, got uid=%q id=%d", uid, crID)
+	}
+
+	requestCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if r.URL.Path != "/api/v1/repos/repo-one/crs/"+uid {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		requestCount++
+		if requestCount == 1 {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"schema_version": "sophia.hq.v1",
+				"cr_uid":         uid,
+				"cr_fingerprint": "fp_base",
+				"doc":            hqJSONCRDoc(uid, "Shared baseline"),
+			})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"schema_version": "sophia.hq.v1",
+			"cr_uid":         uid,
+			"cr_fingerprint": "fp_remote_new",
+			"doc":            hqJSONCRDoc(uid, "Remote diverged"),
+		})
+	}))
+	defer server.Close()
+
+	if out, _, err := runCLI(t, dir, "hq", "config", "set", "--repo-id", "repo-one", "--base-url", server.URL, "--json"); err != nil {
+		t.Fatalf("hq config set --json error = %v\noutput=%s", err, out)
+	}
+	if out, _, err := runCLI(t, dir, "cr", "pull", fmt.Sprintf("%d", crID), "--force", "--json"); err != nil {
+		t.Fatalf("initial cr pull --force --json error = %v\noutput=%s", err, out)
+	}
+	if out, _, err := runCLI(t, dir, "cr", "edit", fmt.Sprintf("%d", crID), "--title", "Local diverged", "--json"); err != nil {
+		t.Fatalf("cr edit --json error = %v\noutput=%s", err, out)
+	}
+
+	out, _, runErr := runCLI(t, dir, "cr", "pull", fmt.Sprintf("%d", crID), "--json")
+	if runErr == nil {
+		t.Fatalf("expected cr pull --json to fail with hq_intent_diverged")
+	}
+	env := decodeEnvelope(t, out)
+	if env.OK {
+		t.Fatalf("expected non-ok envelope, got %#v", env)
+	}
+	if env.Error == nil {
+		t.Fatalf("expected error payload, got %#v", env)
+	}
+	if env.Error.Code != "hq_intent_diverged" {
+		t.Fatalf("expected hq_intent_diverged code, got %#v", env.Error)
+	}
+	if env.Error.Details == nil {
+		t.Fatalf("expected error details, got %#v", env.Error)
+	}
+	if _, ok := env.Error.Details["conflicts"]; !ok {
+		t.Fatalf("expected conflicts in details, got %#v", env.Error.Details)
+	}
+}
+
+func hqJSONCRDoc(uid, title string) map[string]any {
+	return map[string]any{
+		"id":          0,
+		"uid":         uid,
+		"title":       title,
+		"description": "remote document",
+		"status":      "in_progress",
+		"base_branch": "main",
+		"base_ref":    "main",
+		"base_commit": "abc123",
+		"branch":      "cr-remote",
+		"notes":       []any{},
+		"evidence":    []any{},
+		"contract": map[string]any{
+			"why": "remote",
+		},
+		"subtasks":   []any{},
+		"events":     []any{},
+		"created_at": "2026-02-20T00:00:00Z",
+		"updated_at": "2026-02-20T00:00:00Z",
 	}
 }
