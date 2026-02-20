@@ -1,0 +1,162 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+API_BASE="${SOPHIAHQ_API_BASE:-http://localhost:3000}"
+
+usage() {
+  cat <<'EOF'
+Usage:
+  scripts/sophiahq dev
+  scripts/sophiahq cr list
+  scripts/sophiahq cr create --title "<title>" [--description "<desc>"]
+  scripts/sophiahq cr export-bundle <hq-cr-id> --out <file>
+  scripts/sophiahq cr pull <hq-cr-id> --repo <path> [--mode create|replace]
+
+Notes:
+  - These are SophiaHQ prototype commands. They talk to the HQ UI server (Next.js).
+  - "pull" fetches a CR bundle from HQ and imports it into a Sophia repo via `go run ./cmd/sophia cr import ...`.
+EOF
+}
+
+require_cmd() {
+  if ! command -v "$1" >/dev/null 2>&1; then
+    echo "error: missing required command: $1" >&2
+    exit 1
+  fi
+}
+
+if [[ $# -lt 1 ]]; then
+  usage
+  exit 1
+fi
+
+cmd="$1"
+shift
+
+case "$cmd" in
+  dev)
+    (cd "$ROOT_DIR/sophia-hq-ui" && npm run dev)
+    ;;
+
+  cr)
+    if [[ $# -lt 1 ]]; then
+      usage
+      exit 1
+    fi
+    sub="$1"
+    shift
+
+    case "$sub" in
+      list)
+        require_cmd curl
+        curl -fsSL "$API_BASE/api/hq/crs"
+        ;;
+
+      create)
+        require_cmd curl
+        require_cmd node
+        title=""
+        description=""
+        while [[ $# -gt 0 ]]; do
+          case "$1" in
+            --title)
+              title="${2:-}"
+              shift 2
+              ;;
+            --description)
+              description="${2:-}"
+              shift 2
+              ;;
+            -h|--help)
+              usage
+              exit 0
+              ;;
+            *)
+              echo "error: unknown arg: $1" >&2
+              exit 1
+              ;;
+          esac
+        done
+        if [[ -z "${title// }" ]]; then
+          echo "error: --title is required" >&2
+          exit 1
+        fi
+        body="$(T="$title" D="$description" node -e 'process.stdout.write(JSON.stringify({title: process.env.T, description: process.env.D || ""}))')"
+        curl -fsSL -X POST "$API_BASE/api/hq/crs" \
+          -H 'content-type: application/json' \
+          -d "$body" \
+          | cat
+        ;;
+
+      export-bundle)
+        require_cmd curl
+        id="${1:-}"
+        shift || true
+        out=""
+        while [[ $# -gt 0 ]]; do
+          case "$1" in
+            --out)
+              out="${2:-}"
+              shift 2
+              ;;
+            *)
+              echo "error: unknown arg: $1" >&2
+              exit 1
+              ;;
+          esac
+        done
+        if [[ -z "$id" || -z "$out" ]]; then
+          echo "error: export-bundle requires <hq-cr-id> and --out" >&2
+          exit 1
+        fi
+        mkdir -p "$(dirname "$out")"
+        curl -fsSL "$API_BASE/api/hq/crs/$id/bundle" -o "$out"
+        echo "wrote $out"
+        ;;
+
+      pull)
+        require_cmd curl
+        id="${1:-}"
+        shift || true
+        repo=""
+        mode="create"
+        while [[ $# -gt 0 ]]; do
+          case "$1" in
+            --repo)
+              repo="${2:-}"
+              shift 2
+              ;;
+            --mode)
+              mode="${2:-}"
+              shift 2
+              ;;
+            *)
+              echo "error: unknown arg: $1" >&2
+              exit 1
+              ;;
+          esac
+        done
+        if [[ -z "$id" || -z "$repo" ]]; then
+          echo "error: pull requires <hq-cr-id> and --repo <path>" >&2
+          exit 1
+        fi
+        tmp="$(mktemp -t sophiahq-bundle.XXXXXX.json)"
+        trap 'rm -f "$tmp"' EXIT
+        curl -fsSL "$API_BASE/api/hq/crs/$id/bundle" -o "$tmp"
+        (cd "$repo" && go run ./cmd/sophia cr import --file "$tmp" --mode "$mode")
+        ;;
+
+      *)
+        usage
+        exit 1
+        ;;
+    esac
+    ;;
+
+  *)
+    usage
+    exit 1
+    ;;
+esac
