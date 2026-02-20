@@ -7,7 +7,7 @@ Repository overview: [`README.md`](../README.md)
 ## Agent Quickstart
 
 - [`agent-quickstart.md`](agent-quickstart.md)
-- Install with `brew install sophia`, install the in-repo skill, and run first prompts.
+- Install with `curl -fsSL https://sophiahq.com/install.sh | bash`, install the in-repo skill, and run first prompts.
 
 ## Author Workflow
 

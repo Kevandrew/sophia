@@ -8,7 +8,7 @@ Use this mental model:
 
 ## Prerequisites
 
-- `brew install sophia`
+- `curl -fsSL https://sophiahq.com/install.sh | bash`
 - a Git repository
 - an agent session with the Sophia skill enabled (see [`agent-quickstart.md`](agent-quickstart.md))
 

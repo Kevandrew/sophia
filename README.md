@@ -47,7 +47,7 @@ No commands to learn. Your agent does the work. Sophia keeps it honest.
 Sophia ships as an **agent skill**. Install it once, and your AI already knows how to use it — no setup, no learning curve.
 
 > **Install the Sophia skill:**
-> - [Agent Quickstart](docs/agent-quickstart.md) — install via `brew`, then install the in-repo skill
+> - [Agent Quickstart](docs/agent-quickstart.md) — install via `https://sophiahq.com/install.sh | bash`, then install the in-repo skill
 > - [Skill file](skills/sophia/SKILL.md) — source artifact to install into your agent skills directory
 
 Keep talking to your agent the way you always do. Sophia runs underneath.
@@ -69,7 +69,7 @@ Sophia closes the gap. You review *what the code was supposed to do*, not what i
 ## Get started
 
 ```bash
-brew install sophia
+curl -fsSL https://sophiahq.com/install.sh | bash
 ```
 
 Then follow the [Agent Quickstart](docs/agent-quickstart.md) for skill install and first prompts.
