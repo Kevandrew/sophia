@@ -5,7 +5,7 @@ This is the day-1 path: install Sophia, install the Sophia skill, then ask your 
 ## 1) Install Sophia (primary path)
 
 ```bash
-brew install sophia
+curl -fsSL https://sophiahq.com/install.sh | bash
 sophia version
 ```
 
