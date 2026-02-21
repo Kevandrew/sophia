@@ -112,6 +112,140 @@ func TestDoneTaskWithCheckpointCreatesCommit(t *testing.T) {
 	}
 }
 
+func TestDoneTaskWithCheckpointAfterReopenUsesV2Suffix(t *testing.T) {
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	runGit(t, dir, "config", "user.name", "Test User")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+
+	cr, err := svc.AddCR("Checkpoint retry CR", "retry behavior")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	task, err := svc.AddTask(cr.ID, "feat: implement checkpoint retry workflow")
+	if err != nil {
+		t.Fatalf("AddTask() error = %v", err)
+	}
+	setValidTaskContract(t, svc, cr.ID, task.ID)
+	path := filepath.Join(dir, "checkpoint-retry.txt")
+	if err := os.WriteFile(path, []byte("first\n"), 0o644); err != nil {
+		t.Fatalf("write checkpoint file: %v", err)
+	}
+
+	if _, err := svc.DoneTaskWithCheckpoint(cr.ID, task.ID, DoneTaskOptions{Checkpoint: true, StageAll: true}); err != nil {
+		t.Fatalf("DoneTaskWithCheckpoint(first) error = %v", err)
+	}
+	if _, err := svc.ReopenTask(cr.ID, task.ID, ReopenTaskOptions{}); err != nil {
+		t.Fatalf("ReopenTask() error = %v", err)
+	}
+	if err := os.WriteFile(path, []byte("second\n"), 0o644); err != nil {
+		t.Fatalf("write checkpoint file second pass: %v", err)
+	}
+
+	if _, err := svc.DoneTaskWithCheckpoint(cr.ID, task.ID, DoneTaskOptions{Checkpoint: true, StageAll: true}); err != nil {
+		t.Fatalf("DoneTaskWithCheckpoint(second) error = %v", err)
+	}
+	msg := runGit(t, dir, "log", "-1", "--pretty=%B")
+	if !strings.Contains(msg, "feat(cr-1/task-1v2): feat: implement checkpoint retry workflow") {
+		t.Fatalf("unexpected reopened checkpoint subject: %q", msg)
+	}
+}
+
+func TestDoneTaskWithCheckpointAfterTwoReopensUsesV3Suffix(t *testing.T) {
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	runGit(t, dir, "config", "user.name", "Test User")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+
+	cr, err := svc.AddCR("Checkpoint v3 CR", "third attempt behavior")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	task, err := svc.AddTask(cr.ID, "fix: checkpoint third attempt")
+	if err != nil {
+		t.Fatalf("AddTask() error = %v", err)
+	}
+	setValidTaskContract(t, svc, cr.ID, task.ID)
+	path := filepath.Join(dir, "checkpoint-v3.txt")
+	if err := os.WriteFile(path, []byte("first\n"), 0o644); err != nil {
+		t.Fatalf("write checkpoint file: %v", err)
+	}
+
+	if _, err := svc.DoneTaskWithCheckpoint(cr.ID, task.ID, DoneTaskOptions{Checkpoint: true, StageAll: true}); err != nil {
+		t.Fatalf("DoneTaskWithCheckpoint(first) error = %v", err)
+	}
+	if _, err := svc.ReopenTask(cr.ID, task.ID, ReopenTaskOptions{}); err != nil {
+		t.Fatalf("ReopenTask(first) error = %v", err)
+	}
+	if err := os.WriteFile(path, []byte("second\n"), 0o644); err != nil {
+		t.Fatalf("write checkpoint file second pass: %v", err)
+	}
+	if _, err := svc.DoneTaskWithCheckpoint(cr.ID, task.ID, DoneTaskOptions{Checkpoint: true, StageAll: true}); err != nil {
+		t.Fatalf("DoneTaskWithCheckpoint(second) error = %v", err)
+	}
+	if _, err := svc.ReopenTask(cr.ID, task.ID, ReopenTaskOptions{}); err != nil {
+		t.Fatalf("ReopenTask(second) error = %v", err)
+	}
+	if err := os.WriteFile(path, []byte("third\n"), 0o644); err != nil {
+		t.Fatalf("write checkpoint file third pass: %v", err)
+	}
+
+	if _, err := svc.DoneTaskWithCheckpoint(cr.ID, task.ID, DoneTaskOptions{Checkpoint: true, StageAll: true}); err != nil {
+		t.Fatalf("DoneTaskWithCheckpoint(third) error = %v", err)
+	}
+	msg := runGit(t, dir, "log", "-1", "--pretty=%B")
+	if !strings.Contains(msg, "fix(cr-1/task-1v3): fix: checkpoint third attempt") {
+		t.Fatalf("unexpected v3 checkpoint subject: %q", msg)
+	}
+}
+
+func TestDoneTaskWithCheckpointAfterNoCheckpointReopenUsesV2Suffix(t *testing.T) {
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	runGit(t, dir, "config", "user.name", "Test User")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+
+	cr, err := svc.AddCR("No checkpoint reopen CR", "no-checkpoint reopen behavior")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	task, err := svc.AddTask(cr.ID, "chore: no-checkpoint reopen suffix")
+	if err != nil {
+		t.Fatalf("AddTask() error = %v", err)
+	}
+	setValidTaskContract(t, svc, cr.ID, task.ID)
+
+	if _, err := svc.DoneTaskWithCheckpoint(cr.ID, task.ID, DoneTaskOptions{
+		Checkpoint:         false,
+		NoCheckpointReason: "metadata-only first completion",
+	}); err != nil {
+		t.Fatalf("DoneTaskWithCheckpoint(no checkpoint) error = %v", err)
+	}
+	if _, err := svc.ReopenTask(cr.ID, task.ID, ReopenTaskOptions{}); err != nil {
+		t.Fatalf("ReopenTask() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "checkpoint-no-checkpoint.txt"), []byte("now committed\n"), 0o644); err != nil {
+		t.Fatalf("write checkpoint file: %v", err)
+	}
+
+	if _, err := svc.DoneTaskWithCheckpoint(cr.ID, task.ID, DoneTaskOptions{Checkpoint: true, StageAll: true}); err != nil {
+		t.Fatalf("DoneTaskWithCheckpoint(with checkpoint) error = %v", err)
+	}
+	msg := runGit(t, dir, "log", "-1", "--pretty=%B")
+	if !strings.Contains(msg, "chore(cr-1/task-1v2): chore: no-checkpoint reopen suffix") {
+		t.Fatalf("unexpected v2 checkpoint subject after no-checkpoint reopen: %q", msg)
+	}
+}
+
 func TestDoneTaskWithCheckpointNoChangesKeepsTaskOpen(t *testing.T) {
 	dir := t.TempDir()
 	svc := New(dir)

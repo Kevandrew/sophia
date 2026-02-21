@@ -99,7 +99,12 @@ func taskStatusMarker(status string) string {
 
 func buildTaskCheckpointMessage(cr *model.CR, task *model.Subtask, scopeMode string, chunkCount int) string {
 	taskType := inferTaskCommitType(task.Title)
-	subject := fmt.Sprintf("%s(cr-%d/task-%d): %s", taskType, cr.ID, task.ID, strings.TrimSpace(task.Title))
+	attempt := taskCheckpointAttempt(cr, task.ID)
+	taskIdentifier := fmt.Sprintf("task-%d", task.ID)
+	if attempt > 1 {
+		taskIdentifier = fmt.Sprintf("task-%dv%d", task.ID, attempt)
+	}
+	subject := fmt.Sprintf("%s(cr-%d/%s): %s", taskType, cr.ID, taskIdentifier, strings.TrimSpace(task.Title))
 	var b strings.Builder
 	b.WriteString(subject)
 	b.WriteString("\n\n")
@@ -123,6 +128,20 @@ func buildTaskCheckpointMessage(cr *model.CR, task *model.Subtask, scopeMode str
 	fmt.Fprintf(&b, "Sophia-Task: %d\n", task.ID)
 	fmt.Fprintf(&b, "Sophia-Intent: %s\n", strings.TrimSpace(cr.Title))
 	return b.String()
+}
+
+func taskCheckpointAttempt(cr *model.CR, taskID int) int {
+	attempt := 1
+	if cr == nil || taskID <= 0 {
+		return attempt
+	}
+	taskRef := fmt.Sprintf("task:%d", taskID)
+	for _, event := range cr.Events {
+		if event.Type == "task_reopened" && event.Ref == taskRef {
+			attempt++
+		}
+	}
+	return attempt
 }
 
 func inferTaskCommitType(taskTitle string) string {
