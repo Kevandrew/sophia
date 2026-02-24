@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 
 	"sophia/internal/model"
@@ -304,6 +305,192 @@ func TestImportCreateAndReplaceByUID(t *testing.T) {
 	}
 	if reloaded.Title != "Import source updated" {
 		t.Fatalf("expected replaced title, got %q", reloaded.Title)
+	}
+}
+
+func TestStatusCRImportedMetadataOnlyDoesNotFail(t *testing.T) {
+	sourceDir := t.TempDir()
+	sourceSvc := New(sourceDir)
+	if _, err := sourceSvc.Init("main", ""); err != nil {
+		t.Fatalf("source Init() error = %v", err)
+	}
+	runGit(t, sourceDir, "config", "user.name", "Test User")
+	runGit(t, sourceDir, "config", "user.email", "test@example.com")
+	sourceCR, err := sourceSvc.AddCR("Imported status fallback", "status should not hard-fail")
+	if err != nil {
+		t.Fatalf("source AddCR() error = %v", err)
+	}
+	setValidContract(t, sourceSvc, sourceCR.ID)
+	_, payload, err := sourceSvc.ExportCRBundle(sourceCR.ID, ExportCROptions{Format: "json"})
+	if err != nil {
+		t.Fatalf("source ExportCRBundle() error = %v", err)
+	}
+
+	targetDir := t.TempDir()
+	targetSvc := New(targetDir)
+	if _, err := targetSvc.Init("main", ""); err != nil {
+		t.Fatalf("target Init() error = %v", err)
+	}
+	runGit(t, targetDir, "config", "user.name", "Test User")
+	runGit(t, targetDir, "config", "user.email", "test@example.com")
+
+	bundlePath := filepath.Join(targetDir, "import.bundle.json")
+	if err := os.WriteFile(bundlePath, payload, 0o644); err != nil {
+		t.Fatalf("write bundle file: %v", err)
+	}
+	createResult, err := targetSvc.ImportCRBundle(ImportCRBundleOptions{FilePath: bundlePath, Mode: "create"})
+	if err != nil {
+		t.Fatalf("ImportCRBundle(create) error = %v", err)
+	}
+
+	status, err := targetSvc.StatusCR(createResult.LocalCRID)
+	if err != nil {
+		t.Fatalf("StatusCR(imported) error = %v", err)
+	}
+	if status.ValidationValid {
+		t.Fatalf("expected imported metadata-only status to be non-valid until branch context is available")
+	}
+	if status.ValidationErrors == 0 {
+		t.Fatalf("expected validation errors for missing branch context, got %#v", status)
+	}
+	if !status.MergeBlocked {
+		t.Fatalf("expected merge blocked when status is metadata-only")
+	}
+	found := false
+	for _, blocker := range status.MergeBlockers {
+		if strings.Contains(strings.ToLower(blocker), "branch context is unavailable") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected missing branch context merge blocker, got %#v", status.MergeBlockers)
+	}
+}
+
+func TestSwitchCRImportedMetadataOnlyFallsBackToLocalBase(t *testing.T) {
+	sourceDir := t.TempDir()
+	sourceSvc := New(sourceDir)
+	if _, err := sourceSvc.Init("main", ""); err != nil {
+		t.Fatalf("source Init() error = %v", err)
+	}
+	runGit(t, sourceDir, "config", "user.name", "Test User")
+	runGit(t, sourceDir, "config", "user.email", "test@example.com")
+	sourceCR, err := sourceSvc.AddCR("Imported switch fallback", "switch should use local base anchor")
+	if err != nil {
+		t.Fatalf("source AddCR() error = %v", err)
+	}
+	setValidContract(t, sourceSvc, sourceCR.ID)
+	_, payload, err := sourceSvc.ExportCRBundle(sourceCR.ID, ExportCROptions{Format: "json"})
+	if err != nil {
+		t.Fatalf("source ExportCRBundle() error = %v", err)
+	}
+
+	targetDir := t.TempDir()
+	targetSvc := New(targetDir)
+	if _, err := targetSvc.Init("main", ""); err != nil {
+		t.Fatalf("target Init() error = %v", err)
+	}
+	runGit(t, targetDir, "config", "user.name", "Test User")
+	runGit(t, targetDir, "config", "user.email", "test@example.com")
+	runGit(t, targetDir, "commit", "--allow-empty", "-m", "target base commit")
+
+	bundlePath := filepath.Join(targetDir, "import.bundle.json")
+	if err := os.WriteFile(bundlePath, payload, 0o644); err != nil {
+		t.Fatalf("write bundle file: %v", err)
+	}
+	createResult, err := targetSvc.ImportCRBundle(ImportCRBundleOptions{FilePath: bundlePath, Mode: "create"})
+	if err != nil {
+		t.Fatalf("ImportCRBundle(create) error = %v", err)
+	}
+	if err := os.Remove(bundlePath); err != nil {
+		t.Fatalf("remove bundle file before switch: %v", err)
+	}
+
+	crBefore, err := targetSvc.store.LoadCR(createResult.LocalCRID)
+	if err != nil {
+		t.Fatalf("LoadCR(before switch) error = %v", err)
+	}
+	if targetSvc.git.BranchExists(crBefore.Branch) {
+		t.Fatalf("expected imported branch %q to be absent before switch", crBefore.Branch)
+	}
+
+	switched, err := targetSvc.SwitchCR(createResult.LocalCRID)
+	if err != nil {
+		t.Fatalf("SwitchCR(imported) error = %v", err)
+	}
+	current, err := targetSvc.git.CurrentBranch()
+	if err != nil {
+		t.Fatalf("CurrentBranch() error = %v", err)
+	}
+	if current != switched.Branch {
+		t.Fatalf("expected current branch %q, got %q", switched.Branch, current)
+	}
+	if !targetSvc.git.BranchExists(switched.Branch) {
+		t.Fatalf("expected switched branch %q to exist", switched.Branch)
+	}
+
+	mainHead, err := targetSvc.git.ResolveRef("main")
+	if err != nil {
+		t.Fatalf("ResolveRef(main) error = %v", err)
+	}
+	reloaded, err := targetSvc.store.LoadCR(createResult.LocalCRID)
+	if err != nil {
+		t.Fatalf("LoadCR(after switch) error = %v", err)
+	}
+	if strings.TrimSpace(reloaded.BaseCommit) != strings.TrimSpace(mainHead) {
+		t.Fatalf("expected BaseCommit to be rewritten to local base anchor %q, got %q", mainHead, reloaded.BaseCommit)
+	}
+}
+
+func TestSwitchCRImportedMetadataOnlyWithoutLocalAnchorReturnsActionableError(t *testing.T) {
+	sourceDir := t.TempDir()
+	sourceSvc := New(sourceDir)
+	if _, err := sourceSvc.Init("main", ""); err != nil {
+		t.Fatalf("source Init() error = %v", err)
+	}
+	runGit(t, sourceDir, "config", "user.name", "Test User")
+	runGit(t, sourceDir, "config", "user.email", "test@example.com")
+	sourceCR, err := sourceSvc.AddCR("Imported switch failure", "no local base anchor")
+	if err != nil {
+		t.Fatalf("source AddCR() error = %v", err)
+	}
+	setValidContract(t, sourceSvc, sourceCR.ID)
+	_, payload, err := sourceSvc.ExportCRBundle(sourceCR.ID, ExportCROptions{Format: "json"})
+	if err != nil {
+		t.Fatalf("source ExportCRBundle() error = %v", err)
+	}
+
+	targetDir := t.TempDir()
+	targetSvc := New(targetDir)
+	if _, err := targetSvc.Init("main", ""); err != nil {
+		t.Fatalf("target Init() error = %v", err)
+	}
+	runGit(t, targetDir, "config", "user.name", "Test User")
+	runGit(t, targetDir, "config", "user.email", "test@example.com")
+
+	bundlePath := filepath.Join(targetDir, "import.bundle.json")
+	if err := os.WriteFile(bundlePath, payload, 0o644); err != nil {
+		t.Fatalf("write bundle file: %v", err)
+	}
+	createResult, err := targetSvc.ImportCRBundle(ImportCRBundleOptions{FilePath: bundlePath, Mode: "create"})
+	if err != nil {
+		t.Fatalf("ImportCRBundle(create) error = %v", err)
+	}
+	if err := os.Remove(bundlePath); err != nil {
+		t.Fatalf("remove bundle file before switch: %v", err)
+	}
+
+	_, err = targetSvc.SwitchCR(createResult.LocalCRID)
+	if err == nil {
+		t.Fatalf("expected SwitchCR() to fail when no local base anchor exists")
+	}
+	msg := strings.ToLower(err.Error())
+	if !strings.Contains(msg, "unable to resolve cr") || !strings.Contains(msg, "base anchor") {
+		t.Fatalf("expected actionable base-anchor error, got %v", err)
+	}
+	if strings.Contains(msg, "unable to read tree") {
+		t.Fatalf("expected no raw git tree error, got %v", err)
 	}
 }
 

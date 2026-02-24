@@ -662,6 +662,25 @@ func (s *Service) StatusCR(id int) (*CRStatusView, error) {
 	if cr.Status == model.StatusInProgress {
 		report, validateErr := s.ValidateCR(id)
 		if validateErr != nil {
+			if errors.Is(validateErr, ErrCRBranchContextUnavailable) {
+				fallbackErrors := []string{
+					fmt.Sprintf("unable to validate CR diff because branch context is unavailable for %q", strings.TrimSpace(cr.Branch)),
+				}
+				for _, field := range missingFields {
+					fallbackErrors = append(fallbackErrors, fmt.Sprintf("missing required contract field: %s", field))
+				}
+				fallback := &ValidationReport{
+					Valid:    false,
+					Errors:   dedupeStrings(fallbackErrors),
+					Warnings: []string{"branch context unavailable; status derived from CR metadata only"},
+				}
+				view.ValidationValid = fallback.Valid
+				view.ValidationErrors = len(fallback.Errors)
+				view.ValidationWarnings = len(fallback.Warnings)
+				view.MergeBlockers = s.mergeBlockersForCR(cr, fallback)
+				view.MergeBlocked = len(view.MergeBlockers) > 0
+				return view, nil
+			}
 			return nil, validateErr
 		}
 		view.ValidationValid = report.Valid
