@@ -3,6 +3,7 @@ package service
 import (
 	"fmt"
 	"path/filepath"
+	"sophia/internal/gitx"
 	"sophia/internal/model"
 	"strconv"
 	"strings"
@@ -83,6 +84,15 @@ func (s *Service) MergeCRWithWarnings(id int, keepBranch bool, overrideReason st
 	if !s.git.BranchExists(cr.Branch) {
 		return "", warnings, fmt.Errorf("cr branch %q does not exist", cr.Branch)
 	}
+	archiveConfig, err := s.archivePolicyConfig()
+	if err != nil {
+		return "", warnings, err
+	}
+	if archivePolicyEnabled(archiveConfig) {
+		if err := s.requireArchiveConfigSupported(archiveConfig); err != nil {
+			return "", warnings, err
+		}
+	}
 
 	mergeGit, worktreePath, err := s.effectiveMergeGitForCR(cr)
 	if err != nil {
@@ -106,7 +116,11 @@ func (s *Service) MergeCRWithWarnings(id int, keepBranch bool, overrideReason st
 	actor := mergeGit.Actor()
 	mergedAt := s.timestamp()
 	msg := buildMergeCommitMessage(cr, actor, mergedAt)
-	if err := mergeGit.MergeNoFFOnCurrentBranch(cr.Branch, msg); err != nil {
+	baseParent, err := mergeGit.ResolveRef("HEAD")
+	if err != nil {
+		return "", warnings, err
+	}
+	if err := mergeGit.MergeNoFFNoCommitOnCurrentBranch(cr.Branch, msg); err != nil {
 		conflictFiles, conflictErr := mergeGit.MergeConflictFiles()
 		if conflictErr != nil {
 			return "", warnings, err
@@ -129,6 +143,29 @@ func (s *Service) MergeCRWithWarnings(id int, keepBranch bool, overrideReason st
 			}
 		}
 		return "", warnings, err
+	}
+	inProgress, err := mergeGit.IsMergeInProgress()
+	if err != nil {
+		return "", warnings, err
+	}
+	if inProgress {
+		if archivePolicyEnabled(archiveConfig) {
+			mergeHead, mergeHeadErr := mergeGit.MergeHeadSHA()
+			if mergeHeadErr != nil {
+				return "", warnings, mergeHeadErr
+			}
+			if strings.TrimSpace(mergeHead) == "" {
+				return "", warnings, fmt.Errorf("unable to determine merge head for CR %d archive generation", cr.ID)
+			}
+			if err := s.writeAutomaticCRArchiveForMerge(mergeGit, cr, archiveConfig, actor, mergedAt, baseParent, mergeHead, false); err != nil {
+				return "", warnings, err
+			}
+		}
+		if err := mergeGit.Commit(msg); err != nil {
+			return "", warnings, err
+		}
+	} else if archivePolicyEnabled(archiveConfig) {
+		warnings = append(warnings, fmt.Sprintf("Skipped archive write for CR %d because merge produced no new commit", cr.ID))
 	}
 
 	if !keepBranch {
@@ -274,6 +311,13 @@ func (s *Service) ResumeMergeCR(id int, keepBranch bool, overrideReason string) 
 			Summary:       fmt.Sprintf("%s: in-progress merge in %s does not target CR %d", ErrMergeInProgress, status.WorktreePath, id),
 		}
 	}
+	if len(status.ConflictFiles) > 0 {
+		return "", nil, &MergeInProgressError{
+			WorktreePath:  status.WorktreePath,
+			ConflictFiles: status.ConflictFiles,
+			Summary:       fmt.Sprintf("%s: unresolved conflicts remain for CR %d", ErrMergeInProgress, id),
+		}
+	}
 
 	cr, err := s.store.LoadCR(id)
 	if err != nil {
@@ -286,10 +330,37 @@ func (s *Service) ResumeMergeCR(id int, keepBranch bool, overrideReason string) 
 	if err != nil {
 		return "", nil, err
 	}
+	archiveConfig, err := s.archivePolicyConfig()
+	if err != nil {
+		return "", nil, err
+	}
+	if archivePolicyEnabled(archiveConfig) {
+		if err := s.requireArchiveConfigSupported(archiveConfig); err != nil {
+			return "", nil, err
+		}
+	}
 
 	mergeGit, _, err := s.effectiveMergeGitForCR(cr)
 	if err != nil {
 		return "", nil, err
+	}
+	actor := mergeGit.Actor()
+	mergedAt := s.timestamp()
+	if archivePolicyEnabled(archiveConfig) {
+		baseParent, baseParentErr := mergeGit.ResolveRef("HEAD")
+		if baseParentErr != nil {
+			return "", nil, baseParentErr
+		}
+		mergeHead, mergeHeadErr := mergeGit.MergeHeadSHA()
+		if mergeHeadErr != nil {
+			return "", nil, mergeHeadErr
+		}
+		if strings.TrimSpace(mergeHead) == "" {
+			return "", nil, fmt.Errorf("unable to determine merge head for CR %d archive generation", cr.ID)
+		}
+		if err := s.writeAutomaticCRArchiveForMerge(mergeGit, cr, archiveConfig, actor, mergedAt, baseParent, mergeHead, true); err != nil {
+			return "", nil, err
+		}
 	}
 	if err := mergeGit.MergeContinue(); err != nil {
 		return "", nil, err
@@ -310,12 +381,58 @@ func (s *Service) ResumeMergeCR(id int, keepBranch bool, overrideReason string) 
 	if err != nil {
 		return "", warnings, err
 	}
-	mergedAt := s.timestamp()
-	actor := mergeGit.Actor()
 	if err := s.finalizeCRMergedState(cr, preflight.validation, preflight.trust, preflight.overrideReason, actor, mergedAt, sha, true); err != nil {
 		return "", warnings, err
 	}
 	return sha, warnings, nil
+}
+
+func (s *Service) writeAutomaticCRArchiveForMerge(mergeGit *gitx.Client, cr *model.CR, archiveConfig model.PolicyArchive, actor, mergedAt, baseParent, crParent string, reuseExisting bool) error {
+	if mergeGit == nil {
+		return fmt.Errorf("merge git client is required for archive generation")
+	}
+	if cr == nil {
+		return fmt.Errorf("cr is required for archive generation")
+	}
+	workDir := strings.TrimSpace(mergeGit.WorkDir)
+	if workDir == "" {
+		return fmt.Errorf("merge worktree path is required for archive generation")
+	}
+	archivePath := archiveRevisionPath(filepath.Join(workDir, archiveConfig.Path), cr.ID, 1)
+	if reuseExisting {
+		exists, err := archiveFileExists(archivePath)
+		if err != nil {
+			return err
+		}
+		if exists {
+			relativeArchivePath, relErr := relativeToRootPath(workDir, archivePath)
+			if relErr != nil {
+				return relErr
+			}
+			return mergeGit.StagePaths([]string{relativeArchivePath})
+		}
+	}
+	gitSummary, summaryErr := buildArchiveGitSummaryFromCachedDiff(mergeGit, baseParent, crParent)
+	if summaryErr != nil {
+		return summaryErr
+	}
+	archiveCR := *cr
+	archiveCR.Status = model.StatusMerged
+	archiveCR.MergedAt = mergedAt
+	archiveCR.MergedBy = actor
+	archive := buildCRArchiveDocument(&archiveCR, 1, "", mergedAt, gitSummary)
+	payload, payloadErr := marshalCRArchiveYAML(archive)
+	if payloadErr != nil {
+		return payloadErr
+	}
+	if err := writeArchivePayload(archivePath, payload); err != nil {
+		return err
+	}
+	relativeArchivePath, relErr := relativeToRootPath(workDir, archivePath)
+	if relErr != nil {
+		return relErr
+	}
+	return mergeGit.StagePaths([]string{relativeArchivePath})
 }
 
 func (s *Service) prepareMergePreflight(id int, cr *model.CR, overrideReason string, enforceParentState bool) (*mergePreflightView, error) {

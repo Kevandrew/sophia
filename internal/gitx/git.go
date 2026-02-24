@@ -25,6 +25,13 @@ type FileChange struct {
 	Path    string
 }
 
+type DiffNumStat struct {
+	Path       string
+	Insertions *int
+	Deletions  *int
+	Binary     bool
+}
+
 type StatusEntry struct {
 	Code string
 	Path string
@@ -353,6 +360,10 @@ func (c *Client) DiffNameStatusBetween(fromRef, toRef string) ([]FileChange, err
 	return c.diffNameStatusWithArgs(fromRef, toRef)
 }
 
+func (c *Client) DiffNameStatusCached() ([]FileChange, error) {
+	return c.diffNameStatusWithArgs("--cached")
+}
+
 func (c *Client) diffNameStatusWithArgs(revs ...string) ([]FileChange, error) {
 	args := append([]string{"diff", "--name-status"}, revs...)
 	out, err := c.run(args...)
@@ -403,6 +414,10 @@ func (c *Client) DiffShortStatBetween(fromRef, toRef string) (string, error) {
 	return c.diffShortStatWithArgs(fromRef, toRef)
 }
 
+func (c *Client) DiffShortStatCached() (string, error) {
+	return c.diffShortStatWithArgs("--cached")
+}
+
 func (c *Client) diffShortStatWithArgs(revs ...string) (string, error) {
 	args := append([]string{"diff", "--shortstat"}, revs...)
 	out, err := c.run(args...)
@@ -414,6 +429,61 @@ func (c *Client) diffShortStatWithArgs(revs ...string) (string, error) {
 		return "0 files changed, 0 insertions(+), 0 deletions(-)", nil
 	}
 	return stat, nil
+}
+
+func (c *Client) DiffNumStatBetween(fromRef, toRef string) ([]DiffNumStat, error) {
+	return c.diffNumStatWithArgs(fromRef, toRef)
+}
+
+func (c *Client) DiffNumStatCached() ([]DiffNumStat, error) {
+	return c.diffNumStatWithArgs("--cached")
+}
+
+func (c *Client) diffNumStatWithArgs(revs ...string) ([]DiffNumStat, error) {
+	args := append([]string{"diff", "--numstat"}, revs...)
+	out, err := c.run(args...)
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(out) == "" {
+		return []DiffNumStat{}, nil
+	}
+	stats := make([]DiffNumStat, 0)
+	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		parts := strings.Split(line, "\t")
+		if len(parts) < 3 {
+			continue
+		}
+		path := strings.TrimSpace(parts[2])
+		if path == "" {
+			continue
+		}
+		row := DiffNumStat{
+			Path: path,
+		}
+		addRaw := strings.TrimSpace(parts[0])
+		delRaw := strings.TrimSpace(parts[1])
+		if addRaw == "-" || delRaw == "-" {
+			row.Binary = true
+		} else {
+			addVal, addErr := strconv.Atoi(addRaw)
+			delVal, delErr := strconv.Atoi(delRaw)
+			if addErr != nil || delErr != nil {
+				continue
+			}
+			row.Insertions = &addVal
+			row.Deletions = &delVal
+		}
+		stats = append(stats, row)
+	}
+	sort.Slice(stats, func(i, j int) bool {
+		return stats[i].Path < stats[j].Path
+	})
+	return stats, nil
 }
 
 func (c *Client) WorkingTreeStatus() ([]StatusEntry, error) {
@@ -844,6 +914,37 @@ func (c *Client) MergeNoFFOnCurrentBranch(branch, message string) error {
 	args = append(args, "merge", "--no-ff", branch, "-m", message)
 	_, err := c.run(args...)
 	return err
+}
+
+func (c *Client) MergeNoFFNoCommitOnCurrentBranch(branch, message string) error {
+	args := c.identityFlags()
+	args = append(args, "merge", "--no-ff", "--no-commit", branch, "-m", message)
+	_, err := c.run(args...)
+	return err
+}
+
+func (c *Client) CommitParents(ref string) ([]string, error) {
+	ref = strings.TrimSpace(ref)
+	if ref == "" {
+		return nil, fmt.Errorf("ref is required")
+	}
+	out, err := c.run("rev-list", "--parents", "-n", "1", ref)
+	if err != nil {
+		return nil, err
+	}
+	fields := strings.Fields(strings.TrimSpace(out))
+	if len(fields) == 0 {
+		return []string{}, nil
+	}
+	parents := make([]string, 0, len(fields)-1)
+	for _, parent := range fields[1:] {
+		parent = strings.TrimSpace(parent)
+		if parent == "" {
+			continue
+		}
+		parents = append(parents, parent)
+	}
+	return parents, nil
 }
 
 func (c *Client) ResetSoft(target string) error {

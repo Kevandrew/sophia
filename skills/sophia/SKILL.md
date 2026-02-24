@@ -161,6 +161,37 @@ Treat these as current UX defaults unless `--help` shows otherwise:
 - `sophia cr validate` is read-only by default; add `--record` when an audit event is desired.
 - Operational root/CR/task commands now expose `--json` envelope output; still confirm leaf `--help` for exact payload shape.
 
+## Branch Freshness Guard (Avoid Outdated CR Work)
+Before implementing, reviewing, or merging an existing CR, verify branch freshness against base and remote base.
+
+Required checks:
+
+1. Confirm CR/base context:
+```bash
+sophia cr status <id> --json
+```
+- Read `data.base_ref` and `data.base_commit`.
+- Ensure you are on the intended CR branch before mutating.
+
+2. Check CR branch vs local base:
+```bash
+git rev-list --left-right --count <base_ref>...HEAD
+```
+- If left count (`<`) is greater than `0`, the CR is behind local base and considered stale.
+
+3. Check local base vs remote base (when remote exists):
+```bash
+git fetch origin <base_ref>
+git rev-list --left-right --count <base_ref>...origin/<base_ref>
+```
+- If right count (`>`) is greater than `0`, local base is behind remote base.
+
+Recommended action policy:
+- If CR is behind local base: suggest `sophia cr refresh <id>` first (preferred abstraction).
+- If needed for explicit control: use `sophia cr restack <id>` or `sophia cr base set <id> --ref <base_ref> --rebase`.
+- If local base is behind remote: update base first (`git checkout <base_ref> && git pull --ff-only`), then refresh/restack the CR.
+- Do not proceed with substantial implementation on a stale CR unless the user explicitly asks to continue as-is.
+
 ## Managed Remote Collaboration (HQ)
 This is the agent-first collaboration loop for syncing CR *intent metadata* (not code/branches) with a managed remote.
 

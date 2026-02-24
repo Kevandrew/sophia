@@ -71,6 +71,21 @@ sophia cr merge resume <cr-id>
 sophia cr merge abort <cr-id>
 ```
 
+Archive artifacts:
+
+```bash
+sophia cr archive write <cr-id>
+sophia cr archive append <cr-id> --reason "Correction rationale"
+sophia cr archive backfill
+sophia cr archive backfill --commit
+```
+
+Archive behavior:
+
+- `write` writes the next append-only revision (`vN`) for a merged CR.
+- `append` writes `vN+1` and records the provided reason in the archive header.
+- `backfill` is dry-run by default; add `--commit` to write missing `v1` archives and create one commit.
+
 Collaboration artifacts:
 
 ```bash

@@ -24,6 +24,7 @@ func newCRCmd() *cobra.Command {
 	crCmd.AddCommand(newCRRangeCmd())
 	crCmd.AddCommand(newCRRevParseCmd())
 	crCmd.AddCommand(newCRPackCmd())
+	crCmd.AddCommand(newCRArchiveCmd())
 	crCmd.AddCommand(newCRDiffCmd())
 	crCmd.AddCommand(newCRRangeDiffCmd())
 	crCmd.AddCommand(newCRWhyCmd())

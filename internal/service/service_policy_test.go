@@ -37,6 +37,90 @@ func TestRepoPolicyDefaultsWhenFileMissing(t *testing.T) {
 	if !policyAllowsMergeOverride(policy) {
 		t.Fatalf("expected default merge override to be allowed")
 	}
+	if policy.Archive.Enabled == nil || *policy.Archive.Enabled {
+		t.Fatalf("expected archive.enabled default false, got %#v", policy.Archive.Enabled)
+	}
+	if strings.TrimSpace(policy.Archive.Path) != defaultArchivePath {
+		t.Fatalf("expected archive.path %q, got %q", defaultArchivePath, policy.Archive.Path)
+	}
+	if strings.TrimSpace(policy.Archive.Format) != defaultArchiveFormat {
+		t.Fatalf("expected archive.format %q, got %q", defaultArchiveFormat, policy.Archive.Format)
+	}
+	if policy.Archive.IncludeFullDiffs == nil || *policy.Archive.IncludeFullDiffs {
+		t.Fatalf("expected archive.include_full_diffs default false, got %#v", policy.Archive.IncludeFullDiffs)
+	}
+}
+
+func TestRepoPolicyArchiveConfigParsesAndNormalizes(t *testing.T) {
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	writePolicyFileForTest(t, dir, `version: v1
+archive:
+  enabled: true
+  path: .sophia-tracked/cr
+  format: YAML
+  include_full_diffs: true
+`)
+
+	policy, err := svc.repoPolicy()
+	if err != nil {
+		t.Fatalf("repoPolicy() error = %v", err)
+	}
+	if policy.Archive.Enabled == nil || !*policy.Archive.Enabled {
+		t.Fatalf("expected archive.enabled=true, got %#v", policy.Archive.Enabled)
+	}
+	if policy.Archive.IncludeFullDiffs == nil || !*policy.Archive.IncludeFullDiffs {
+		t.Fatalf("expected archive.include_full_diffs=true, got %#v", policy.Archive.IncludeFullDiffs)
+	}
+	if policy.Archive.Path != ".sophia-tracked/cr" {
+		t.Fatalf("expected archive.path normalization, got %q", policy.Archive.Path)
+	}
+	if policy.Archive.Format != "yaml" {
+		t.Fatalf("expected archive.format normalization to yaml, got %q", policy.Archive.Format)
+	}
+}
+
+func TestRepoPolicyArchiveRejectsInvalidFormat(t *testing.T) {
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	writePolicyFileForTest(t, dir, `version: v1
+archive:
+  format: json
+`)
+
+	_, err := svc.repoPolicy()
+	if !errors.Is(err, ErrPolicyInvalid) {
+		t.Fatalf("expected ErrPolicyInvalid, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "archive.format") {
+		t.Fatalf("expected archive.format detail in error, got %v", err)
+	}
+}
+
+func TestRepoPolicyArchiveRejectsInvalidPath(t *testing.T) {
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	writePolicyFileForTest(t, dir, `version: v1
+archive:
+  path: ../outside
+`)
+
+	_, err := svc.repoPolicy()
+	if !errors.Is(err, ErrPolicyInvalid) {
+		t.Fatalf("expected ErrPolicyInvalid, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "archive.path") {
+		t.Fatalf("expected archive.path detail in error, got %v", err)
+	}
 }
 
 func TestRepoPolicyRejectsUnknownField(t *testing.T) {

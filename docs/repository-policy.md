@@ -53,6 +53,29 @@ Practical guidance:
 
 `merge.allow_override` controls whether audited override flows are permitted when standard merge gating blocks.
 
+## Archive Policy
+
+`archive` controls tracked CR archive artifact behavior.
+
+- `archive.enabled`
+  - Enables automatic archive creation during `sophia cr merge` and `sophia cr merge resume`.
+  - Default: `false`.
+- `archive.path`
+  - Repository-relative directory where archive files are written.
+  - Default: `.sophia-tracked/cr`.
+- `archive.format`
+  - Archive file format. Current supported value: `yaml`.
+  - Default: `yaml`.
+- `archive.include_full_diffs`
+  - Parsed for forward compatibility, but full diff embedding is not implemented in v1 archive generation.
+  - Default: `false`.
+
+Archive semantics:
+
+- Archives are append-only snapshots named `cr-<id>.vN.yaml`.
+- Existing revisions are never rewritten; corrections are new revisions.
+- Archives are intended for historical lookback and automation-friendly records.
+
 ## Trust Policy
 
 `trust` controls evidence quality expectations:
