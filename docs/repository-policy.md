@@ -59,7 +59,7 @@ Practical guidance:
 
 - `archive.enabled`
   - Enables automatic archive creation during `sophia cr merge` and `sophia cr merge resume`.
-  - Default: `false`.
+  - Default: `true`.
 - `archive.path`
   - Repository-relative directory where archive files are written.
   - Default: `.sophia-tracked/cr`.

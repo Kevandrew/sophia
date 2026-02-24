@@ -1,0 +1,254 @@
+schema_version: sophia.cr_archive.v1
+notice: Historical archive snapshot. Corrections are append-only revisions.
+archived_at: "2026-02-24T21:28:26Z"
+revision: 1
+cr:
+    id: 58
+    uid: cr_b9c9d01a-1c0d-427d-84ed-85a3cec07c62
+    title: Tracked CR archive artifacts on merge (append-only YAML)
+    description: |-
+        Add a Git-backed, append-only CR archive so merged CR intent/contract/tasks are historically reconstructible from Git alone.
+
+        Unmerged CRs remain ephemeral (branches + local metadata and optional collaboration remotes). Merged CRs get an immutable snapshot committed to main.
+    status: merged
+    base_branch: main
+    base_ref: main
+    base_commit: 78e00a9b88a8830bc93b25ba40a8da60a5a6f492
+    branch: cr-58-tracked-cr-archive-artifacts-on-merge-append-onl
+    merged_at: "2026-02-24T21:28:26Z"
+    merged_by: Kevandrew <143258544+Kevandrew@users.noreply.github.com>
+contract:
+    why: |-
+        CR contract details that exist only in local (gitignored) metadata can be lost. Git can only reconstruct what was written into Git history.
+
+        This change makes merged CRs durable by writing a canonical, deterministic YAML snapshot into the merge commit itself. The archive is intended for historical lookback and backup: a stable, machine-readable record of what was merged and why.
+    scope:
+        - .gitattributes
+        - SOPHIA.yaml
+        - docs
+        - internal/cli
+        - internal/gitx
+        - internal/model
+        - internal/service
+        - skills/sophia
+    non_goals:
+        - No UI changes; this only adds a durable, machine-readable archive record.
+        - No changes to collaboration remotes or sync behavior.
+        - No full patch diffs stored in the archive; only file list + diffstat + commit hashes.
+        - No rewriting existing archive records; corrections are new revisions only.
+    invariants:
+        - 'Archive records are append-only: write cr-<id>.vN.yaml, never overwrite prior versions.'
+        - If merge conflicts occur, do not write/archive until conflicts are resolved and merge resumes.
+        - 'Merge commit remains atomic: code + archive land together when merge succeeds.'
+        - Writing archives must not require the CR branch to exist (works after branch deletion).
+    blast_radius: Merge path (merge/resume), CR archive surfaces, and repository policy parsing. Adds tracked archive files under .sophia-tracked/.
+    test_plan: go test ./... && go vet ./...
+    rollback_plan: Revert archive generation + CLI commands. Existing CR workflow remains intact; archives are additive only.
+tasks:
+    - id: 1
+      title: 'Policy: add archive config to SOPHIA.yaml and parse it'
+      status: done
+      contract:
+        intent: Add repo policy fields controlling archive enabled/path/format and default behavior.
+        acceptance_criteria:
+            - Default behavior is disabled unless explicitly enabled (or explicitly documented default).
+            - JSON outputs include archive config when relevant for debugging.
+            - SOPHIA.yaml accepts archive.enabled/path/format/include_full_diffs (invalid values rejected deterministically).
+        scope:
+            - SOPHIA.yaml
+            - internal/model
+            - internal/service
+      checkpoint:
+        commit: b9e8db0a
+        at: "2026-02-24T20:31:00Z"
+        source: task_checkpoint
+        scope:
+            - internal/model/policy.go
+            - internal/service/service_common.go
+            - internal/service/service_policy.go
+            - internal/service/service_policy_test.go
+    - id: 2
+      title: 'Model: define sophia.cr_archive.v1 YAML schema (deterministic ordering)'
+      status: done
+      contract:
+        intent: Create canonical archive struct and YAML encoder with stable ordering for deterministic diffs.
+        acceptance_criteria:
+            - All list fields are sorted deterministically (scope/non_goals/invariants/files/diffstat).
+            - Archive includes CR fields, contract fields, tasks, and git_summary (files_changed + diffstat.files).
+            - Schema version is 'sophia.cr_archive.v1'.
+        scope:
+            - internal/model
+            - internal/service
+      checkpoint:
+        commit: b93dbe07
+        at: "2026-02-24T20:31:03Z"
+        source: task_checkpoint
+        scope:
+            - internal/model/cr_archive.go
+    - id: 3
+      title: 'Service: compute file list + diffstat from merged commit (no branch required)'
+      status: done
+      contract:
+        intent: Derive archive git_summary from the merge commit vs first parent using git primitives.
+        acceptance_criteria:
+            - Defines behavior for non-merge commits deterministically (explicit error or explicit fallback).
+            - Uses merge commit parent comparison (merge^1..merge) to compute files_changed and numstat.
+            - Works when CR branch has been deleted (post-merge).
+        scope:
+            - internal/gitx
+            - internal/service
+      checkpoint:
+        commit: 2ad96b71
+        at: "2026-02-24T20:31:07Z"
+        source: task_checkpoint
+        scope:
+            - internal/gitx/git.go
+            - internal/service/service_archive.go
+    - id: 4
+      title: 'Merge: write archive YAML inside merge commit (merge + resume paths)'
+      status: done
+      contract:
+        intent: Ensure archives are created atomically with merges and survive conflict recovery.
+        acceptance_criteria:
+            - If merge fails with conflicts, no archive file is produced until resume completes.
+            - '`sophia cr merge <id>` writes .sophia-tracked/cr/cr-<id>.v1.yaml into the merge commit.'
+            - '`sophia cr merge resume <id>` writes the archive before merge continue finalizes the commit.'
+        scope:
+            - internal/gitx
+            - internal/service
+      checkpoint:
+        commit: cfa3b62c
+        at: "2026-02-24T20:48:53Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_review_merge.go
+    - id: 5
+      title: 'CLI: add `sophia cr archive write/backfill/append` commands'
+      status: done
+      contract:
+        intent: Expose archive generation and backfill as explicit CLI surfaces with JSON output.
+        acceptance_criteria:
+            - '`cr archive append <id> --reason ...` writes vN+1 and records the reason in the archive header.'
+            - '`cr archive backfill --commit` writes missing v1 archives for merged CRs and makes one commit.'
+            - '`cr archive write <id>` writes the next revision (vN) to configured path, supports --out override.'
+        scope:
+            - internal/cli
+            - internal/service
+      checkpoint:
+        commit: fffdf35e
+        at: "2026-02-24T20:49:01Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_archive.go
+    - id: 6
+      title: 'Repo: de-emphasize archive diffs in Git hosting UIs'
+      status: done
+      contract:
+        intent: Reduce diff noise for archives and make their purpose obvious.
+        acceptance_criteria:
+            - .gitattributes marks .sophia-tracked/** as generated where supported.
+            - Archive YAML includes an explicit notice that it is a historical archive snapshot.
+        scope:
+            - .gitattributes
+            - internal/service
+      checkpoint:
+        commit: 3a2f4d96
+        at: "2026-02-24T20:31:18Z"
+        source: task_checkpoint
+        scope:
+            - .gitattributes
+    - id: 7
+      title: 'Docs: document archive semantics (append-only historical artifact)'
+      status: done
+      contract:
+        intent: Document what archives are and the workflow for backfill/corrections.
+        acceptance_criteria:
+            - 'Docs clearly describe intended use: historical lookback and automation-friendly records.'
+            - 'Docs explain: unmerged = ephemeral; merged = immutable archive in Git; corrections = new revision.'
+        scope:
+            - docs
+      checkpoint:
+        commit: d1282638
+        at: "2026-02-24T21:01:11Z"
+        source: task_checkpoint
+        scope:
+            - skills/sophia/SKILL.md
+    - id: 8
+      title: 'Tests: prove archive creation on merge, resume, and backfill'
+      status: done
+      contract:
+        intent: Add tests that enforce archive invariants and deterministic outputs.
+        acceptance_criteria:
+            - 'Backfill test: creates v1 files and a single commit on main.'
+            - 'Integration test: merge produces archive file in merge commit tree.'
+            - 'Integration test: resume path also includes archive in final merge commit.'
+        scope:
+            - internal/cli
+            - internal/service
+      checkpoint:
+        commit: 7171f0dc
+        at: "2026-02-24T20:48:56Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_archive_test.go
+    - id: 9
+      title: Set archive policy enabled by default
+      status: done
+      contract:
+        intent: Make archive policy enabled by default for new and normalized repo policy config.
+        acceptance_criteria:
+            - Default policy sets archive.enabled to true when policy file is missing or omits the field.
+            - Docs and policy/tests reflect enabled-by-default behavior.
+            - 'Seeded SOPHIA.yaml template sets archive.enabled: true.'
+        scope:
+            - SOPHIA.yaml
+            - docs
+            - internal/cli
+            - internal/service
+      checkpoint:
+        commit: "56611958"
+        at: "2026-02-24T21:26:50Z"
+        source: task_checkpoint
+        scope:
+            - SOPHIA.yaml
+            - docs/repository-policy.md
+            - internal/cli/cr_archive_test.go
+            - internal/service/service_archive_test.go
+            - internal/service/service_common.go
+            - internal/service/service_policy.go
+            - internal/service/service_policy_test.go
+git_summary:
+    base_parent: 78e00a9b88a8830bc93b25ba40a8da60a5a6f492
+    cr_parent: 56611958f87d049c7d10622cd0e9b8c26a2b3635
+    files_changed:
+        - SOPHIA.yaml
+        - docs/repository-policy.md
+        - internal/cli/cr_archive_test.go
+        - internal/service/service_archive_test.go
+        - internal/service/service_common.go
+        - internal/service/service_policy.go
+        - internal/service/service_policy_test.go
+    diffstat:
+        summary: 7 files changed, 18 insertions(+), 5 deletions(-)
+        files:
+            - path: SOPHIA.yaml
+              insertions: 6
+              deletions: 0
+            - path: docs/repository-policy.md
+              insertions: 1
+              deletions: 1
+            - path: internal/cli/cr_archive_test.go
+              insertions: 5
+              deletions: 0
+            - path: internal/service/service_archive_test.go
+              insertions: 2
+              deletions: 0
+            - path: internal/service/service_common.go
+              insertions: 1
+              deletions: 1
+            - path: internal/service/service_policy.go
+              insertions: 1
+              deletions: 1
+            - path: internal/service/service_policy_test.go
+              insertions: 2
+              deletions: 2

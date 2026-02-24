@@ -103,6 +103,11 @@ func setupCLIMergedCRNoArchiveRepo(t *testing.T) string {
 	}
 	runGit(t, dir, "config", "user.name", "Test User")
 	runGit(t, dir, "config", "user.email", "test@example.com")
+	if err := os.WriteFile(filepath.Join(dir, "SOPHIA.yaml"), []byte("version: v1\narchive:\n  enabled: false\n"), 0o644); err != nil {
+		t.Fatalf("write SOPHIA.yaml: %v", err)
+	}
+	runGit(t, dir, "add", "SOPHIA.yaml")
+	runGit(t, dir, "commit", "-m", "chore: disable archive for fixture")
 
 	cr, err := svc.AddCR("Archive fixture", "cli archive test")
 	if err != nil {
