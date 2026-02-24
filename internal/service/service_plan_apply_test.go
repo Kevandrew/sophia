@@ -117,6 +117,80 @@ func TestApplyCRPlanDryRunDoesNotMutate(t *testing.T) {
 	}
 }
 
+func TestApplyCRPlanDryRunPredictionsMatchAppliedBranches(t *testing.T) {
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	planPath := writePlanFile(t, dir, "plan.yaml", validCRPlanYAML)
+
+	dryRun, err := svc.ApplyCRPlan(ApplyCRPlanOptions{FilePath: planPath, DryRun: true})
+	if err != nil {
+		t.Fatalf("ApplyCRPlan(dry-run) error = %v", err)
+	}
+	applied, err := svc.ApplyCRPlan(ApplyCRPlanOptions{FilePath: planPath, KeepFile: true})
+	if err != nil {
+		t.Fatalf("ApplyCRPlan(apply) error = %v", err)
+	}
+	if len(dryRun.CreatedCRs) != len(applied.CreatedCRs) {
+		t.Fatalf("expected dry-run/applied CR counts to match, got dry=%d applied=%d", len(dryRun.CreatedCRs), len(applied.CreatedCRs))
+	}
+
+	byKey := map[string]ApplyCRPlanCreatedCR{}
+	for _, created := range applied.CreatedCRs {
+		byKey[created.Key] = created
+	}
+	for _, predicted := range dryRun.CreatedCRs {
+		actual, ok := byKey[predicted.Key]
+		if !ok {
+			t.Fatalf("missing applied CR for key %q", predicted.Key)
+		}
+		if predicted.ID != actual.ID || predicted.UID != actual.UID || predicted.Branch != actual.Branch {
+			t.Fatalf("dry-run mismatch for key %q: predicted=%#v actual=%#v", predicted.Key, predicted, actual)
+		}
+	}
+}
+
+func TestApplyCRPlanDryRunToleratesMalformedExistingUIDs(t *testing.T) {
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	cr, err := svc.AddCR("Legacy malformed uid", "seed malformed uid")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	loaded, err := svc.store.LoadCR(cr.ID)
+	if err != nil {
+		t.Fatalf("LoadCR() error = %v", err)
+	}
+	loaded.UID = "cr_bad/uid"
+	if err := svc.store.SaveCR(loaded); err != nil {
+		t.Fatalf("SaveCR() error = %v", err)
+	}
+	planPath := writePlanFile(t, dir, "plan.yaml", validCRPlanYAML)
+
+	result, err := svc.ApplyCRPlan(ApplyCRPlanOptions{FilePath: planPath, DryRun: true})
+	if err != nil {
+		t.Fatalf("ApplyCRPlan(dry-run) error = %v", err)
+	}
+	if len(result.CreatedCRs) == 0 {
+		t.Fatalf("expected dry-run predictions despite malformed existing UID")
+	}
+	foundWarning := false
+	for _, warning := range result.Warnings {
+		if strings.Contains(warning, "ignoring malformed existing CR uid") {
+			foundWarning = true
+			break
+		}
+	}
+	if !foundWarning {
+		t.Fatalf("expected malformed uid warning, got %#v", result.Warnings)
+	}
+}
+
 func TestApplyCRPlanCreatesStackAndConsumesByDefault(t *testing.T) {
 	dir := t.TempDir()
 	svc := New(dir)

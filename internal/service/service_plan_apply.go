@@ -2,6 +2,7 @@ package service
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"fmt"
 	"io"
 	"os"
@@ -103,6 +104,13 @@ type planOrder struct {
 	ByKey        map[string]crPlanCRSpec
 	Delegations  []ApplyCRPlanDelegation
 	TaskOrderMap map[planTaskRef]int
+}
+
+type planCRPrediction struct {
+	ID         int
+	UID        string
+	Branch     string
+	ParentCRID int
 }
 
 func (s *Service) ApplyCRPlan(opts ApplyCRPlanOptions) (*ApplyCRPlanResult, error) {
@@ -506,51 +514,26 @@ func (s *Service) planOperations(order *planOrder) []string {
 }
 
 func (s *Service) populateDryRunPredictions(result *ApplyCRPlanResult, order *planOrder) error {
-	idx, err := s.store.LoadIndex()
+	predictedCRs, warnings, err := s.predictPlanCRs(order)
 	if err != nil {
 		return err
 	}
-	cfg, err := s.store.LoadConfig()
-	if err != nil {
-		return err
-	}
-	nextCRID := idx.NextID
-	crIDByKey := map[string]int{}
+	result.Warnings = append(result.Warnings, warnings...)
 	nextTaskIDByCRKey := map[string]int{}
 
 	for _, key := range order.CROrder {
 		cr := order.ByKey[key]
-		parentID := 0
-		if cr.ParentKey != "" {
-			parentID = crIDByKey[cr.ParentKey]
-		}
-		predictedBranch := ""
-		if cr.BranchAlias != "" {
-			alias, aliasErr := validateExplicitCRBranchAlias(cr.BranchAlias, nextCRID)
-			if aliasErr != nil {
-				return aliasErr
-			}
-			predictedBranch = alias
-		} else {
-			ownerPrefix := cfg.BranchOwnerPrefix
-			if cr.OwnerPrefix != "" {
-				ownerPrefix = cr.OwnerPrefix
-			}
-			alias, branchErr := formatCRBranchAlias(nextCRID, cr.Title, ownerPrefix)
-			if branchErr != nil {
-				return branchErr
-			}
-			predictedBranch = alias
+		predicted, ok := predictedCRs[key]
+		if !ok {
+			return fmt.Errorf("predicted CR metadata for key %q is missing", key)
 		}
 		result.CreatedCRs = append(result.CreatedCRs, ApplyCRPlanCreatedCR{
 			Key:        key,
-			ID:         nextCRID,
-			UID:        "",
-			Branch:     predictedBranch,
-			ParentCRID: parentID,
+			ID:         predicted.ID,
+			UID:        predicted.UID,
+			Branch:     predicted.Branch,
+			ParentCRID: predicted.ParentCRID,
 		})
-		crIDByKey[key] = nextCRID
-		nextCRID++
 
 		nextTaskID := 1
 		for _, task := range cr.Tasks {
@@ -578,6 +561,137 @@ func (s *Service) populateDryRunPredictions(result *ApplyCRPlanResult, order *pl
 	return nil
 }
 
+func (s *Service) predictPlanCRs(order *planOrder) (map[string]planCRPrediction, []string, error) {
+	idx, err := s.store.LoadIndex()
+	if err != nil {
+		return nil, nil, err
+	}
+	cfg, err := s.store.LoadConfig()
+	if err != nil {
+		return nil, nil, err
+	}
+	existingCRs, err := s.store.ListCRs()
+	if err != nil {
+		return nil, nil, err
+	}
+	maxID := 0
+	usedUIDs := map[string]struct{}{}
+	warnings := []string{}
+	for i := range existingCRs {
+		if existingCRs[i].ID > maxID {
+			maxID = existingCRs[i].ID
+		}
+		uid := strings.TrimSpace(existingCRs[i].UID)
+		if uid == "" {
+			continue
+		}
+		normalizedUID, normalizeErr := normalizeCRUID(uid)
+		if normalizeErr != nil {
+			warnings = append(warnings, fmt.Sprintf("ignoring malformed existing CR uid %q on CR %d during plan prediction", uid, existingCRs[i].ID))
+			continue
+		}
+		usedUIDs[normalizedUID] = struct{}{}
+	}
+	branches, err := s.git.LocalBranches("")
+	if err == nil {
+		for _, branch := range branches {
+			if id, ok := parseCRBranchID(branch); ok && id > maxID {
+				maxID = id
+			}
+		}
+	}
+	if strings.TrimSpace(cfg.BaseBranch) != "" {
+		commits, recentErr := s.git.RecentCommits(cfg.BaseBranch, 5000)
+		if recentErr == nil {
+			for _, commit := range commits {
+				if id, ok := crIDFromSubjectOrBody(commit.Subject, commit.Body); ok && id > maxID {
+					maxID = id
+				}
+			}
+		}
+	}
+	required := maxID + 1
+	if required < 1 {
+		required = 1
+	}
+	nextCRID := idx.NextID
+	if nextCRID < required {
+		nextCRID = required
+	}
+	crIDByKey := map[string]int{}
+	predictedBranches := map[string]struct{}{}
+	predictions := map[string]planCRPrediction{}
+	for _, key := range order.CROrder {
+		cr := order.ByKey[key]
+		parentID := 0
+		if cr.ParentKey != "" {
+			parentID = crIDByKey[cr.ParentKey]
+		}
+		uid, uidErr := allocatePlanCRUID(nextCRID, key, cr.Title, usedUIDs)
+		if uidErr != nil {
+			return nil, warnings, uidErr
+		}
+
+		branch := ""
+		if strings.TrimSpace(cr.BranchAlias) != "" {
+			alias, aliasErr := validateExplicitCRBranchAlias(cr.BranchAlias, nextCRID)
+			if aliasErr != nil {
+				return nil, warnings, aliasErr
+			}
+			if _, exists := predictedBranches[alias]; exists || s.git.BranchExists(alias) {
+				return nil, warnings, fmt.Errorf("branch %q already exists", alias)
+			}
+			branch = alias
+		} else {
+			ownerPrefix := cfg.BranchOwnerPrefix
+			if cr.OwnerPrefix != "" {
+				ownerPrefix = cr.OwnerPrefix
+			}
+			alias, branchErr := formatCRBranchAliasWithFallback(cr.Title, ownerPrefix, uid, func(candidate string) bool {
+				if _, exists := predictedBranches[candidate]; exists {
+					return true
+				}
+				return s.git.BranchExists(candidate)
+			})
+			if branchErr != nil {
+				return nil, warnings, branchErr
+			}
+			branch = alias
+		}
+		predictedBranches[branch] = struct{}{}
+		predictions[key] = planCRPrediction{
+			ID:         nextCRID,
+			UID:        uid,
+			Branch:     branch,
+			ParentCRID: parentID,
+		}
+		crIDByKey[key] = nextCRID
+		nextCRID++
+	}
+	return predictions, warnings, nil
+}
+
+func allocatePlanCRUID(nextCRID int, key, title string, usedUIDs map[string]struct{}) (string, error) {
+	baseSeed := fmt.Sprintf("plan-v1|id=%d|key=%s|title=%s", nextCRID, strings.TrimSpace(strings.ToLower(key)), strings.TrimSpace(strings.ToLower(title)))
+	for attempt := 0; attempt < 32; attempt++ {
+		sum := sha256.Sum256([]byte(fmt.Sprintf("%s|attempt=%d", baseSeed, attempt)))
+		raw := sum[:16]
+		// Keep RFC 4122 variant/version bits for compatibility with UUID tooling.
+		raw[6] = (raw[6] & 0x0f) | 0x40
+		raw[8] = (raw[8] & 0x3f) | 0x80
+		uid, err := normalizeCRUID(fmt.Sprintf("cr_%x-%x-%x-%x-%x", raw[0:4], raw[4:6], raw[6:8], raw[8:10], raw[10:16]))
+		if err != nil {
+			return "", err
+		}
+		if _, exists := usedUIDs[uid]; exists {
+			continue
+		}
+		usedUIDs[uid] = struct{}{}
+		return uid, nil
+	}
+	return "", fmt.Errorf("unable to allocate deterministic CR uid for key %q", key)
+}
+
 func (s *Service) applyCRPlan(plan *crPlanSpec, order *planOrder) (*ApplyCRPlanResult, error) {
 	result := &ApplyCRPlanResult{
 		CreatedCRs:   []ApplyCRPlanCreatedCR{},
@@ -585,6 +699,11 @@ func (s *Service) applyCRPlan(plan *crPlanSpec, order *planOrder) (*ApplyCRPlanR
 		Delegations:  []ApplyCRPlanDelegation{},
 		Warnings:     []string{},
 	}
+	predictedCRs, warnings, err := s.predictPlanCRs(order)
+	if err != nil {
+		return nil, err
+	}
+	result.Warnings = append(result.Warnings, warnings...)
 
 	crIDByKey := map[string]int{}
 	taskIDByRef := map[planTaskRef]int{}
@@ -600,6 +719,9 @@ func (s *Service) applyCRPlan(plan *crPlanSpec, order *planOrder) (*ApplyCRPlanR
 		if crSpec.OwnerPrefix != "" {
 			addOpts.OwnerPrefix = crSpec.OwnerPrefix
 			addOpts.OwnerPrefixSet = true
+		}
+		if predicted, ok := predictedCRs[key]; ok {
+			addOpts.UIDOverride = predicted.UID
 		}
 		createdCR, warnings, err := s.AddCRWithOptionsWithWarnings(crSpec.Title, crSpec.Description, addOpts)
 		if err != nil {
