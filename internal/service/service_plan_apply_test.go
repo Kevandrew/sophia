@@ -3,6 +3,7 @@ package service
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -188,6 +189,85 @@ func TestApplyCRPlanDryRunToleratesMalformedExistingUIDs(t *testing.T) {
 	}
 	if !foundWarning {
 		t.Fatalf("expected malformed uid warning, got %#v", result.Warnings)
+	}
+}
+
+func TestApplyCRPlanDryRunGeneratedBranchCollisionFallsBackSuffixLength(t *testing.T) {
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	runGit(t, dir, "config", "user.name", "Test User")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+	runGit(t, dir, "commit", "--allow-empty", "-m", "seed")
+	plan := `version: v1
+crs:
+  - key: collision_case
+    title: "Collision fallback"
+    description: "exercise generated branch fallback"
+`
+	planPath := writePlanFile(t, dir, "collision-plan.yaml", plan)
+
+	first, err := svc.ApplyCRPlan(ApplyCRPlanOptions{FilePath: planPath, DryRun: true})
+	if err != nil {
+		t.Fatalf("ApplyCRPlan(first dry-run) error = %v", err)
+	}
+	if len(first.CreatedCRs) != 1 {
+		t.Fatalf("expected one predicted CR, got %#v", first.CreatedCRs)
+	}
+	uid := strings.TrimSpace(first.CreatedCRs[0].UID)
+	candidate4 := strings.TrimSpace(first.CreatedCRs[0].Branch)
+	if uid == "" || candidate4 == "" {
+		t.Fatalf("expected predicted uid/branch, got %#v", first.CreatedCRs[0])
+	}
+	if !regexp.MustCompile(`^cr-collision-fallback-[a-z0-9]{4}$`).MatchString(candidate4) {
+		t.Fatalf("expected initial uid4 branch alias, got %q", candidate4)
+	}
+
+	runGit(t, dir, "branch", candidate4, "HEAD")
+	second, err := svc.ApplyCRPlan(ApplyCRPlanOptions{FilePath: planPath, DryRun: true})
+	if err != nil {
+		t.Fatalf("ApplyCRPlan(second dry-run) error = %v", err)
+	}
+	if len(second.CreatedCRs) != 1 {
+		t.Fatalf("expected one predicted CR in second dry-run, got %#v", second.CreatedCRs)
+	}
+	if strings.TrimSpace(second.CreatedCRs[0].UID) != uid {
+		t.Fatalf("expected deterministic uid across dry-runs, got first=%q second=%q", uid, second.CreatedCRs[0].UID)
+	}
+	candidateEscalated := strings.TrimSpace(second.CreatedCRs[0].Branch)
+	if candidateEscalated == candidate4 {
+		t.Fatalf("expected suffix-length fallback when uid4 alias collides, got unchanged %q", candidateEscalated)
+	}
+	if !regexp.MustCompile(`^cr-collision-fallback-(?:[a-z0-9]{6}|[a-z0-9]{8})$`).MatchString(candidateEscalated) {
+		t.Fatalf("expected uid6/uid8 fallback alias, got %q", candidateEscalated)
+	}
+}
+
+func TestApplyCRPlanDryRunRejectsExplicitBranchAliasCollision(t *testing.T) {
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	runGit(t, dir, "config", "user.name", "Test User")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+	runGit(t, dir, "commit", "--allow-empty", "-m", "seed")
+	existing := "cr-explicit-collision-a1b2"
+	runGit(t, dir, "branch", existing, "HEAD")
+	plan := `version: v1
+crs:
+  - key: explicit_collision
+    title: "Explicit collision"
+    description: "expect deterministic collision error"
+    branch_alias: "cr-explicit-collision-a1b2"
+`
+	planPath := writePlanFile(t, dir, "explicit-collision-plan.yaml", plan)
+
+	_, err := svc.ApplyCRPlan(ApplyCRPlanOptions{FilePath: planPath, DryRun: true})
+	if err == nil || !strings.Contains(err.Error(), "already exists") {
+		t.Fatalf("expected explicit branch alias collision error, got %v", err)
 	}
 }
 
