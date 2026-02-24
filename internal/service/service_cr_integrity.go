@@ -58,7 +58,11 @@ func (s *Service) ReconcileCR(id int, opts ReconcileCROptions) (*ReconcileCRRepo
 	}
 
 	changed := false
-	expectedParentID := expectedParentCRIDFromBaseRef(strings.TrimSpace(cr.BaseRef), cr.ID)
+	allCRs, listErr := s.store.ListCRs()
+	if listErr != nil {
+		allCRs = []model.CR{}
+	}
+	expectedParentID := expectedParentCRIDFromBaseRef(strings.TrimSpace(cr.BaseRef), cr.ID, allCRs)
 	if expectedParentID > 0 && expectedParentID != cr.ParentCRID {
 		if _, parentErr := s.store.LoadCR(expectedParentID); parentErr == nil {
 			cr.ParentCRID = expectedParentID
@@ -224,7 +228,11 @@ func (s *Service) buildCRDoctorReport(cr *model.CR) (*CRDoctorReport, error) {
 		}
 	}
 
-	report.ExpectedParentID = expectedParentCRIDFromBaseRef(report.BaseRef, cr.ID)
+	allCRs, listErr := s.store.ListCRs()
+	if listErr != nil {
+		allCRs = []model.CR{}
+	}
+	report.ExpectedParentID = expectedParentCRIDFromBaseRef(report.BaseRef, cr.ID, allCRs)
 	if report.ExpectedParentID > 0 && cr.ParentCRID != report.ExpectedParentID {
 		report.Findings = append(report.Findings, CRDoctorFinding{
 			Code:    "parent_base_ref_mismatch",
@@ -452,12 +460,37 @@ func reconcileScanRef(cr *model.CR, branchExists bool) string {
 	return nonEmptyTrimmed(cr.BaseRef, cr.BaseBranch)
 }
 
-func expectedParentCRIDFromBaseRef(baseRef string, currentCRID int) int {
-	id, ok := parseCRBranchID(strings.TrimSpace(baseRef))
-	if !ok || id <= 0 || id == currentCRID {
+func expectedParentCRIDFromBaseRef(baseRef string, currentCRID int, crs []model.CR) int {
+	trimmed := strings.TrimSpace(baseRef)
+	if trimmed == "" {
 		return 0
 	}
-	return id
+	if id, ok := parseCRBranchID(trimmed); ok && id > 0 && id != currentCRID {
+		return id
+	}
+	if id, ok := parseCRRefID(trimmed); ok && id > 0 && id != currentCRID {
+		return id
+	}
+	if uid, ok := parseCRUIDRef(trimmed); ok {
+		for _, candidate := range crs {
+			if candidate.ID == currentCRID {
+				continue
+			}
+			if strings.TrimSpace(candidate.UID) == strings.TrimSpace(uid) {
+				return candidate.ID
+			}
+		}
+		return 0
+	}
+	for _, candidate := range crs {
+		if candidate.ID == currentCRID {
+			continue
+		}
+		if strings.TrimSpace(candidate.Branch) == trimmed {
+			return candidate.ID
+		}
+	}
+	return 0
 }
 
 type checkpointState struct {
