@@ -116,7 +116,15 @@ func nextArchiveRevision(dir string, crID int) (int, error) {
 }
 
 func (s *Service) relativeToRepoPath(absPath string) (string, error) {
-	rel, err := filepath.Rel(s.repoRootPath(), absPath)
+	return relativeToRootPath(s.repoRootPath(), absPath)
+}
+
+func relativeToRootPath(rootPath, absPath string) (string, error) {
+	rootPath = strings.TrimSpace(rootPath)
+	if rootPath == "" {
+		return "", fmt.Errorf("root path is required")
+	}
+	rel, err := filepath.Rel(rootPath, absPath)
 	if err != nil {
 		return "", err
 	}
@@ -234,6 +242,22 @@ func (s *Service) BackfillCRArchives(opts CRArchiveBackfillOptions) (*CRArchiveB
 	if !opts.Commit || len(missing) == 0 {
 		return out, nil
 	}
+	cfg, err := s.store.LoadConfig()
+	if err != nil {
+		return nil, err
+	}
+	baseBranch := strings.TrimSpace(cfg.BaseBranch)
+	if baseBranch == "" {
+		return nil, fmt.Errorf("backfill --commit requires configured base branch")
+	}
+	currentBranch, err := s.git.CurrentBranch()
+	if err != nil {
+		return nil, err
+	}
+	currentBranch = strings.TrimSpace(currentBranch)
+	if currentBranch != baseBranch {
+		return nil, fmt.Errorf("backfill --commit must run on base branch %q (current branch %q)", baseBranch, currentBranch)
+	}
 	if dirty, summary, err := s.workingTreeDirtySummaryFor(s.git); err != nil {
 		return nil, err
 	} else if dirty {
@@ -297,6 +321,16 @@ func writeArchivePayload(path string, payload []byte) error {
 		return err
 	}
 	return os.WriteFile(path, payload, 0o644)
+}
+
+func archiveFileExists(path string) (bool, error) {
+	if _, err := os.Stat(path); err == nil {
+		return true, nil
+	} else if os.IsNotExist(err) {
+		return false, nil
+	} else {
+		return false, err
+	}
 }
 
 func buildCRArchiveDocument(cr *model.CR, revision int, reason, archivedAt string, gitSummary model.CRArchiveGitSummary) model.CRArchive {
