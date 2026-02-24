@@ -11,9 +11,12 @@ import (
 const crBranchSlugMaxLen = 48
 
 var (
-	legacyCRBranchPattern = regexp.MustCompile(`^sophia/cr-(\d+)$`)
-	humanCRBranchPattern  = regexp.MustCompile(`^(?:[a-z0-9._-]+/)?cr-(\d+)(?:-[a-z0-9][a-z0-9-]*)?$`)
-	ownerPrefixPattern    = regexp.MustCompile(`^[a-z0-9._-]+$`)
+	legacyCRBranchPattern   = regexp.MustCompile(`^sophia/cr-(\d+)$`)
+	humanCRBranchV1Pattern  = regexp.MustCompile(`^(?:[a-z0-9._-]+/)?cr-(\d+)(?:-[a-z0-9][a-z0-9-]*)?$`)
+	humanCRBranchV2Pattern  = regexp.MustCompile(`^(?:[a-z0-9._-]+/)?cr-[a-z][a-z0-9-]*-(?:[a-z0-9]{4}|[a-z0-9]{6}|[a-z0-9]{8})$`)
+	ownerPrefixPattern      = regexp.MustCompile(`^[a-z0-9._-]+$`)
+	uidTokenPattern         = regexp.MustCompile(`^[a-z0-9]+$`)
+	uidSuffixLengthFallback = []int{4, 6, 8}
 )
 
 func legacyCRBranchName(id int) string {
@@ -29,11 +32,50 @@ func formatCRBranchAlias(id int, title, ownerPrefix string) (string, error) {
 		return "", err
 	}
 	slug := branchSlugFromTitle(title)
-	branch := fmt.Sprintf("cr-%d-%s", id, slug)
+	token := previewUIDSuffixFromID(id)
+	branch := fmt.Sprintf("cr-%s-%s", slug, token)
 	if normalizedOwner != "" {
 		return normalizedOwner + "/" + branch, nil
 	}
 	return branch, nil
+}
+
+func formatCRBranchAliasFromUID(title, ownerPrefix, uid string, suffixLen int) (string, error) {
+	if suffixLen <= 0 {
+		return "", fmt.Errorf("invalid uid suffix length %d", suffixLen)
+	}
+	normalizedOwner, err := normalizeCRBranchOwnerPrefix(ownerPrefix)
+	if err != nil {
+		return "", err
+	}
+	uidToken, err := uidTokenFromCRUID(uid)
+	if err != nil {
+		return "", err
+	}
+	if len(uidToken) < suffixLen {
+		return "", fmt.Errorf("uid %q is too short for suffix length %d", uid, suffixLen)
+	}
+	slug := branchSlugFromTitle(title)
+	branch := fmt.Sprintf("cr-%s-%s", slug, uidToken[:suffixLen])
+	if normalizedOwner != "" {
+		return normalizedOwner + "/" + branch, nil
+	}
+	return branch, nil
+}
+
+func formatCRBranchAliasWithFallback(title, ownerPrefix, uid string, branchExists func(string) bool) (string, error) {
+	lastCandidate := ""
+	for _, length := range uidSuffixLengthFallback {
+		candidate, err := formatCRBranchAliasFromUID(title, ownerPrefix, uid, length)
+		if err != nil {
+			return "", err
+		}
+		lastCandidate = candidate
+		if branchExists == nil || !branchExists(candidate) {
+			return candidate, nil
+		}
+	}
+	return "", fmt.Errorf("unable to allocate branch alias; all uid suffix lengths collided (last=%q)", lastCandidate)
 }
 
 func normalizeCRBranchOwnerPrefix(raw string) (string, error) {
@@ -48,6 +90,24 @@ func normalizeCRBranchOwnerPrefix(raw string) (string, error) {
 		return "", fmt.Errorf("invalid branch owner prefix %q: expected [a-z0-9._-]+", raw)
 	}
 	return trimmed, nil
+}
+
+func ownerPrefixFromBranch(branch string) (string, bool) {
+	trimmed := strings.TrimSpace(branch)
+	if trimmed == "" {
+		return "", false
+	}
+	lower := strings.ToLower(trimmed)
+	idx := strings.Index(lower, "/cr-")
+	if idx <= 0 {
+		return "", false
+	}
+	prefix := strings.TrimSpace(trimmed[:idx])
+	normalized, err := normalizeCRBranchOwnerPrefix(prefix)
+	if err != nil || normalized == "" {
+		return "", false
+	}
+	return normalized, true
 }
 
 func branchSlugFromTitle(title string) string {
@@ -82,10 +142,59 @@ func branchSlugFromTitle(title string) string {
 	if len(slug) > crBranchSlugMaxLen {
 		slug = strings.Trim(slug[:crBranchSlugMaxLen], "-")
 	}
+	if len(slug) > 0 && slug[0] >= '0' && slug[0] <= '9' {
+		slug = "n-" + slug
+		if len(slug) > crBranchSlugMaxLen {
+			slug = strings.Trim(slug[:crBranchSlugMaxLen], "-")
+		}
+	}
 	if slug == "" {
 		return "intent"
 	}
 	return slug
+}
+
+func uidTokenFromCRUID(uid string) (string, error) {
+	trimmed := strings.ToLower(strings.TrimSpace(uid))
+	if strings.HasPrefix(trimmed, "cr_") {
+		trimmed = strings.TrimPrefix(trimmed, "cr_")
+	}
+	trimmed = strings.ReplaceAll(trimmed, "-", "")
+	if trimmed == "" {
+		return "", fmt.Errorf("cr uid cannot be empty")
+	}
+	if !uidTokenPattern.MatchString(trimmed) {
+		return "", fmt.Errorf("invalid cr uid %q: expected lowercase alphanumeric characters", uid)
+	}
+	return trimmed, nil
+}
+
+func normalizeCRUID(uid string) (string, error) {
+	trimmed := strings.ToLower(strings.TrimSpace(uid))
+	if trimmed == "" {
+		return "", fmt.Errorf("cr uid cannot be empty")
+	}
+	if !strings.HasPrefix(trimmed, "cr_") {
+		trimmed = "cr_" + trimmed
+	}
+	if _, err := uidTokenFromCRUID(trimmed); err != nil {
+		return "", err
+	}
+	return trimmed, nil
+}
+
+func previewUIDSuffixFromID(id int) string {
+	token := strings.ToLower(strconv.FormatInt(int64(id), 36))
+	switch {
+	case len(token) >= 4:
+		return token[:4]
+	case len(token) == 3:
+		return "0" + token
+	case len(token) == 2:
+		return "00" + token
+	default:
+		return "000" + token
+	}
 }
 
 func parseCRIDFromBranchName(branch string) (int, bool) {
@@ -93,7 +202,7 @@ func parseCRIDFromBranchName(branch string) (int, bool) {
 	if candidate == "" {
 		return 0, false
 	}
-	for _, pattern := range []*regexp.Regexp{legacyCRBranchPattern, humanCRBranchPattern} {
+	for _, pattern := range []*regexp.Regexp{legacyCRBranchPattern, humanCRBranchV1Pattern} {
 		matches := pattern.FindStringSubmatch(candidate)
 		if len(matches) != 2 {
 			continue
@@ -108,11 +217,13 @@ func parseCRIDFromBranchName(branch string) (int, bool) {
 }
 
 func detectCRBranchScheme(branch string) string {
-	trimmed := strings.TrimSpace(branch)
+	trimmed := strings.ToLower(strings.TrimSpace(branch))
 	switch {
 	case legacyCRBranchPattern.MatchString(trimmed):
 		return "legacy_v0"
-	case humanCRBranchPattern.MatchString(trimmed):
+	case humanCRBranchV2Pattern.MatchString(trimmed):
+		return "human_alias_v2"
+	case humanCRBranchV1Pattern.MatchString(trimmed):
 		return "human_alias_v1"
 	default:
 		return "custom"
@@ -129,10 +240,13 @@ func validateCRBranchAliasShape(alias string) (string, error) {
 			return "", fmt.Errorf("invalid branch alias %q: whitespace is not allowed", alias)
 		}
 	}
-	if _, ok := parseCRIDFromBranchName(trimmed); !ok {
-		return "", fmt.Errorf("invalid branch alias %q: expected cr-<id>-<slug> (optionally owner-prefixed)", alias)
+	if _, ok := parseCRIDFromBranchName(trimmed); ok {
+		return trimmed, nil
 	}
-	return trimmed, nil
+	if humanCRBranchV2Pattern.MatchString(strings.ToLower(trimmed)) {
+		return trimmed, nil
+	}
+	return "", fmt.Errorf("invalid branch alias %q: expected cr-<id>-<slug> or cr-<slug>-<uid4|uid6|uid8> (optionally owner-prefixed)", alias)
 }
 
 func validateExplicitCRBranchAlias(alias string, expectedID int) (string, error) {
@@ -140,9 +254,12 @@ func validateExplicitCRBranchAlias(alias string, expectedID int) (string, error)
 	if err != nil {
 		return "", err
 	}
+	if humanCRBranchV2Pattern.MatchString(strings.ToLower(trimmed)) {
+		return trimmed, nil
+	}
 	id, ok := parseCRIDFromBranchName(trimmed)
 	if !ok {
-		return "", fmt.Errorf("invalid branch alias %q: expected cr-<id>-<slug> (optionally owner-prefixed)", alias)
+		return "", fmt.Errorf("invalid branch alias %q", alias)
 	}
 	if id != expectedID {
 		return "", fmt.Errorf("invalid branch alias %q: expected id %d, found %d", alias, expectedID, id)

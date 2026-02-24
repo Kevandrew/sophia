@@ -4,13 +4,14 @@ Sophia treats branch names as human-friendly aliases and keeps canonical CR iden
 
 ## Default Alias Format
 
-- `cr-<id>-<slug>`
-- optional owner namespace: `<owner>/cr-<id>-<slug>`
+- `cr-<slug>-<uid4>`
+- optional owner namespace: `<owner>/cr-<slug>-<uid4>`
+- collision fallback extends suffix length automatically (`uid6`, then `uid8`)
 
 Examples:
 
-- `cr-42-branch-identity-redesign`
-- `kevandrew/cr-42-branch-identity-redesign`
+- `cr-branch-identity-redesign-c6be`
+- `kevandrew/cr-branch-identity-redesign-c6be`
 
 Legacy branches (`sophia/cr-<id>`) remain supported.
 
@@ -19,7 +20,7 @@ Legacy branches (`sophia/cr-<id>`) remain supported.
 Create-time controls:
 
 - `sophia cr add "<title>" --owner-prefix kevandrew`
-- `sophia cr add "<title>" --branch-alias kevandrew/cr-42-branch-identity-redesign`
+- `sophia cr add "<title>" --branch-alias kevandrew/cr-branch-identity-redesign-c6be`
 - `sophia cr child add "<title>" --owner-prefix kevandrew`
 
 Repository default owner prefix:
@@ -35,9 +36,15 @@ Plan apply (`sophia cr apply`) supports optional per-CR fields:
 
 - `sophia cr branch show <id>`
 - `sophia cr branch resolve [--branch <name>]`
-- `sophia cr branch format --id <id> --title "<title>" [--owner-prefix <owner>]`
+- `sophia cr branch format --id <id> [--title "<title>"] [--owner-prefix <owner>]`
+- `sophia cr branch format --uid <cr-uid> --title "<title>" [--owner-prefix <owner>]`
 - `sophia cr branch migrate <id> [--dry-run]`
 - `sophia cr branch migrate --all [--dry-run] [--json]`
+
+`cr branch format` behavior:
+
+- existing `--id` with no overrides returns the CR's stored branch alias
+- non-existing `--id` + `--title` returns a local preview alias (`cr-<slug>-<id-token>`)
 
 ## UID and Selector Behavior
 
@@ -45,7 +52,7 @@ Commands that take CR selectors accept:
 
 - numeric CR id (e.g. `42`)
 - CR uid (e.g. `cr_c6bec981-b3dc-493d-aa41-897df808126c`)
-- branch-style selector when parseable (e.g. `cr-42-branch-identity-redesign`)
+- exact branch selector match against stored CR branch (e.g. `cr-branch-identity-redesign-c6be`)
 
 ## Canonical References and Footers
 

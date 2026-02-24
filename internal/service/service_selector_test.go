@@ -1,6 +1,9 @@
 package service
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestResolveCRIDByUID(t *testing.T) {
 	dir := t.TempDir()
@@ -44,5 +47,21 @@ func TestResolveCRIDSupportsIDUIDAndAlias(t *testing.T) {
 		if got != cr.ID {
 			t.Fatalf("ResolveCRID(%q) expected %d, got %d", selector, cr.ID, got)
 		}
+	}
+}
+
+func TestResolveCRIDRejectsUnknownBranchLikeSelector(t *testing.T) {
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	if _, err := svc.AddCR("Resolve selector", "selector variants"); err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+
+	_, err := svc.ResolveCRID("cr-missing-alias-a1b2")
+	if err == nil || !strings.Contains(strings.ToLower(err.Error()), "not found") {
+		t.Fatalf("expected branch-like selector not found error, got %v", err)
 	}
 }

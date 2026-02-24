@@ -156,6 +156,7 @@ type AddCROptions struct {
 	BranchAlias    string
 	OwnerPrefix    string
 	OwnerPrefixSet bool
+	UIDOverride    string
 }
 
 const (

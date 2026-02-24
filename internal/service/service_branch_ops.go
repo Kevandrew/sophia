@@ -8,6 +8,7 @@ import (
 
 type BranchFormatView struct {
 	ID          int
+	UID         string
 	Title       string
 	OwnerPrefix string
 	Branch      string
@@ -27,18 +28,103 @@ type BranchMigrateView struct {
 	Changed bool
 }
 
-func (s *Service) FormatCRBranch(id int, title, ownerPrefix string) (*BranchFormatView, error) {
-	branch, err := formatCRBranchAlias(id, title, ownerPrefix)
+func (s *Service) FormatCRBranch(id int, title, ownerPrefix, uid string, ownerPrefixSet bool) (*BranchFormatView, error) {
+	var existing *model.CR
+	if id > 0 {
+		cr, err := s.store.LoadCR(id)
+		if err != nil && strings.TrimSpace(uid) == "" && strings.TrimSpace(title) == "" {
+			return nil, err
+		}
+		if err == nil {
+			existing = cr
+		}
+	}
+	if existing != nil && strings.TrimSpace(title) == "" && strings.TrimSpace(uid) == "" && !ownerPrefixSet {
+		normalizedOwner := ""
+		if inferred, ok := ownerPrefixFromBranch(existing.Branch); ok {
+			normalizedOwner = inferred
+		}
+		return &BranchFormatView{
+			ID:          id,
+			UID:         strings.TrimSpace(existing.UID),
+			Title:       strings.TrimSpace(existing.Title),
+			OwnerPrefix: normalizedOwner,
+			Branch:      strings.TrimSpace(existing.Branch),
+		}, nil
+	}
+
+	resolvedTitle := strings.TrimSpace(title)
+	if resolvedTitle == "" && existing != nil {
+		resolvedTitle = strings.TrimSpace(existing.Title)
+	}
+	if resolvedTitle == "" {
+		return nil, fmt.Errorf("--title is required")
+	}
+
+	resolvedUID := strings.TrimSpace(uid)
+	if resolvedUID == "" && existing != nil {
+		resolvedUID = strings.TrimSpace(existing.UID)
+	}
+	resolvedOwner := strings.TrimSpace(ownerPrefix)
+	if !ownerPrefixSet && resolvedOwner == "" {
+		if existing != nil {
+			if inferred, ok := ownerPrefixFromBranch(existing.Branch); ok {
+				resolvedOwner = inferred
+			}
+		}
+		if resolvedOwner == "" {
+			if cfg, cfgErr := s.store.LoadConfig(); cfgErr == nil {
+				resolvedOwner = strings.TrimSpace(cfg.BranchOwnerPrefix)
+			}
+		}
+	}
+	if resolvedUID == "" {
+		if id <= 0 {
+			return nil, fmt.Errorf("--uid is required (or supply an existing --id)")
+		}
+		branch, err := formatCRBranchAlias(id, resolvedTitle, resolvedOwner)
+		if err != nil {
+			return nil, err
+		}
+		normalizedOwner, err := normalizeCRBranchOwnerPrefix(resolvedOwner)
+		if err != nil {
+			return nil, err
+		}
+		return &BranchFormatView{
+			ID:          id,
+			UID:         "",
+			Title:       resolvedTitle,
+			OwnerPrefix: normalizedOwner,
+			Branch:      branch,
+		}, nil
+	}
+	resolvedUID, err := normalizeCRUID(resolvedUID)
 	if err != nil {
 		return nil, err
 	}
-	normalizedOwner, err := normalizeCRBranchOwnerPrefix(ownerPrefix)
+
+	existingBranch := ""
+	if existing != nil {
+		existingBranch = strings.TrimSpace(existing.Branch)
+	}
+	branch, err := formatCRBranchAliasWithFallback(resolvedTitle, resolvedOwner, resolvedUID, func(candidate string) bool {
+		if existingBranch != "" && strings.TrimSpace(candidate) == existingBranch {
+			return false
+		}
+		return s.git.BranchExists(candidate)
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	normalizedOwner, err := normalizeCRBranchOwnerPrefix(resolvedOwner)
 	if err != nil {
 		return nil, err
 	}
 	return &BranchFormatView{
 		ID:          id,
-		Title:       strings.TrimSpace(title),
+		UID:         resolvedUID,
+		Title:       resolvedTitle,
 		OwnerPrefix: normalizedOwner,
 		Branch:      branch,
 	}, nil
@@ -71,6 +157,9 @@ func (s *Service) MigrateCRBranch(id int, dryRun bool) (*BranchMigrateView, erro
 	if err != nil {
 		return nil, err
 	}
+	if _, err := ensureCRUID(cr); err != nil {
+		return nil, err
+	}
 	if cr.Status != model.StatusInProgress {
 		return nil, fmt.Errorf("cr %d is not in progress", id)
 	}
@@ -78,7 +167,12 @@ func (s *Service) MigrateCRBranch(id int, dryRun bool) (*BranchMigrateView, erro
 	if err != nil {
 		return nil, err
 	}
-	target, err := formatCRBranchAlias(cr.ID, cr.Title, cfg.BranchOwnerPrefix)
+	target, err := formatCRBranchAliasWithFallback(cr.Title, cfg.BranchOwnerPrefix, cr.UID, func(candidate string) bool {
+		if strings.TrimSpace(candidate) == strings.TrimSpace(cr.Branch) {
+			return false
+		}
+		return s.git.BranchExists(candidate)
+	})
 	if err != nil {
 		return nil, err
 	}

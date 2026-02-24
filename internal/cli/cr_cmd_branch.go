@@ -129,24 +129,18 @@ func newCRBranchResolveCmd() *cobra.Command {
 
 func newCRBranchFormatCmd() *cobra.Command {
 	var id int
+	var uid string
 	var title string
 	var ownerPrefix string
 	var asJSON bool
 
 	cmd := &cobra.Command{
 		Use:   "format",
-		Short: "Format a CR branch alias from id/title",
+		Short: "Format a CR branch alias from uid/title",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if id <= 0 {
-				err := fmt.Errorf("--id must be >= 1")
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
-			}
-			if strings.TrimSpace(title) == "" {
-				err := fmt.Errorf("--title is required")
+			if id <= 0 && strings.TrimSpace(uid) == "" {
+				err := fmt.Errorf("provide --uid or an existing --id")
 				if asJSON {
 					return writeJSONError(cmd, err)
 				}
@@ -159,7 +153,7 @@ func newCRBranchFormatCmd() *cobra.Command {
 				}
 				return err
 			}
-			view, err := svc.FormatCRBranch(id, title, ownerPrefix)
+			view, err := svc.FormatCRBranch(id, title, ownerPrefix, uid, cmd.Flags().Changed("owner-prefix"))
 			if err != nil {
 				if asJSON {
 					return writeJSONError(cmd, err)
@@ -169,6 +163,7 @@ func newCRBranchFormatCmd() *cobra.Command {
 			if asJSON {
 				return writeJSONSuccess(cmd, map[string]any{
 					"id":           view.ID,
+					"uid":          view.UID,
 					"title":        view.Title,
 					"owner_prefix": view.OwnerPrefix,
 					"branch":       view.Branch,
@@ -178,8 +173,9 @@ func newCRBranchFormatCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().IntVar(&id, "id", 0, "CR id")
-	cmd.Flags().StringVar(&title, "title", "", "CR title")
+	cmd.Flags().IntVar(&id, "id", 0, "Existing CR id")
+	cmd.Flags().StringVar(&uid, "uid", "", "CR uid (required unless --id resolves to an existing CR)")
+	cmd.Flags().StringVar(&title, "title", "", "CR title (required unless inferred from --id)")
 	cmd.Flags().StringVar(&ownerPrefix, "owner-prefix", "", "Optional owner prefix for generated alias")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "Output in JSON format")
 	return cmd

@@ -28,8 +28,8 @@ func TestCRStatusJSONIncludesBranchIdentity(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected branch_identity object in status payload, got %#v", env.Data["branch_identity"])
 	}
-	if scheme, _ := identity["scheme"].(string); scheme != "human_alias_v1" {
-		t.Fatalf("expected human_alias_v1 scheme, got %#v", identity["scheme"])
+	if scheme, _ := identity["scheme"].(string); scheme != "human_alias_v2" {
+		t.Fatalf("expected human_alias_v2 scheme, got %#v", identity["scheme"])
 	}
 }
 

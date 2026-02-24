@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -108,8 +109,8 @@ func TestAddCRAlignsNextIDWithHistory(t *testing.T) {
 	if cr.ID != 5 {
 		t.Fatalf("expected CR id 5, got %d", cr.ID)
 	}
-	if id, ok := parseCRBranchID(cr.Branch); !ok || id != 5 {
-		t.Fatalf("expected branch for CR 5, got %q", cr.Branch)
+	if ok, _ := regexp.MatchString(`^cr-new-intent-(?:[a-z0-9]{4}|[a-z0-9]{6}|[a-z0-9]{8})$`, cr.Branch); !ok {
+		t.Fatalf("expected uid-suffixed branch for CR 5, got %q", cr.Branch)
 	}
 }
 
@@ -127,7 +128,7 @@ func TestAddCRCreatesBranchAndCRFile(t *testing.T) {
 	if cr.ID != 1 {
 		t.Fatalf("expected CR id 1, got %d", cr.ID)
 	}
-	if id, ok := parseCRBranchID(cr.Branch); !ok || id != 1 {
+	if ok, _ := regexp.MatchString(`^cr-bootstrap-(?:[a-z0-9]{4}|[a-z0-9]{6}|[a-z0-9]{8})$`, cr.Branch); !ok {
 		t.Fatalf("unexpected branch %q", cr.Branch)
 	}
 	if strings.TrimSpace(cr.UID) == "" {

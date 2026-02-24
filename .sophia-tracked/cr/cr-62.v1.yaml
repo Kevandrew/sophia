@@ -1,0 +1,193 @@
+schema_version: sophia.cr_archive.v1
+notice: Historical archive snapshot. Corrections are append-only revisions.
+archived_at: "2026-02-24T23:39:36Z"
+revision: 1
+cr:
+    id: 62
+    uid: cr_42b579c7-f051-4c11-b662-f018f92fd7ba
+    title: Team-safe branch identity with local monotonic UX
+    description: Keep local CR numbering monotonic for day-to-day use while changing generated branch aliases to cr-<slug>-<uid4> (with automatic uid-length fallback on collision), preserving full UID as canonical identity in metadata/footers, and hardening selector resolution to prefer exact branch matches.
+    status: merged
+    base_branch: main
+    base_ref: main
+    base_commit: 165e0a36ff67b86a9da5776cc7ed4476b36fde16
+    branch: cr-62-team-safe-branch-identity-with-local-monotonic-u
+    merged_at: "2026-02-24T23:39:36Z"
+    merged_by: Kevandrew <143258544+Kevandrew@users.noreply.github.com>
+contract:
+    why: |-
+        Multi-developer repositories can produce branch alias collisions when aliases include local CR IDs.
+        This change keeps local monotonic IDs as internal UX while making shared branch aliases collision-resistant and non-sequential.
+    scope:
+        - docs
+        - internal/cli
+        - internal/service
+    non_goals:
+        - Do not auto-migrate existing in-progress CR branches.
+        - Do not change local CR ID generation or list ordering.
+    invariants:
+        - Existing legacy branch aliases remain parseable.
+        - Full CR UID remains the canonical identity in metadata and commit footers.
+        - Local CR commands continue to use local monotonic CR IDs.
+    blast_radius: Branch alias generation and validation, CR selector resolution semantics for branch-like inputs, branch migration target formatting, and branch-identity documentation/examples.
+    risk_critical_scopes:
+        - internal/service
+    risk_tier_hint: medium
+    risk_rationale: Touches identity and selector behavior used across CR workflows; incorrect resolution could route commands to the wrong CR.
+    test_plan: go test ./... && go vet ./...
+    rollback_plan: Revert the merge commit for this CR.
+tasks:
+    - id: 1
+      title: Adopt UID-suffixed branch alias format and branch format UX
+      status: done
+      contract:
+        intent: Switch generated CR branch aliases to UID-suffixed format and align branch formatting UX with existing CR metadata and owner-prefix behavior.
+        acceptance_criteria:
+            - CLI/docs/tests reflect accepted explicit alias forms for v1 and v2 branch formats.
+            - Generated aliases use cr-<slug>-<uid4> with collision fallback lengths and preserve owner prefix when expected.
+            - branch format supports existing --id without overrides, UID-based formatting, and JSON metadata including uid/scheme updates.
+        scope:
+            - docs/branch-identity.md
+            - internal/cli/cr_cmd_branch.go
+            - internal/cli/cr_cmd_core.go
+            - internal/cli/cr_json_branch_identity_test.go
+            - internal/cli/cr_json_branch_ops_test.go
+            - internal/cli/cr_json_mappers.go
+            - internal/service/service.go
+            - internal/service/service_branch_identity.go
+            - internal/service/service_branch_identity_test.go
+            - internal/service/service_branch_ops.go
+            - internal/service/service_cr.go
+            - internal/service/service_cr_add_switch_test.go
+            - internal/service/service_test.go
+      checkpoint:
+        commit: 3c86a893
+        at: "2026-02-24T23:39:04Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/cr_json_branch_ops_test.go
+            - internal/service/service_branch_identity_test.go
+    - id: 2
+      title: Resolve CR selectors by exact branch and improve branch-based integrity checks
+      status: done
+      contract:
+        intent: Make CR selector and integrity flows resolve branch-like references deterministically by exact stored branch or canonical refs, with clearer not-found behavior.
+        acceptance_criteria:
+            - Integrity parent inference accepts base refs expressed as branch, id ref, or uid ref and maps to the right parent CR.
+            - JSON suggested-action switch hints resolve branch aliases via service lookup.
+            - ResolveCRID errors explicitly for unknown branch-like selectors and no longer infers IDs from v2 alias strings.
+        scope:
+            - internal/cli/json.go
+            - internal/service/service_cr_integrity.go
+            - internal/service/service_selector.go
+            - internal/service/service_selector_test.go
+      checkpoint:
+        commit: 10fe19df
+        at: "2026-02-24T23:19:55Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/json.go
+            - internal/service/service_cr_integrity.go
+            - internal/service/service_selector.go
+            - internal/service/service_selector_test.go
+    - id: 3
+      title: Make CR plan dry-run predictions deterministic and parity-safe with apply
+      status: done
+      contract:
+        intent: Keep CR plan dry-run predictions and apply outputs deterministic and aligned for id/uid/branch allocation while tolerating malformed legacy data.
+        acceptance_criteria:
+            - Dry-run and apply return matching created CR metadata for the same plan.
+            - Malformed existing CR UIDs are ignored with warnings instead of aborting plan prediction.
+            - Plan prediction allocates deterministic CR UIDs and branch aliases without colliding with existing CRs/branches.
+        scope:
+            - internal/service/service_plan_apply.go
+            - internal/service/service_plan_apply_test.go
+      checkpoint:
+        commit: b21279c8
+        at: "2026-02-24T23:39:04Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_plan_apply_test.go
+git_summary:
+    base_parent: 165e0a36ff67b86a9da5776cc7ed4476b36fde16
+    cr_parent: b21279c83cda48ba44ca0244e65d7b4c99bfd2a4
+    files_changed:
+        - docs/branch-identity.md
+        - internal/cli/cr_cmd_branch.go
+        - internal/cli/cr_cmd_core.go
+        - internal/cli/cr_json_branch_identity_test.go
+        - internal/cli/cr_json_branch_ops_test.go
+        - internal/cli/cr_json_mappers.go
+        - internal/cli/json.go
+        - internal/service/service.go
+        - internal/service/service_branch_identity.go
+        - internal/service/service_branch_identity_test.go
+        - internal/service/service_branch_ops.go
+        - internal/service/service_cr.go
+        - internal/service/service_cr_add_switch_test.go
+        - internal/service/service_cr_integrity.go
+        - internal/service/service_plan_apply.go
+        - internal/service/service_plan_apply_test.go
+        - internal/service/service_selector.go
+        - internal/service/service_selector_test.go
+        - internal/service/service_test.go
+    diffstat:
+        summary: 19 files changed, 898 insertions(+), 107 deletions(-)
+        files:
+            - path: docs/branch-identity.md
+              insertions: 14
+              deletions: 7
+            - path: internal/cli/cr_cmd_branch.go
+              insertions: 9
+              deletions: 13
+            - path: internal/cli/cr_cmd_core.go
+              insertions: 2
+              deletions: 2
+            - path: internal/cli/cr_json_branch_identity_test.go
+              insertions: 2
+              deletions: 2
+            - path: internal/cli/cr_json_branch_ops_test.go
+              insertions: 103
+              deletions: 3
+            - path: internal/cli/cr_json_mappers.go
+              insertions: 13
+              deletions: 3
+            - path: internal/cli/json.go
+              insertions: 4
+              deletions: 8
+            - path: internal/service/service.go
+              insertions: 1
+              deletions: 0
+            - path: internal/service/service_branch_identity.go
+              insertions: 128
+              deletions: 11
+            - path: internal/service/service_branch_identity_test.go
+              insertions: 85
+              deletions: 2
+            - path: internal/service/service_branch_ops.go
+              insertions: 99
+              deletions: 5
+            - path: internal/service/service_cr.go
+              insertions: 12
+              deletions: 5
+            - path: internal/service/service_cr_add_switch_test.go
+              insertions: 16
+              deletions: 0
+            - path: internal/service/service_cr_integrity.go
+              insertions: 39
+              deletions: 6
+            - path: internal/service/service_plan_apply.go
+              insertions: 156
+              deletions: 34
+            - path: internal/service/service_plan_apply_test.go
+              insertions: 154
+              deletions: 0
+            - path: internal/service/service_selector.go
+              insertions: 37
+              deletions: 2
+            - path: internal/service/service_selector_test.go
+              insertions: 20
+              deletions: 1
+            - path: internal/service/service_test.go
+              insertions: 4
+              deletions: 3
