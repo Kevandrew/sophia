@@ -106,7 +106,7 @@ func newCRAddCmd() *cobra.Command {
 	cmd.Flags().StringVar(&baseRef, "base", "", "Base Git ref for this CR")
 	cmd.Flags().IntVar(&parentID, "parent", 0, "Parent CR id for stacked workflow")
 	cmd.Flags().BoolVar(&switchBranch, "switch", false, "Switch to the CR branch immediately after creation")
-	cmd.Flags().StringVar(&branchAlias, "branch-alias", "", "Explicit branch alias (must include matching cr-<id> segment)")
+	cmd.Flags().StringVar(&branchAlias, "branch-alias", "", "Explicit branch alias (cr-<id>-<slug> or cr-<slug>-<uid4|uid6|uid8>)")
 	cmd.Flags().StringVar(&ownerPrefix, "owner-prefix", "", "Optional owner prefix for generated branch alias")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "Output in JSON format")
 	return cmd
@@ -244,7 +244,7 @@ func newCRChildAddCmd() *cobra.Command {
 
 	cmd.Flags().StringVar(&description, "description", "", "Description/rationale for the child CR")
 	cmd.Flags().BoolVar(&switchBranch, "switch", false, "Switch to the child CR branch immediately after creation")
-	cmd.Flags().StringVar(&branchAlias, "branch-alias", "", "Explicit branch alias (must include matching cr-<id> segment)")
+	cmd.Flags().StringVar(&branchAlias, "branch-alias", "", "Explicit branch alias (cr-<id>-<slug> or cr-<slug>-<uid4|uid6|uid8>)")
 	cmd.Flags().StringVar(&ownerPrefix, "owner-prefix", "", "Optional owner prefix for generated branch alias")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "Output in JSON format")
 	return cmd

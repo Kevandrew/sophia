@@ -74,16 +74,16 @@ func (s *Service) AddCRWithOptionsWithWarnings(title, description string, opts A
 	if err != nil {
 		return nil, nil, err
 	}
-	uid, err := newCRUID()
+	uid, err := resolveAddCRUID(opts)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	branch, err := resolveAddCRBranch(cfg, opts, id, title)
+	branch, err := s.resolveAddCRBranch(cfg, opts, id, uid, title)
 	if err != nil {
 		return nil, nil, err
 	}
-	if s.git.BranchExists(branch) {
+	if strings.TrimSpace(opts.BranchAlias) != "" && s.git.BranchExists(branch) {
 		return nil, nil, fmt.Errorf("branch %q already exists", branch)
 	}
 	switchBranch := shouldSwitchForAddCR(opts)
@@ -146,7 +146,7 @@ func (s *Service) resolveAddCRBaseContext(cfg model.Config, opts AddCROptions) (
 	return baseContext, nil
 }
 
-func resolveAddCRBranch(cfg model.Config, opts AddCROptions, id int, title string) (string, error) {
+func (s *Service) resolveAddCRBranch(cfg model.Config, opts AddCROptions, id int, uid, title string) (string, error) {
 	if strings.TrimSpace(opts.BranchAlias) != "" {
 		return validateExplicitCRBranchAlias(opts.BranchAlias, id)
 	}
@@ -154,7 +154,14 @@ func resolveAddCRBranch(cfg model.Config, opts AddCROptions, id int, title strin
 	if opts.OwnerPrefixSet {
 		ownerPrefix = opts.OwnerPrefix
 	}
-	return formatCRBranchAlias(id, title, ownerPrefix)
+	return formatCRBranchAliasWithFallback(title, ownerPrefix, uid, s.git.BranchExists)
+}
+
+func resolveAddCRUID(opts AddCROptions) (string, error) {
+	if strings.TrimSpace(opts.UIDOverride) != "" {
+		return normalizeCRUID(opts.UIDOverride)
+	}
+	return newCRUID()
 }
 
 func shouldSwitchForAddCR(opts AddCROptions) bool {

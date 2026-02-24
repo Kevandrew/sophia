@@ -3,6 +3,7 @@ package cli
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -59,8 +60,9 @@ func TestCRAddDefaultsToNoSwitchAndSupportsSwitchFlag(t *testing.T) {
 			activeBranch = fields[0]
 		}
 	}
-	if !strings.Contains(activeBranch, "cr-2-") {
-		t.Fatalf("expected CR-2 branch alias, got %q", activeBranch)
+	branchPattern := regexp.MustCompile(`^cr-switch-now-(?:[a-z0-9]{4}|[a-z0-9]{6}|[a-z0-9]{8})$`)
+	if !branchPattern.MatchString(activeBranch) {
+		t.Fatalf("expected uid-suffixed branch alias, got %q", activeBranch)
 	}
 	current = runGit(t, dir, "branch", "--show-current")
 	if current != activeBranch {
@@ -78,7 +80,7 @@ func TestCRAddSupportsOwnerPrefixAndExplicitBranchAlias(t *testing.T) {
 	if runErr != nil {
 		t.Fatalf("cr add with owner-prefix default error = %v\noutput=%s", runErr, out)
 	}
-	if !strings.Contains(out, "Active branch: kevandrew/cr-1-") {
+	if !strings.Contains(out, "Active branch: kevandrew/cr-prefix-default-") {
 		t.Fatalf("expected owner-prefixed active branch output, got %q", out)
 	}
 
@@ -91,9 +93,107 @@ func TestCRAddSupportsOwnerPrefixAndExplicitBranchAlias(t *testing.T) {
 		t.Fatalf("expected explicit alias output, got %q", out)
 	}
 
+	runGit(t, dir, "checkout", "main")
+	out, _, runErr = runCLI(t, dir, "cr", "add", "Alias explicit v2", "--branch-alias", "cr-alias-explicit-v2-a1b2", "--switch")
+	if runErr != nil {
+		t.Fatalf("cr add with explicit v2 alias error = %v\noutput=%s", runErr, out)
+	}
+	if !strings.Contains(out, "Active branch: cr-alias-explicit-v2-a1b2") {
+		t.Fatalf("expected explicit v2 alias output, got %q", out)
+	}
+
 	_, _, runErr = runCLI(t, dir, "cr", "add", "Conflict", "--branch-alias", "cr-3-conflict", "--owner-prefix", "foo")
 	if runErr == nil || !strings.Contains(runErr.Error(), "--branch-alias and --owner-prefix cannot be combined") {
 		t.Fatalf("expected branch-alias/owner-prefix conflict error, got %v", runErr)
+	}
+
+	_, _, runErr = runCLI(t, dir, "cr", "add", "Bad v2 suffix", "--branch-alias", "cr-bad-suffix-a1b2c")
+	if runErr == nil {
+		t.Fatalf("expected invalid v2 suffix length error")
+	}
+}
+
+func TestCRBranchFormatSupportsExistingIDAndExplicitUID(t *testing.T) {
+	dir := t.TempDir()
+	svc := service.New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	if _, _, runErr := runCLI(t, dir, "cr", "add", "Format target"); runErr != nil {
+		t.Fatalf("cr add error = %v", runErr)
+	}
+
+	statusOut, _, statusErr := runCLI(t, dir, "cr", "status", "1", "--json")
+	if statusErr != nil {
+		t.Fatalf("cr status --json error = %v\noutput=%s", statusErr, statusOut)
+	}
+	statusEnv := decodeEnvelope(t, statusOut)
+	existingBranch, _ := statusEnv.Data["branch"].(string)
+	existingUID, _ := statusEnv.Data["uid"].(string)
+	if strings.TrimSpace(existingBranch) == "" || strings.TrimSpace(existingUID) == "" {
+		t.Fatalf("expected existing branch and uid, got %#v", statusEnv.Data)
+	}
+
+	formatOut, _, formatErr := runCLI(t, dir, "cr", "branch", "format", "--id", "1", "--json")
+	if formatErr != nil {
+		t.Fatalf("cr branch format --id error = %v\noutput=%s", formatErr, formatOut)
+	}
+	formatEnv := decodeEnvelope(t, formatOut)
+	formattedBranch, _ := formatEnv.Data["branch"].(string)
+	formattedUID, _ := formatEnv.Data["uid"].(string)
+	if formattedBranch != existingBranch || formattedUID != existingUID {
+		t.Fatalf("expected formatted branch/uid to match existing CR, got branch=%q uid=%q", formattedBranch, formattedUID)
+	}
+
+	formatOut, _, formatErr = runCLI(t, dir, "cr", "branch", "format", "--uid", "cr_c6bec981-b3dc-493d-aa41-897df808126c", "--title", "Format target", "--json")
+	if formatErr != nil {
+		t.Fatalf("cr branch format --uid error = %v\noutput=%s", formatErr, formatOut)
+	}
+	formatEnv = decodeEnvelope(t, formatOut)
+	formattedBranch, _ = formatEnv.Data["branch"].(string)
+	if ok, _ := regexp.MatchString(`^cr-format-target-(?:[a-z0-9]{4}|[a-z0-9]{6}|[a-z0-9]{8})$`, formattedBranch); !ok {
+		t.Fatalf("expected uid-suffixed formatted branch, got %q", formattedBranch)
+	}
+
+	formatOut, _, formatErr = runCLI(t, dir, "cr", "branch", "format", "--id", "99", "--title", "Future preview", "--json")
+	if formatErr != nil {
+		t.Fatalf("cr branch format preview error = %v\noutput=%s", formatErr, formatOut)
+	}
+	formatEnv = decodeEnvelope(t, formatOut)
+	formattedBranch, _ = formatEnv.Data["branch"].(string)
+	if ok, _ := regexp.MatchString(`^cr-future-preview-[a-z0-9]{4}$`, formattedBranch); !ok {
+		t.Fatalf("expected id-preview branch alias, got %q", formattedBranch)
+	}
+}
+
+func TestCRBranchFormatPreservesOwnerPrefixForExistingCR(t *testing.T) {
+	dir := t.TempDir()
+	if _, _, initErr := runCLI(t, dir, "init", "--base-branch", "main", "--branch-owner-prefix", "team"); initErr != nil {
+		t.Fatalf("init with owner prefix error = %v", initErr)
+	}
+
+	if _, _, addErr := runCLI(t, dir, "cr", "add", "Owner format target"); addErr != nil {
+		t.Fatalf("cr add error = %v", addErr)
+	}
+	statusOut, _, statusErr := runCLI(t, dir, "cr", "status", "1", "--json")
+	if statusErr != nil {
+		t.Fatalf("cr status --json error = %v\noutput=%s", statusErr, statusOut)
+	}
+	statusEnv := decodeEnvelope(t, statusOut)
+	existingBranch, _ := statusEnv.Data["branch"].(string)
+	if !strings.HasPrefix(existingBranch, "team/") {
+		t.Fatalf("expected owner-prefixed stored branch, got %q", existingBranch)
+	}
+
+	formatOut, _, formatErr := runCLI(t, dir, "cr", "branch", "format", "--id", "1", "--json")
+	if formatErr != nil {
+		t.Fatalf("cr branch format --id error = %v\noutput=%s", formatErr, formatOut)
+	}
+	formatEnv := decodeEnvelope(t, formatOut)
+	formattedBranch, _ := formatEnv.Data["branch"].(string)
+	if formattedBranch != existingBranch {
+		t.Fatalf("expected formatted branch %q to match stored owner-prefixed branch %q", formattedBranch, existingBranch)
 	}
 }
 

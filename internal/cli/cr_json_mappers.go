@@ -8,8 +8,9 @@ import (
 )
 
 var (
-	legacyBranchJSONPattern = regexp.MustCompile(`^sophia/cr-(\d+)$`)
-	humanBranchJSONPattern  = regexp.MustCompile(`^(?:([a-z0-9._-]+)/)?cr-(\d+)(?:-([a-z0-9][a-z0-9-]*))?$`)
+	legacyBranchJSONPattern  = regexp.MustCompile(`^sophia/cr-(\d+)$`)
+	humanBranchV1JSONPattern = regexp.MustCompile(`^(?:([a-z0-9._-]+)/)?cr-(\d+)(?:-([a-z0-9][a-z0-9-]*))?$`)
+	humanBranchV2JSONPattern = regexp.MustCompile(`^(?:([a-z0-9._-]+)/)?cr-([a-z][a-z0-9-]*)-((?:[a-z0-9]{4}|[a-z0-9]{6}|[a-z0-9]{8}))$`)
 )
 
 func stringSliceOrEmpty(in []string) []string {
@@ -51,7 +52,16 @@ func branchIdentityToJSONMap(branch, uid string) map[string]any {
 		res["legacy"] = true
 		return res
 	}
-	if matches := humanBranchJSONPattern.FindStringSubmatch(strings.ToLower(trimmedBranch)); len(matches) == 4 {
+	if matches := humanBranchV2JSONPattern.FindStringSubmatch(strings.ToLower(trimmedBranch)); len(matches) == 4 {
+		res["scheme"] = "human_alias_v2"
+		res["slug"] = strings.TrimSpace(matches[2])
+		res["uid_suffix"] = strings.TrimSpace(matches[3])
+		if strings.TrimSpace(matches[1]) != "" {
+			res["owner_prefix"] = strings.TrimSpace(matches[1])
+		}
+		return res
+	}
+	if matches := humanBranchV1JSONPattern.FindStringSubmatch(strings.ToLower(trimmedBranch)); len(matches) == 4 {
 		res["scheme"] = "human_alias_v1"
 		if strings.TrimSpace(matches[3]) != "" {
 			res["slug"] = strings.TrimSpace(matches[3])

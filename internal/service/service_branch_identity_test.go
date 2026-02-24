@@ -34,7 +34,7 @@ func TestFormatCRBranchAlias(t *testing.T) {
 	if err != nil {
 		t.Fatalf("formatCRBranchAlias() error = %v", err)
 	}
-	if branch != "cr-42-branch-identity-redesign" {
+	if branch != "cr-branch-identity-redesign-0016" {
 		t.Fatalf("unexpected branch %q", branch)
 	}
 
@@ -42,8 +42,20 @@ func TestFormatCRBranchAlias(t *testing.T) {
 	if err != nil {
 		t.Fatalf("formatCRBranchAlias(owner) error = %v", err)
 	}
-	if branch != "kevandrew/cr-42-branch-identity-redesign" {
+	if branch != "kevandrew/cr-branch-identity-redesign-0016" {
 		t.Fatalf("unexpected owner branch %q", branch)
+	}
+}
+
+func TestFormatCRBranchAliasFromUID(t *testing.T) {
+	t.Parallel()
+
+	branch, err := formatCRBranchAliasFromUID("Branch identity redesign", "", "cr_c6bec981-b3dc-493d-aa41-897df808126c", 4)
+	if err != nil {
+		t.Fatalf("formatCRBranchAliasFromUID() error = %v", err)
+	}
+	if branch != "cr-branch-identity-redesign-c6be" {
+		t.Fatalf("unexpected uid branch %q", branch)
 	}
 }
 
@@ -58,6 +70,7 @@ func TestParseCRIDFromBranchName(t *testing.T) {
 		{branch: "sophia/cr-42", wantID: 42, wantOK: true},
 		{branch: "cr-42-branch-identity-redesign", wantID: 42, wantOK: true},
 		{branch: "kevandrew/cr-42-branch-identity-redesign", wantID: 42, wantOK: true},
+		{branch: "cr-branch-identity-redesign-c6be", wantID: 0, wantOK: false},
 		{branch: "main", wantID: 0, wantOK: false},
 		{branch: "feature/whatever", wantID: 0, wantOK: false},
 	}
@@ -66,6 +79,50 @@ func TestParseCRIDFromBranchName(t *testing.T) {
 		gotID, gotOK := parseCRIDFromBranchName(tc.branch)
 		if gotID != tc.wantID || gotOK != tc.wantOK {
 			t.Fatalf("parseCRIDFromBranchName(%q) = (%d, %t), want (%d, %t)", tc.branch, gotID, gotOK, tc.wantID, tc.wantOK)
+		}
+	}
+}
+
+func TestDetectCRBranchScheme(t *testing.T) {
+	t.Parallel()
+
+	if got := detectCRBranchScheme("cr-branch-identity-redesign-c6be"); got != "human_alias_v2" {
+		t.Fatalf("detectCRBranchScheme(v2) = %q", got)
+	}
+	if got := detectCRBranchScheme("CR-branch-identity-redesign-C6BE"); got != "human_alias_v2" {
+		t.Fatalf("detectCRBranchScheme(v2 uppercase) = %q", got)
+	}
+	if got := detectCRBranchScheme("cr-42-branch-identity-redesign"); got != "human_alias_v1" {
+		t.Fatalf("detectCRBranchScheme(v1) = %q", got)
+	}
+}
+
+func TestValidateExplicitCRBranchAliasRejectsUnsupportedV2SuffixLength(t *testing.T) {
+	t.Parallel()
+
+	if _, err := validateExplicitCRBranchAlias("cr-branch-identity-redesign-a1b2c", 1); err == nil {
+		t.Fatalf("expected unsupported v2 suffix length to fail")
+	}
+}
+
+func TestOwnerPrefixFromBranch(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		branch string
+		want   string
+		ok     bool
+	}{
+		{branch: "team/cr-branch-identity-redesign-c6be", want: "team", ok: true},
+		{branch: "Team/cr-branch-identity-redesign-c6be", want: "team", ok: true},
+		{branch: "cr-branch-identity-redesign-c6be", want: "", ok: false},
+		{branch: "feature/team-cr-branch", want: "", ok: false},
+	}
+
+	for _, tc := range cases {
+		got, ok := ownerPrefixFromBranch(tc.branch)
+		if ok != tc.ok || got != tc.want {
+			t.Fatalf("ownerPrefixFromBranch(%q) = (%q,%t), want (%q,%t)", tc.branch, got, ok, tc.want, tc.ok)
 		}
 	}
 }

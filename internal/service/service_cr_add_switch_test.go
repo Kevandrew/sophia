@@ -75,6 +75,16 @@ func TestAddCRWithExplicitBranchAlias(t *testing.T) {
 	if cr.Branch != "kevandrew/cr-1-alias-override" {
 		t.Fatalf("expected explicit alias branch, got %q", cr.Branch)
 	}
+
+	crV2, _, err := svc.AddCRWithOptionsWithWarnings("Alias v2", "explicit branch", AddCROptions{
+		BranchAlias: "cr-explicit-alias-a1b2",
+	})
+	if err != nil {
+		t.Fatalf("AddCRWithOptionsWithWarnings(v2 alias) error = %v", err)
+	}
+	if crV2.Branch != "cr-explicit-alias-a1b2" {
+		t.Fatalf("expected explicit v2 alias branch, got %q", crV2.Branch)
+	}
 }
 
 func TestAddCRRejectsInvalidAliasCombinations(t *testing.T) {
@@ -96,5 +106,11 @@ func TestAddCRRejectsInvalidAliasCombinations(t *testing.T) {
 		OwnerPrefixSet: true,
 	}); err == nil {
 		t.Fatalf("expected branch-alias/owner-prefix conflict error")
+	}
+
+	if _, _, err := svc.AddCRWithOptionsWithWarnings("Bad v2 suffix", "unsupported length", AddCROptions{
+		BranchAlias: "cr-bad-suffix-a1b2c",
+	}); err == nil {
+		t.Fatalf("expected v2 suffix length validation error")
 	}
 }
