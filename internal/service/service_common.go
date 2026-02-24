@@ -349,7 +349,7 @@ merge:
   allow_override: true
 
 archive:
-  enabled: false
+  enabled: true
   path: ".sophia-tracked/cr"
   format: yaml
   include_full_diffs: false

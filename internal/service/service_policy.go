@@ -64,7 +64,7 @@ var (
 	defaultTrustGateApplyRiskTiers = []string{"high"}
 	defaultTrustCheckTiers         = []string{"low", "medium", "high"}
 
-	defaultArchiveEnabled          = false
+	defaultArchiveEnabled          = true
 	defaultArchivePath             = ".sophia-tracked/cr"
 	defaultArchiveFormat           = "yaml"
 	defaultArchiveIncludeFullDiffs = false

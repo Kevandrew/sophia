@@ -207,6 +207,7 @@ func TestBackfillCreatesMissingV1ArchivesInOneCommit(t *testing.T) {
 	}
 	runGit(t, dir, "config", "user.name", "Test User")
 	runGit(t, dir, "config", "user.email", "test@example.com")
+	writeArchivePolicyEnabledForTest(t, dir, false)
 
 	for i := 1; i <= 2; i++ {
 		cr, err := svc.AddCR("Backfill fixture", "archive backfill fixture")
@@ -268,6 +269,7 @@ func TestBackfillCommitRequiresBaseBranch(t *testing.T) {
 	}
 	runGit(t, dir, "config", "user.name", "Test User")
 	runGit(t, dir, "config", "user.email", "test@example.com")
+	writeArchivePolicyEnabledForTest(t, dir, false)
 
 	cr, err := svc.AddCR("Backfill branch guard", "archive backfill fixture")
 	if err != nil {

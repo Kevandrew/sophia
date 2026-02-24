@@ -37,8 +37,8 @@ func TestRepoPolicyDefaultsWhenFileMissing(t *testing.T) {
 	if !policyAllowsMergeOverride(policy) {
 		t.Fatalf("expected default merge override to be allowed")
 	}
-	if policy.Archive.Enabled == nil || *policy.Archive.Enabled {
-		t.Fatalf("expected archive.enabled default false, got %#v", policy.Archive.Enabled)
+	if policy.Archive.Enabled == nil || !*policy.Archive.Enabled {
+		t.Fatalf("expected archive.enabled default true, got %#v", policy.Archive.Enabled)
 	}
 	if strings.TrimSpace(policy.Archive.Path) != defaultArchivePath {
 		t.Fatalf("expected archive.path %q, got %q", defaultArchivePath, policy.Archive.Path)
