@@ -8,10 +8,7 @@
 <h1 align="center">Sophia</h1>
 <p align="center"><strong>Your AI builds the code. Sophia makes sure it's right.</strong></p>
 
-<details>
-<summary>Logo preview (new vs legacy)</summary>
 
-</details>
 
 ---
 
