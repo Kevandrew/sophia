@@ -32,7 +32,7 @@ func TestMergeWritesArchiveFileIntoMergeCommit(t *testing.T) {
 	runGit(t, dir, "add", "archive.txt")
 	runGit(t, dir, "commit", "-m", "feat: archive merge fixture")
 
-	sha, warnings, err := svc.MergeCRWithWarnings(cr.ID, false, "")
+	sha, warnings, err := svc.MergeCRWithWarnings(cr.ID, true, "")
 	if err != nil {
 		t.Fatalf("MergeCRWithWarnings() error = %v", err)
 	}
@@ -55,6 +55,46 @@ func TestMergeWritesArchiveFileIntoMergeCommit(t *testing.T) {
 	}
 	if strings.Contains(archiveBody, ".sophia-tracked/cr/cr-1.v1.yaml") {
 		t.Fatalf("expected archive git summary to exclude archive paths:\n%s", archiveBody)
+	}
+}
+
+func TestMergeWritesArchiveWhenBaseBranchOwnedByOtherWorktree(t *testing.T) {
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	runGit(t, dir, "config", "user.name", "Test User")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+	writeArchivePolicyEnabledForTest(t, dir, true)
+
+	cr, err := svc.AddCR("Archive merge with worktree", "archive merge integration")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	setValidContract(t, svc, cr.ID)
+	if err := os.WriteFile(filepath.Join(dir, "archive-worktree.txt"), []byte("hello\n"), 0o644); err != nil {
+		t.Fatalf("write archive-worktree.txt: %v", err)
+	}
+	runGit(t, dir, "add", "archive-worktree.txt")
+	runGit(t, dir, "commit", "-m", "feat: archive merge worktree fixture")
+
+	mainWorktreeDir := filepath.Join(t.TempDir(), "main-worktree")
+	runGit(t, dir, "worktree", "add", mainWorktreeDir, "main")
+
+	sha, warnings, err := svc.MergeCRWithWarnings(cr.ID, true, "")
+	if err != nil {
+		t.Fatalf("MergeCRWithWarnings() error = %v", err)
+	}
+	if strings.TrimSpace(sha) == "" {
+		t.Fatalf("expected merge sha")
+	}
+	if len(warnings) != 0 {
+		t.Fatalf("unexpected merge warnings: %#v", warnings)
+	}
+	changed := runGit(t, dir, "show", "--name-only", "--pretty=format:", sha)
+	if !strings.Contains(changed, ".sophia-tracked/cr/cr-1.v1.yaml") {
+		t.Fatalf("expected archive file in merge commit, changed files:\n%s", changed)
 	}
 }
 
@@ -91,6 +131,71 @@ func TestResumeWritesArchiveOnlyAfterConflictsResolved(t *testing.T) {
 	changed := runGit(t, dir, "show", "--name-only", "--pretty=format:", sha)
 	if !strings.Contains(changed, ".sophia-tracked/cr/cr-1.v1.yaml") {
 		t.Fatalf("expected archive file in resumed merge commit, changed files:\n%s", changed)
+	}
+}
+
+func TestResumeReusesExistingArchiveRevisionAfterCommitFailure(t *testing.T) {
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	runGit(t, dir, "config", "user.name", "Test User")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+	writeArchivePolicyEnabledForTest(t, dir, true)
+
+	cr, err := svc.AddCR("Archive resume idempotency", "archive merge integration")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	setValidContract(t, svc, cr.ID)
+	if err := os.WriteFile(filepath.Join(dir, "archive-retry.txt"), []byte("hello\n"), 0o644); err != nil {
+		t.Fatalf("write archive-retry.txt: %v", err)
+	}
+	runGit(t, dir, "add", "archive-retry.txt")
+	runGit(t, dir, "commit", "-m", "feat: archive retry fixture")
+
+	hookPath := filepath.Join(dir, ".git", "hooks", "pre-commit")
+	if err := os.WriteFile(hookPath, []byte("#!/bin/sh\necho 'reject commit' >&2\nexit 1\n"), 0o755); err != nil {
+		t.Fatalf("write failing pre-commit hook: %v", err)
+	}
+	_, _, mergeErr := svc.MergeCRWithWarnings(cr.ID, false, "")
+	if mergeErr == nil {
+		t.Fatalf("expected merge to fail due to pre-commit hook")
+	}
+	if errors.Is(mergeErr, ErrMergeConflict) {
+		t.Fatalf("unexpected merge conflict error: %v", mergeErr)
+	}
+	status, statusErr := svc.MergeStatusCR(cr.ID)
+	if statusErr != nil {
+		t.Fatalf("MergeStatusCR() error = %v", statusErr)
+	}
+	if !status.InProgress {
+		t.Fatalf("expected merge to remain in progress after commit failure")
+	}
+	if len(status.ConflictFiles) != 0 {
+		t.Fatalf("expected no conflicts after commit failure, got %#v", status.ConflictFiles)
+	}
+
+	if err := os.WriteFile(hookPath, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatalf("write passing pre-commit hook: %v", err)
+	}
+	sha, warnings, resumeErr := svc.ResumeMergeCR(cr.ID, false, "")
+	if resumeErr != nil {
+		t.Fatalf("ResumeMergeCR() error = %v", resumeErr)
+	}
+	if strings.TrimSpace(sha) == "" {
+		t.Fatalf("expected resumed merge sha")
+	}
+	if len(warnings) != 0 {
+		t.Fatalf("unexpected resume warnings: %#v", warnings)
+	}
+	changed := runGit(t, dir, "show", "--name-only", "--pretty=format:", sha)
+	if !strings.Contains(changed, ".sophia-tracked/cr/cr-1.v1.yaml") {
+		t.Fatalf("expected v1 archive in resumed merge commit, changed files:\n%s", changed)
+	}
+	if strings.Contains(changed, ".sophia-tracked/cr/cr-1.v2.yaml") {
+		t.Fatalf("did not expect v2 archive in resumed merge commit, changed files:\n%s", changed)
 	}
 }
 
@@ -152,6 +257,48 @@ func TestBackfillCreatesMissingV1ArchivesInOneCommit(t *testing.T) {
 		if _, err := os.Stat(path); err != nil {
 			t.Fatalf("expected written archive at %s: %v", path, err)
 		}
+	}
+}
+
+func TestBackfillCommitRequiresBaseBranch(t *testing.T) {
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	runGit(t, dir, "config", "user.name", "Test User")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+
+	cr, err := svc.AddCR("Backfill branch guard", "archive backfill fixture")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	setValidContract(t, svc, cr.ID)
+	if err := os.WriteFile(filepath.Join(dir, "backfill-guard.txt"), []byte("x\n"), 0o644); err != nil {
+		t.Fatalf("write fixture file: %v", err)
+	}
+	runGit(t, dir, "add", "backfill-guard.txt")
+	runGit(t, dir, "commit", "-m", "feat: backfill guard fixture")
+	if _, _, err := svc.MergeCRWithWarnings(cr.ID, false, ""); err != nil {
+		t.Fatalf("MergeCRWithWarnings() error = %v", err)
+	}
+
+	runGit(t, dir, "checkout", "-b", "not-main")
+	headBefore := runGit(t, dir, "rev-parse", "HEAD")
+	_, backfillErr := svc.BackfillCRArchives(CRArchiveBackfillOptions{Commit: true})
+	if backfillErr == nil {
+		t.Fatalf("expected backfill commit guard error on non-base branch")
+	}
+	if !strings.Contains(backfillErr.Error(), "must run on base branch") {
+		t.Fatalf("expected base branch guard error, got %v", backfillErr)
+	}
+	headAfter := runGit(t, dir, "rev-parse", "HEAD")
+	if strings.TrimSpace(headBefore) != strings.TrimSpace(headAfter) {
+		t.Fatalf("expected no commit on non-base branch, before=%s after=%s", headBefore, headAfter)
+	}
+	archivePath := filepath.Join(dir, ".sophia-tracked", "cr", "cr-1.v1.yaml")
+	if _, statErr := os.Stat(archivePath); !os.IsNotExist(statErr) {
+		t.Fatalf("expected no archive file written on guard failure, stat err=%v", statErr)
 	}
 }
 
