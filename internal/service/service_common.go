@@ -348,6 +348,12 @@ classification:
 merge:
   allow_override: true
 
+archive:
+  enabled: false
+  path: ".sophia-tracked/cr"
+  format: yaml
+  include_full_diffs: false
+
 trust:
   mode: advisory
   gate:

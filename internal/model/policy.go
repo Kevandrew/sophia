@@ -7,6 +7,7 @@ type RepoPolicy struct {
 	Scope          PolicyScope          `yaml:"scope,omitempty"`
 	Classification PolicyClassification `yaml:"classification,omitempty"`
 	Merge          PolicyMerge          `yaml:"merge,omitempty"`
+	Archive        PolicyArchive        `yaml:"archive,omitempty"`
 	Trust          PolicyTrust          `yaml:"trust,omitempty"`
 }
 
@@ -38,6 +39,13 @@ type PolicyClassificationDependency struct {
 
 type PolicyMerge struct {
 	AllowOverride *bool `yaml:"allow_override,omitempty"`
+}
+
+type PolicyArchive struct {
+	Enabled          *bool  `yaml:"enabled,omitempty"`
+	Path             string `yaml:"path,omitempty"`
+	Format           string `yaml:"format,omitempty"`
+	IncludeFullDiffs *bool  `yaml:"include_full_diffs,omitempty"`
 }
 
 type PolicyTrust struct {

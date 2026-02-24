@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"sophia/internal/model"
@@ -62,6 +63,11 @@ var (
 	}
 	defaultTrustGateApplyRiskTiers = []string{"high"}
 	defaultTrustCheckTiers         = []string{"low", "medium", "high"}
+
+	defaultArchiveEnabled          = false
+	defaultArchivePath             = ".sophia-tracked/cr"
+	defaultArchiveFormat           = "yaml"
+	defaultArchiveIncludeFullDiffs = false
 )
 
 const (
@@ -107,6 +113,12 @@ func defaultRepoPolicy() *model.RepoPolicy {
 		},
 		Merge: model.PolicyMerge{
 			AllowOverride: boolPtr(true),
+		},
+		Archive: model.PolicyArchive{
+			Enabled:          boolPtr(defaultArchiveEnabled),
+			Path:             defaultArchivePath,
+			Format:           defaultArchiveFormat,
+			IncludeFullDiffs: boolPtr(defaultArchiveIncludeFullDiffs),
 		},
 		Trust: *defaultPolicyTrust(),
 	}
@@ -257,12 +269,69 @@ func (s *Service) normalizeRepoPolicy(input *model.RepoPolicy) (*model.RepoPolic
 	if input.Merge.AllowOverride != nil {
 		normalized.Merge.AllowOverride = boolPtr(*input.Merge.AllowOverride)
 	}
+	archive, archiveErr := normalizePolicyArchive(input.Archive)
+	if archiveErr != nil {
+		return nil, archiveErr
+	}
+	normalized.Archive = archive
 	trust, trustErr := normalizePolicyTrust(input.Trust)
 	if trustErr != nil {
 		return nil, trustErr
 	}
 	normalized.Trust = trust
 	return normalized, nil
+}
+
+func normalizePolicyArchive(input model.PolicyArchive) (model.PolicyArchive, error) {
+	normalized := model.PolicyArchive{
+		Enabled:          boolPtr(defaultArchiveEnabled),
+		Path:             defaultArchivePath,
+		Format:           defaultArchiveFormat,
+		IncludeFullDiffs: boolPtr(defaultArchiveIncludeFullDiffs),
+	}
+	if input.Enabled != nil {
+		normalized.Enabled = boolPtr(*input.Enabled)
+	}
+	if strings.TrimSpace(input.Path) != "" {
+		pathValue, pathErr := normalizePolicyArchivePath(input.Path)
+		if pathErr != nil {
+			return model.PolicyArchive{}, pathErr
+		}
+		normalized.Path = pathValue
+	}
+	if strings.TrimSpace(input.Format) != "" {
+		format := strings.ToLower(strings.TrimSpace(input.Format))
+		if format != defaultArchiveFormat {
+			return model.PolicyArchive{}, fmt.Errorf("%w: archive.format %q is invalid (expected yaml)", ErrPolicyInvalid, input.Format)
+		}
+		normalized.Format = format
+	}
+	if input.IncludeFullDiffs != nil {
+		normalized.IncludeFullDiffs = boolPtr(*input.IncludeFullDiffs)
+	}
+	return normalized, nil
+}
+
+func normalizePolicyArchivePath(raw string) (string, error) {
+	trimmed := strings.TrimSpace(raw)
+	slashPath := strings.ReplaceAll(trimmed, "\\", "/")
+	if slashPath == "" {
+		return "", fmt.Errorf("%w: archive.path cannot be empty", ErrPolicyInvalid)
+	}
+	if filepath.IsAbs(trimmed) || strings.HasPrefix(slashPath, "/") {
+		return "", fmt.Errorf("%w: archive.path %q must be repo-relative", ErrPolicyInvalid, raw)
+	}
+	if strings.ContainsAny(slashPath, "*?[]{}") {
+		return "", fmt.Errorf("%w: archive.path %q must be an exact path (no glob patterns)", ErrPolicyInvalid, raw)
+	}
+	cleaned := path.Clean(slashPath)
+	if cleaned == ".." || strings.HasPrefix(cleaned, "../") {
+		return "", fmt.Errorf("%w: archive.path %q escapes repository root", ErrPolicyInvalid, raw)
+	}
+	if cleaned != slashPath {
+		return "", fmt.Errorf("%w: archive.path %q must be normalized", ErrPolicyInvalid, raw)
+	}
+	return cleaned, nil
 }
 
 func normalizePolicyRequiredFields(values []string, allowed map[string]struct{}, label string) ([]string, error) {
