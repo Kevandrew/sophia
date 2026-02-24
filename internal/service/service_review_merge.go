@@ -1,6 +1,7 @@
 package service
 
 import (
+	"errors"
 	"fmt"
 	"path/filepath"
 	"sophia/internal/gitx"
@@ -24,13 +25,17 @@ func (s *Service) ReviewCR(id int) (*Review, error) {
 	if err != nil {
 		return nil, err
 	}
-	diff, err := s.summarizeCRDiff(cr)
-	if err != nil {
-		return nil, err
-	}
 	validation, err := s.ValidateCR(id)
 	if err != nil {
 		return nil, err
+	}
+	diff, err := s.summarizeCRDiff(cr)
+	if err != nil {
+		if errors.Is(err, ErrCRBranchContextUnavailable) {
+			diff = &diffSummary{}
+		} else {
+			return nil, err
+		}
 	}
 	trust := buildTrustReportWithPolicy(cr, validation, diff, policy.Contract.RequiredFields, policy)
 
