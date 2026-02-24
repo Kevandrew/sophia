@@ -83,6 +83,15 @@ func (s *Service) MergeCRWithWarnings(id int, keepBranch bool, overrideReason st
 	if !s.git.BranchExists(cr.Branch) {
 		return "", warnings, fmt.Errorf("cr branch %q does not exist", cr.Branch)
 	}
+	archiveConfig, err := s.archivePolicyConfig()
+	if err != nil {
+		return "", warnings, err
+	}
+	if archivePolicyEnabled(archiveConfig) {
+		if err := s.requireArchiveConfigSupported(archiveConfig); err != nil {
+			return "", warnings, err
+		}
+	}
 
 	mergeGit, worktreePath, err := s.effectiveMergeGitForCR(cr)
 	if err != nil {
@@ -106,7 +115,11 @@ func (s *Service) MergeCRWithWarnings(id int, keepBranch bool, overrideReason st
 	actor := mergeGit.Actor()
 	mergedAt := s.timestamp()
 	msg := buildMergeCommitMessage(cr, actor, mergedAt)
-	if err := mergeGit.MergeNoFFOnCurrentBranch(cr.Branch, msg); err != nil {
+	baseParent, err := mergeGit.ResolveRef("HEAD")
+	if err != nil {
+		return "", warnings, err
+	}
+	if err := mergeGit.MergeNoFFNoCommitOnCurrentBranch(cr.Branch, msg); err != nil {
 		conflictFiles, conflictErr := mergeGit.MergeConflictFiles()
 		if conflictErr != nil {
 			return "", warnings, err
@@ -129,6 +142,55 @@ func (s *Service) MergeCRWithWarnings(id int, keepBranch bool, overrideReason st
 			}
 		}
 		return "", warnings, err
+	}
+	inProgress, err := mergeGit.IsMergeInProgress()
+	if err != nil {
+		return "", warnings, err
+	}
+	if inProgress {
+		if archivePolicyEnabled(archiveConfig) {
+			mergeHead, mergeHeadErr := mergeGit.MergeHeadSHA()
+			if mergeHeadErr != nil {
+				return "", warnings, mergeHeadErr
+			}
+			if strings.TrimSpace(mergeHead) == "" {
+				return "", warnings, fmt.Errorf("unable to determine merge head for CR %d archive generation", cr.ID)
+			}
+			gitSummary, summaryErr := buildArchiveGitSummaryFromCachedDiff(mergeGit, baseParent, mergeHead)
+			if summaryErr != nil {
+				return "", warnings, summaryErr
+			}
+			archiveDir := filepath.Join(s.repoRootPath(), archiveConfig.Path)
+			revision, revErr := nextArchiveRevision(archiveDir, cr.ID)
+			if revErr != nil {
+				return "", warnings, revErr
+			}
+			archivePath := archiveRevisionPath(archiveDir, cr.ID, revision)
+			archiveCR := *cr
+			archiveCR.Status = model.StatusMerged
+			archiveCR.MergedAt = mergedAt
+			archiveCR.MergedBy = actor
+			archive := buildCRArchiveDocument(&archiveCR, revision, "", mergedAt, gitSummary)
+			payload, payloadErr := marshalCRArchiveYAML(archive)
+			if payloadErr != nil {
+				return "", warnings, payloadErr
+			}
+			if err := writeArchivePayload(archivePath, payload); err != nil {
+				return "", warnings, err
+			}
+			relativeArchivePath, relErr := s.relativeToRepoPath(archivePath)
+			if relErr != nil {
+				return "", warnings, relErr
+			}
+			if err := mergeGit.StagePaths([]string{relativeArchivePath}); err != nil {
+				return "", warnings, err
+			}
+		}
+		if err := mergeGit.Commit(msg); err != nil {
+			return "", warnings, err
+		}
+	} else if archivePolicyEnabled(archiveConfig) {
+		warnings = append(warnings, fmt.Sprintf("Skipped archive write for CR %d because merge produced no new commit", cr.ID))
 	}
 
 	if !keepBranch {
@@ -274,6 +336,13 @@ func (s *Service) ResumeMergeCR(id int, keepBranch bool, overrideReason string) 
 			Summary:       fmt.Sprintf("%s: in-progress merge in %s does not target CR %d", ErrMergeInProgress, status.WorktreePath, id),
 		}
 	}
+	if len(status.ConflictFiles) > 0 {
+		return "", nil, &MergeInProgressError{
+			WorktreePath:  status.WorktreePath,
+			ConflictFiles: status.ConflictFiles,
+			Summary:       fmt.Sprintf("%s: unresolved conflicts remain for CR %d", ErrMergeInProgress, id),
+		}
+	}
 
 	cr, err := s.store.LoadCR(id)
 	if err != nil {
@@ -286,10 +355,63 @@ func (s *Service) ResumeMergeCR(id int, keepBranch bool, overrideReason string) 
 	if err != nil {
 		return "", nil, err
 	}
+	archiveConfig, err := s.archivePolicyConfig()
+	if err != nil {
+		return "", nil, err
+	}
+	if archivePolicyEnabled(archiveConfig) {
+		if err := s.requireArchiveConfigSupported(archiveConfig); err != nil {
+			return "", nil, err
+		}
+	}
 
 	mergeGit, _, err := s.effectiveMergeGitForCR(cr)
 	if err != nil {
 		return "", nil, err
+	}
+	actor := mergeGit.Actor()
+	mergedAt := s.timestamp()
+	if archivePolicyEnabled(archiveConfig) {
+		baseParent, baseParentErr := mergeGit.ResolveRef("HEAD")
+		if baseParentErr != nil {
+			return "", nil, baseParentErr
+		}
+		mergeHead, mergeHeadErr := mergeGit.MergeHeadSHA()
+		if mergeHeadErr != nil {
+			return "", nil, mergeHeadErr
+		}
+		if strings.TrimSpace(mergeHead) == "" {
+			return "", nil, fmt.Errorf("unable to determine merge head for CR %d archive generation", cr.ID)
+		}
+		gitSummary, summaryErr := buildArchiveGitSummaryFromCachedDiff(mergeGit, baseParent, mergeHead)
+		if summaryErr != nil {
+			return "", nil, summaryErr
+		}
+		archiveDir := filepath.Join(s.repoRootPath(), archiveConfig.Path)
+		revision, revErr := nextArchiveRevision(archiveDir, cr.ID)
+		if revErr != nil {
+			return "", nil, revErr
+		}
+		archivePath := archiveRevisionPath(archiveDir, cr.ID, revision)
+		archiveCR := *cr
+		archiveCR.Status = model.StatusMerged
+		archiveCR.MergedAt = mergedAt
+		archiveCR.MergedBy = actor
+		archive := buildCRArchiveDocument(&archiveCR, revision, "", mergedAt, gitSummary)
+		payload, payloadErr := marshalCRArchiveYAML(archive)
+		if payloadErr != nil {
+			return "", nil, payloadErr
+		}
+		if err := writeArchivePayload(archivePath, payload); err != nil {
+			return "", nil, err
+		}
+		relativeArchivePath, relErr := s.relativeToRepoPath(archivePath)
+		if relErr != nil {
+			return "", nil, relErr
+		}
+		if err := mergeGit.StagePaths([]string{relativeArchivePath}); err != nil {
+			return "", nil, err
+		}
 	}
 	if err := mergeGit.MergeContinue(); err != nil {
 		return "", nil, err
@@ -310,8 +432,6 @@ func (s *Service) ResumeMergeCR(id int, keepBranch bool, overrideReason string) 
 	if err != nil {
 		return "", warnings, err
 	}
-	mergedAt := s.timestamp()
-	actor := mergeGit.Actor()
 	if err := s.finalizeCRMergedState(cr, preflight.validation, preflight.trust, preflight.overrideReason, actor, mergedAt, sha, true); err != nil {
 		return "", warnings, err
 	}
