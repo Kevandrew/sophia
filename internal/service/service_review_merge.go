@@ -3,6 +3,7 @@ package service
 import (
 	"fmt"
 	"path/filepath"
+	"sophia/internal/gitx"
 	"sophia/internal/model"
 	"strconv"
 	"strings"
@@ -156,33 +157,7 @@ func (s *Service) MergeCRWithWarnings(id int, keepBranch bool, overrideReason st
 			if strings.TrimSpace(mergeHead) == "" {
 				return "", warnings, fmt.Errorf("unable to determine merge head for CR %d archive generation", cr.ID)
 			}
-			gitSummary, summaryErr := buildArchiveGitSummaryFromCachedDiff(mergeGit, baseParent, mergeHead)
-			if summaryErr != nil {
-				return "", warnings, summaryErr
-			}
-			archiveDir := filepath.Join(s.repoRootPath(), archiveConfig.Path)
-			revision, revErr := nextArchiveRevision(archiveDir, cr.ID)
-			if revErr != nil {
-				return "", warnings, revErr
-			}
-			archivePath := archiveRevisionPath(archiveDir, cr.ID, revision)
-			archiveCR := *cr
-			archiveCR.Status = model.StatusMerged
-			archiveCR.MergedAt = mergedAt
-			archiveCR.MergedBy = actor
-			archive := buildCRArchiveDocument(&archiveCR, revision, "", mergedAt, gitSummary)
-			payload, payloadErr := marshalCRArchiveYAML(archive)
-			if payloadErr != nil {
-				return "", warnings, payloadErr
-			}
-			if err := writeArchivePayload(archivePath, payload); err != nil {
-				return "", warnings, err
-			}
-			relativeArchivePath, relErr := s.relativeToRepoPath(archivePath)
-			if relErr != nil {
-				return "", warnings, relErr
-			}
-			if err := mergeGit.StagePaths([]string{relativeArchivePath}); err != nil {
+			if err := s.writeAutomaticCRArchiveForMerge(mergeGit, cr, archiveConfig, actor, mergedAt, baseParent, mergeHead, false); err != nil {
 				return "", warnings, err
 			}
 		}
@@ -383,33 +358,7 @@ func (s *Service) ResumeMergeCR(id int, keepBranch bool, overrideReason string) 
 		if strings.TrimSpace(mergeHead) == "" {
 			return "", nil, fmt.Errorf("unable to determine merge head for CR %d archive generation", cr.ID)
 		}
-		gitSummary, summaryErr := buildArchiveGitSummaryFromCachedDiff(mergeGit, baseParent, mergeHead)
-		if summaryErr != nil {
-			return "", nil, summaryErr
-		}
-		archiveDir := filepath.Join(s.repoRootPath(), archiveConfig.Path)
-		revision, revErr := nextArchiveRevision(archiveDir, cr.ID)
-		if revErr != nil {
-			return "", nil, revErr
-		}
-		archivePath := archiveRevisionPath(archiveDir, cr.ID, revision)
-		archiveCR := *cr
-		archiveCR.Status = model.StatusMerged
-		archiveCR.MergedAt = mergedAt
-		archiveCR.MergedBy = actor
-		archive := buildCRArchiveDocument(&archiveCR, revision, "", mergedAt, gitSummary)
-		payload, payloadErr := marshalCRArchiveYAML(archive)
-		if payloadErr != nil {
-			return "", nil, payloadErr
-		}
-		if err := writeArchivePayload(archivePath, payload); err != nil {
-			return "", nil, err
-		}
-		relativeArchivePath, relErr := s.relativeToRepoPath(archivePath)
-		if relErr != nil {
-			return "", nil, relErr
-		}
-		if err := mergeGit.StagePaths([]string{relativeArchivePath}); err != nil {
+		if err := s.writeAutomaticCRArchiveForMerge(mergeGit, cr, archiveConfig, actor, mergedAt, baseParent, mergeHead, true); err != nil {
 			return "", nil, err
 		}
 	}
@@ -436,6 +385,54 @@ func (s *Service) ResumeMergeCR(id int, keepBranch bool, overrideReason string) 
 		return "", warnings, err
 	}
 	return sha, warnings, nil
+}
+
+func (s *Service) writeAutomaticCRArchiveForMerge(mergeGit *gitx.Client, cr *model.CR, archiveConfig model.PolicyArchive, actor, mergedAt, baseParent, crParent string, reuseExisting bool) error {
+	if mergeGit == nil {
+		return fmt.Errorf("merge git client is required for archive generation")
+	}
+	if cr == nil {
+		return fmt.Errorf("cr is required for archive generation")
+	}
+	workDir := strings.TrimSpace(mergeGit.WorkDir)
+	if workDir == "" {
+		return fmt.Errorf("merge worktree path is required for archive generation")
+	}
+	archivePath := archiveRevisionPath(filepath.Join(workDir, archiveConfig.Path), cr.ID, 1)
+	if reuseExisting {
+		exists, err := archiveFileExists(archivePath)
+		if err != nil {
+			return err
+		}
+		if exists {
+			relativeArchivePath, relErr := relativeToRootPath(workDir, archivePath)
+			if relErr != nil {
+				return relErr
+			}
+			return mergeGit.StagePaths([]string{relativeArchivePath})
+		}
+	}
+	gitSummary, summaryErr := buildArchiveGitSummaryFromCachedDiff(mergeGit, baseParent, crParent)
+	if summaryErr != nil {
+		return summaryErr
+	}
+	archiveCR := *cr
+	archiveCR.Status = model.StatusMerged
+	archiveCR.MergedAt = mergedAt
+	archiveCR.MergedBy = actor
+	archive := buildCRArchiveDocument(&archiveCR, 1, "", mergedAt, gitSummary)
+	payload, payloadErr := marshalCRArchiveYAML(archive)
+	if payloadErr != nil {
+		return payloadErr
+	}
+	if err := writeArchivePayload(archivePath, payload); err != nil {
+		return err
+	}
+	relativeArchivePath, relErr := relativeToRootPath(workDir, archivePath)
+	if relErr != nil {
+		return relErr
+	}
+	return mergeGit.StagePaths([]string{relativeArchivePath})
 }
 
 func (s *Service) prepareMergePreflight(id int, cr *model.CR, overrideReason string, enforceParentState bool) (*mergePreflightView, error) {
