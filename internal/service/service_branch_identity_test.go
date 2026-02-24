@@ -59,6 +59,32 @@ func TestFormatCRBranchAliasFromUID(t *testing.T) {
 	}
 }
 
+func TestFormatCRBranchAliasWithFallbackEscalatesSuffixLength(t *testing.T) {
+	t.Parallel()
+
+	colliding := "cr-branch-identity-redesign-c6be"
+	branch, err := formatCRBranchAliasWithFallback("Branch identity redesign", "", "cr_c6bec981-b3dc-493d-aa41-897df808126c", func(candidate string) bool {
+		return candidate == colliding
+	})
+	if err != nil {
+		t.Fatalf("formatCRBranchAliasWithFallback() error = %v", err)
+	}
+	if branch != "cr-branch-identity-redesign-c6bec9" {
+		t.Fatalf("expected suffix-length fallback branch, got %q", branch)
+	}
+}
+
+func TestFormatCRBranchAliasWithFallbackRejectsFullCollision(t *testing.T) {
+	t.Parallel()
+
+	_, err := formatCRBranchAliasWithFallback("Branch identity redesign", "", "cr_c6bec981-b3dc-493d-aa41-897df808126c", func(string) bool {
+		return true
+	})
+	if err == nil {
+		t.Fatalf("expected full-collision error when all suffix lengths are exhausted")
+	}
+}
+
 func TestParseCRIDFromBranchName(t *testing.T) {
 	t.Parallel()
 

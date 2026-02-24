@@ -152,8 +152,8 @@ func TestCRBranchFormatSupportsExistingIDAndExplicitUID(t *testing.T) {
 	}
 	formatEnv = decodeEnvelope(t, formatOut)
 	formattedBranch, _ = formatEnv.Data["branch"].(string)
-	if ok, _ := regexp.MatchString(`^cr-format-target-(?:[a-z0-9]{4}|[a-z0-9]{6}|[a-z0-9]{8})$`, formattedBranch); !ok {
-		t.Fatalf("expected uid-suffixed formatted branch, got %q", formattedBranch)
+	if ok, _ := regexp.MatchString(`^cr-format-target-c6be(?:[a-z0-9]{2}|[a-z0-9]{4})?$`, formattedBranch); !ok {
+		t.Fatalf("expected uid-derived c6be suffix (with collision fallback), got %q", formattedBranch)
 	}
 
 	formatOut, _, formatErr = runCLI(t, dir, "cr", "branch", "format", "--id", "99", "--title", "Future preview", "--json")
