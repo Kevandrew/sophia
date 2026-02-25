@@ -217,23 +217,83 @@ func parseOptionalCRIDAndService(cmd *cobra.Command, args []string, argName stri
 		return 0, nil, err
 	}
 	if len(args) > 0 {
-		id, parseErr := parsePositiveIntArg(args[0], argName)
-		if parseErr != nil {
-			return 0, nil, parseErr
+		id, resolveErr := resolveCRIDFromSelector(svc, args[0], argName)
+		if resolveErr != nil {
+			return 0, nil, resolveErr
 		}
 		return id, svc, nil
+	}
+	id, err := resolveCurrentCRID(svc)
+	if err != nil {
+		return 0, nil, err
+	}
+	return id, svc, nil
+}
+
+func parseOptionalCRTaskIDsAndService(cmd *cobra.Command, args []string, crArgName, taskArgName string) (int, int, *service.Service, error) {
+	svc, err := newServiceForCmd(cmd)
+	if err != nil {
+		return 0, 0, nil, err
+	}
+	switch len(args) {
+	case 1:
+		taskID, parseErr := parsePositiveIntArg(args[0], taskArgName)
+		if parseErr != nil {
+			return 0, 0, nil, parseErr
+		}
+		crID, resolveErr := resolveCurrentCRID(svc)
+		if resolveErr != nil {
+			return 0, 0, nil, resolveErr
+		}
+		return crID, taskID, svc, nil
+	case 2:
+		crID, resolveErr := resolveCRIDFromSelector(svc, args[0], crArgName)
+		if resolveErr != nil {
+			return 0, 0, nil, resolveErr
+		}
+		taskID, parseErr := parsePositiveIntArg(args[1], taskArgName)
+		if parseErr != nil {
+			return 0, 0, nil, parseErr
+		}
+		return crID, taskID, svc, nil
+	default:
+		return 0, 0, nil, fmt.Errorf("invalid arguments: expected <task-id> or <cr-id|uid> <task-id>")
+	}
+}
+
+func resolveCRIDFromSelector(svc *service.Service, rawSelector string, argName string) (int, error) {
+	if svc == nil {
+		return 0, fmt.Errorf("service is required to resolve %s", argName)
+	}
+	selector := strings.TrimSpace(rawSelector)
+	if selector == "" {
+		return 0, fmt.Errorf("invalid %s %q", argName, rawSelector)
+	}
+	id, err := svc.ResolveCRID(selector)
+	if err != nil {
+		return 0, err
+	}
+	if id <= 0 {
+		return 0, fmt.Errorf("invalid %s %q", argName, rawSelector)
+	}
+	return id, nil
+}
+
+func resolveCurrentCRID(svc *service.Service) (int, error) {
+	if svc == nil {
+		return 0, fmt.Errorf("service is required to resolve current CR context")
 	}
 	ctx, err := svc.CurrentCR()
 	if err != nil {
 		if errorsIs(err, service.ErrNoActiveCRContext) {
-			return 0, nil, fmt.Errorf("no CR selector provided and current branch has no active CR context; pass <id|uid> or run `sophia cr switch <id>`: %w", err)
+			return 0, fmt.Errorf("no CR selector provided and current branch has no active CR context; pass <id|uid> or run `sophia cr switch <id>`: %w", err)
 		}
-		return 0, nil, err
+		return 0, err
 	}
 	if ctx == nil || ctx.CR == nil || ctx.CR.ID <= 0 {
-		return 0, nil, fmt.Errorf("failed to resolve active CR from current branch")
+		return 0, fmt.Errorf("failed to resolve active CR from current branch")
 	}
-	return ctx.CR.ID, svc, nil
+	return ctx.CR.ID, nil
 }
 
 func parseCRTaskIDsAndService(cmd *cobra.Command, rawCRID, rawTaskID string) (int, int, *service.Service, error) {
