@@ -489,45 +489,43 @@ func newCRWhyCmd() *cobra.Command {
 	var asJSON bool
 
 	cmd := &cobra.Command{
-		Use:   "why <id>",
+		Use:   "why [id]",
 		Short: "Show the rationale for why a CR exists",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			id, svc, err := parseIDAndService(cmd, args[0], "id")
-			if err != nil {
-				return commandError(cmd, asJSON, err)
-			}
-			why, err := svc.WhyCR(id)
-			if err != nil {
-				return commandError(cmd, asJSON, err)
-			}
-			if asJSON {
-				return writeJSONSuccess(cmd, map[string]any{
-					"cr_id":               why.CRID,
-					"cr_uid":              why.CRUID,
-					"base_ref":            why.BaseRef,
-					"base_commit":         why.BaseCommit,
-					"parent_cr_id":        why.ParentCRID,
-					"effective_why":       why.EffectiveWhy,
-					"source":              why.Source,
-					"description":         why.Description,
-					"contract_why":        why.ContractWhy,
-					"contract_updated_at": why.ContractUpdatedAt,
-					"contract_updated_by": why.ContractUpdatedBy,
-				})
-			}
+			return withOptionalCRIDAndService(cmd, asJSON, args, "id", func(id int, svc *service.Service) error {
+				why, err := svc.WhyCR(id)
+				if err != nil {
+					return commandError(cmd, asJSON, err)
+				}
+				if asJSON {
+					return writeJSONSuccess(cmd, map[string]any{
+						"cr_id":               why.CRID,
+						"cr_uid":              why.CRUID,
+						"base_ref":            why.BaseRef,
+						"base_commit":         why.BaseCommit,
+						"parent_cr_id":        why.ParentCRID,
+						"effective_why":       why.EffectiveWhy,
+						"source":              why.Source,
+						"description":         why.Description,
+						"contract_why":        why.ContractWhy,
+						"contract_updated_at": why.ContractUpdatedAt,
+						"contract_updated_by": why.ContractUpdatedBy,
+					})
+				}
 
-			fmt.Fprintf(cmd.OutOrStdout(), "CR %d Why:\n", why.CRID)
-			fmt.Fprintf(cmd.OutOrStdout(), "- effective_why: %s\n", nonEmpty(why.EffectiveWhy, "(missing)"))
-			fmt.Fprintf(cmd.OutOrStdout(), "- source: %s\n", nonEmpty(why.Source, "missing"))
-			fmt.Fprintf(cmd.OutOrStdout(), "- description: %s\n", nonEmpty(why.Description, "(missing)"))
-			fmt.Fprintf(cmd.OutOrStdout(), "- contract_why: %s\n", nonEmpty(why.ContractWhy, "(missing)"))
-			fmt.Fprintf(cmd.OutOrStdout(), "- base_ref: %s\n", nonEmpty(why.BaseRef, "(missing)"))
-			fmt.Fprintf(cmd.OutOrStdout(), "- base_commit: %s\n", nonEmpty(why.BaseCommit, "(missing)"))
-			fmt.Fprintf(cmd.OutOrStdout(), "- parent_cr_id: %d\n", why.ParentCRID)
-			fmt.Fprintf(cmd.OutOrStdout(), "- contract_updated_at: %s\n", nonEmpty(why.ContractUpdatedAt, "(never)"))
-			fmt.Fprintf(cmd.OutOrStdout(), "- contract_updated_by: %s\n", nonEmpty(why.ContractUpdatedBy, "(never)"))
-			return nil
+				fmt.Fprintf(cmd.OutOrStdout(), "CR %d Why:\n", why.CRID)
+				fmt.Fprintf(cmd.OutOrStdout(), "- effective_why: %s\n", nonEmpty(why.EffectiveWhy, "(missing)"))
+				fmt.Fprintf(cmd.OutOrStdout(), "- source: %s\n", nonEmpty(why.Source, "missing"))
+				fmt.Fprintf(cmd.OutOrStdout(), "- description: %s\n", nonEmpty(why.Description, "(missing)"))
+				fmt.Fprintf(cmd.OutOrStdout(), "- contract_why: %s\n", nonEmpty(why.ContractWhy, "(missing)"))
+				fmt.Fprintf(cmd.OutOrStdout(), "- base_ref: %s\n", nonEmpty(why.BaseRef, "(missing)"))
+				fmt.Fprintf(cmd.OutOrStdout(), "- base_commit: %s\n", nonEmpty(why.BaseCommit, "(missing)"))
+				fmt.Fprintf(cmd.OutOrStdout(), "- parent_cr_id: %d\n", why.ParentCRID)
+				fmt.Fprintf(cmd.OutOrStdout(), "- contract_updated_at: %s\n", nonEmpty(why.ContractUpdatedAt, "(never)"))
+				fmt.Fprintf(cmd.OutOrStdout(), "- contract_updated_by: %s\n", nonEmpty(why.ContractUpdatedBy, "(never)"))
+				return nil
+			})
 		},
 	}
 
@@ -540,79 +538,77 @@ func newCRStatusCmd() *cobra.Command {
 	var includeHQ bool
 
 	cmd := &cobra.Command{
-		Use:   "status <id>",
+		Use:   "status [id]",
 		Short: "Show CR merge-readiness and workspace status",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			id, svc, err := parseIDAndService(cmd, args[0], "id")
-			if err != nil {
-				return commandError(cmd, asJSON, err)
-			}
-			status, err := svc.StatusCR(id)
-			if err != nil {
-				return commandError(cmd, asJSON, err)
-			}
-			var hqStatus *service.HQSyncStatusView
-			if includeHQ {
-				hqStatus, err = svc.HQSyncStatusCR(id)
+			return withOptionalCRIDAndService(cmd, asJSON, args, "id", func(id int, svc *service.Service) error {
+				status, err := svc.StatusCR(id)
 				if err != nil {
 					return commandError(cmd, asJSON, err)
 				}
-			}
-			if asJSON {
-				payload := crStatusToJSONMap(status)
+				var hqStatus *service.HQSyncStatusView
 				if includeHQ {
-					payload["hq_sync"] = hqSyncStatusToJSONMap(hqStatus)
-				}
-				return writeJSONSuccess(cmd, payload)
-			}
-
-			fmt.Fprintf(cmd.OutOrStdout(), "CR %d: %s\n", status.ID, status.Title)
-			fmt.Fprintf(cmd.OutOrStdout(), "Status: %s\n", status.Status)
-			fmt.Fprintf(cmd.OutOrStdout(), "Base: %s\n", status.BaseBranch)
-			fmt.Fprintf(cmd.OutOrStdout(), "Base Ref: %s\n", nonEmpty(status.BaseRef, "(missing)"))
-			fmt.Fprintf(cmd.OutOrStdout(), "Base Commit: %s\n", nonEmpty(status.BaseCommit, "(missing)"))
-			fmt.Fprintf(cmd.OutOrStdout(), "Parent CR: %d (%s)\n", status.ParentCRID, nonEmpty(status.ParentStatus, "-"))
-			fmt.Fprintf(cmd.OutOrStdout(), "Branch: %s\n", status.Branch)
-			fmt.Fprintf(cmd.OutOrStdout(), "Current Branch: %s\n", nonEmpty(status.CurrentBranch, "(unknown)"))
-			fmt.Fprintf(cmd.OutOrStdout(), "Branch Match: %t\n", status.BranchMatch)
-			fmt.Fprintf(cmd.OutOrStdout(), "Working Tree: %d modified/staged, %d untracked (dirty=%t)\n", status.ModifiedStagedCount, status.UntrackedCount, status.Dirty)
-			fmt.Fprintf(cmd.OutOrStdout(), "Tasks: %d total, %d open, %d delegated (%d pending), %d done\n", status.TasksTotal, status.TasksOpen, status.TasksDelegated, status.TasksDelegatedPending, status.TasksDone)
-			fmt.Fprintf(cmd.OutOrStdout(), "Contract Complete: %t\n", status.ContractComplete)
-			if len(status.ContractMissingFields) == 0 {
-				fmt.Fprintln(cmd.OutOrStdout(), "Contract Missing Fields: (none)")
-			} else {
-				fmt.Fprintf(cmd.OutOrStdout(), "Contract Missing Fields: %s\n", strings.Join(status.ContractMissingFields, ", "))
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Validation: valid=%t errors=%d warnings=%d risk=%s/%d\n", status.ValidationValid, status.ValidationErrors, status.ValidationWarnings, status.RiskTier, status.RiskScore)
-			fmt.Fprintf(cmd.OutOrStdout(), "Merge Blocked: %t\n", status.MergeBlocked)
-			if len(status.MergeBlockers) == 0 {
-				fmt.Fprintln(cmd.OutOrStdout(), "Merge Blockers: (none)")
-			} else {
-				fmt.Fprintln(cmd.OutOrStdout(), "Merge Blockers:")
-				for _, blocker := range status.MergeBlockers {
-					fmt.Fprintf(cmd.OutOrStdout(), "- %s\n", blocker)
-				}
-			}
-			if includeHQ && hqStatus != nil {
-				fmt.Fprintln(cmd.OutOrStdout(), "\nHQ Sync:")
-				fmt.Fprintf(cmd.OutOrStdout(), "- configured: %t\n", hqStatus.Configured)
-				fmt.Fprintf(cmd.OutOrStdout(), "- base_url: %s\n", nonEmpty(hqStatus.BaseURL, "(missing)"))
-				fmt.Fprintf(cmd.OutOrStdout(), "- repo_id: %s\n", nonEmpty(hqStatus.RepoID, "(missing)"))
-				fmt.Fprintf(cmd.OutOrStdout(), "- remote_alias: %s\n", nonEmpty(hqStatus.RemoteAlias, "(missing)"))
-				fmt.Fprintf(cmd.OutOrStdout(), "- has_token: %t\n", hqStatus.HasToken)
-				fmt.Fprintf(cmd.OutOrStdout(), "- linked: %t\n", hqStatus.Linked)
-				fmt.Fprintf(cmd.OutOrStdout(), "- state: %s\n", nonEmpty(hqStatus.State, "(missing)"))
-				if len(hqStatus.SuggestedActions) == 0 {
-					fmt.Fprintln(cmd.OutOrStdout(), "- suggested_actions: (none)")
-				} else {
-					fmt.Fprintln(cmd.OutOrStdout(), "- suggested_actions:")
-					for _, action := range hqStatus.SuggestedActions {
-						fmt.Fprintf(cmd.OutOrStdout(), "  - %s\n", action)
+					hqStatus, err = svc.HQSyncStatusCR(id)
+					if err != nil {
+						return commandError(cmd, asJSON, err)
 					}
 				}
-			}
-			return nil
+				if asJSON {
+					payload := crStatusToJSONMap(status)
+					if includeHQ {
+						payload["hq_sync"] = hqSyncStatusToJSONMap(hqStatus)
+					}
+					return writeJSONSuccess(cmd, payload)
+				}
+
+				fmt.Fprintf(cmd.OutOrStdout(), "CR %d: %s\n", status.ID, status.Title)
+				fmt.Fprintf(cmd.OutOrStdout(), "Status: %s\n", status.Status)
+				fmt.Fprintf(cmd.OutOrStdout(), "Base: %s\n", status.BaseBranch)
+				fmt.Fprintf(cmd.OutOrStdout(), "Base Ref: %s\n", nonEmpty(status.BaseRef, "(missing)"))
+				fmt.Fprintf(cmd.OutOrStdout(), "Base Commit: %s\n", nonEmpty(status.BaseCommit, "(missing)"))
+				fmt.Fprintf(cmd.OutOrStdout(), "Parent CR: %d (%s)\n", status.ParentCRID, nonEmpty(status.ParentStatus, "-"))
+				fmt.Fprintf(cmd.OutOrStdout(), "Branch: %s\n", status.Branch)
+				fmt.Fprintf(cmd.OutOrStdout(), "Current Branch: %s\n", nonEmpty(status.CurrentBranch, "(unknown)"))
+				fmt.Fprintf(cmd.OutOrStdout(), "Branch Match: %t\n", status.BranchMatch)
+				fmt.Fprintf(cmd.OutOrStdout(), "Working Tree: %d modified/staged, %d untracked (dirty=%t)\n", status.ModifiedStagedCount, status.UntrackedCount, status.Dirty)
+				fmt.Fprintf(cmd.OutOrStdout(), "Tasks: %d total, %d open, %d delegated (%d pending), %d done\n", status.TasksTotal, status.TasksOpen, status.TasksDelegated, status.TasksDelegatedPending, status.TasksDone)
+				fmt.Fprintf(cmd.OutOrStdout(), "Contract Complete: %t\n", status.ContractComplete)
+				if len(status.ContractMissingFields) == 0 {
+					fmt.Fprintln(cmd.OutOrStdout(), "Contract Missing Fields: (none)")
+				} else {
+					fmt.Fprintf(cmd.OutOrStdout(), "Contract Missing Fields: %s\n", strings.Join(status.ContractMissingFields, ", "))
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "Validation: valid=%t errors=%d warnings=%d risk=%s/%d\n", status.ValidationValid, status.ValidationErrors, status.ValidationWarnings, status.RiskTier, status.RiskScore)
+				fmt.Fprintf(cmd.OutOrStdout(), "Merge Blocked: %t\n", status.MergeBlocked)
+				if len(status.MergeBlockers) == 0 {
+					fmt.Fprintln(cmd.OutOrStdout(), "Merge Blockers: (none)")
+				} else {
+					fmt.Fprintln(cmd.OutOrStdout(), "Merge Blockers:")
+					for _, blocker := range status.MergeBlockers {
+						fmt.Fprintf(cmd.OutOrStdout(), "- %s\n", blocker)
+					}
+				}
+				if includeHQ && hqStatus != nil {
+					fmt.Fprintln(cmd.OutOrStdout(), "\nHQ Sync:")
+					fmt.Fprintf(cmd.OutOrStdout(), "- configured: %t\n", hqStatus.Configured)
+					fmt.Fprintf(cmd.OutOrStdout(), "- base_url: %s\n", nonEmpty(hqStatus.BaseURL, "(missing)"))
+					fmt.Fprintf(cmd.OutOrStdout(), "- repo_id: %s\n", nonEmpty(hqStatus.RepoID, "(missing)"))
+					fmt.Fprintf(cmd.OutOrStdout(), "- remote_alias: %s\n", nonEmpty(hqStatus.RemoteAlias, "(missing)"))
+					fmt.Fprintf(cmd.OutOrStdout(), "- has_token: %t\n", hqStatus.HasToken)
+					fmt.Fprintf(cmd.OutOrStdout(), "- linked: %t\n", hqStatus.Linked)
+					fmt.Fprintf(cmd.OutOrStdout(), "- state: %s\n", nonEmpty(hqStatus.State, "(missing)"))
+					if len(hqStatus.SuggestedActions) == 0 {
+						fmt.Fprintln(cmd.OutOrStdout(), "- suggested_actions: (none)")
+					} else {
+						fmt.Fprintln(cmd.OutOrStdout(), "- suggested_actions:")
+						for _, action := range hqStatus.SuggestedActions {
+							fmt.Fprintf(cmd.OutOrStdout(), "  - %s\n", action)
+						}
+					}
+				}
+				return nil
+			})
 		},
 	}
 
@@ -821,23 +817,21 @@ func newCRImpactCmd() *cobra.Command {
 	var asJSON bool
 
 	cmd := &cobra.Command{
-		Use:   "impact <id>",
+		Use:   "impact [id]",
 		Short: "Show deterministic impact and risk summary for a CR",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			id, svc, err := parseIDAndService(cmd, args[0], "id")
-			if err != nil {
-				return commandError(cmd, asJSON, err)
-			}
-			impact, err := svc.ImpactCR(id)
-			if err != nil {
-				return commandError(cmd, asJSON, err)
-			}
-			if asJSON {
-				return writeJSONSuccess(cmd, impactToJSONMap(impact))
-			}
-			printImpactSection(cmd, impact)
-			return nil
+			return withOptionalCRIDAndService(cmd, asJSON, args, "id", func(id int, svc *service.Service) error {
+				impact, err := svc.ImpactCR(id)
+				if err != nil {
+					return commandError(cmd, asJSON, err)
+				}
+				if asJSON {
+					return writeJSONSuccess(cmd, impactToJSONMap(impact))
+				}
+				printImpactSection(cmd, impact)
+				return nil
+			})
 		},
 	}
 
@@ -850,70 +844,68 @@ func newCRValidateCmd() *cobra.Command {
 	var record bool
 
 	cmd := &cobra.Command{
-		Use:   "validate <id>",
+		Use:   "validate [id]",
 		Short: "Validate CR contract completeness, scope drift, and risk signals",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			id, svc, err := parseIDAndService(cmd, args[0], "id")
-			if err != nil {
-				return commandError(cmd, asJSON, err)
-			}
-			report, err := svc.ValidateCR(id)
-			if err != nil {
-				return commandError(cmd, asJSON, err)
-			}
-			review, err := svc.ReviewCR(id)
-			if err != nil {
-				return commandError(cmd, asJSON, err)
-			}
-			if record {
-				if err := svc.RecordCRValidation(id, report); err != nil {
+			return withOptionalCRIDAndService(cmd, asJSON, args, "id", func(id int, svc *service.Service) error {
+				report, err := svc.ValidateCR(id)
+				if err != nil {
 					return commandError(cmd, asJSON, err)
 				}
-			}
-			trustWarnings := []string{}
-			trustRequirementsUnsatisfied := []string{}
-			if review.Trust != nil {
-				for _, requirement := range review.Trust.Requirements {
-					if requirement.Satisfied {
-						continue
-					}
-					trustRequirementsUnsatisfied = append(trustRequirementsUnsatisfied, requirement.Key)
-					if strings.TrimSpace(requirement.Reason) != "" {
-						trustWarnings = append(trustWarnings, requirement.Reason)
+				review, err := svc.ReviewCR(id)
+				if err != nil {
+					return commandError(cmd, asJSON, err)
+				}
+				if record {
+					if err := svc.RecordCRValidation(id, report); err != nil {
+						return commandError(cmd, asJSON, err)
 					}
 				}
-			}
-			trustWarnings = dedupeStringValues(trustWarnings)
-			trustRequirementsUnsatisfied = dedupeStringValues(trustRequirementsUnsatisfied)
-			if asJSON {
-				if !report.Valid {
-					return writeJSONError(cmd, fmt.Errorf("validation failed with %d error(s): %s", len(report.Errors), strings.Join(report.Errors, "; ")))
+				trustWarnings := []string{}
+				trustRequirementsUnsatisfied := []string{}
+				if review.Trust != nil {
+					for _, requirement := range review.Trust.Requirements {
+						if requirement.Satisfied {
+							continue
+						}
+						trustRequirementsUnsatisfied = append(trustRequirementsUnsatisfied, requirement.Key)
+						if strings.TrimSpace(requirement.Reason) != "" {
+							trustWarnings = append(trustWarnings, requirement.Reason)
+						}
+					}
 				}
-				payload := validationToJSONMap(report)
-				payload["recorded"] = record
-				payload["trust"] = trustToJSONMap(review.Trust)
-				payload["trust_warnings"] = trustWarnings
-				payload["trust_requirements_unsatisfied"] = trustRequirementsUnsatisfied
-				return writeJSONSuccess(cmd, payload)
-			}
+				trustWarnings = dedupeStringValues(trustWarnings)
+				trustRequirementsUnsatisfied = dedupeStringValues(trustRequirementsUnsatisfied)
+				if asJSON {
+					if !report.Valid {
+						return writeJSONError(cmd, fmt.Errorf("validation failed with %d error(s): %s", len(report.Errors), strings.Join(report.Errors, "; ")))
+					}
+					payload := validationToJSONMap(report)
+					payload["recorded"] = record
+					payload["trust"] = trustToJSONMap(review.Trust)
+					payload["trust_warnings"] = trustWarnings
+					payload["trust_requirements_unsatisfied"] = trustRequirementsUnsatisfied
+					return writeJSONSuccess(cmd, payload)
+				}
 
-			fmt.Fprintln(cmd.OutOrStdout(), "Contract:")
-			if report.Valid {
-				fmt.Fprintln(cmd.OutOrStdout(), "- status: complete")
-			} else {
-				fmt.Fprintln(cmd.OutOrStdout(), "- status: incomplete")
-			}
-			printImpactSection(cmd, report.Impact)
-			printStringSection(cmd, "Errors", report.Errors)
-			printStringSection(cmd, "Warnings", report.Warnings)
-			printTrustSection(cmd, review.Trust)
-			fmt.Fprintf(cmd.OutOrStdout(), "\nRecorded: %t\n", record)
-			if !report.Valid {
-				return fmt.Errorf("validation failed with %d error(s)", len(report.Errors))
-			}
-			fmt.Fprintln(cmd.OutOrStdout(), "Validation status: OK")
-			return nil
+				fmt.Fprintln(cmd.OutOrStdout(), "Contract:")
+				if report.Valid {
+					fmt.Fprintln(cmd.OutOrStdout(), "- status: complete")
+				} else {
+					fmt.Fprintln(cmd.OutOrStdout(), "- status: incomplete")
+				}
+				printImpactSection(cmd, report.Impact)
+				printStringSection(cmd, "Errors", report.Errors)
+				printStringSection(cmd, "Warnings", report.Warnings)
+				printTrustSection(cmd, review.Trust)
+				fmt.Fprintf(cmd.OutOrStdout(), "\nRecorded: %t\n", record)
+				if !report.Valid {
+					return fmt.Errorf("validation failed with %d error(s)", len(report.Errors))
+				}
+				fmt.Fprintln(cmd.OutOrStdout(), "Validation status: OK")
+				return nil
+			})
 		},
 	}
 

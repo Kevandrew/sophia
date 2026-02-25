@@ -5,6 +5,8 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+
+	"sophia/internal/service"
 )
 
 func newCRCheckCmd() *cobra.Command {
@@ -69,43 +71,31 @@ func newCRCheckStatusCmd() *cobra.Command {
 	var asJSON bool
 
 	cmd := &cobra.Command{
-		Use:   "status <id>",
+		Use:   "status [id]",
 		Short: "Show trust check status for a CR",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			id, err := parsePositiveIntArg(args[0], "id")
-			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
+			return withOptionalCRIDAndService(cmd, asJSON, args, "id", func(id int, svc *service.Service) error {
+				report, err := svc.TrustCheckStatusCR(id)
+				if err != nil {
+					if asJSON {
+						return writeJSONError(cmd, err)
+					}
+					return err
 				}
-				return err
-			}
-			svc, err := newServiceForCmd(cmd)
-			if err != nil {
 				if asJSON {
-					return writeJSONError(cmd, err)
+					return writeJSONSuccess(cmd, trustCheckStatusToJSONMap(report))
 				}
-				return err
-			}
-			report, err := svc.TrustCheckStatusCR(id)
-			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
-			}
-			if asJSON {
-				return writeJSONSuccess(cmd, trustCheckStatusToJSONMap(report))
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "CR %d trust check status.\n", report.CRID)
-			fmt.Fprintf(cmd.OutOrStdout(), "Risk Tier: %s\n", nonEmpty(strings.TrimSpace(report.RiskTier), "-"))
-			fmt.Fprintf(cmd.OutOrStdout(), "Freshness Hours: %d\n", report.FreshnessHours)
-			fmt.Fprintf(cmd.OutOrStdout(), "Check Mode: %s\n", nonEmpty(strings.TrimSpace(report.CheckMode), "-"))
-			fmt.Fprintf(cmd.OutOrStdout(), "Required Checks: %d\n", report.RequiredCheckCount)
-			printStringSection(cmd, "Guidance", report.Guidance)
-			printTrustRequirements(cmd, report.Requirements)
-			printTrustCheckResults(cmd, report.CheckResults)
-			return nil
+				fmt.Fprintf(cmd.OutOrStdout(), "CR %d trust check status.\n", report.CRID)
+				fmt.Fprintf(cmd.OutOrStdout(), "Risk Tier: %s\n", nonEmpty(strings.TrimSpace(report.RiskTier), "-"))
+				fmt.Fprintf(cmd.OutOrStdout(), "Freshness Hours: %d\n", report.FreshnessHours)
+				fmt.Fprintf(cmd.OutOrStdout(), "Check Mode: %s\n", nonEmpty(strings.TrimSpace(report.CheckMode), "-"))
+				fmt.Fprintf(cmd.OutOrStdout(), "Required Checks: %d\n", report.RequiredCheckCount)
+				printStringSection(cmd, "Guidance", report.Guidance)
+				printTrustRequirements(cmd, report.Requirements)
+				printTrustCheckResults(cmd, report.CheckResults)
+				return nil
+			})
 		},
 	}
 
