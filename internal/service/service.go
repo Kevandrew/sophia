@@ -22,6 +22,13 @@ type Service struct {
 	mergeStore           mergeRuntimeStore
 	mergeGit             mergeRuntimeGit
 	mergeGitFactory      mergeRuntimeGitFactory
+	lifecycleStoreCustom bool
+	lifecycleGitCustom   bool
+	statusStoreCustom    bool
+	statusGitCustom      bool
+	mergeStoreCustom     bool
+	mergeGitCustom       bool
+	mergeFactoryCustom   bool
 	now                  func() time.Time
 	repoRoot             string
 	legacySophiaDir      string
@@ -976,40 +983,28 @@ func (s *Service) applyEffectiveMetadataModeForInit(effectiveMode string, fallba
 
 func (s *Service) composeRuntimePorts() {
 	if s.store != nil {
-		if s.lifecycleStore == nil {
-			s.lifecycleStore = s.store
-		} else if current, ok := s.lifecycleStore.(*store.Store); ok && current != s.store {
+		if !s.lifecycleStoreCustom || s.lifecycleStore == nil {
 			s.lifecycleStore = s.store
 		}
-		if s.statusStore == nil {
-			s.statusStore = s.store
-		} else if current, ok := s.statusStore.(*store.Store); ok && current != s.store {
+		if !s.statusStoreCustom || s.statusStore == nil {
 			s.statusStore = s.store
 		}
-		if s.mergeStore == nil {
-			s.mergeStore = s.store
-		} else if current, ok := s.mergeStore.(*store.Store); ok && current != s.store {
+		if !s.mergeStoreCustom || s.mergeStore == nil {
 			s.mergeStore = s.store
 		}
 	}
 	if s.git != nil {
-		if s.lifecycleGit == nil {
-			s.lifecycleGit = s.git
-		} else if current, ok := s.lifecycleGit.(*gitx.Client); ok && current != s.git {
+		if !s.lifecycleGitCustom || s.lifecycleGit == nil {
 			s.lifecycleGit = s.git
 		}
-		if s.statusGit == nil {
-			s.statusGit = s.git
-		} else if current, ok := s.statusGit.(*gitx.Client); ok && current != s.git {
+		if !s.statusGitCustom || s.statusGit == nil {
 			s.statusGit = s.git
 		}
-		if s.mergeGit == nil {
-			s.mergeGit = s.git
-		} else if current, ok := s.mergeGit.(*gitx.Client); ok && current != s.git {
+		if !s.mergeGitCustom || s.mergeGit == nil {
 			s.mergeGit = s.git
 		}
 	}
-	if s.mergeGitFactory == nil {
+	if !s.mergeFactoryCustom || s.mergeGitFactory == nil {
 		s.mergeGitFactory = func(root string) mergeRuntimeGit {
 			return gitx.New(root)
 		}
