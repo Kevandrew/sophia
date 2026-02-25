@@ -17,6 +17,18 @@ func (s *Service) AddChildCRFromCurrent(title, description string) (*model.CR, [
 }
 
 func (s *Service) DelegateTaskToChild(parentCRID, taskID, childCRID int) (*DelegateTaskResult, error) {
+	var result *DelegateTaskResult
+	if err := s.withMutationLock(func() error {
+		var err error
+		result, err = s.delegateTaskToChildUnlocked(parentCRID, taskID, childCRID)
+		return err
+	}); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func (s *Service) delegateTaskToChildUnlocked(parentCRID, taskID, childCRID int) (*DelegateTaskResult, error) {
 	parent, err := s.store.LoadCR(parentCRID)
 	if err != nil {
 		return nil, err
@@ -130,6 +142,18 @@ func (s *Service) DelegateTaskToChild(parentCRID, taskID, childCRID int) (*Deleg
 }
 
 func (s *Service) UndelegateTaskFromChild(parentCRID, taskID, childCRID int) (*UndelegateTaskResult, error) {
+	var result *UndelegateTaskResult
+	if err := s.withMutationLock(func() error {
+		var err error
+		result, err = s.undelegateTaskFromChildUnlocked(parentCRID, taskID, childCRID)
+		return err
+	}); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func (s *Service) undelegateTaskFromChildUnlocked(parentCRID, taskID, childCRID int) (*UndelegateTaskResult, error) {
 	parent, err := s.store.LoadCR(parentCRID)
 	if err != nil {
 		return nil, err

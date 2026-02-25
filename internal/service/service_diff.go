@@ -13,12 +13,19 @@ import (
 var ErrCRBranchContextUnavailable = errors.New("cr branch context unavailable")
 
 func (s *Service) summarizeCRDiff(cr *model.CR) (*diffSummary, error) {
-	if _, err := s.ensureCRBaseFields(cr, true); err != nil {
-		return nil, err
-	}
 	policy, err := s.repoPolicy()
 	if err != nil {
 		return nil, err
+	}
+	return s.summarizeCRDiffWithPolicy(cr, policy)
+}
+
+func (s *Service) summarizeCRDiffWithPolicy(cr *model.CR, policy *model.RepoPolicy) (*diffSummary, error) {
+	if _, err := s.ensureCRBaseFields(cr, false); err != nil {
+		return nil, err
+	}
+	if policy == nil {
+		return nil, errors.New("repo policy is required")
 	}
 	var (
 		changes   []gitx.FileChange
@@ -139,6 +146,42 @@ func (s *Service) ensureCRBaseFields(cr *model.CR, persist bool) (bool, error) {
 	return changed, nil
 }
 
+func (s *Service) ensureCRBaseFieldsPersisted(cr *model.CR) (*model.CR, error) {
+	if cr == nil {
+		return nil, errors.New("cr cannot be nil")
+	}
+	changed, err := s.ensureCRBaseFields(cr, false)
+	if err != nil {
+		return nil, err
+	}
+	if !changed {
+		return cr, nil
+	}
+
+	persisted := cr
+	if err := s.withMutationLock(func() error {
+		latest, err := s.store.LoadCR(cr.ID)
+		if err != nil {
+			return err
+		}
+		latestChanged, err := s.ensureCRBaseFields(latest, false)
+		if err != nil {
+			return err
+		}
+		if latestChanged {
+			latest.UpdatedAt = s.timestamp()
+			if err := s.store.SaveCR(latest); err != nil {
+				return err
+			}
+		}
+		persisted = latest
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+	return persisted, nil
+}
+
 func (s *Service) resolveCRBaseAnchor(cr *model.CR) (string, error) {
 	return servicediff.ResolveCRBaseAnchor(cr, s.git.ResolveRef)
 }
@@ -171,7 +214,7 @@ func (s *Service) parentBaseAnchor(parent *model.CR) (string, string, error) {
 	if parent == nil {
 		return "", "", errors.New("parent cr is required")
 	}
-	if _, err := s.ensureCRBaseFields(parent, true); err != nil {
+	if _, err := s.ensureCRBaseFields(parent, false); err != nil {
 		return "", "", err
 	}
 

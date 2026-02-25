@@ -170,6 +170,18 @@ type patchSetContractOp struct {
 }
 
 func (s *Service) ImportCRBundle(opts ImportCRBundleOptions) (*ImportCRBundleResult, error) {
+	var result *ImportCRBundleResult
+	if err := s.withMutationLock(func() error {
+		var err error
+		result, err = s.importCRBundleUnlocked(opts)
+		return err
+	}); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func (s *Service) importCRBundleUnlocked(opts ImportCRBundleOptions) (*ImportCRBundleResult, error) {
 	if err := s.store.EnsureInitialized(); err != nil {
 		return nil, err
 	}
@@ -334,6 +346,18 @@ func metaMapFromEntries(entries []CRDocMetaEntry) map[string]string {
 }
 
 func (s *Service) ApplyCRPatch(selector string, patchBytes []byte, force bool, preview bool) (*CRPatchApplyResult, error) {
+	var result *CRPatchApplyResult
+	if err := s.withMutationLock(func() error {
+		var err error
+		result, err = s.applyCRPatchUnlocked(selector, patchBytes, force, preview)
+		return err
+	}); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func (s *Service) applyCRPatchUnlocked(selector string, patchBytes []byte, force bool, preview bool) (*CRPatchApplyResult, error) {
 	patch, err := parseCRPatch(patchBytes)
 	if err != nil {
 		return nil, err

@@ -143,7 +143,8 @@ func (s *Service) ResolveCRBranch(branch string) (*BranchResolveView, error) {
 	if err != nil {
 		return nil, err
 	}
-	if _, err := s.ensureCRBaseFields(cr, true); err != nil {
+	cr, err = s.ensureCRBaseFieldsPersisted(cr)
+	if err != nil {
 		return nil, err
 	}
 	return &BranchResolveView{
@@ -153,6 +154,18 @@ func (s *Service) ResolveCRBranch(branch string) (*BranchResolveView, error) {
 }
 
 func (s *Service) MigrateCRBranch(id int, dryRun bool) (*BranchMigrateView, error) {
+	var view *BranchMigrateView
+	if err := s.withMutationLock(func() error {
+		var err error
+		view, err = s.migrateCRBranchUnlocked(id, dryRun)
+		return err
+	}); err != nil {
+		return nil, err
+	}
+	return view, nil
+}
+
+func (s *Service) migrateCRBranchUnlocked(id int, dryRun bool) (*BranchMigrateView, error) {
 	cr, err := s.store.LoadCR(id)
 	if err != nil {
 		return nil, err

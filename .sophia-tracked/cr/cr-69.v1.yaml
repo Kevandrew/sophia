@@ -1,0 +1,251 @@
+schema_version: sophia.cr_archive.v1
+notice: Historical archive snapshot. Corrections are append-only revisions.
+archived_at: "2026-02-25T13:51:54Z"
+revision: 1
+cr:
+    id: 69
+    uid: cr_bfb5d695-d84f-439a-85ab-affe7e7e9bb5
+    title: 'Tech debt: harden CR lifecycle concurrency and merge/status reliability'
+    description: 'Track latent engineering risks in CR lifecycle code: inconsistent mutation-lock coverage, merge/status fallback fragility, and duplicated validation/status pathways. Intent is to unify helper patterns and reduce drift-prone code smells without changing CLI UX semantics.'
+    status: merged
+    base_branch: main
+    base_ref: main
+    base_commit: 5c0943c2e8205769ea271a6f1e2381ff2eb73bf5
+    branch: cr-tech-debt-harden-cr-lifecycle-concurrency-and-me-bfb5
+    merged_at: "2026-02-25T13:51:54Z"
+    merged_by: Kevandrew <143258544+Kevandrew@users.noreply.github.com>
+contract:
+    why: Reduce latent reliability risks in CR lifecycle flows by unifying helper seams and removing duplicated status/merge logic paths that can drift under concurrency or fallback conditions. Keep this as a debt-hardening slice to improve robustness and maintainability before future feature work.
+    scope:
+        - internal/service
+        - internal/store
+    non_goals:
+        - No metadata schema/version migration in this slice.
+        - No user-facing CLI command/flag behavior changes.
+    invariants:
+        - CR creation, status, review, and merge semantics remain backward compatible.
+        - Failure paths remain explicit and deterministic; no silent fallbacks.
+    blast_radius: CR mutation locking paths, merge preflight/finalize internals, and status/validation/trust shared helper boundaries.
+    risk_critical_scopes:
+        - internal/service
+        - internal/store
+    risk_tier_hint: medium
+    risk_rationale: Changes target correctness-sensitive lifecycle and merge paths.
+    test_plan: go test ./internal/service ./internal/store && go test ./...
+    rollback_plan: Revert the CR-69 merge commit.
+tasks:
+    - id: 1
+      title: Unify mutation-lock coverage across CR lifecycle mutators
+      status: done
+      contract:
+        intent: Serialize CR lifecycle mutations behind a single shared mutation lock and remove unlocked write paths.
+        acceptance_criteria:
+            - Every exported service mutator that persists CR/config/index state enters the shared mutation lock exactly once at the top-level method.
+            - Existing mutator behavior and error messages remain backward compatible after lock coverage expansion.
+            - New unlocked helper variants are only called from lock-held paths and do not reacquire the lock.
+        scope:
+            - internal/service
+            - internal/store
+      checkpoint:
+        commit: 669ecb29
+        at: "2026-02-25T13:49:21Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_branch_ops.go
+            - internal/service/service_collab.go
+            - internal/service/service_cr.go
+            - internal/service/service_cr_history.go
+            - internal/service/service_cr_integrity.go
+            - internal/service/service_delegate_stack.go
+            - internal/service/service_refresh.go
+    - id: 2
+      title: Consolidate CR status/validation context helpers to remove duplicated fallback paths
+      status: done
+      contract:
+        intent: Consolidate status/validate/impact helper seams so branch fallback and policy context handling are deterministic and non-duplicated.
+        acceptance_criteria:
+            - Branch-context-unavailable cases still return explicit deterministic blockers/warnings from one validation source.
+            - Status, validate, and impact flows use shared helper paths for diff/policy context instead of duplicated fallback branches.
+            - Unreachable or duplicate fallback handling is removed without changing healthy-repo CLI semantics.
+        scope:
+            - internal/service
+      checkpoint:
+        commit: 99c4aa48
+        at: "2026-02-25T13:49:29Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_cr_refs.go
+            - internal/service/service_cr_status.go
+            - internal/service/service_diff_views.go
+            - internal/service/service_rangediff.go
+            - internal/service/service_tasks.go
+    - id: 3
+      title: Refactor merge flow internals into shared preflight/execute/finalize helpers and clean error propagation
+      status: done
+      contract:
+        intent: Refactor merge internals into shared preflight/execute/finalize helpers while preserving merge/recovery semantics.
+        acceptance_criteria:
+            - Conflict and in-progress merge paths keep deterministic error propagation and existing event emission behavior.
+            - Merge and resume flows share helper logic for preflight checks, archive policy gating, and finalize transitions.
+            - Refactor remains internal-only with no command or flag surface changes.
+        scope:
+            - internal/service
+      checkpoint:
+        commit: 659e4b0b
+        at: "2026-02-25T13:49:32Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_review_merge.go
+    - id: 4
+      title: Add concurrency and lifecycle regression tests for lock-sensitive and fallback-sensitive paths
+      status: done
+      contract:
+        intent: Add lock-sensitive lifecycle regression tests that prove concurrency serialization under shared mutation lock ownership.
+        acceptance_criteria:
+            - At least one newly lock-guarded lifecycle mutator test asserts blocking/wait behavior while another process holds the shared lock.
+            - Concurrent mutation tests verify no lost writes and expected event counts for guarded mutation paths.
+            - Regression coverage remains deterministic and stable in repeated local runs.
+        scope:
+            - internal/service
+            - internal/store
+      checkpoint:
+        commit: f141a1b9
+        at: "2026-02-25T13:49:39Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_mutation_lock_test.go
+    - id: 5
+      title: Isolate merge finalize error propagation fallback behavior
+      status: done
+      contract:
+        intent: Isolate and fix merge finalize fallback error propagation so failures report the real failing operation.
+        acceptance_criteria:
+            - Existing successful merge finalize paths remain unchanged.
+            - Finalize fallback branches no longer leak stale error variables from unrelated earlier operations.
+            - When fallback diff resolution fails, returned errors identify the actual failing step deterministically.
+        scope:
+            - internal/service
+      checkpoint:
+        at: "2026-02-25T13:49:53Z"
+        source: task_no_checkpoint
+    - id: 6
+      title: Add concurrency regression coverage for newly lock-guarded mutators
+      status: done
+      contract:
+        intent: Add concurrency regression coverage for newly lock-guarded mutators with deterministic wait and no-loss guarantees.
+        acceptance_criteria:
+            - At least one newly lock-guarded lifecycle mutator test asserts blocking/wait behavior while another process holds the shared lock.
+            - Concurrent mutation tests verify no lost writes and expected event counts for guarded mutation paths.
+            - Regression coverage remains deterministic and stable in repeated local runs.
+        scope:
+            - internal/service
+            - internal/store
+      checkpoint:
+        at: "2026-02-25T13:50:01Z"
+        source: task_no_checkpoint
+    - id: 7
+      title: Add branch-context fallback lifecycle regressions and evidence trail
+      status: done
+      contract:
+        intent: Add branch-context fallback lifecycle regressions and attach required verification evidence for trust checks.
+        acceptance_criteria:
+            - Evidence records are visible in CR evidence ledger and satisfy required check freshness expectations.
+            - Regression tests cover branch-context-unavailable status/validation behavior and assert deterministic blockers/warnings instead of hard failure.
+            - Run and capture required checks from CR test plan (go test ./internal/service ./internal/store, go test ./..., go vet ./...) and attach command_run evidence.
+        scope:
+            - internal/service
+            - internal/store
+      checkpoint:
+        commit: c7f99f16
+        at: "2026-02-25T13:49:45Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_cr_status_fallback_test.go
+    - id: 8
+      title: Make base-field backfill persistence concurrency-safe
+      status: done
+      contract:
+        intent: Separate base-field computation from persistence and make backfill writes lock-safe under concurrent updates.
+        acceptance_criteria:
+            - Backfill behavior remains backward compatible for repositories with missing base_ref/base_commit fields.
+            - Base-field normalization has a non-persisting compute path and a lock-safe persistence path that avoids stale-object overwrites.
+            - Read flows that trigger base backfill persist deterministically without clobbering concurrent metadata changes.
+        scope:
+            - internal/service
+      checkpoint:
+        commit: 41fdbe4c
+        at: "2026-02-25T13:49:24Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_diff.go
+git_summary:
+    base_parent: 5c0943c2e8205769ea271a6f1e2381ff2eb73bf5
+    cr_parent: c7f99f16abcee59e9aaa5459d4497ed9231ea5e1
+    files_changed:
+        - internal/service/service_branch_ops.go
+        - internal/service/service_collab.go
+        - internal/service/service_cr.go
+        - internal/service/service_cr_history.go
+        - internal/service/service_cr_integrity.go
+        - internal/service/service_cr_refs.go
+        - internal/service/service_cr_status.go
+        - internal/service/service_cr_status_fallback_test.go
+        - internal/service/service_delegate_stack.go
+        - internal/service/service_diff.go
+        - internal/service/service_diff_views.go
+        - internal/service/service_mutation_lock_test.go
+        - internal/service/service_rangediff.go
+        - internal/service/service_refresh.go
+        - internal/service/service_review_merge.go
+        - internal/service/service_tasks.go
+    diffstat:
+        summary: 16 files changed, 387 insertions(+), 84 deletions(-)
+        files:
+            - path: internal/service/service_branch_ops.go
+              insertions: 14
+              deletions: 1
+            - path: internal/service/service_collab.go
+              insertions: 24
+              deletions: 0
+            - path: internal/service/service_cr.go
+              insertions: 39
+              deletions: 0
+            - path: internal/service/service_cr_history.go
+              insertions: 12
+              deletions: 0
+            - path: internal/service/service_cr_integrity.go
+              insertions: 15
+              deletions: 2
+            - path: internal/service/service_cr_refs.go
+              insertions: 1
+              deletions: 1
+            - path: internal/service/service_cr_status.go
+              insertions: 12
+              deletions: 23
+            - path: internal/service/service_cr_status_fallback_test.go
+              insertions: 52
+              deletions: 0
+            - path: internal/service/service_delegate_stack.go
+              insertions: 24
+              deletions: 0
+            - path: internal/service/service_diff.go
+              insertions: 47
+              deletions: 4
+            - path: internal/service/service_diff_views.go
+              insertions: 3
+              deletions: 3
+            - path: internal/service/service_mutation_lock_test.go
+              insertions: 48
+              deletions: 0
+            - path: internal/service/service_rangediff.go
+              insertions: 2
+              deletions: 2
+            - path: internal/service/service_refresh.go
+              insertions: 15
+              deletions: 3
+            - path: internal/service/service_review_merge.go
+              insertions: 78
+              deletions: 44
+            - path: internal/service/service_tasks.go
+              insertions: 1
+              deletions: 1

@@ -26,6 +26,21 @@ type addCRBaseContext struct {
 }
 
 func (s *Service) AddCRWithOptionsWithWarnings(title, description string, opts AddCROptions) (*model.CR, []string, error) {
+	var (
+		cr       *model.CR
+		warnings []string
+	)
+	if err := s.withMutationLock(func() error {
+		var err error
+		cr, warnings, err = s.addCRWithOptionsWithWarningsUnlocked(title, description, opts)
+		return err
+	}); err != nil {
+		return nil, nil, err
+	}
+	return cr, warnings, nil
+}
+
+func (s *Service) addCRWithOptionsWithWarningsUnlocked(title, description string, opts AddCROptions) (*model.CR, []string, error) {
 	if err := servicecr.ValidateAddRequest(title, opts.BaseRef, opts.ParentCRID, opts.BranchAlias, opts.OwnerPrefixSet); err != nil {
 		return nil, nil, err
 	}
@@ -319,6 +334,18 @@ func (s *Service) GetCRContract(id int) (*model.Contract, error) {
 }
 
 func (s *Service) SetCRBase(id int, ref string, rebase bool) (*model.CR, error) {
+	var cr *model.CR
+	if err := s.withMutationLock(func() error {
+		var err error
+		cr, err = s.setCRBaseUnlocked(id, ref, rebase)
+		return err
+	}); err != nil {
+		return nil, err
+	}
+	return cr, nil
+}
+
+func (s *Service) setCRBaseUnlocked(id int, ref string, rebase bool) (*model.CR, error) {
 	ref = strings.TrimSpace(ref)
 	if ref == "" {
 		return nil, errors.New("base ref cannot be empty")
@@ -371,6 +398,18 @@ func (s *Service) SetCRBase(id int, ref string, rebase bool) (*model.CR, error) 
 }
 
 func (s *Service) RestackCR(id int) (*model.CR, error) {
+	var cr *model.CR
+	if err := s.withMutationLock(func() error {
+		var err error
+		cr, err = s.restackCRUnlocked(id)
+		return err
+	}); err != nil {
+		return nil, err
+	}
+	return cr, nil
+}
+
+func (s *Service) restackCRUnlocked(id int) (*model.CR, error) {
 	cr, err := s.store.LoadCR(id)
 	if err != nil {
 		return nil, err

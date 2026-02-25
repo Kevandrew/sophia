@@ -7,6 +7,18 @@ import (
 )
 
 func (s *Service) RefreshCR(id int, opts RefreshOptions) (*CRRefreshView, error) {
+	var view *CRRefreshView
+	if err := s.withMutationLock(func() error {
+		var err error
+		view, err = s.refreshCRUnlocked(id, opts)
+		return err
+	}); err != nil {
+		return nil, err
+	}
+	return view, nil
+}
+
+func (s *Service) refreshCRUnlocked(id int, opts RefreshOptions) (*CRRefreshView, error) {
 	cr, err := s.store.LoadCR(id)
 	if err != nil {
 		return nil, err
@@ -17,7 +29,7 @@ func (s *Service) RefreshCR(id int, opts RefreshOptions) (*CRRefreshView, error)
 	if cr.Status != model.StatusInProgress {
 		return nil, fmt.Errorf("cr %d is not in progress", id)
 	}
-	if _, err := s.ensureCRBaseFields(cr, true); err != nil {
+	if _, err := s.ensureCRBaseFields(cr, false); err != nil {
 		return nil, err
 	}
 
@@ -74,7 +86,7 @@ func (s *Service) RefreshCR(id int, opts RefreshOptions) (*CRRefreshView, error)
 		if opts.DryRun {
 			return view, nil
 		}
-		updated, restackErr := s.RestackCR(id)
+		updated, restackErr := s.restackCRUnlocked(id)
 		if restackErr != nil {
 			return nil, restackErr
 		}
@@ -89,7 +101,7 @@ func (s *Service) RefreshCR(id int, opts RefreshOptions) (*CRRefreshView, error)
 		if opts.DryRun {
 			return view, nil
 		}
-		updated, baseErr := s.SetCRBase(id, targetRef, true)
+		updated, baseErr := s.setCRBaseUnlocked(id, targetRef, true)
 		if baseErr != nil {
 			return nil, baseErr
 		}

@@ -13,7 +13,7 @@ func (s *Service) DiffCR(id int, opts CRDiffOptions) (*CRDiffView, error) {
 	if err != nil {
 		return nil, err
 	}
-	if _, err := s.ensureCRBaseFields(cr, true); err != nil {
+	if _, err := s.ensureCRBaseFields(cr, false); err != nil {
 		return nil, err
 	}
 	if opts.TaskID > 0 {
@@ -65,7 +65,7 @@ func (s *Service) DiffTask(crID, taskID int, opts TaskDiffOptions) (*CRDiffView,
 	if err != nil {
 		return nil, err
 	}
-	if _, err := s.ensureCRBaseFields(cr, true); err != nil {
+	if _, err := s.ensureCRBaseFields(cr, false); err != nil {
 		return nil, err
 	}
 	return s.diffTaskFromCR(cr, taskID, opts)
@@ -154,7 +154,7 @@ func (s *Service) DiffTaskChunk(crID, taskID int, chunkID string) (*CRDiffView, 
 	if err != nil {
 		return nil, err
 	}
-	if _, err := s.ensureCRBaseFields(cr, true); err != nil {
+	if _, err := s.ensureCRBaseFields(cr, false); err != nil {
 		return nil, err
 	}
 	taskIdx := indexOfTask(cr.Subtasks, taskID)

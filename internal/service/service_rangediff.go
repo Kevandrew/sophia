@@ -16,7 +16,7 @@ func (s *Service) RangeDiffCR(id int, opts RangeDiffOptions) (*RangeDiffView, er
 	if err != nil {
 		return nil, err
 	}
-	if _, err := s.ensureCRBaseFields(cr, true); err != nil {
+	if _, err := s.ensureCRBaseFields(cr, false); err != nil {
 		return nil, err
 	}
 	fromRef, toRef, warnings, err := s.resolveRangeDiffAnchors(cr, nil, opts)
@@ -31,7 +31,7 @@ func (s *Service) RangeDiffTask(crID, taskID int, opts RangeDiffOptions) (*Range
 	if err != nil {
 		return nil, err
 	}
-	if _, err := s.ensureCRBaseFields(cr, true); err != nil {
+	if _, err := s.ensureCRBaseFields(cr, false); err != nil {
 		return nil, err
 	}
 	taskIdx := indexOfTask(cr.Subtasks, taskID)

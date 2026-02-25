@@ -9,6 +9,12 @@ import (
 )
 
 func (s *Service) RedactCRNote(id, noteIndex int, reason string) error {
+	return s.withMutationLock(func() error {
+		return s.redactCRNoteUnlocked(id, noteIndex, reason)
+	})
+}
+
+func (s *Service) redactCRNoteUnlocked(id, noteIndex int, reason string) error {
 	if strings.TrimSpace(reason) == "" {
 		return errors.New("redaction reason cannot be empty")
 	}
@@ -48,6 +54,12 @@ func (s *Service) RedactCRNote(id, noteIndex int, reason string) error {
 }
 
 func (s *Service) RedactCREvent(id, eventIndex int, reason string) error {
+	return s.withMutationLock(func() error {
+		return s.redactCREventUnlocked(id, eventIndex, reason)
+	})
+}
+
+func (s *Service) redactCREventUnlocked(id, eventIndex int, reason string) error {
 	if strings.TrimSpace(reason) == "" {
 		return errors.New("redaction reason cannot be empty")
 	}
