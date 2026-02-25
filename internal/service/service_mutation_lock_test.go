@@ -82,6 +82,54 @@ func TestSetCRContractWaitsForSharedMutationLock(t *testing.T) {
 	}
 }
 
+func TestRedactCRNoteWaitsForSharedMutationLock(t *testing.T) {
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	cr, err := svc.AddCR("redaction lock wait", "")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	if err := svc.AddNote(cr.ID, "top-secret"); err != nil {
+		t.Fatalf("AddNote() error = %v", err)
+	}
+
+	lockHeld := make(chan struct{})
+	release := make(chan struct{})
+	go func() {
+		_ = svc.store.WithMutationLockPath(svc.mutationLockPath(), 2*time.Second, func() error {
+			close(lockHeld)
+			<-release
+			return nil
+		})
+	}()
+	<-lockHeld
+
+	start := time.Now()
+	done := make(chan error, 1)
+	go func() {
+		done <- svc.RedactCRNote(cr.ID, 1, "test redaction")
+	}()
+	time.Sleep(200 * time.Millisecond)
+	close(release)
+	if err := <-done; err != nil {
+		t.Fatalf("RedactCRNote() error = %v", err)
+	}
+	if waited := time.Since(start); waited < 180*time.Millisecond {
+		t.Fatalf("expected RedactCRNote to wait for lock release, elapsed=%s", waited)
+	}
+
+	reloaded, err := svc.store.LoadCR(cr.ID)
+	if err != nil {
+		t.Fatalf("LoadCR() error = %v", err)
+	}
+	if len(reloaded.Notes) != 1 || reloaded.Notes[0] != redactedPlaceholder {
+		t.Fatalf("expected redacted note payload, got %#v", reloaded.Notes)
+	}
+}
+
 func TestConcurrentCRMutationsPreserveNotesAndContractEvents(t *testing.T) {
 	dir := t.TempDir()
 	svc := New(dir)
