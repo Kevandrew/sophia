@@ -606,6 +606,12 @@ func (s *Service) Doctor(limit int) (*DoctorReport, error) {
 	}
 
 	report := &DoctorReport{BaseBranch: cfg.BaseBranch, Findings: []DoctorFinding{}}
+	if _, policyWarnings, policyErr := s.repoPolicyWithWarnings(); policyErr == nil && len(policyWarnings) > 0 {
+		report.Findings = append(report.Findings, DoctorFinding{
+			Code:    "policy_unknown_fields",
+			Message: strings.Join(policyWarnings, "; "),
+		})
+	}
 	branch, err := s.git.CurrentBranch()
 	if err == nil {
 		report.CurrentBranch = branch

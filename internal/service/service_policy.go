@@ -8,6 +8,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"sophia/internal/model"
 	"sort"
@@ -17,6 +18,11 @@ import (
 )
 
 const repoPolicyFileName = "SOPHIA.yaml"
+
+var (
+	policyUnknownFieldLinePattern    = regexp.MustCompile(`^line\s+\d+:\s+field\s+(.+)\s+not found in type`)
+	policyUnknownFieldCompactPattern = regexp.MustCompile(`^field\s+(.+)\s+not found in type`)
+)
 
 var (
 	defaultCRRequiredContractFields = []string{
@@ -171,6 +177,14 @@ func defaultPolicyTrust() *model.PolicyTrust {
 }
 
 func (s *Service) repoPolicy() (*model.RepoPolicy, error) {
+	policy, _, err := s.repoPolicyWithWarnings()
+	if err != nil {
+		return nil, err
+	}
+	return policy, nil
+}
+
+func (s *Service) repoPolicyWithWarnings() (*model.RepoPolicy, []string, error) {
 	repoRoot := strings.TrimSpace(s.repoRoot)
 	if repoRoot == "" {
 		repoRoot = strings.TrimSpace(s.git.WorkDir)
@@ -178,33 +192,99 @@ func (s *Service) repoPolicy() (*model.RepoPolicy, error) {
 	path := filepath.Join(repoRoot, repoPolicyFileName)
 	if _, err := os.Stat(path); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return defaultRepoPolicy(), nil
+			return defaultRepoPolicy(), []string{}, nil
 		}
-		return nil, fmt.Errorf("%w: stat %s: %v", ErrPolicyInvalid, path, err)
+		return nil, nil, fmt.Errorf("%w: stat %s: %v", ErrPolicyInvalid, path, err)
 	}
 
 	content, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("%w: read %s: %v", ErrPolicyInvalid, path, err)
+		return nil, nil, fmt.Errorf("%w: read %s: %v", ErrPolicyInvalid, path, err)
 	}
-	var parsed model.RepoPolicy
-	decoder := yaml.NewDecoder(bytes.NewReader(content))
-	decoder.KnownFields(true)
-	if err := decoder.Decode(&parsed); err != nil {
-		return nil, fmt.Errorf("%w: parse %s: %v", ErrPolicyInvalid, path, err)
-	}
-	var extra any
-	if err := decoder.Decode(&extra); err == nil {
-		return nil, fmt.Errorf("%w: parse %s: multiple YAML documents are not supported", ErrPolicyInvalid, path)
-	} else if err != io.EOF {
-		return nil, fmt.Errorf("%w: parse %s: %v", ErrPolicyInvalid, path, err)
+
+	parsed, strictErr := decodeRepoPolicy(content, true)
+	policyWarnings := []string{}
+	if strictErr != nil {
+		fields, unknownOnly := parseUnknownPolicyFields(strictErr)
+		if !unknownOnly {
+			return nil, nil, fmt.Errorf("%w: parse %s: %v", ErrPolicyInvalid, path, strictErr)
+		}
+		lenientParsed, lenientErr := decodeRepoPolicy(content, false)
+		if lenientErr != nil {
+			return nil, nil, fmt.Errorf("%w: parse %s: %v", ErrPolicyInvalid, path, lenientErr)
+		}
+		parsed = lenientParsed
+		policyWarnings = policyUnknownFieldWarnings(fields)
 	}
 
 	normalized, err := s.normalizeRepoPolicy(&parsed)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return normalized, nil
+	return normalized, policyWarnings, nil
+}
+
+func decodeRepoPolicy(content []byte, knownFields bool) (model.RepoPolicy, error) {
+	var parsed model.RepoPolicy
+	decoder := yaml.NewDecoder(bytes.NewReader(content))
+	decoder.KnownFields(knownFields)
+	if err := decoder.Decode(&parsed); err != nil {
+		return model.RepoPolicy{}, err
+	}
+	var extra any
+	if err := decoder.Decode(&extra); err == nil {
+		return model.RepoPolicy{}, fmt.Errorf("multiple YAML documents are not supported")
+	} else if err != io.EOF {
+		return model.RepoPolicy{}, err
+	}
+	return parsed, nil
+}
+
+func parseUnknownPolicyFields(err error) ([]string, bool) {
+	if err == nil {
+		return nil, false
+	}
+	lines := strings.Split(strings.TrimSpace(err.Error()), "\n")
+	fields := []string{}
+	for _, raw := range lines {
+		line := strings.TrimSpace(raw)
+		if line == "" || strings.EqualFold(line, "yaml: unmarshal errors:") {
+			continue
+		}
+		field, ok := parseUnknownPolicyFieldLine(line)
+		if !ok {
+			return nil, false
+		}
+		fields = append(fields, field)
+	}
+	if len(fields) == 0 {
+		return nil, false
+	}
+	sort.Strings(fields)
+	return slices.Compact(fields), true
+}
+
+func parseUnknownPolicyFieldLine(line string) (string, bool) {
+	for _, pattern := range []*regexp.Regexp{policyUnknownFieldLinePattern, policyUnknownFieldCompactPattern} {
+		matches := pattern.FindStringSubmatch(line)
+		if len(matches) != 2 {
+			continue
+		}
+		field := strings.Trim(strings.TrimSpace(matches[1]), `"'`)
+		if field == "" {
+			return "", false
+		}
+		return field, true
+	}
+	return "", false
+}
+
+func policyUnknownFieldWarnings(fields []string) []string {
+	warnings := make([]string, 0, len(fields))
+	for _, field := range fields {
+		warnings = append(warnings, fmt.Sprintf("SOPHIA.yaml contains unknown field %q; field is ignored for forward compatibility", field))
+	}
+	return warnings
 }
 
 func (s *Service) normalizeRepoPolicy(input *model.RepoPolicy) (*model.RepoPolicy, error) {

@@ -123,7 +123,7 @@ archive:
 	}
 }
 
-func TestRepoPolicyRejectsUnknownField(t *testing.T) {
+func TestRepoPolicyUnknownFieldsAreIgnoredWithWarnings(t *testing.T) {
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -131,11 +131,69 @@ func TestRepoPolicyRejectsUnknownField(t *testing.T) {
 	}
 	writePolicyFileForTest(t, dir, `version: v1
 unknown_key: true
+merge:
+  allow_override: false
+`)
+
+	policy, warnings, err := svc.repoPolicyWithWarnings()
+	if err != nil {
+		t.Fatalf("repoPolicyWithWarnings() error = %v", err)
+	}
+	if policy.Merge.AllowOverride == nil || *policy.Merge.AllowOverride {
+		t.Fatalf("expected merge.allow_override=false to survive unknown field fallback, got %#v", policy.Merge.AllowOverride)
+	}
+	if len(warnings) != 1 || !strings.Contains(warnings[0], "unknown_key") {
+		t.Fatalf("expected warning mentioning unknown_key, got %#v", warnings)
+	}
+}
+
+func TestRepoPolicyRejectsTypeMismatchEvenWhenUnknownFieldsExist(t *testing.T) {
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	writePolicyFileForTest(t, dir, `version: v1
+unknown_key: true
+merge:
+  allow_override: nope
 `)
 
 	_, err := svc.repoPolicy()
 	if !errors.Is(err, ErrPolicyInvalid) {
-		t.Fatalf("expected ErrPolicyInvalid, got %v", err)
+		t.Fatalf("expected ErrPolicyInvalid for type mismatch, got %v", err)
+	}
+}
+
+func TestPolicyUnknownFieldWarningsSurfaceInValidateAndDoctor(t *testing.T) {
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	cr, err := svc.AddCR("policy warning surface", "")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	setValidContract(t, svc, cr.ID)
+	writePolicyFileForTest(t, dir, `version: v1
+unknown_key: true
+`)
+
+	report, err := svc.ValidateCR(cr.ID)
+	if err != nil {
+		t.Fatalf("ValidateCR() error = %v", err)
+	}
+	if !containsAny(report.Warnings, `unknown field "unknown_key"`) {
+		t.Fatalf("expected validation warning for unknown field, got %#v", report.Warnings)
+	}
+
+	doctor, err := svc.Doctor(20)
+	if err != nil {
+		t.Fatalf("Doctor() error = %v", err)
+	}
+	if !hasFindingCode(doctor.Findings, "policy_unknown_fields") {
+		t.Fatalf("expected policy_unknown_fields doctor finding, got %#v", doctor.Findings)
 	}
 }
 
