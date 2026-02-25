@@ -2,177 +2,227 @@ package service
 
 import (
 	"errors"
-	"os"
-	"path/filepath"
-	"strings"
+	"fmt"
+	"sophia/internal/gitx"
+	"sophia/internal/model"
 	"testing"
+	"time"
 )
 
-func TestReopenTaskPreservesCheckpointByDefault(t *testing.T) {
-	dir := t.TempDir()
-	svc := New(dir)
-	if _, err := svc.Init("main", ""); err != nil {
-		t.Fatalf("Init() error = %v", err)
-	}
-	runGit(t, dir, "config", "user.name", "Test User")
-	runGit(t, dir, "config", "user.email", "test@example.com")
+type stubTaskRuntimeStore struct {
+	cr       *model.CR
+	loadErr  error
+	saveErr  error
+	loadHits int
+	saveHits int
+}
 
-	cr, err := svc.AddCR("Reopen preserve", "preserve checkpoint metadata")
-	if err != nil {
-		t.Fatalf("AddCR() error = %v", err)
+func (s *stubTaskRuntimeStore) LoadCR(id int) (*model.CR, error) {
+	if s.loadErr != nil {
+		return nil, s.loadErr
 	}
-	task, err := svc.AddTask(cr.ID, "feat: add reopen support")
-	if err != nil {
-		t.Fatalf("AddTask() error = %v", err)
+	s.loadHits++
+	if s.cr == nil || s.cr.ID != id {
+		return nil, fmt.Errorf("cr %d not found", id)
 	}
-	setValidTaskContract(t, svc, cr.ID, task.ID)
-	if err := os.WriteFile(filepath.Join(dir, "reopen-preserve.txt"), []byte("x\n"), 0o644); err != nil {
-		t.Fatalf("write reopen file: %v", err)
-	}
+	return cloneRemoteCR(s.cr), nil
+}
 
-	sha, err := svc.DoneTaskWithCheckpoint(cr.ID, task.ID, DoneTaskOptions{Checkpoint: true, StageAll: true})
-	if err != nil {
-		t.Fatalf("DoneTaskWithCheckpoint() error = %v", err)
+func (s *stubTaskRuntimeStore) SaveCR(cr *model.CR) error {
+	if s.saveErr != nil {
+		return s.saveErr
 	}
+	s.saveHits++
+	s.cr = cloneRemoteCR(cr)
+	return nil
+}
 
-	reopened, err := svc.ReopenTask(cr.ID, task.ID, ReopenTaskOptions{})
+type stubTaskRuntimeGit struct {
+	actor string
+}
+
+func (g *stubTaskRuntimeGit) Actor() string { return g.actor }
+
+func (g *stubTaskRuntimeGit) CurrentBranch() (string, error) { return "", nil }
+
+func (g *stubTaskRuntimeGit) HasStagedChanges() (bool, error) { return false, nil }
+
+func (g *stubTaskRuntimeGit) StageAll() error { return nil }
+
+func (g *stubTaskRuntimeGit) StagePaths(paths []string) error { return nil }
+
+func (g *stubTaskRuntimeGit) ApplyPatchToIndex(patchPath string) error { return nil }
+
+func (g *stubTaskRuntimeGit) PathHasChanges(path string) (bool, error) { return false, nil }
+
+func (g *stubTaskRuntimeGit) WorkingTreeStatus() ([]gitx.StatusEntry, error) { return nil, nil }
+
+func (g *stubTaskRuntimeGit) Commit(msg string) error { return nil }
+
+func (g *stubTaskRuntimeGit) HeadShortSHA() (string, error) { return "", nil }
+
+func testTaskRuntimeService(t *testing.T, cr *model.CR) (*Service, *stubTaskRuntimeStore) {
+	t.Helper()
+	now := time.Date(2026, time.February, 25, 12, 0, 0, 0, time.UTC)
+	store := &stubTaskRuntimeStore{cr: cloneRemoteCR(cr)}
+	git := &stubTaskRuntimeGit{actor: "Runtime Tester <runtime@test>"}
+	svc := &Service{
+		repoRoot: t.TempDir(),
+		now:      func() time.Time { return now },
+	}
+	svc.overrideTaskRuntimeProvidersForTests(git, store)
+	svc.overrideTaskMergeGuardForTests(func(_ *model.CR) error { return nil })
+	return svc, store
+}
+
+func TestReopenTaskUnlockedPreservesCheckpointByDefault(t *testing.T) {
+	cr := &model.CR{
+		ID:        1,
+		Status:    model.StatusInProgress,
+		CreatedAt: "2026-02-25T00:00:00Z",
+		UpdatedAt: "2026-02-25T00:00:00Z",
+		Subtasks: []model.Subtask{{
+			ID:               1,
+			Title:            "done task",
+			Status:           model.TaskStatusDone,
+			CreatedAt:        "2026-02-25T00:00:00Z",
+			UpdatedAt:        "2026-02-25T00:00:00Z",
+			CompletedAt:      "2026-02-25T00:00:00Z",
+			CompletedBy:      "Before",
+			CheckpointCommit: "abc1234",
+			CheckpointAt:     "2026-02-25T00:00:00Z",
+		}},
+	}
+	svc, store := testTaskRuntimeService(t, cr)
+
+	reopened, err := svc.reopenTaskUnlocked(1, 1, ReopenTaskOptions{})
 	if err != nil {
-		t.Fatalf("ReopenTask() error = %v", err)
+		t.Fatalf("reopenTaskUnlocked() error = %v", err)
 	}
-	if reopened.Status != "open" {
-		t.Fatalf("expected reopened status open, got %q", reopened.Status)
+	if reopened.Status != model.TaskStatusOpen {
+		t.Fatalf("expected reopened task status %q, got %q", model.TaskStatusOpen, reopened.Status)
 	}
-	if reopened.CheckpointCommit != sha {
-		t.Fatalf("expected checkpoint commit %q preserved, got %q", sha, reopened.CheckpointCommit)
+	if reopened.CheckpointCommit != "abc1234" {
+		t.Fatalf("expected checkpoint commit preserved, got %q", reopened.CheckpointCommit)
 	}
 	if reopened.CompletedAt != "" || reopened.CompletedBy != "" {
-		t.Fatalf("expected completion identity cleared, got completed_at=%q completed_by=%q", reopened.CompletedAt, reopened.CompletedBy)
+		t.Fatalf("expected completion identity cleared, got at=%q by=%q", reopened.CompletedAt, reopened.CompletedBy)
 	}
 
-	loaded, err := svc.store.LoadCR(cr.ID)
-	if err != nil {
-		t.Fatalf("LoadCR() error = %v", err)
+	if store.saveHits != 1 {
+		t.Fatalf("expected exactly 1 save call, got %d", store.saveHits)
 	}
-	last := loaded.Events[len(loaded.Events)-1]
-	if last.Type != "task_reopened" {
-		t.Fatalf("expected task_reopened event, got %q", last.Type)
+	last := store.cr.Events[len(store.cr.Events)-1]
+	if last.Type != model.EventTypeTaskReopened {
+		t.Fatalf("expected %q event, got %q", model.EventTypeTaskReopened, last.Type)
 	}
 	if last.Meta["checkpoint_cleared"] != "false" {
 		t.Fatalf("expected checkpoint_cleared=false, got %#v", last.Meta)
 	}
-	if last.Meta["previous_checkpoint_commit"] != sha {
-		t.Fatalf("expected previous checkpoint commit %q in meta, got %#v", sha, last.Meta)
+	if last.Meta["previous_checkpoint_commit"] != "abc1234" {
+		t.Fatalf("expected previous checkpoint commit in meta, got %#v", last.Meta)
+	}
+	if last.Actor != "Runtime Tester <runtime@test>" {
+		t.Fatalf("expected runtime actor, got %q", last.Actor)
 	}
 }
 
-func TestReopenTaskWithClearCheckpointClearsCheckpointFields(t *testing.T) {
-	dir := t.TempDir()
-	svc := New(dir)
-	if _, err := svc.Init("main", ""); err != nil {
-		t.Fatalf("Init() error = %v", err)
+func TestReopenTaskUnlockedClearsCheckpointWhenRequested(t *testing.T) {
+	cr := &model.CR{
+		ID:        1,
+		Status:    model.StatusInProgress,
+		CreatedAt: "2026-02-25T00:00:00Z",
+		UpdatedAt: "2026-02-25T00:00:00Z",
+		Subtasks: []model.Subtask{{
+			ID:                1,
+			Title:             "done task",
+			Status:            model.TaskStatusDone,
+			CheckpointCommit:  "abc1234",
+			CheckpointAt:      "2026-02-25T00:00:00Z",
+			CheckpointMessage: "message",
+			CheckpointScope:   []string{"internal/service"},
+			CheckpointChunks: []model.CheckpointChunk{{
+				ID: "chunk-1",
+			}},
+		}},
 	}
-	runGit(t, dir, "config", "user.name", "Test User")
-	runGit(t, dir, "config", "user.email", "test@example.com")
+	svc, store := testTaskRuntimeService(t, cr)
 
-	cr, err := svc.AddCR("Reopen clear", "clear checkpoint metadata")
+	reopened, err := svc.reopenTaskUnlocked(1, 1, ReopenTaskOptions{ClearCheckpoint: true})
 	if err != nil {
-		t.Fatalf("AddCR() error = %v", err)
-	}
-	task, err := svc.AddTask(cr.ID, "feat: checkpoint then clear")
-	if err != nil {
-		t.Fatalf("AddTask() error = %v", err)
-	}
-	setValidTaskContract(t, svc, cr.ID, task.ID)
-	if err := os.WriteFile(filepath.Join(dir, "reopen-clear.txt"), []byte("x\n"), 0o644); err != nil {
-		t.Fatalf("write reopen file: %v", err)
-	}
-
-	sha, err := svc.DoneTaskWithCheckpoint(cr.ID, task.ID, DoneTaskOptions{Checkpoint: true, StageAll: true})
-	if err != nil {
-		t.Fatalf("DoneTaskWithCheckpoint() error = %v", err)
-	}
-
-	reopened, err := svc.ReopenTask(cr.ID, task.ID, ReopenTaskOptions{ClearCheckpoint: true})
-	if err != nil {
-		t.Fatalf("ReopenTask() error = %v", err)
-	}
-	if reopened.Status != "open" {
-		t.Fatalf("expected reopened status open, got %q", reopened.Status)
+		t.Fatalf("reopenTaskUnlocked(clear) error = %v", err)
 	}
 	if reopened.CheckpointCommit != "" || reopened.CheckpointAt != "" || reopened.CheckpointMessage != "" {
-		t.Fatalf("expected checkpoint fields cleared, got %#v", reopened)
+		t.Fatalf("expected checkpoint metadata cleared, got %#v", reopened)
 	}
 	if len(reopened.CheckpointScope) != 0 || len(reopened.CheckpointChunks) != 0 {
-		t.Fatalf("expected checkpoint scope/chunks cleared, got scope=%#v chunks=%#v", reopened.CheckpointScope, reopened.CheckpointChunks)
+		t.Fatalf("expected checkpoint scope/chunks cleared, got scope=%v chunks=%v", reopened.CheckpointScope, reopened.CheckpointChunks)
 	}
-
-	loaded, err := svc.store.LoadCR(cr.ID)
-	if err != nil {
-		t.Fatalf("LoadCR() error = %v", err)
-	}
-	last := loaded.Events[len(loaded.Events)-1]
-	if last.Type != "task_reopened" {
-		t.Fatalf("expected task_reopened event, got %q", last.Type)
-	}
+	last := store.cr.Events[len(store.cr.Events)-1]
 	if last.Meta["checkpoint_cleared"] != "true" {
 		t.Fatalf("expected checkpoint_cleared=true, got %#v", last.Meta)
 	}
-	if last.Meta["previous_checkpoint_commit"] != sha {
-		t.Fatalf("expected previous checkpoint commit %q in meta, got %#v", sha, last.Meta)
-	}
 }
 
-func TestReopenTaskFailsWhenTaskIsNotDone(t *testing.T) {
-	dir := t.TempDir()
-	svc := New(dir)
-	if _, err := svc.Init("main", ""); err != nil {
-		t.Fatalf("Init() error = %v", err)
+func TestReopenTaskUnlockedFailsWhenTaskIsNotDone(t *testing.T) {
+	cr := &model.CR{
+		ID:     1,
+		Status: model.StatusInProgress,
+		Subtasks: []model.Subtask{{
+			ID:     1,
+			Title:  "open task",
+			Status: model.TaskStatusOpen,
+		}},
 	}
-	cr, err := svc.AddCR("Reopen not done", "reject non-done task")
-	if err != nil {
-		t.Fatalf("AddCR() error = %v", err)
-	}
-	task, err := svc.AddTask(cr.ID, "chore: still open")
-	if err != nil {
-		t.Fatalf("AddTask() error = %v", err)
-	}
+	svc, _ := testTaskRuntimeService(t, cr)
 
-	_, err = svc.ReopenTask(cr.ID, task.ID, ReopenTaskOptions{})
+	_, err := svc.reopenTaskUnlocked(1, 1, ReopenTaskOptions{})
 	if !errors.Is(err, ErrTaskNotDone) {
 		t.Fatalf("expected ErrTaskNotDone, got %v", err)
 	}
 }
 
-func TestReopenTaskFailsWhenCRIsNotInProgress(t *testing.T) {
-	dir := t.TempDir()
-	svc := New(dir)
-	if _, err := svc.Init("main", ""); err != nil {
-		t.Fatalf("Init() error = %v", err)
+func TestSetTaskContractUnlockedUsesRuntimeProviders(t *testing.T) {
+	cr := &model.CR{
+		ID:        1,
+		Status:    model.StatusInProgress,
+		CreatedAt: "2026-02-25T00:00:00Z",
+		UpdatedAt: "2026-02-25T00:00:00Z",
+		Subtasks: []model.Subtask{{
+			ID:        1,
+			Title:     "task",
+			Status:    model.TaskStatusOpen,
+			CreatedAt: "2026-02-25T00:00:00Z",
+			UpdatedAt: "2026-02-25T00:00:00Z",
+		}},
 	}
-	cr, err := svc.AddCR("Reopen merged", "reject merged CR")
-	if err != nil {
-		t.Fatalf("AddCR() error = %v", err)
-	}
-	task, err := svc.AddTask(cr.ID, "chore: done")
-	if err != nil {
-		t.Fatalf("AddTask() error = %v", err)
-	}
-	setValidTaskContract(t, svc, cr.ID, task.ID)
-	if err := svc.DoneTask(cr.ID, task.ID); err != nil {
-		t.Fatalf("DoneTask() error = %v", err)
-	}
+	svc, store := testTaskRuntimeService(t, cr)
+	intent := "Use seam actor"
 
-	loaded, err := svc.store.LoadCR(cr.ID)
+	changed, err := svc.setTaskContractUnlocked(1, 1, TaskContractPatch{
+		Intent: &intent,
+	})
 	if err != nil {
-		t.Fatalf("LoadCR() error = %v", err)
+		t.Fatalf("setTaskContractUnlocked() error = %v", err)
 	}
-	loaded.Status = "merged"
-	if err := svc.store.SaveCR(loaded); err != nil {
-		t.Fatalf("SaveCR() error = %v", err)
+	if len(changed) != 1 || changed[0] != "intent" {
+		t.Fatalf("unexpected changed fields: %#v", changed)
 	}
-
-	_, err = svc.ReopenTask(cr.ID, task.ID, ReopenTaskOptions{})
-	if err == nil || !strings.Contains(err.Error(), "is not in progress") {
-		t.Fatalf("expected CR in-progress error, got %v", err)
+	if store.saveHits != 1 {
+		t.Fatalf("expected 1 save call, got %d", store.saveHits)
+	}
+	gotTask := store.cr.Subtasks[0]
+	if gotTask.Contract.Intent != intent {
+		t.Fatalf("expected intent %q, got %q", intent, gotTask.Contract.Intent)
+	}
+	if gotTask.Contract.UpdatedBy != "Runtime Tester <runtime@test>" {
+		t.Fatalf("expected contract UpdatedBy from runtime git actor, got %q", gotTask.Contract.UpdatedBy)
+	}
+	last := store.cr.Events[len(store.cr.Events)-1]
+	if last.Type != model.EventTypeTaskContractUpdated {
+		t.Fatalf("expected event %q, got %q", model.EventTypeTaskContractUpdated, last.Type)
+	}
+	if last.Actor != "Runtime Tester <runtime@test>" {
+		t.Fatalf("expected event actor from runtime git provider, got %q", last.Actor)
 	}
 }

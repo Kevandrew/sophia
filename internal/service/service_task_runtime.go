@@ -41,3 +41,14 @@ func (s *Service) overrideTaskRuntimeProvidersForTests(git taskLifecycleGitProvi
 	s.taskGit = git
 	s.taskStore = store
 }
+
+func (s *Service) activeTaskMergeGuard() func(*model.CR) error {
+	if s.taskMergeGuard != nil {
+		return s.taskMergeGuard
+	}
+	return s.ensureNoMergeInProgressForCR
+}
+
+func (s *Service) overrideTaskMergeGuardForTests(guard func(*model.CR) error) {
+	s.taskMergeGuard = guard
+}
