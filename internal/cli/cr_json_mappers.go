@@ -427,6 +427,7 @@ func impactToJSONMap(impact *service.ImpactReport) map[string]any {
 		"deleted_files":                stringSliceOrEmpty(impact.DeletedFiles),
 		"test_files":                   stringSliceOrEmpty(impact.TestFiles),
 		"dependency_files":             stringSliceOrEmpty(impact.DependencyFiles),
+		"warnings":                     stringSliceOrEmpty(impact.Warnings),
 		"scope_drift":                  stringSliceOrEmpty(impact.ScopeDrift),
 		"task_scope_warnings":          stringSliceOrEmpty(impact.TaskScopeWarnings),
 		"task_contract_warnings":       stringSliceOrEmpty(impact.TaskContractWarnings),

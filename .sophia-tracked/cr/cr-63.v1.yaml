@@ -1,0 +1,137 @@
+schema_version: sophia.cr_archive.v1
+notice: Historical archive snapshot. Corrections are append-only revisions.
+archived_at: "2026-02-25T00:06:37Z"
+revision: 1
+cr:
+    id: 63
+    uid: cr_82f863f9-ea70-40c6-89d1-8b4b64538a0a
+    title: Fix imported metadata-only CR status/switch robustness
+    description: 'Harden imported metadata-only CR behavior when the referenced branch/head commit graph is unavailable locally. QA repro showed two user-facing failures after importing a bundle into a fresh repo: (1) ''sophia cr status <id>'' returns internal_error because status calls validation/diff summarization that hard-requires branch context; (2) ''sophia cr switch <id>'' can fail with low-level git tree lookup errors when stored BaseCommit does not exist in the local object database. This CR should make both paths deterministic, user-friendly, and recoverable in metadata-only import scenarios.'
+    status: merged
+    base_branch: main
+    base_ref: main
+    base_commit: 0e113bb9abe7e0903656515395138c3286d50d5f
+    branch: cr-fix-imported-metadata-only-cr-status-switch-robu-82f8
+    merged_at: "2026-02-25T00:06:37Z"
+    merged_by: Kevandrew <143258544+Kevandrew@users.noreply.github.com>
+contract:
+    why: 'Imported CR metadata must remain navigable and inspectable even when branch/head anchors are unavailable locally. Today, metadata-only imports can put users in a dead-end state: status cannot be viewed, and switch fails with raw git errors. The goal is to preserve operational UX by degrading gracefully for read surfaces and by introducing safe fallback behavior for switch/branch materialization when imported anchors are missing.'
+    scope:
+        - internal/cli
+        - internal/service
+    non_goals:
+        - Do not change branch identity formats or selector semantics from CR-62.
+        - Do not implement remote code fetch/sync of missing commit objects in this CR.
+    invariants:
+        - CR status/read commands must never fail with opaque internal errors solely due to missing imported branch context.
+        - Switch/reopen flows must either succeed via deterministic fallback or fail with explicit actionable guidance.
+    blast_radius: Status/validate/diff anchor resolution and CR switch branch materialization for imported metadata-only CRs.
+    risk_critical_scopes:
+        - internal/service
+    risk_tier_hint: medium
+    risk_rationale: Touches core status/switch flows and anchor resolution behavior; incorrect fallback could hide real state or break branch ops.
+    test_plan: go test ./internal/service ./internal/cli -run 'Test(.*Import.*|.*Status.*|.*Switch.*|.*Range.*|.*Diff.*)' -count=1 && go test ./... && go vet ./...
+    rollback_plan: Revert the [CR-63] merge commit to restore prior strict behavior while retaining metadata artifacts.
+tasks:
+    - id: 1
+      title: Harden imported metadata-only status and switch flows
+      status: done
+      contract:
+        intent: Ensure imported metadata-only CRs remain operable when local branch/head objects are unavailable by providing deterministic status fallback and safe switch base-anchor resolution.
+        acceptance_criteria:
+            - StatusCR on imported metadata-only CRs does not return internal errors for missing branch context and instead reports deterministic merge-blocking validation state.
+            - SwitchCR falls back to reachable local base refs when imported BaseCommit is missing and no longer surfaces raw git tree errors.
+            - When no local base anchor exists, SwitchCR returns actionable base-anchor resolution errors.
+        scope:
+            - internal/service/service_collab_test.go
+            - internal/service/service_cr.go
+            - internal/service/service_diff.go
+            - internal/service/service_review_merge.go
+      checkpoint:
+        commit: 7f935214
+        at: "2026-02-24T23:50:37Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_collab_test.go
+            - internal/service/service_cr.go
+            - internal/service/service_diff.go
+            - internal/service/service_review_merge.go
+    - id: 2
+      title: Make validate/review resilient for imported metadata-only CRs
+      status: done
+      contract:
+        intent: Prevent validate/review command failures when imported CR branch context is unavailable by returning structured metadata-only outputs instead of internal errors.
+        acceptance_criteria:
+            - Regression tests cover imported metadata-only status/validate/review and switch fallback/error behavior.
+            - ReviewCR returns a payload with metadata-driven validation/trust context for metadata-only imported CRs and does not hard-fail on missing branch context.
+            - ValidateCR returns a deterministic non-valid report (with branch-context warnings/errors) instead of failing for metadata-only imported CRs.
+        scope:
+            - internal/service/service_collab_test.go
+            - internal/service/service_cr.go
+            - internal/service/service_review_merge.go
+      checkpoint:
+        commit: d2b720d1
+        at: "2026-02-24T23:55:32Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_collab_test.go
+            - internal/service/service_cr.go
+            - internal/service/service_review_merge.go
+    - id: 3
+      title: Handle metadata-only imported CRs in impact command
+      status: done
+      contract:
+        intent: Make ImpactCR return a structured metadata-only result when branch context is unavailable, matching status/validate/review resilience.
+        acceptance_criteria:
+            - Impact output clearly indicates branch-context unavailability and uses deterministic fallback semantics.
+            - ImpactCR does not return internal_error for imported metadata-only CRs.
+        scope:
+            - internal/service/service_collab_test.go
+            - internal/service/service_cr.go
+            - internal/service/service_diff.go
+      checkpoint:
+        commit: bef62142
+        at: "2026-02-25T00:05:11Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/cr_helpers.go
+            - internal/cli/cr_json_mappers.go
+            - internal/service/service.go
+            - internal/service/service_collab_test.go
+            - internal/service/service_cr.go
+            - internal/service/service_diff.go
+git_summary:
+    base_parent: 0e113bb9abe7e0903656515395138c3286d50d5f
+    cr_parent: bef621424c1b4ef51857699507f6dd159f0906dd
+    files_changed:
+        - internal/cli/cr_helpers.go
+        - internal/cli/cr_json_mappers.go
+        - internal/service/service.go
+        - internal/service/service_collab_test.go
+        - internal/service/service_cr.go
+        - internal/service/service_diff.go
+        - internal/service/service_review_merge.go
+    diffstat:
+        summary: 7 files changed, 559 insertions(+), 16 deletions(-)
+        files:
+            - path: internal/cli/cr_helpers.go
+              insertions: 1
+              deletions: 0
+            - path: internal/cli/cr_json_mappers.go
+              insertions: 1
+              deletions: 0
+            - path: internal/service/service.go
+              insertions: 1
+              deletions: 0
+            - path: internal/service/service_collab_test.go
+              insertions: 431
+              deletions: 0
+            - path: internal/service/service_cr.go
+              insertions: 58
+              deletions: 0
+            - path: internal/service/service_diff.go
+              insertions: 50
+              deletions: 12
+            - path: internal/service/service_review_merge.go
+              insertions: 17
+              deletions: 4

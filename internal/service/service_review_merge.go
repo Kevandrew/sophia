@@ -1,6 +1,7 @@
 package service
 
 import (
+	"errors"
 	"fmt"
 	"path/filepath"
 	"sophia/internal/gitx"
@@ -24,13 +25,17 @@ func (s *Service) ReviewCR(id int) (*Review, error) {
 	if err != nil {
 		return nil, err
 	}
-	diff, err := s.summarizeCRDiff(cr)
-	if err != nil {
-		return nil, err
-	}
 	validation, err := s.ValidateCR(id)
 	if err != nil {
 		return nil, err
+	}
+	diff, err := s.summarizeCRDiff(cr)
+	if err != nil {
+		if errors.Is(err, ErrCRBranchContextUnavailable) {
+			diff = &diffSummary{}
+		} else {
+			return nil, err
+		}
 	}
 	trust := buildTrustReportWithPolicy(cr, validation, diff, policy.Contract.RequiredFields, policy)
 
@@ -789,7 +794,15 @@ func (s *Service) SwitchCR(id int) (*model.CR, error) {
 		return nil, err
 	}
 	if err := s.git.CreateBranchFrom(cr.Branch, baseAnchor); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("create CR branch %q from %q: %w", cr.Branch, strings.TrimSpace(baseAnchor), err)
+	}
+	resolvedBaseAnchor := strings.TrimSpace(baseAnchor)
+	if resolvedBaseAnchor != "" && strings.TrimSpace(cr.BaseCommit) != resolvedBaseAnchor {
+		cr.BaseCommit = resolvedBaseAnchor
+		cr.UpdatedAt = s.timestamp()
+		if err := s.store.SaveCR(cr); err != nil {
+			return nil, err
+		}
 	}
 	if err := s.syncCRRef(cr); err != nil {
 		return nil, err

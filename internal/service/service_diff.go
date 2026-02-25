@@ -10,6 +10,8 @@ import (
 	"strings"
 )
 
+var ErrCRBranchContextUnavailable = errors.New("cr branch context unavailable")
+
 func (s *Service) summarizeCRDiff(cr *model.CR) (*diffSummary, error) {
 	if _, err := s.ensureCRBaseFields(cr, true); err != nil {
 		return nil, err
@@ -39,9 +41,22 @@ func (s *Service) summarizeCRDiff(cr *model.CR) (*diffSummary, error) {
 			return nil, diffErr
 		}
 	default:
-		return nil, fmt.Errorf("unable to summarize CR %d diff: missing branch context (%q, %q)", cr.ID, cr.BaseBranch, cr.Branch)
+		return nil, fmt.Errorf("%w: unable to summarize CR %d diff: missing branch context (%q, %q)", ErrCRBranchContextUnavailable, cr.ID, cr.BaseBranch, cr.Branch)
 	}
 
+	return buildDiffSummaryFromChanges(changes, shortStat, policy), nil
+}
+
+func (s *Service) summarizeCRDiffFromTaskCheckpoints(cr *model.CR, policy *model.RepoPolicy) *diffSummary {
+	derivedChanges := deriveChangesFromTaskCheckpointScopes(cr.Subtasks)
+	if len(derivedChanges) == 0 {
+		return &diffSummary{}
+	}
+	shortStat := fmt.Sprintf("%d file(s) changed (derived from task checkpoint scope)", len(derivedChanges))
+	return buildDiffSummaryFromChanges(derivedChanges, shortStat, policy)
+}
+
+func buildDiffSummaryFromChanges(changes []gitx.FileChange, shortStat string, policy *model.RepoPolicy) *diffSummary {
 	files := make([]string, 0, len(changes))
 	newFiles := []string{}
 	modifiedFiles := []string{}
@@ -94,7 +109,7 @@ func (s *Service) summarizeCRDiff(cr *model.CR) (*diffSummary, error) {
 		DeletedFiles:    deletedFiles,
 		TestFiles:       testFiles,
 		DependencyFiles: depFiles,
-	}, nil
+	}
 }
 
 func (s *Service) summarizeMergedCRDiff(cr *model.CR) ([]gitx.FileChange, string, error) {
@@ -159,22 +174,45 @@ func (s *Service) ensureCRBaseFields(cr *model.CR, persist bool) (bool, error) {
 }
 
 func (s *Service) resolveCRBaseAnchor(cr *model.CR) (string, error) {
-	if strings.TrimSpace(cr.BaseCommit) != "" {
-		return strings.TrimSpace(cr.BaseCommit), nil
+	if cr == nil {
+		return "", errors.New("cr is required")
 	}
-	if strings.TrimSpace(cr.BaseRef) != "" {
-		resolved, err := s.git.ResolveRef(cr.BaseRef)
-		if err != nil {
-			return "", fmt.Errorf("resolve base ref %q: %w", cr.BaseRef, err)
+	resolveCommitish := func(ref string) (string, error) {
+		trimmed := strings.TrimSpace(ref)
+		if trimmed == "" {
+			return "", fmt.Errorf("empty ref")
 		}
-		return strings.TrimSpace(resolved), nil
+		return s.git.ResolveRef(trimmed + "^{commit}")
 	}
-	if strings.TrimSpace(cr.BaseBranch) != "" {
-		resolved, err := s.git.ResolveRef(cr.BaseBranch)
-		if err != nil {
-			return "", fmt.Errorf("resolve base branch %q: %w", cr.BaseBranch, err)
+	failures := []string{}
+	baseCommit := strings.TrimSpace(cr.BaseCommit)
+	if baseCommit != "" {
+		resolved, err := resolveCommitish(baseCommit)
+		if err == nil && strings.TrimSpace(resolved) != "" {
+			return strings.TrimSpace(resolved), nil
 		}
-		return strings.TrimSpace(resolved), nil
+		failures = append(failures, fmt.Sprintf("resolve base commit %q", baseCommit))
+	}
+	baseRef := strings.TrimSpace(cr.BaseRef)
+	if baseRef != "" {
+		resolved, err := resolveCommitish(baseRef)
+		if err != nil {
+			failures = append(failures, fmt.Sprintf("resolve base ref %q", baseRef))
+		} else {
+			return strings.TrimSpace(resolved), nil
+		}
+	}
+	baseBranch := strings.TrimSpace(cr.BaseBranch)
+	if baseBranch != "" && baseBranch != baseRef {
+		resolved, err := resolveCommitish(baseBranch)
+		if err != nil {
+			failures = append(failures, fmt.Sprintf("resolve base branch %q", baseBranch))
+		} else {
+			return strings.TrimSpace(resolved), nil
+		}
+	}
+	if len(failures) > 0 {
+		return "", fmt.Errorf("unable to resolve CR %d base anchor locally (%s)", cr.ID, strings.Join(failures, "; "))
 	}
 	return "", errors.New("cr has no base anchor")
 }
