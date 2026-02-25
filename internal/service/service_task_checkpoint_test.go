@@ -296,32 +296,30 @@ func TestDoneTaskWithCheckpointNoChangesKeepsTaskOpen(t *testing.T) {
 }
 
 func TestDoneTaskWithNoCheckpointIsMetadataOnly(t *testing.T) {
-	dir := t.TempDir()
-	svc := New(dir)
-	if _, err := svc.Init("main", ""); err != nil {
-		t.Fatalf("Init() error = %v", err)
+	cr := seedCR(1, "Metadata only", seedCROptions{
+		Description: "done without commit",
+		Branch:      "cr-1-runtime",
+	})
+	task := seedTask(1, "docs: update note", model.TaskStatusOpen, "")
+	task.Contract = model.TaskContract{
+		Intent:             "Finish metadata-only task.",
+		AcceptanceCriteria: []string{"Task can be marked done without commit."},
+		Scope:              []string{"internal/service"},
 	}
-	cr, err := svc.AddCR("Metadata only", "done without commit")
-	if err != nil {
-		t.Fatalf("AddCR() error = %v", err)
-	}
-	task, err := svc.AddTask(cr.ID, "docs: update note")
-	if err != nil {
-		t.Fatalf("AddTask() error = %v", err)
-	}
-	setValidTaskContract(t, svc, cr.ID, task.ID)
+	cr.Subtasks = []model.Subtask{task}
+	h := harnessService(t, runtimeHarnessOptions{Branch: cr.Branch, CRs: []*model.CR{cr}})
 
-	sha, err := svc.DoneTaskWithCheckpoint(cr.ID, task.ID, DoneTaskOptions{
+	sha, err := h.Service.doneTaskWithCheckpointUnlocked(cr.ID, task.ID, DoneTaskOptions{
 		Checkpoint:         false,
 		NoCheckpointReason: "metadata-only completion",
 	})
 	if err != nil {
-		t.Fatalf("DoneTaskWithCheckpoint(checkpoint=false) error = %v", err)
+		t.Fatalf("doneTaskWithCheckpointUnlocked(checkpoint=false) error = %v", err)
 	}
 	if sha != "" {
 		t.Fatalf("expected empty sha for metadata-only completion, got %q", sha)
 	}
-	loaded, err := svc.store.LoadCR(cr.ID)
+	loaded, err := h.Store.LoadCR(cr.ID)
 	if err != nil {
 		t.Fatalf("LoadCR() error = %v", err)
 	}
@@ -340,22 +338,14 @@ func TestDoneTaskWithNoCheckpointIsMetadataOnly(t *testing.T) {
 }
 
 func TestDoneTaskWithNoCheckpointRequiresReason(t *testing.T) {
-	dir := t.TempDir()
-	svc := New(dir)
-	if _, err := svc.Init("main", ""); err != nil {
-		t.Fatalf("Init() error = %v", err)
-	}
-	cr, err := svc.AddCR("Metadata reason", "require no-checkpoint rationale")
-	if err != nil {
-		t.Fatalf("AddCR() error = %v", err)
-	}
-	task, err := svc.AddTask(cr.ID, "docs: metadata completion")
-	if err != nil {
-		t.Fatalf("AddTask() error = %v", err)
-	}
-	setValidTaskContract(t, svc, cr.ID, task.ID)
+	cr := seedCR(1, "Metadata reason", seedCROptions{
+		Description: "require no-checkpoint rationale",
+		Branch:      "cr-1-runtime",
+	})
+	cr.Subtasks = []model.Subtask{seedTask(1, "docs: metadata completion", model.TaskStatusOpen, "")}
+	h := harnessService(t, runtimeHarnessOptions{Branch: cr.Branch, CRs: []*model.CR{cr}})
 
-	_, err = svc.DoneTaskWithCheckpoint(cr.ID, task.ID, DoneTaskOptions{Checkpoint: false})
+	_, err := h.Service.doneTaskWithCheckpointUnlocked(cr.ID, 1, DoneTaskOptions{Checkpoint: false})
 	if err == nil || !strings.Contains(err.Error(), "--no-checkpoint requires --no-checkpoint-reason") {
 		t.Fatalf("expected no-checkpoint reason error, got %v", err)
 	}
@@ -924,45 +914,32 @@ func TestTaskChunkCommandsRejectPreStagedChanges(t *testing.T) {
 }
 
 func TestDoneTaskWithCheckpointRequiresExplicitScope(t *testing.T) {
-	dir := t.TempDir()
-	svc := New(dir)
-	if _, err := svc.Init("main", ""); err != nil {
-		t.Fatalf("Init() error = %v", err)
-	}
-	cr, err := svc.AddCR("Scope required", "checkpoint scope required")
-	if err != nil {
-		t.Fatalf("AddCR() error = %v", err)
-	}
-	task, err := svc.AddTask(cr.ID, "feat: scope required")
-	if err != nil {
-		t.Fatalf("AddTask() error = %v", err)
-	}
-	setValidTaskContract(t, svc, cr.ID, task.ID)
-	if err := os.WriteFile(filepath.Join(dir, "file.txt"), []byte("x\n"), 0o644); err != nil {
-		t.Fatalf("write file: %v", err)
-	}
+	cr := seedCR(1, "Scope required", seedCROptions{
+		Description: "checkpoint scope required",
+		Branch:      "cr-1-runtime",
+	})
+	cr.Subtasks = []model.Subtask{seedTask(1, "feat: scope required", model.TaskStatusOpen, "")}
+	h := harnessService(t, runtimeHarnessOptions{Branch: cr.Branch, CRs: []*model.CR{cr}})
 
-	_, err = svc.DoneTaskWithCheckpoint(cr.ID, task.ID, DoneTaskOptions{Checkpoint: true})
+	_, err := h.Service.doneTaskWithCheckpointUnlocked(cr.ID, 1, DoneTaskOptions{Checkpoint: true})
 	if !errors.Is(err, ErrTaskScopeRequired) {
 		t.Fatalf("expected ErrTaskScopeRequired, got %v", err)
 	}
 }
 
 func TestDoneTaskWithCheckpointRejectsInvalidScopePaths(t *testing.T) {
-	dir := t.TempDir()
-	svc := New(dir)
-	if _, err := svc.Init("main", ""); err != nil {
-		t.Fatalf("Init() error = %v", err)
+	cr := seedCR(1, "Invalid scope", seedCROptions{
+		Description: "reject invalid paths",
+		Branch:      "cr-1-runtime",
+	})
+	task := seedTask(1, "feat: validate scope", model.TaskStatusOpen, "")
+	task.Contract = model.TaskContract{
+		Intent:             "Validate checkpoint scope arguments.",
+		AcceptanceCriteria: []string{"Invalid scope options fail fast."},
+		Scope:              []string{"internal/service"},
 	}
-	cr, err := svc.AddCR("Invalid scope", "reject invalid paths")
-	if err != nil {
-		t.Fatalf("AddCR() error = %v", err)
-	}
-	task, err := svc.AddTask(cr.ID, "feat: validate scope")
-	if err != nil {
-		t.Fatalf("AddTask() error = %v", err)
-	}
-	setValidTaskContract(t, svc, cr.ID, task.ID)
+	cr.Subtasks = []model.Subtask{task}
+	h := harnessService(t, runtimeHarnessOptions{Branch: cr.Branch, CRs: []*model.CR{cr}})
 
 	cases := []DoneTaskOptions{
 		{Checkpoint: true, Paths: []string{""}},
@@ -983,7 +960,7 @@ func TestDoneTaskWithCheckpointRejectsInvalidScopePaths(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		_, gotErr := svc.DoneTaskWithCheckpoint(cr.ID, task.ID, tc)
+		_, gotErr := h.Service.doneTaskWithCheckpointUnlocked(cr.ID, 1, tc)
 		if !errors.Is(gotErr, ErrInvalidTaskScope) {
 			t.Fatalf("expected ErrInvalidTaskScope for options %#v, got %v", tc, gotErr)
 		}

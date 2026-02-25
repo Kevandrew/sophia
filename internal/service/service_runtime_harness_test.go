@@ -5,7 +5,9 @@ import (
 	"testing"
 	"time"
 
+	"sophia/internal/gitx"
 	"sophia/internal/model"
+	"sophia/internal/store"
 )
 
 type runtimeHarnessOptions struct {
@@ -50,25 +52,25 @@ func harnessService(t *testing.T, opts runtimeHarnessOptions) *runtimeHarness {
 		branch = "cr-runtime-harness"
 	}
 
-	store := newFakeCRStore()
-	store.sophiaDir = filepath.Join(repoRoot, ".sophia-harness")
+	fakeStore := newFakeCRStore()
+	fakeStore.sophiaDir = filepath.Join(repoRoot, ".sophia-harness")
 	if opts.Config.Version != "" || opts.Config.BaseBranch != "" || opts.Config.MetadataMode != "" {
-		store.config = opts.Config
-		if store.config.Version == "" {
-			store.config.Version = "v0"
+		fakeStore.config = opts.Config
+		if fakeStore.config.Version == "" {
+			fakeStore.config.Version = "v0"
 		}
-		if store.config.BaseBranch == "" {
-			store.config.BaseBranch = "main"
+		if fakeStore.config.BaseBranch == "" {
+			fakeStore.config.BaseBranch = "main"
 		}
-		if store.config.MetadataMode == "" {
-			store.config.MetadataMode = model.MetadataModeLocal
+		if fakeStore.config.MetadataMode == "" {
+			fakeStore.config.MetadataMode = model.MetadataModeLocal
 		}
 	}
 	if opts.Index.NextID > 0 {
-		store.index = opts.Index
+		fakeStore.index = opts.Index
 	}
 	for _, cr := range opts.CRs {
-		store.SeedCR(cr)
+		fakeStore.SeedCR(cr)
 	}
 
 	lifecycleGit := newFakeLifecycleGit(actor, branch)
@@ -94,24 +96,26 @@ func harnessService(t *testing.T, opts runtimeHarnessOptions) *runtimeHarness {
 	taskGit.headShortSHA = "head-sha"
 
 	svc := &Service{
+		store:    store.NewWithSophiaRoot(repoRoot, filepath.Join(repoRoot, ".sophia-harness-real")),
+		git:      gitx.New(repoRoot),
 		repoRoot: repoRoot,
 		now:      func() time.Time { return now },
 	}
-	svc.overrideLifecycleRuntimeProvidersForTests(lifecycleGit, store)
-	svc.overrideStatusRuntimeProvidersForTests(statusGit, store)
-	svc.overrideMergeRuntimeProvidersForTests(mergeGit, store, func(root string) mergeRuntimeGit {
+	svc.overrideLifecycleRuntimeProvidersForTests(lifecycleGit, fakeStore)
+	svc.overrideStatusRuntimeProvidersForTests(statusGit, fakeStore)
+	svc.overrideMergeRuntimeProvidersForTests(mergeGit, fakeStore, func(root string) mergeRuntimeGit {
 		fork := mergeGit.clone()
 		if root != "" {
 			fork.currentBranch = branch
 		}
 		return fork
 	})
-	svc.overrideTaskRuntimeProvidersForTests(taskGit, store)
+	svc.overrideTaskRuntimeProvidersForTests(taskGit, fakeStore)
 	svc.overrideTaskMergeGuardForTests(func(*model.CR) error { return nil })
 
 	return &runtimeHarness{
 		Service:      svc,
-		Store:        store,
+		Store:        fakeStore,
 		LifecycleGit: lifecycleGit,
 		StatusGit:    statusGit,
 		MergeGit:     mergeGit,
