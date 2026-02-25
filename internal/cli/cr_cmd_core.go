@@ -631,11 +631,6 @@ func newCREditCmd() *cobra.Command {
 		Short: "Edit CR title/description with audit trail",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			id, err := parsePositiveIntArg(args[0], "id")
-			if err != nil {
-				return commandError(cmd, asJSON, err)
-			}
-
 			titleChanged := cmd.Flags().Changed("title")
 			descriptionChanged := cmd.Flags().Changed("description")
 			if !titleChanged && !descriptionChanged {
@@ -651,23 +646,20 @@ func newCREditCmd() *cobra.Command {
 			if descriptionChanged {
 				descriptionPtr = &description
 			}
-
-			svc, err := newService()
-			if err != nil {
-				return commandError(cmd, asJSON, err)
-			}
-			changedFields, err := svc.EditCR(id, titlePtr, descriptionPtr)
-			if err != nil {
-				return commandError(cmd, asJSON, err)
-			}
-			if asJSON {
-				return writeJSONSuccess(cmd, map[string]any{
-					"cr_id":          id,
-					"changed_fields": stringSliceOrEmpty(changedFields),
-				})
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Updated CR %d fields: %s\n", id, strings.Join(changedFields, ", "))
-			return nil
+			return withParsedIDAndService(cmd, asJSON, args[0], "id", func(id int, svc *service.Service) error {
+				changedFields, err := svc.EditCR(id, titlePtr, descriptionPtr)
+				if err != nil {
+					return commandError(cmd, asJSON, err)
+				}
+				if asJSON {
+					return writeJSONSuccess(cmd, map[string]any{
+						"cr_id":          id,
+						"changed_fields": stringSliceOrEmpty(changedFields),
+					})
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "Updated CR %d fields: %s\n", id, strings.Join(changedFields, ", "))
+				return nil
+			})
 		},
 	}
 
@@ -706,11 +698,6 @@ func newCRContractSetCmd() *cobra.Command {
 		Example: "  sophia cr contract set 25 --why \"Reduce merge churn\" --scope internal/service --scope internal/cli\n  sophia cr contract set 25 --risk-critical-scope internal/service --risk-tier-hint medium --risk-rationale \"Touches merge behavior\"\n  sophia cr contract set 25 --test-plan \"go test ./... && go vet ./...\" --rollback-plan \"Revert [CR-25] merge commit\"",
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			id, err := parsePositiveIntArg(args[0], "id")
-			if err != nil {
-				return commandError(cmd, asJSON, err)
-			}
-
 			patch := service.ContractPatch{}
 			if cmd.Flags().Changed("why") {
 				v := why
@@ -756,23 +743,20 @@ func newCRContractSetCmd() *cobra.Command {
 				err := fmt.Errorf("provide at least one contract field flag")
 				return commandError(cmd, asJSON, err)
 			}
-
-			svc, err := newService()
-			if err != nil {
-				return commandError(cmd, asJSON, err)
-			}
-			changed, err := svc.SetCRContract(id, patch)
-			if err != nil {
-				return commandError(cmd, asJSON, err)
-			}
-			if asJSON {
-				return writeJSONSuccess(cmd, map[string]any{
-					"cr_id":          id,
-					"changed_fields": stringSliceOrEmpty(changed),
-				})
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Updated CR %d contract fields: %s\n", id, strings.Join(changed, ", "))
-			return nil
+			return withParsedIDAndService(cmd, asJSON, args[0], "id", func(id int, svc *service.Service) error {
+				changed, err := svc.SetCRContract(id, patch)
+				if err != nil {
+					return commandError(cmd, asJSON, err)
+				}
+				if asJSON {
+					return writeJSONSuccess(cmd, map[string]any{
+						"cr_id":          id,
+						"changed_fields": stringSliceOrEmpty(changed),
+					})
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "Updated CR %d contract fields: %s\n", id, strings.Join(changed, ", "))
+				return nil
+			})
 		},
 	}
 

@@ -100,37 +100,27 @@ func newCRTaskChunkShowCmd() *cobra.Command {
 		Short: "Show applyable patch snippet for a working-tree chunk",
 		Args:  cobra.ExactArgs(3),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			crID, err := parsePositiveIntArg(args[0], "cr-id")
-			if err != nil {
-				return commandError(cmd, asJSON, err)
-			}
-			taskID, err := parsePositiveIntArg(args[1], "task-id")
-			if err != nil {
-				return commandError(cmd, asJSON, err)
-			}
 			chunkID := strings.TrimSpace(args[2])
 			if chunkID == "" {
 				return commandError(cmd, asJSON, fmt.Errorf("chunk-id cannot be empty"))
 			}
-			svc, err := newService()
-			if err != nil {
-				return commandError(cmd, asJSON, err)
-			}
-			chunk, patch, err := svc.TaskChunkWorkingTreePatch(crID, taskID, chunkID, append([]string(nil), scopePaths...))
-			if err != nil {
-				return commandError(cmd, asJSON, err)
-			}
-			if asJSON {
-				return writeJSONSuccess(cmd, map[string]any{
-					"cr_id":   crID,
-					"task_id": taskID,
-					"chunk":   chunkToJSONMap(chunk),
-					"patch":   patch,
-				})
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Chunk %s (%s %d,%d -> %d,%d)\n", chunk.ID, chunk.Path, chunk.OldStart, chunk.OldLines, chunk.NewStart, chunk.NewLines)
-			fmt.Fprint(cmd.OutOrStdout(), patch)
-			return nil
+			return withParsedCRTaskIDsAndService(cmd, asJSON, args[0], args[1], func(crID, taskID int, svc *service.Service) error {
+				chunk, patch, err := svc.TaskChunkWorkingTreePatch(crID, taskID, chunkID, append([]string(nil), scopePaths...))
+				if err != nil {
+					return commandError(cmd, asJSON, err)
+				}
+				if asJSON {
+					return writeJSONSuccess(cmd, map[string]any{
+						"cr_id":   crID,
+						"task_id": taskID,
+						"chunk":   chunkToJSONMap(chunk),
+						"patch":   patch,
+					})
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "Chunk %s (%s %d,%d -> %d,%d)\n", chunk.ID, chunk.Path, chunk.OldStart, chunk.OldLines, chunk.NewStart, chunk.NewLines)
+				fmt.Fprint(cmd.OutOrStdout(), patch)
+				return nil
+			})
 		},
 	}
 
@@ -150,47 +140,37 @@ func newCRTaskChunkExportCmd() *cobra.Command {
 		Short: "Export selected working-tree chunks to a patch manifest",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			crID, err := parsePositiveIntArg(args[0], "cr-id")
-			if err != nil {
-				return commandError(cmd, asJSON, err)
-			}
-			taskID, err := parsePositiveIntArg(args[1], "task-id")
-			if err != nil {
-				return commandError(cmd, asJSON, err)
-			}
 			out := strings.TrimSpace(outPath)
 			if out == "" {
 				return commandError(cmd, asJSON, fmt.Errorf("--out is required"))
 			}
-			svc, err := newService()
-			if err != nil {
-				return commandError(cmd, asJSON, err)
-			}
-			chunks, patch, err := svc.ExportTaskChunkWorkingTreePatch(crID, taskID, append([]string(nil), chunkIDs...), append([]string(nil), scopePaths...))
-			if err != nil {
-				return commandError(cmd, asJSON, err)
-			}
-			if writeErr := os.WriteFile(out, []byte(patch), 0o644); writeErr != nil {
-				return commandError(cmd, asJSON, fmt.Errorf("write patch file %q: %w", out, writeErr))
-			}
-			if asJSON {
-				chunkMaps := make([]map[string]any, 0, len(chunks))
-				ids := make([]string, 0, len(chunks))
-				for _, chunk := range chunks {
-					chunkMaps = append(chunkMaps, chunkToJSONMap(chunk))
-					ids = append(ids, chunk.ID)
+			return withParsedCRTaskIDsAndService(cmd, asJSON, args[0], args[1], func(crID, taskID int, svc *service.Service) error {
+				chunks, patch, err := svc.ExportTaskChunkWorkingTreePatch(crID, taskID, append([]string(nil), chunkIDs...), append([]string(nil), scopePaths...))
+				if err != nil {
+					return commandError(cmd, asJSON, err)
 				}
-				return writeJSONSuccess(cmd, map[string]any{
-					"cr_id":         crID,
-					"task_id":       taskID,
-					"out":           out,
-					"written_bytes": len([]byte(patch)),
-					"chunk_ids":     ids,
-					"chunks":        chunkMaps,
-				})
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Exported %d chunk(s) to %s (%d bytes)\n", len(chunks), out, len([]byte(patch)))
-			return nil
+				if writeErr := os.WriteFile(out, []byte(patch), 0o644); writeErr != nil {
+					return commandError(cmd, asJSON, fmt.Errorf("write patch file %q: %w", out, writeErr))
+				}
+				if asJSON {
+					chunkMaps := make([]map[string]any, 0, len(chunks))
+					ids := make([]string, 0, len(chunks))
+					for _, chunk := range chunks {
+						chunkMaps = append(chunkMaps, chunkToJSONMap(chunk))
+						ids = append(ids, chunk.ID)
+					}
+					return writeJSONSuccess(cmd, map[string]any{
+						"cr_id":         crID,
+						"task_id":       taskID,
+						"out":           out,
+						"written_bytes": len([]byte(patch)),
+						"chunk_ids":     ids,
+						"chunks":        chunkMaps,
+					})
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "Exported %d chunk(s) to %s (%d bytes)\n", len(chunks), out, len([]byte(patch)))
+				return nil
+			})
 		},
 	}
 
@@ -225,15 +205,6 @@ func newCRTaskContractSetCmd() *cobra.Command {
 		Short: "Set/update task contract fields",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			crID, err := parsePositiveIntArg(args[0], "cr-id")
-			if err != nil {
-				return commandError(cmd, asJSON, err)
-			}
-			taskID, err := parsePositiveIntArg(args[1], "task-id")
-			if err != nil {
-				return commandError(cmd, asJSON, err)
-			}
-
 			patch := service.TaskContractPatch{}
 			if cmd.Flags().Changed("intent") {
 				v := intent
@@ -259,24 +230,21 @@ func newCRTaskContractSetCmd() *cobra.Command {
 				err := fmt.Errorf("provide at least one of --intent, --acceptance, --scope, or --acceptance-check")
 				return commandError(cmd, asJSON, err)
 			}
-
-			svc, err := newService()
-			if err != nil {
-				return commandError(cmd, asJSON, err)
-			}
-			changed, err := svc.SetTaskContract(crID, taskID, patch)
-			if err != nil {
-				return commandError(cmd, asJSON, err)
-			}
-			if asJSON {
-				return writeJSONSuccess(cmd, map[string]any{
-					"cr_id":          crID,
-					"task_id":        taskID,
-					"changed_fields": stringSliceOrEmpty(changed),
-				})
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Updated CR %d task %d contract fields: %s\n", crID, taskID, strings.Join(changed, ", "))
-			return nil
+			return withParsedCRTaskIDsAndService(cmd, asJSON, args[0], args[1], func(crID, taskID int, svc *service.Service) error {
+				changed, err := svc.SetTaskContract(crID, taskID, patch)
+				if err != nil {
+					return commandError(cmd, asJSON, err)
+				}
+				if asJSON {
+					return writeJSONSuccess(cmd, map[string]any{
+						"cr_id":          crID,
+						"task_id":        taskID,
+						"changed_fields": stringSliceOrEmpty(changed),
+					})
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "Updated CR %d task %d contract fields: %s\n", crID, taskID, strings.Join(changed, ", "))
+				return nil
+			})
 		},
 	}
 
@@ -482,31 +450,21 @@ func newTaskDelegationCommand(
 		Short: short,
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			crID, err := parsePositiveIntArg(args[0], "cr-id")
-			if err != nil {
-				return commandError(cmd, asJSON, err)
-			}
-			taskID, err := parsePositiveIntArg(args[1], "task-id")
-			if err != nil {
-				return commandError(cmd, asJSON, err)
-			}
 			if childID <= 0 {
 				err := fmt.Errorf("--child must be >= 1")
 				return commandError(cmd, asJSON, err)
 			}
-			svc, err := newService()
-			if err != nil {
-				return commandError(cmd, asJSON, err)
-			}
-			result, err := run(svc, crID, taskID, childID)
-			if err != nil {
-				return commandError(cmd, asJSON, err)
-			}
-			if asJSON {
-				return writeJSONSuccess(cmd, buildJSON(crID, taskID, childID, result))
-			}
-			renderText(cmd, crID, taskID, childID, result)
-			return nil
+			return withParsedCRTaskIDsAndService(cmd, asJSON, args[0], args[1], func(crID, taskID int, svc *service.Service) error {
+				result, err := run(svc, crID, taskID, childID)
+				if err != nil {
+					return commandError(cmd, asJSON, err)
+				}
+				if asJSON {
+					return writeJSONSuccess(cmd, buildJSON(crID, taskID, childID, result))
+				}
+				renderText(cmd, crID, taskID, childID, result)
+				return nil
+			})
 		},
 	}
 
