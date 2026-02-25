@@ -115,12 +115,37 @@ func (s *Service) summarizeMergedCRDiff(cr *model.CR) ([]gitx.FileChange, string
 }
 
 func (s *Service) ensureCRBaseFields(cr *model.CR, persist bool) (bool, error) {
+	return s.ensureCRBaseFieldsWithProviders(cr, persist, s.store, s.git)
+}
+
+type crBaseFieldsStore interface {
+	LoadConfig() (model.Config, error)
+	LoadCR(id int) (*model.CR, error)
+	SaveCR(cr *model.CR) error
+}
+
+type crBaseFieldsGit interface {
+	ResolveRef(ref string) (string, error)
+}
+
+type crBaseAnchorGit interface {
+	BranchExists(branch string) bool
+	ResolveRef(ref string) (string, error)
+}
+
+func (s *Service) ensureCRBaseFieldsWithProviders(cr *model.CR, persist bool, crStore crBaseFieldsStore, gitClient crBaseFieldsGit) (bool, error) {
 	if cr == nil {
 		return false, errors.New("cr cannot be nil")
 	}
+	if crStore == nil {
+		return false, errors.New("cr store is required")
+	}
+	if gitClient == nil {
+		return false, errors.New("git client is required")
+	}
 	changed := false
 	if strings.TrimSpace(cr.BaseBranch) == "" {
-		cfg, err := s.store.LoadConfig()
+		cfg, err := crStore.LoadConfig()
 		if err != nil {
 			return false, err
 		}
@@ -132,14 +157,14 @@ func (s *Service) ensureCRBaseFields(cr *model.CR, persist bool) (bool, error) {
 		changed = true
 	}
 	if strings.TrimSpace(cr.BaseCommit) == "" && strings.TrimSpace(cr.BaseRef) != "" {
-		if resolved, err := s.git.ResolveRef(cr.BaseRef); err == nil && strings.TrimSpace(resolved) != "" {
+		if resolved, err := gitClient.ResolveRef(cr.BaseRef); err == nil && strings.TrimSpace(resolved) != "" {
 			cr.BaseCommit = strings.TrimSpace(resolved)
 			changed = true
 		}
 	}
 	if changed && persist {
 		cr.UpdatedAt = s.timestamp()
-		if err := s.store.SaveCR(cr); err != nil {
+		if err := crStore.SaveCR(cr); err != nil {
 			return false, err
 		}
 	}
@@ -147,10 +172,20 @@ func (s *Service) ensureCRBaseFields(cr *model.CR, persist bool) (bool, error) {
 }
 
 func (s *Service) ensureCRBaseFieldsPersisted(cr *model.CR) (*model.CR, error) {
+	return s.ensureCRBaseFieldsPersistedWithProviders(cr, s.store, s.git)
+}
+
+func (s *Service) ensureCRBaseFieldsPersistedWithProviders(cr *model.CR, crStore crBaseFieldsStore, gitClient crBaseFieldsGit) (*model.CR, error) {
 	if cr == nil {
 		return nil, errors.New("cr cannot be nil")
 	}
-	changed, err := s.ensureCRBaseFields(cr, false)
+	if crStore == nil {
+		return nil, errors.New("cr store is required")
+	}
+	if gitClient == nil {
+		return nil, errors.New("git client is required")
+	}
+	changed, err := s.ensureCRBaseFieldsWithProviders(cr, false, crStore, gitClient)
 	if err != nil {
 		return nil, err
 	}
@@ -160,17 +195,17 @@ func (s *Service) ensureCRBaseFieldsPersisted(cr *model.CR) (*model.CR, error) {
 
 	persisted := cr
 	if err := s.withMutationLock(func() error {
-		latest, err := s.store.LoadCR(cr.ID)
+		latest, err := crStore.LoadCR(cr.ID)
 		if err != nil {
 			return err
 		}
-		latestChanged, err := s.ensureCRBaseFields(latest, false)
+		latestChanged, err := s.ensureCRBaseFieldsWithProviders(latest, false, crStore, gitClient)
 		if err != nil {
 			return err
 		}
 		if latestChanged {
 			latest.UpdatedAt = s.timestamp()
-			if err := s.store.SaveCR(latest); err != nil {
+			if err := crStore.SaveCR(latest); err != nil {
 				return err
 			}
 		}
@@ -211,15 +246,25 @@ func (s *Service) diffNamesForCR(cr *model.CR) ([]string, error) {
 }
 
 func (s *Service) parentBaseAnchor(parent *model.CR) (string, string, error) {
+	return s.parentBaseAnchorWithProviders(parent, s.store, s.git)
+}
+
+func (s *Service) parentBaseAnchorWithProviders(parent *model.CR, crStore crBaseFieldsStore, gitClient crBaseAnchorGit) (string, string, error) {
 	if parent == nil {
 		return "", "", errors.New("parent cr is required")
 	}
-	if _, err := s.ensureCRBaseFields(parent, false); err != nil {
+	if crStore == nil {
+		return "", "", errors.New("cr store is required")
+	}
+	if gitClient == nil {
+		return "", "", errors.New("git client is required")
+	}
+	if _, err := s.ensureCRBaseFieldsWithProviders(parent, false, crStore, gitClient); err != nil {
 		return "", "", err
 	}
 
-	if parent.Status == model.StatusInProgress && s.git.BranchExists(parent.Branch) {
-		sha, err := s.git.ResolveRef(parent.Branch)
+	if parent.Status == model.StatusInProgress && gitClient.BranchExists(parent.Branch) {
+		sha, err := gitClient.ResolveRef(parent.Branch)
 		if err != nil {
 			return "", "", err
 		}
@@ -227,7 +272,7 @@ func (s *Service) parentBaseAnchor(parent *model.CR) (string, string, error) {
 	}
 	if parent.Status == model.StatusMerged {
 		if strings.TrimSpace(parent.MergedCommit) != "" {
-			sha, err := s.git.ResolveRef(parent.MergedCommit)
+			sha, err := gitClient.ResolveRef(parent.MergedCommit)
 			if err == nil {
 				return parent.BaseBranch, strings.TrimSpace(sha), nil
 			}
@@ -241,7 +286,7 @@ func (s *Service) parentBaseAnchor(parent *model.CR) (string, string, error) {
 	if strings.TrimSpace(anchorRef) == "" {
 		return "", "", fmt.Errorf("parent CR %d has no base ref", parent.ID)
 	}
-	sha, err := s.git.ResolveRef(anchorRef)
+	sha, err := gitClient.ResolveRef(anchorRef)
 	if err != nil {
 		return "", "", err
 	}

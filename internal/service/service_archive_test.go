@@ -11,6 +11,10 @@ import (
 	"sophia/internal/model"
 )
 
+type mergeRuntimeGitAdapter struct {
+	*gitx.Client
+}
+
 func TestMergeWritesArchiveFileIntoMergeCommit(t *testing.T) {
 	dir := t.TempDir()
 	svc := New(dir)
@@ -81,6 +85,48 @@ func TestMergeWritesArchiveWhenBaseBranchOwnedByOtherWorktree(t *testing.T) {
 
 	mainWorktreeDir := filepath.Join(t.TempDir(), "main-worktree")
 	runGit(t, dir, "worktree", "add", mainWorktreeDir, "main")
+
+	sha, warnings, err := svc.MergeCRWithWarnings(cr.ID, true, "")
+	if err != nil {
+		t.Fatalf("MergeCRWithWarnings() error = %v", err)
+	}
+	if strings.TrimSpace(sha) == "" {
+		t.Fatalf("expected merge sha")
+	}
+	if len(warnings) != 0 {
+		t.Fatalf("unexpected merge warnings: %#v", warnings)
+	}
+	changed := runGit(t, dir, "show", "--name-only", "--pretty=format:", sha)
+	if !strings.Contains(changed, ".sophia-tracked/cr/cr-1.v1.yaml") {
+		t.Fatalf("expected archive file in merge commit, changed files:\n%s", changed)
+	}
+}
+
+func TestMergeWritesArchiveWithNonConcreteMergeRuntimeAdapter(t *testing.T) {
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	runGit(t, dir, "config", "user.name", "Test User")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+	writeArchivePolicyEnabledForTest(t, dir, true)
+
+	cr, err := svc.AddCR("Archive merge adapter", "archive merge integration")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	setValidContract(t, svc, cr.ID)
+	if err := os.WriteFile(filepath.Join(dir, "archive-adapter.txt"), []byte("hello\n"), 0o644); err != nil {
+		t.Fatalf("write archive-adapter.txt: %v", err)
+	}
+	runGit(t, dir, "add", "archive-adapter.txt")
+	runGit(t, dir, "commit", "-m", "feat: archive adapter fixture")
+
+	baseMergeGit := &mergeRuntimeGitAdapter{Client: svc.git}
+	svc.overrideMergeRuntimeProvidersForTests(baseMergeGit, svc.store, func(root string) mergeRuntimeGit {
+		return &mergeRuntimeGitAdapter{Client: gitx.New(root)}
+	})
 
 	sha, warnings, err := svc.MergeCRWithWarnings(cr.ID, true, "")
 	if err != nil {

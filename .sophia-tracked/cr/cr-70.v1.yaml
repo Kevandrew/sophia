@@ -1,0 +1,232 @@
+schema_version: sophia.cr_archive.v1
+notice: Historical archive snapshot. Corrections are append-only revisions.
+archived_at: "2026-02-25T14:58:59Z"
+revision: 1
+cr:
+    id: 70
+    uid: cr_5a81612b-b9f7-4292-870e-0220c1bd9083
+    title: 'Tech debt: introduce service runtime ports for CR lifecycle/status/merge domains'
+    description: Replace direct Service coupling to concrete git/store operations in CR lifecycle, status, and merge orchestration with explicit runtime ports so behavior can be unit-tested without repository/process setup. Preserve existing CLI/API behavior while making service logic mock-friendly.
+    status: merged
+    base_branch: main
+    base_ref: main
+    base_commit: 74734a1ce24c539fcded186a810e30cf97f49830
+    branch: cr-tech-debt-introduce-service-runtime-ports-for-cr-5a81
+    merged_at: "2026-02-25T14:58:59Z"
+    merged_by: Kevandrew <143258544+Kevandrew@users.noreply.github.com>
+contract:
+    why: CR lifecycle, status, and merge paths currently couple orchestration logic to concrete git and store implementations. That coupling drives large integration-heavy test surfaces and slows feedback loops. This CR introduces narrow runtime ports and adapter wiring for these domains so behavior-level tests can execute without spinning up repositories or invoking git subprocesses.
+    scope:
+        - internal/service/service.go
+        - internal/service/service_archive.go
+        - internal/service/service_archive_test.go
+        - internal/service/service_common.go
+        - internal/service/service_cr.go
+        - internal/service/service_cr_status.go
+        - internal/service/service_diff.go
+        - internal/service/service_merge_guard.go
+        - internal/service/service_public_contract_test.go
+        - internal/service/service_review_merge.go
+        - internal/service/service_runtime_ports.go
+        - internal/service/service_runtime_ports_integration_test.go
+        - internal/service/service_runtime_ports_test.go
+        - internal/service/service_worktree.go
+    non_goals:
+        - No CLI flag or output contract changes.
+        - No CR/task YAML schema or JSON envelope changes.
+        - No broad service test migration in this CR (handled separately).
+    invariants:
+        - Existing CR lifecycle semantics remain equivalent.
+        - Existing merge guards and mutation lock behavior remain equivalent.
+        - Existing status/validation merge blocker semantics remain equivalent.
+    blast_radius: Service runtime composition for CR lifecycle/status/merge paths, including branch checks, merge preflight/finalize orchestration, and status derivation. Failure modes are adapter miswiring, missing runtime methods, or behavior drift in merge guard paths.
+    risk_critical_scopes:
+        - internal/service
+    risk_tier_hint: high
+    risk_rationale: Core merge and lifecycle orchestration is being decoupled from concrete git/store calls.
+    test_plan: go test ./internal/service -run 'CR|Merge|Status' && go test ./... && go vet ./...
+    rollback_plan: Revert the CR merge commit.
+tasks:
+    - id: 1
+      title: Define CR lifecycle/status/merge runtime interfaces and default adapters
+      status: done
+      contract:
+        intent: Introduce narrow interfaces for the concrete operations used by lifecycle/status/merge service flows.
+        acceptance_criteria:
+            - Default adapters preserve existing wiring with no behavior change.
+            - Service runtime interfaces cover all currently direct git/store calls in target flows.
+        scope:
+            - internal/service
+            - internal/service/service.go
+      checkpoint:
+        commit: 43c0418c
+        at: "2026-02-25T14:51:35Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_runtime_ports.go
+    - id: 2
+      title: Port CR lifecycle mutation flows to runtime interfaces
+      status: done
+      contract:
+        intent: Refactor Add/Edit/Contract/Base/Restack lifecycle mutators to operate through runtime ports.
+        acceptance_criteria:
+            - Existing lifecycle error behavior remains stable.
+            - Lifecycle mutators no longer directly call concrete git/store dependencies in target file paths.
+        scope:
+            - internal/service/service_common.go
+            - internal/service/service_cr.go
+            - internal/service/service_diff.go
+      checkpoint:
+        commit: 90c838a0
+        at: "2026-02-25T14:51:38Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_cr.go
+            - internal/service/service_diff.go
+    - id: 3
+      title: Port status and why/impact/validate entrypoints to runtime interfaces
+      status: done
+      contract:
+        intent: Route status-centric service paths through runtime interfaces for read-only orchestration.
+        acceptance_criteria:
+            - StatusCR/WhyCR/ValidateCR dependencies on concrete git/store clients are adapter-backed.
+            - Validation and merge blocker outputs remain equivalent for unchanged repos.
+        scope:
+            - internal/service/service_common.go
+            - internal/service/service_cr_status.go
+      checkpoint:
+        commit: 091ca0e0
+        at: "2026-02-25T14:51:43Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_cr_status.go
+    - id: 4
+      title: Port merge/review orchestration to runtime interfaces
+      status: done
+      contract:
+        intent: Decouple merge preflight/execute/finalize orchestration from concrete git clients.
+        acceptance_criteria:
+            - Merge and review flow logic uses injected runtime operations for git/worktree interactions.
+            - Merge conflict/abort/resume behavior remains equivalent.
+        scope:
+            - internal/service/service_archive.go
+            - internal/service/service_merge_guard.go
+            - internal/service/service_review_merge.go
+            - internal/service/service_worktree.go
+      checkpoint:
+        commit: 55a1e28c
+        at: "2026-02-25T14:51:46Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_archive.go
+            - internal/service/service_review_merge.go
+    - id: 5
+      title: Centralize runtime adapter composition in service constructor path
+      status: done
+      contract:
+        intent: Ensure runtime dependencies are composed once and reused across lifecycle/status/merge domains.
+        acceptance_criteria:
+            - No circular runtime dependencies are introduced.
+            - Runtime wiring is explicit and discoverable in service construction code.
+        scope:
+            - internal/service/service.go
+      checkpoint:
+        commit: 412e1015
+        at: "2026-02-25T14:51:49Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service.go
+    - id: 6
+      title: Preserve external service method contracts while porting internals
+      status: done
+      contract:
+        intent: Keep exported service signatures and observable errors stable during runtime decoupling.
+        acceptance_criteria:
+            - Known user-facing error strings/codes remain compatible.
+            - Public service method signatures remain unchanged.
+        scope:
+            - internal/service
+      checkpoint:
+        commit: e7a2468f
+        at: "2026-02-25T14:51:55Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_archive_test.go
+            - internal/service/service_runtime_ports_integration_test.go
+            - internal/service/service_runtime_ports_test.go
+    - id: 7
+      title: Run targeted regression for lifecycle/status/merge behavior after runtime decoupling
+      status: done
+      contract:
+        intent: Validate that runtime decoupling preserved behavior before handoff to test-migration CRs.
+        acceptance_criteria:
+            - Targeted service tests for lifecycle/status/merge paths pass.
+            - go test ./... and go vet ./... pass.
+        scope:
+            - internal/service
+      checkpoint:
+        at: "2026-02-25T14:56:01Z"
+        source: task_no_checkpoint
+git_summary:
+    base_parent: 74734a1ce24c539fcded186a810e30cf97f49830
+    cr_parent: e7a2468f5edc90cdf9f515903cb2bf0e415d7867
+    files_changed:
+        - internal/service/service.go
+        - internal/service/service_archive.go
+        - internal/service/service_archive_test.go
+        - internal/service/service_common.go
+        - internal/service/service_cr.go
+        - internal/service/service_cr_status.go
+        - internal/service/service_diff.go
+        - internal/service/service_merge_guard.go
+        - internal/service/service_public_contract_test.go
+        - internal/service/service_review_merge.go
+        - internal/service/service_runtime_ports.go
+        - internal/service/service_runtime_ports_integration_test.go
+        - internal/service/service_runtime_ports_test.go
+        - internal/service/service_worktree.go
+    diffstat:
+        summary: 14 files changed, 760 insertions(+), 96 deletions(-)
+        files:
+            - path: internal/service/service.go
+              insertions: 50
+              deletions: 0
+            - path: internal/service/service_archive.go
+              insertions: 6
+              deletions: 1
+            - path: internal/service/service_archive_test.go
+              insertions: 46
+              deletions: 0
+            - path: internal/service/service_common.go
+              insertions: 10
+              deletions: 6
+            - path: internal/service/service_cr.go
+              insertions: 47
+              deletions: 35
+            - path: internal/service/service_cr_status.go
+              insertions: 20
+              deletions: 12
+            - path: internal/service/service_diff.go
+              insertions: 57
+              deletions: 12
+            - path: internal/service/service_merge_guard.go
+              insertions: 3
+              deletions: 4
+            - path: internal/service/service_public_contract_test.go
+              insertions: 18
+              deletions: 0
+            - path: internal/service/service_review_merge.go
+              insertions: 27
+              deletions: 18
+            - path: internal/service/service_runtime_ports.go
+              insertions: 160
+              deletions: 0
+            - path: internal/service/service_runtime_ports_integration_test.go
+              insertions: 146
+              deletions: 0
+            - path: internal/service/service_runtime_ports_test.go
+              insertions: 161
+              deletions: 0
+            - path: internal/service/service_worktree.go
+              insertions: 9
+              deletions: 8

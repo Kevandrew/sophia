@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
-	"sophia/internal/gitx"
 	"sophia/internal/model"
 	servicemerge "sophia/internal/service/merge"
 	"strconv"
@@ -18,7 +17,8 @@ type mergePreflightView struct {
 }
 
 func (s *Service) ReviewCR(id int) (*Review, error) {
-	cr, err := s.store.LoadCR(id)
+	mergeStore := s.activeMergeStoreProvider()
+	cr, err := mergeStore.LoadCR(id)
 	if err != nil {
 		return nil, err
 	}
@@ -78,8 +78,10 @@ func (s *Service) MergeCRWithWarnings(id int, keepBranch bool, overrideReason st
 }
 
 func (s *Service) mergeCRWithWarningsUnlocked(id int, keepBranch bool, overrideReason string) (string, []string, error) {
+	mergeStore := s.activeMergeStoreProvider()
+	baseGit := s.activeMergeGitProvider()
 	warnings := []string{}
-	cr, err := s.store.LoadCR(id)
+	cr, err := mergeStore.LoadCR(id)
 	if err != nil {
 		return "", warnings, err
 	}
@@ -99,10 +101,10 @@ func (s *Service) mergeCRWithWarningsUnlocked(id int, keepBranch bool, overrideR
 	if err != nil {
 		return "", warnings, err
 	}
-	if !s.git.BranchExists(cr.BaseBranch) {
+	if !baseGit.BranchExists(cr.BaseBranch) {
 		return "", warnings, fmt.Errorf("base branch %q does not exist", cr.BaseBranch)
 	}
-	if !s.git.BranchExists(cr.Branch) {
+	if !baseGit.BranchExists(cr.Branch) {
 		return "", warnings, fmt.Errorf("cr branch %q does not exist", cr.Branch)
 	}
 	archiveConfig, archiveEnabled, err := s.resolveMergeArchiveConfig()
@@ -173,7 +175,7 @@ func (s *Service) mergeCRWithWarningsUnlocked(id int, keepBranch bool, overrideR
 			if strings.TrimSpace(mergeHead) == "" {
 				return "", warnings, fmt.Errorf("unable to determine merge head for CR %d archive generation", cr.ID)
 			}
-			if err := s.writeAutomaticCRArchiveForMerge(mergeGit, cr, archiveConfig, actor, mergedAt, baseParent, mergeHead, false); err != nil {
+			if err := s.writeAutomaticCRArchiveForMerge(mergeGit, worktreePath, cr, archiveConfig, actor, mergedAt, baseParent, mergeHead, false); err != nil {
 				return "", warnings, err
 			}
 		}
@@ -203,7 +205,8 @@ func (s *Service) mergeCRWithWarningsUnlocked(id int, keepBranch bool, overrideR
 }
 
 func (s *Service) MergeStatusCR(id int) (*MergeStatusView, error) {
-	cr, err := s.store.LoadCR(id)
+	mergeStore := s.activeMergeStoreProvider()
+	cr, err := mergeStore.LoadCR(id)
 	if err != nil {
 		return nil, err
 	}
@@ -257,6 +260,7 @@ func (s *Service) AbortMergeCR(id int) error {
 }
 
 func (s *Service) abortMergeCRUnlocked(id int) error {
+	mergeStore := s.activeMergeStoreProvider()
 	status, err := s.MergeStatusCR(id)
 	if err != nil {
 		return err
@@ -274,7 +278,7 @@ func (s *Service) abortMergeCRUnlocked(id int) error {
 			Summary:       fmt.Sprintf("%s: in-progress merge in %s does not target CR %d", ErrMergeInProgress, status.WorktreePath, id),
 		}
 	}
-	cr, err := s.store.LoadCR(id)
+	cr, err := mergeStore.LoadCR(id)
 	if err != nil {
 		return err
 	}
@@ -286,7 +290,7 @@ func (s *Service) abortMergeCRUnlocked(id int) error {
 		return err
 	}
 	now := s.timestamp()
-	actor := s.git.Actor()
+	actor := s.activeMergeGitProvider().Actor()
 	return s.appendCRMutationEventAndSave(cr, model.Event{
 		TS:      now,
 		Actor:   actor,
@@ -316,6 +320,7 @@ func (s *Service) ResumeMergeCR(id int, keepBranch bool, overrideReason string) 
 }
 
 func (s *Service) resumeMergeCRUnlocked(id int, keepBranch bool, overrideReason string) (string, []string, error) {
+	mergeStore := s.activeMergeStoreProvider()
 	status, err := s.MergeStatusCR(id)
 	if err != nil {
 		return "", nil, err
@@ -341,7 +346,7 @@ func (s *Service) resumeMergeCRUnlocked(id int, keepBranch bool, overrideReason 
 		}
 	}
 
-	cr, err := s.store.LoadCR(id)
+	cr, err := mergeStore.LoadCR(id)
 	if err != nil {
 		return "", nil, err
 	}
@@ -357,7 +362,7 @@ func (s *Service) resumeMergeCRUnlocked(id int, keepBranch bool, overrideReason 
 		return "", nil, err
 	}
 
-	mergeGit, _, err := s.effectiveMergeGitForCR(cr)
+	mergeGit, worktreePath, err := s.effectiveMergeGitForCR(cr)
 	if err != nil {
 		return "", nil, err
 	}
@@ -375,7 +380,7 @@ func (s *Service) resumeMergeCRUnlocked(id int, keepBranch bool, overrideReason 
 		if strings.TrimSpace(mergeHead) == "" {
 			return "", nil, fmt.Errorf("unable to determine merge head for CR %d archive generation", cr.ID)
 		}
-		if err := s.writeAutomaticCRArchiveForMerge(mergeGit, cr, archiveConfig, actor, mergedAt, baseParent, mergeHead, true); err != nil {
+		if err := s.writeAutomaticCRArchiveForMerge(mergeGit, worktreePath, cr, archiveConfig, actor, mergedAt, baseParent, mergeHead, true); err != nil {
 			return "", nil, err
 		}
 	}
@@ -413,6 +418,7 @@ func (s *Service) resolveMergeArchiveConfig() (model.PolicyArchive, bool, error)
 }
 
 func (s *Service) maybeDeleteMergedCRBranch(branch string, keepBranch bool) ([]string, error) {
+	mergeGit := s.activeMergeGitProvider()
 	if keepBranch {
 		return nil, nil
 	}
@@ -423,20 +429,20 @@ func (s *Service) maybeDeleteMergedCRBranch(branch string, keepBranch bool) ([]s
 	if crOwner != nil {
 		return []string{fmt.Sprintf("Kept branch %s because it is checked out in worktree %s", branch, crOwner.Path)}, nil
 	}
-	if err := s.git.DeleteBranch(branch, true); err != nil {
+	if err := mergeGit.DeleteBranch(branch, true); err != nil {
 		return nil, err
 	}
 	return nil, nil
 }
 
-func (s *Service) writeAutomaticCRArchiveForMerge(mergeGit *gitx.Client, cr *model.CR, archiveConfig model.PolicyArchive, actor, mergedAt, baseParent, crParent string, reuseExisting bool) error {
+func (s *Service) writeAutomaticCRArchiveForMerge(mergeGit mergeRuntimeGit, worktreePath string, cr *model.CR, archiveConfig model.PolicyArchive, actor, mergedAt, baseParent, crParent string, reuseExisting bool) error {
 	if mergeGit == nil {
 		return fmt.Errorf("merge git client is required for archive generation")
 	}
 	if cr == nil {
 		return fmt.Errorf("cr is required for archive generation")
 	}
-	workDir := strings.TrimSpace(mergeGit.WorkDir)
+	workDir := strings.TrimSpace(worktreePath)
 	if workDir == "" {
 		return fmt.Errorf("merge worktree path is required for archive generation")
 	}
@@ -478,6 +484,7 @@ func (s *Service) writeAutomaticCRArchiveForMerge(mergeGit *gitx.Client, cr *mod
 }
 
 func (s *Service) prepareMergePreflight(id int, cr *model.CR, overrideReason string, enforceParentState bool) (*mergePreflightView, error) {
+	mergeStore := s.activeMergeStoreProvider()
 	policy, err := s.repoPolicy()
 	if err != nil {
 		return nil, err
@@ -496,7 +503,7 @@ func (s *Service) prepareMergePreflight(id int, cr *model.CR, overrideReason str
 		return nil, fmt.Errorf("%w: merge override is disabled by repository policy", ErrPolicyViolation)
 	}
 	if enforceParentState && cr.ParentCRID > 0 {
-		parent, parentErr := s.store.LoadCR(cr.ParentCRID)
+		parent, parentErr := mergeStore.LoadCR(cr.ParentCRID)
 		if parentErr != nil {
 			return nil, fmt.Errorf("parent cr %d not found: %w", cr.ParentCRID, parentErr)
 		}
@@ -524,7 +531,9 @@ func (s *Service) prepareMergePreflight(id int, cr *model.CR, overrideReason str
 }
 
 func (s *Service) finalizeCRMergedState(cr *model.CR, validation *ValidationReport, trust *TrustReport, overrideReason, actor, mergedAt, sha string, resumed bool) error {
-	if count, err := s.git.ChangedFileCount(sha); err == nil && count > 0 {
+	mergeStore := s.activeMergeStoreProvider()
+	mergeGit := s.activeMergeGitProvider()
+	if count, err := mergeGit.ChangedFileCount(sha); err == nil && count > 0 {
 		cr.FilesTouchedCount = count
 	} else if validation != nil && validation.Impact != nil && validation.Impact.FilesChanged > 0 {
 		cr.FilesTouchedCount = validation.Impact.FilesChanged
@@ -578,7 +587,7 @@ func (s *Service) finalizeCRMergedState(cr *model.CR, validation *ValidationRepo
 		Summary: fmt.Sprintf("Merged CR %d", cr.ID),
 		Ref:     fmt.Sprintf("cr:%d", cr.ID),
 	})
-	if err := s.store.SaveCR(cr); err != nil {
+	if err := mergeStore.SaveCR(cr); err != nil {
 		return err
 	}
 	if err := s.syncCRRef(cr); err != nil {

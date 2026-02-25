@@ -157,7 +157,9 @@ func (s *Service) workingTreeDirtySummary() (bool, string, error) {
 	return s.workingTreeDirtySummaryFor(s.git)
 }
 
-func (s *Service) workingTreeDirtySummaryFor(gitClient *gitx.Client) (bool, string, error) {
+func (s *Service) workingTreeDirtySummaryFor(gitClient interface {
+	WorkingTreeStatus() ([]gitx.StatusEntry, error)
+}) (bool, string, error) {
 	if gitClient == nil {
 		return false, "", nil
 	}
@@ -414,13 +416,15 @@ func ensureRepoPolicyFile(repoRoot string) error {
 }
 
 func (s *Service) ensureNextCRIDFloor(baseBranch string) error {
-	idx, err := s.store.LoadIndex()
+	lifecycleStore := s.activeLifecycleStoreProvider()
+	lifecycleGit := s.activeLifecycleGitProvider()
+	idx, err := lifecycleStore.LoadIndex()
 	if err != nil {
 		return err
 	}
 	maxID := 0
 
-	crs, err := s.store.ListCRs()
+	crs, err := lifecycleStore.ListCRs()
 	if err == nil {
 		for _, cr := range crs {
 			if cr.ID > maxID {
@@ -429,7 +433,7 @@ func (s *Service) ensureNextCRIDFloor(baseBranch string) error {
 		}
 	}
 
-	branches, err := s.git.LocalBranches("")
+	branches, err := lifecycleGit.LocalBranches("")
 	if err == nil {
 		for _, branch := range branches {
 			if id, ok := parseCRBranchID(branch); ok && id > maxID {
@@ -439,7 +443,7 @@ func (s *Service) ensureNextCRIDFloor(baseBranch string) error {
 	}
 
 	if strings.TrimSpace(baseBranch) != "" {
-		commits, err := s.git.RecentCommits(baseBranch, 5000)
+		commits, err := lifecycleGit.RecentCommits(baseBranch, 5000)
 		if err == nil {
 			for _, commit := range commits {
 				if id, ok := crIDFromSubjectOrBody(commit.Subject, commit.Body); ok && id > maxID {
@@ -457,7 +461,7 @@ func (s *Service) ensureNextCRIDFloor(baseBranch string) error {
 		return nil
 	}
 	idx.NextID = required
-	return s.store.SaveIndex(idx)
+	return lifecycleStore.SaveIndex(idx)
 }
 
 func (s *Service) timestamp() string {

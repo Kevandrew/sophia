@@ -15,6 +15,20 @@ type Service struct {
 	taskStore            taskLifecycleStoreProvider
 	taskGit              taskLifecycleGitProvider
 	taskMergeGuard       func(*model.CR) error
+	lifecycleStore       lifecycleRuntimeStore
+	lifecycleGit         lifecycleRuntimeGit
+	statusStore          statusRuntimeStore
+	statusGit            statusRuntimeGit
+	mergeStore           mergeRuntimeStore
+	mergeGit             mergeRuntimeGit
+	mergeGitFactory      mergeRuntimeGitFactory
+	lifecycleStoreCustom bool
+	lifecycleGitCustom   bool
+	statusStoreCustom    bool
+	statusGitCustom      bool
+	mergeStoreCustom     bool
+	mergeGitCustom       bool
+	mergeFactoryCustom   bool
 	now                  func() time.Time
 	repoRoot             string
 	legacySophiaDir      string
@@ -842,6 +856,7 @@ func New(root string) *Service {
 		now: time.Now,
 	}
 	svc.bootstrapRepoContext(root)
+	svc.composeRuntimePorts()
 	return svc
 }
 
@@ -886,6 +901,7 @@ func (s *Service) ensureInitRepoContext() error {
 		}
 	}
 	s.bootstrapRepoContext(s.git.WorkDir)
+	s.composeRuntimePorts()
 	return nil
 }
 
@@ -904,6 +920,7 @@ func (s *Service) applyRequestedMetadataModeForInit(metadataMode string) {
 			s.setStoreSophiaDir(s.legacySophiaDir)
 		}
 	}
+	s.composeRuntimePorts()
 }
 
 func (s *Service) resolveInitInputs(baseBranch, metadataMode string) (initResolution, error) {
@@ -949,16 +966,49 @@ func (s *Service) applyEffectiveMetadataModeForInit(effectiveMode string, fallba
 	switch effectiveMode {
 	case model.MetadataModeTracked:
 		s.setStoreSophiaDir(s.legacySophiaDir)
+		s.composeRuntimePorts()
 		return s.store.IsInitialized()
 	case model.MetadataModeLocal:
 		if strings.TrimSpace(s.sharedLocalSophiaDir) != "" {
 			if err := s.migrateLegacyLocalMetadata(s.sharedLocalSophiaDir, s.legacySophiaDir); err == nil {
 				s.setStoreSophiaDir(s.sharedLocalSophiaDir)
 			}
+			s.composeRuntimePorts()
 			return s.store.IsInitialized()
 		}
 	}
+	s.composeRuntimePorts()
 	return fallbackInitialized
+}
+
+func (s *Service) composeRuntimePorts() {
+	if s.store != nil {
+		if !s.lifecycleStoreCustom || s.lifecycleStore == nil {
+			s.lifecycleStore = s.store
+		}
+		if !s.statusStoreCustom || s.statusStore == nil {
+			s.statusStore = s.store
+		}
+		if !s.mergeStoreCustom || s.mergeStore == nil {
+			s.mergeStore = s.store
+		}
+	}
+	if s.git != nil {
+		if !s.lifecycleGitCustom || s.lifecycleGit == nil {
+			s.lifecycleGit = s.git
+		}
+		if !s.statusGitCustom || s.statusGit == nil {
+			s.statusGit = s.git
+		}
+		if !s.mergeGitCustom || s.mergeGit == nil {
+			s.mergeGit = s.git
+		}
+	}
+	if !s.mergeFactoryCustom || s.mergeGitFactory == nil {
+		s.mergeGitFactory = func(root string) mergeRuntimeGit {
+			return gitx.New(root)
+		}
+	}
 }
 
 func (s *Service) initializeStoreForInit(resolution initResolution) error {
