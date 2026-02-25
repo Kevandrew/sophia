@@ -84,3 +84,78 @@ func TestRuntimeProvidersUseOverrides(t *testing.T) {
 		t.Fatalf("expected merge git factory override to be called")
 	}
 }
+
+func TestRuntimeProvidersComposePreservesExplicitOverrides(t *testing.T) {
+	dir := t.TempDir()
+	svc := New(dir)
+
+	altRoot := t.TempDir()
+	altStore := store.NewWithSophiaRoot(altRoot, filepath.Join(altRoot, ".sophia-alt"))
+	altGit := gitx.New(altRoot)
+
+	svc.overrideLifecycleRuntimeProvidersForTests(altGit, altStore)
+	svc.overrideStatusRuntimeProvidersForTests(altGit, altStore)
+	svc.overrideMergeRuntimeProvidersForTests(altGit, altStore, func(root string) mergeRuntimeGit {
+		return altGit
+	})
+
+	// Simulate repo/store rebinding during bootstrap/init and ensure overrides survive.
+	reboundRoot := t.TempDir()
+	svc.store = store.NewWithSophiaRoot(reboundRoot, filepath.Join(reboundRoot, ".sophia-rebound"))
+	svc.git = gitx.New(reboundRoot)
+	svc.composeRuntimePorts()
+
+	if got := svc.activeLifecycleStoreProvider(); got != altStore {
+		t.Fatalf("expected lifecycle store override to survive compose")
+	}
+	if got := svc.activeLifecycleGitProvider(); got != altGit {
+		t.Fatalf("expected lifecycle git override to survive compose")
+	}
+	if got := svc.activeStatusStoreProvider(); got != altStore {
+		t.Fatalf("expected status store override to survive compose")
+	}
+	if got := svc.activeStatusGitProvider(); got != altGit {
+		t.Fatalf("expected status git override to survive compose")
+	}
+	if got := svc.activeMergeStoreProvider(); got != altStore {
+		t.Fatalf("expected merge store override to survive compose")
+	}
+	if got := svc.activeMergeGitProvider(); got != altGit {
+		t.Fatalf("expected merge git override to survive compose")
+	}
+	if got := svc.activeMergeGitFactory()(reboundRoot); got != altGit {
+		t.Fatalf("expected merge git factory override to survive compose")
+	}
+}
+
+func TestRuntimeProvidersComposeRebindsDefaultsAfterDependencySwap(t *testing.T) {
+	dir := t.TempDir()
+	svc := New(dir)
+
+	altRoot := t.TempDir()
+	altStore := store.NewWithSophiaRoot(altRoot, filepath.Join(altRoot, ".sophia-alt"))
+	altGit := gitx.New(altRoot)
+	svc.store = altStore
+	svc.git = altGit
+
+	svc.composeRuntimePorts()
+
+	if got := svc.activeLifecycleStoreProvider(); got != altStore {
+		t.Fatalf("expected lifecycle store to rebind to swapped service store")
+	}
+	if got := svc.activeLifecycleGitProvider(); got != altGit {
+		t.Fatalf("expected lifecycle git to rebind to swapped service git")
+	}
+	if got := svc.activeStatusStoreProvider(); got != altStore {
+		t.Fatalf("expected status store to rebind to swapped service store")
+	}
+	if got := svc.activeStatusGitProvider(); got != altGit {
+		t.Fatalf("expected status git to rebind to swapped service git")
+	}
+	if got := svc.activeMergeStoreProvider(); got != altStore {
+		t.Fatalf("expected merge store to rebind to swapped service store")
+	}
+	if got := svc.activeMergeGitProvider(); got != altGit {
+		t.Fatalf("expected merge git to rebind to swapped service git")
+	}
+}
