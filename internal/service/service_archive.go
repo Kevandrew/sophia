@@ -453,7 +453,12 @@ func (s *Service) buildArchiveGitSummaryFromMergeCommit(mergeCommit string) (mod
 	return buildArchiveGitSummary(changes, numStats, parents[0], parents[1]), nil
 }
 
-func buildArchiveGitSummaryFromCachedDiff(gitClient *gitx.Client, baseParent, crParent string) (model.CRArchiveGitSummary, error) {
+type archiveCachedDiffGit interface {
+	DiffNameStatusCached() ([]gitx.FileChange, error)
+	DiffNumStatCached() ([]gitx.DiffNumStat, error)
+}
+
+func buildArchiveGitSummaryFromCachedDiff(gitClient archiveCachedDiffGit, baseParent, crParent string) (model.CRArchiveGitSummary, error) {
 	if gitClient == nil {
 		return model.CRArchiveGitSummary{}, fmt.Errorf("git client is required")
 	}

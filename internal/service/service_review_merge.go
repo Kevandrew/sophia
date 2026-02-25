@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
-	"sophia/internal/gitx"
 	"sophia/internal/model"
 	servicemerge "sophia/internal/service/merge"
 	"strconv"
@@ -461,11 +460,7 @@ func (s *Service) writeAutomaticCRArchiveForMerge(mergeGit mergeRuntimeGit, work
 			return mergeGit.StagePaths([]string{relativeArchivePath})
 		}
 	}
-	gitClient, ok := mergeGit.(*gitx.Client)
-	if !ok {
-		return fmt.Errorf("merge git client does not support cached diff summary")
-	}
-	gitSummary, summaryErr := buildArchiveGitSummaryFromCachedDiff(gitClient, baseParent, crParent)
+	gitSummary, summaryErr := buildArchiveGitSummaryFromCachedDiff(mergeGit, baseParent, crParent)
 	if summaryErr != nil {
 		return summaryErr
 	}
