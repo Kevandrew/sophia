@@ -15,6 +15,13 @@ type Service struct {
 	taskStore            taskLifecycleStoreProvider
 	taskGit              taskLifecycleGitProvider
 	taskMergeGuard       func(*model.CR) error
+	lifecycleStore       lifecycleRuntimeStore
+	lifecycleGit         lifecycleRuntimeGit
+	statusStore          statusRuntimeStore
+	statusGit            statusRuntimeGit
+	mergeStore           mergeRuntimeStore
+	mergeGit             mergeRuntimeGit
+	mergeGitFactory      mergeRuntimeGitFactory
 	now                  func() time.Time
 	repoRoot             string
 	legacySophiaDir      string
