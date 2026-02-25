@@ -47,3 +47,18 @@ func withParsedCRTaskIDsAndService(
 	}
 	return run(crID, taskID, svc)
 }
+
+func withOptionalCRTaskIDsAndService(
+	cmd *cobra.Command,
+	asJSON bool,
+	args []string,
+	crArgName string,
+	taskArgName string,
+	run func(crID, taskID int, svc *service.Service) error,
+) error {
+	crID, taskID, svc, err := parseOptionalCRTaskIDsAndService(cmd, args, crArgName, taskArgName)
+	if err != nil {
+		return commandError(cmd, asJSON, err)
+	}
+	return run(crID, taskID, svc)
+}

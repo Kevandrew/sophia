@@ -202,9 +202,9 @@ func newCRTaskContractSetCmd() *cobra.Command {
 	var asJSON bool
 
 	cmd := &cobra.Command{
-		Use:   "set <cr-id> <task-id>",
+		Use:   "set <task-id>",
 		Short: "Set/update task contract fields",
-		Args:  cobra.ExactArgs(2),
+		Args:  cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			patch := service.TaskContractPatch{}
 			if cmd.Flags().Changed("intent") {
@@ -231,7 +231,7 @@ func newCRTaskContractSetCmd() *cobra.Command {
 				err := fmt.Errorf("provide at least one of --intent, --acceptance, --scope, or --acceptance-check")
 				return commandError(cmd, asJSON, err)
 			}
-			return withParsedCRTaskIDsAndService(cmd, asJSON, args[0], args[1], func(crID, taskID int, svc *service.Service) error {
+			return withOptionalCRTaskIDsAndService(cmd, asJSON, args, "cr-id", "task-id", func(crID, taskID int, svc *service.Service) error {
 				changed, err := svc.SetTaskContract(crID, taskID, patch)
 				if err != nil {
 					return commandError(cmd, asJSON, err)
@@ -541,15 +541,27 @@ func newCRTaskAddCmd() *cobra.Command {
 	var asJSON bool
 
 	cmd := &cobra.Command{
-		Use:   "add <cr-id> <title>",
+		Use:   "add <title>",
 		Short: "Add a subtask to a CR",
-		Args:  cobra.ExactArgs(2),
+		Args:  cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			crID, svc, err := parseIDAndService(cmd, args[0], "cr-id")
+			svc, err := newServiceForCmd(cmd)
 			if err != nil {
 				return commandError(cmd, asJSON, err)
 			}
-			task, err := svc.AddTask(crID, args[1])
+			var crID int
+			title := ""
+			if len(args) == 1 {
+				crID, err = resolveCurrentCRID(svc)
+				title = args[0]
+			} else {
+				crID, err = resolveCRIDFromSelector(svc, args[0], "cr-id")
+				title = args[1]
+			}
+			if err != nil {
+				return commandError(cmd, asJSON, err)
+			}
+			task, err := svc.AddTask(crID, title)
 			if err != nil {
 				return commandError(cmd, asJSON, err)
 			}
@@ -692,33 +704,31 @@ func newCRTaskDoneCmd() *cobra.Command {
 	var asJSON bool
 
 	cmd := &cobra.Command{
-		Use:     "done <cr-id> <task-id>",
+		Use:     "done <task-id>",
 		Short:   "Mark a subtask as done",
 		Long:    "Complete a task with one explicit checkpoint scope mode. Prefer --from-contract once task contract scope is defined.",
 		Example: "  sophia cr task done 25 1 --from-contract\n  sophia cr task done 25 1 --path internal/service/service.go --path internal/service/service_test.go\n  sophia cr task done 25 1 --patch-file /tmp/task1.patch\n  sophia cr task done 25 1 --all\n  sophia cr task done 25 1 --no-checkpoint --no-checkpoint-reason \"metadata-only task\"",
-		Args:    cobra.ExactArgs(2),
+		Args:    cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			crID, taskID, svc, err := parseCRTaskIDsAndService(cmd, args[0], args[1])
-			if err != nil {
-				return commandError(cmd, asJSON, err)
-			}
-			flags := taskDoneFlags{
-				noCheckpoint:       noCheckpoint,
-				noCheckpointReason: noCheckpointReason,
-				stageAll:           stageAll,
-				fromContract:       fromContract,
-				scopePaths:         append([]string(nil), scopePaths...),
-				patchFile:          resolvePathForCmd(cmd, patchFile),
-			}
-			if err := validateTaskDoneFlags(flags); err != nil {
-				return commandError(cmd, asJSON, err)
-			}
-			opts := buildTaskDoneOptions(flags)
-			sha, err := svc.DoneTaskWithCheckpoint(crID, taskID, opts)
-			if err != nil {
-				return commandError(cmd, asJSON, err)
-			}
-			return writeTaskDoneResult(cmd, asJSON, crID, taskID, sha, flags)
+			return withOptionalCRTaskIDsAndService(cmd, asJSON, args, "cr-id", "task-id", func(crID, taskID int, svc *service.Service) error {
+				flags := taskDoneFlags{
+					noCheckpoint:       noCheckpoint,
+					noCheckpointReason: noCheckpointReason,
+					stageAll:           stageAll,
+					fromContract:       fromContract,
+					scopePaths:         append([]string(nil), scopePaths...),
+					patchFile:          resolvePathForCmd(cmd, patchFile),
+				}
+				if err := validateTaskDoneFlags(flags); err != nil {
+					return commandError(cmd, asJSON, err)
+				}
+				opts := buildTaskDoneOptions(flags)
+				sha, err := svc.DoneTaskWithCheckpoint(crID, taskID, opts)
+				if err != nil {
+					return commandError(cmd, asJSON, err)
+				}
+				return writeTaskDoneResult(cmd, asJSON, crID, taskID, sha, flags)
+			})
 		},
 	}
 
@@ -737,36 +747,34 @@ func newCRTaskReopenCmd() *cobra.Command {
 	var asJSON bool
 
 	cmd := &cobra.Command{
-		Use:     "reopen <cr-id> <task-id>",
+		Use:     "reopen <task-id>",
 		Short:   "Reopen a completed subtask",
 		Example: "  sophia cr task reopen 25 1\n  sophia cr task reopen 25 1 --clear-checkpoint\n  sophia cr task reopen 25 1 --json",
-		Args:    cobra.ExactArgs(2),
+		Args:    cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			crID, taskID, svc, err := parseCRTaskIDsAndService(cmd, args[0], args[1])
-			if err != nil {
-				return commandError(cmd, asJSON, err)
-			}
-			task, err := svc.ReopenTask(crID, taskID, service.ReopenTaskOptions{
-				ClearCheckpoint: clearCheckpoint,
-			})
-			if err != nil {
-				return commandError(cmd, asJSON, err)
-			}
-			if asJSON {
-				return writeJSONSuccess(cmd, map[string]any{
-					"cr_id":              crID,
-					"task_id":            taskID,
-					"status":             task.Status,
-					"checkpoint_commit":  strings.TrimSpace(task.CheckpointCommit),
-					"checkpoint_cleared": clearCheckpoint,
+			return withOptionalCRTaskIDsAndService(cmd, asJSON, args, "cr-id", "task-id", func(crID, taskID int, svc *service.Service) error {
+				task, err := svc.ReopenTask(crID, taskID, service.ReopenTaskOptions{
+					ClearCheckpoint: clearCheckpoint,
 				})
-			}
-			if clearCheckpoint {
-				fmt.Fprintf(cmd.OutOrStdout(), "Reopened task %d in CR %d and cleared checkpoint metadata\n", taskID, crID)
+				if err != nil {
+					return commandError(cmd, asJSON, err)
+				}
+				if asJSON {
+					return writeJSONSuccess(cmd, map[string]any{
+						"cr_id":              crID,
+						"task_id":            taskID,
+						"status":             task.Status,
+						"checkpoint_commit":  strings.TrimSpace(task.CheckpointCommit),
+						"checkpoint_cleared": clearCheckpoint,
+					})
+				}
+				if clearCheckpoint {
+					fmt.Fprintf(cmd.OutOrStdout(), "Reopened task %d in CR %d and cleared checkpoint metadata\n", taskID, crID)
+					return nil
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "Reopened task %d in CR %d\n", taskID, crID)
 				return nil
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Reopened task %d in CR %d\n", taskID, crID)
-			return nil
+			})
 		},
 	}
 

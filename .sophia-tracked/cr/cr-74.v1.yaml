@@ -1,0 +1,179 @@
+schema_version: sophia.cr_archive.v1
+notice: Historical archive snapshot. Corrections are append-only revisions.
+archived_at: "2026-02-25T19:33:19Z"
+revision: 1
+cr:
+    id: 74
+    uid: cr_6d02a2ee-cd8d-44f4-8d4e-08bcec3cbd20
+    title: Mutating command active-CR selector UX
+    description: Allow selected mutating CR commands to infer active CR context when selector is omitted.
+    status: merged
+    base_branch: main
+    base_ref: main
+    base_commit: fff8138d708f797ac9906d57631a488677c02860
+    branch: cr-mutating-command-active-cr-selector-ux-6d02
+    merged_at: "2026-02-25T19:33:19Z"
+    merged_by: Kevandrew <143258544+Kevandrew@users.noreply.github.com>
+contract:
+    why: Reduce friction in active-branch workflows by allowing selected mutating CR commands to infer the current CR when no selector is provided, while preserving explicit selector behavior and keeping high-risk operations explicit-only.
+    scope:
+        - docs
+        - internal/cli
+    non_goals:
+        - Do not fallback to latest/open CR when branch context is missing.
+        - Do not make merge/switch/reopen/base/restack/refresh infer selectors.
+    invariants:
+        - Explicit selector paths remain backward compatible.
+        - No-active-context failures remain structured and actionable.
+    blast_radius: Affects selector parsing and command arg UX for note/edit/contract set/task add/task contract set/task done/task reopen/evidence add, plus CLI tests and docs.
+    test_plan: go test ./internal/cli/... && go test ./... && go vet ./...
+    rollback_plan: Revert merge commit for CR-74 if mutation selector inference introduces ambiguity regressions.
+tasks:
+    - id: 1
+      title: Add optional mutating-selector resolver and ambiguity-safe parsing helpers
+      status: done
+      contract:
+        intent: Add shared CLI helpers to resolve optional selectors for mutating commands and handle ambiguous positional forms safely
+        acceptance_criteria:
+            - Helper resolves active CR id when selector omitted and command context requires it
+            - Helper resolves explicit id/uid/branch selector when provided
+        scope:
+            - internal/cli/cr.go
+            - internal/cli/cr_cmd_helpers.go
+            - internal/cli/cr_helpers.go
+      checkpoint:
+        commit: b49e08e6
+        at: "2026-02-25T19:18:47Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/cr_cmd_helpers.go
+            - internal/cli/cr_helpers.go
+    - id: 2
+      title: Wire selected mutating commands to active-CR fallback
+      status: done
+      contract:
+        intent: Apply optional selector fallback to selected mutating commands with explicit-only exceptions unchanged
+        acceptance_criteria:
+            - High-risk mutating commands remain explicit selector only
+            - note/edit/contract set/task add/task contract set/task done/task reopen/evidence add support omitted selector on active CR branch
+        scope:
+            - internal/cli/cr_cmd_core.go
+            - internal/cli/cr_cmd_evidence.go
+            - internal/cli/cr_cmd_navigation.go
+            - internal/cli/cr_cmd_task.go
+      checkpoint:
+        commit: c5bdfa11
+        at: "2026-02-25T19:18:52Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/cr_cmd_core.go
+            - internal/cli/cr_cmd_evidence.go
+            - internal/cli/cr_cmd_navigation.go
+            - internal/cli/cr_cmd_task.go
+    - id: 3
+      title: Add regression tests for omitted selector and explicit selector paths
+      status: done
+      contract:
+        intent: Add tests for omitted selector behavior and no-active-context errors across selected mutating commands
+        acceptance_criteria:
+            - Commands fail with no_active_cr_context when selector omitted off CR branch
+            - Commands succeed without selector on active CR branch
+        scope:
+            - internal/cli/arg_error_ux_test.go
+            - internal/cli/cr_mutating_optional_selector_test.go
+      checkpoint:
+        commit: 59e407dd
+        at: "2026-02-25T19:18:55Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/arg_error_ux_test.go
+            - internal/cli/cr_mutating_optional_selector_test.go
+    - id: 4
+      title: Update docs/help for mutating command optional selector UX
+      status: done
+      contract:
+        intent: Document mutating command optional selector behavior and explicit-only exceptions
+        acceptance_criteria:
+            - Docs show optional selector forms and active-branch fallback semantics
+            - Examples still show explicit selector paths where risk is higher
+        scope:
+            - docs/cli-reference.md
+            - docs/getting-started.md
+            - docs/troubleshooting.md
+            - docs/workflow.md
+      checkpoint:
+        commit: 17c15ab8
+        at: "2026-02-25T19:18:59Z"
+        source: task_checkpoint
+        scope:
+            - docs/cli-reference.md
+            - docs/getting-started.md
+            - docs/troubleshooting.md
+            - docs/workflow.md
+    - id: 5
+      title: manual smoke task
+      status: done
+      contract:
+        intent: Manual smoke-check of mutating selector fallback
+        acceptance_criteria:
+            - Confirmed selected mutating commands resolve active CR context with omitted selector
+        scope:
+            - internal/cli
+      checkpoint:
+        at: "2026-02-25T19:19:13Z"
+        source: task_no_checkpoint
+git_summary:
+    base_parent: fff8138d708f797ac9906d57631a488677c02860
+    cr_parent: 17c15ab82506e60d9237e73c3300fc0a9c860388
+    files_changed:
+        - docs/cli-reference.md
+        - docs/getting-started.md
+        - docs/troubleshooting.md
+        - docs/workflow.md
+        - internal/cli/arg_error_ux_test.go
+        - internal/cli/cr_cmd_core.go
+        - internal/cli/cr_cmd_evidence.go
+        - internal/cli/cr_cmd_helpers.go
+        - internal/cli/cr_cmd_navigation.go
+        - internal/cli/cr_cmd_task.go
+        - internal/cli/cr_helpers.go
+        - internal/cli/cr_mutating_optional_selector_test.go
+    diffstat:
+        summary: 12 files changed, 449 insertions(+), 153 deletions(-)
+        files:
+            - path: docs/cli-reference.md
+              insertions: 5
+              deletions: 5
+            - path: docs/getting-started.md
+              insertions: 6
+              deletions: 6
+            - path: docs/troubleshooting.md
+              insertions: 1
+              deletions: 1
+            - path: docs/workflow.md
+              insertions: 10
+              deletions: 10
+            - path: internal/cli/arg_error_ux_test.go
+              insertions: 3
+              deletions: 3
+            - path: internal/cli/cr_cmd_core.go
+              insertions: 6
+              deletions: 6
+            - path: internal/cli/cr_cmd_evidence.go
+              insertions: 32
+              deletions: 45
+            - path: internal/cli/cr_cmd_helpers.go
+              insertions: 15
+              deletions: 0
+            - path: internal/cli/cr_cmd_navigation.go
+              insertions: 29
+              deletions: 15
+            - path: internal/cli/cr_cmd_task.go
+              insertions: 63
+              deletions: 55
+            - path: internal/cli/cr_helpers.go
+              insertions: 67
+              deletions: 7
+            - path: internal/cli/cr_mutating_optional_selector_test.go
+              insertions: 212
+              deletions: 0

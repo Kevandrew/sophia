@@ -9,7 +9,7 @@ func TestMissingArgTextErrorShowsUsageAndExample(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 
-	_, stderr, runErr := runCLI(t, dir, "cr", "task", "done", "1")
+	_, stderr, runErr := runCLI(t, dir, "cr", "task", "done")
 	if runErr == nil {
 		t.Fatalf("expected missing-arg command to fail")
 	}
@@ -28,7 +28,7 @@ func TestMissingArgJSONErrorIsStructuredAndActionable(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 
-	out, _, runErr := runCLI(t, dir, "cr", "task", "done", "1", "--json")
+	out, _, runErr := runCLI(t, dir, "cr", "task", "done", "--json")
 	if runErr == nil {
 		t.Fatalf("expected missing-arg JSON command to fail")
 	}
@@ -49,7 +49,7 @@ func TestMissingArgJSONErrorWithEqualsFlagIsStructured(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 
-	out, _, runErr := runCLI(t, dir, "cr", "task", "done", "1", "--json=true")
+	out, _, runErr := runCLI(t, dir, "cr", "task", "done", "--json=true")
 	if runErr == nil {
 		t.Fatalf("expected missing-arg JSON command to fail")
 	}

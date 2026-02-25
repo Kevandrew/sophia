@@ -623,9 +623,9 @@ func newCREditCmd() *cobra.Command {
 	var asJSON bool
 
 	cmd := &cobra.Command{
-		Use:   "edit <id>",
+		Use:   "edit [id]",
 		Short: "Edit CR title/description with audit trail",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			titleChanged := cmd.Flags().Changed("title")
 			descriptionChanged := cmd.Flags().Changed("description")
@@ -642,7 +642,7 @@ func newCREditCmd() *cobra.Command {
 			if descriptionChanged {
 				descriptionPtr = &description
 			}
-			return withParsedIDAndService(cmd, asJSON, args[0], "id", func(id int, svc *service.Service) error {
+			return withOptionalCRIDAndService(cmd, asJSON, args, "id", func(id int, svc *service.Service) error {
 				changedFields, err := svc.EditCR(id, titlePtr, descriptionPtr)
 				if err != nil {
 					return commandError(cmd, asJSON, err)
@@ -689,10 +689,10 @@ func newCRContractSetCmd() *cobra.Command {
 	var asJSON bool
 
 	cmd := &cobra.Command{
-		Use:     "set <id>",
+		Use:     "set [id]",
 		Short:   "Set/update CR intent contract fields",
 		Example: "  sophia cr contract set 25 --why \"Reduce merge churn\" --scope internal/service --scope internal/cli\n  sophia cr contract set 25 --risk-critical-scope internal/service --risk-tier-hint medium --risk-rationale \"Touches merge behavior\"\n  sophia cr contract set 25 --test-plan \"go test ./... && go vet ./...\" --rollback-plan \"Revert [CR-25] merge commit\"",
-		Args:    cobra.ExactArgs(1),
+		Args:    cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			patch := service.ContractPatch{}
 			if cmd.Flags().Changed("why") {
@@ -739,7 +739,7 @@ func newCRContractSetCmd() *cobra.Command {
 				err := fmt.Errorf("provide at least one contract field flag")
 				return commandError(cmd, asJSON, err)
 			}
-			return withParsedIDAndService(cmd, asJSON, args[0], "id", func(id int, svc *service.Service) error {
+			return withOptionalCRIDAndService(cmd, asJSON, args, "id", func(id int, svc *service.Service) error {
 				changed, err := svc.SetCRContract(id, patch)
 				if err != nil {
 					return commandError(cmd, asJSON, err)
