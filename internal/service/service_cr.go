@@ -41,34 +41,36 @@ func (s *Service) AddCRWithOptionsWithWarnings(title, description string, opts A
 }
 
 func (s *Service) addCRWithOptionsWithWarningsUnlocked(title, description string, opts AddCROptions) (*model.CR, []string, error) {
+	lifecycleStore := s.activeLifecycleStoreProvider()
+	lifecycleGit := s.activeLifecycleGitProvider()
 	if err := servicecr.ValidateAddRequest(title, opts.BaseRef, opts.ParentCRID, opts.BranchAlias, opts.OwnerPrefixSet); err != nil {
 		return nil, nil, err
 	}
-	if err := s.store.EnsureInitialized(); err != nil {
+	if err := lifecycleStore.EnsureInitialized(); err != nil {
 		return nil, nil, err
 	}
 	if err := s.ensureNoMergeInProgressInCurrentWorktree(); err != nil {
 		return nil, nil, err
 	}
 
-	cfg, err := s.store.LoadConfig()
+	cfg, err := lifecycleStore.LoadConfig()
 	if err != nil {
 		return nil, nil, err
 	}
 
-	currentBranch, _ := s.git.CurrentBranch()
+	currentBranch, _ := lifecycleGit.CurrentBranch()
 	referenceDirs := map[string]struct{}{}
-	if strings.TrimSpace(currentBranch) != "" && currentBranch != cfg.BaseBranch && s.git.BranchExists(currentBranch) && s.git.BranchExists(cfg.BaseBranch) {
-		files, diffErr := s.git.DiffNames(cfg.BaseBranch, currentBranch)
+	if strings.TrimSpace(currentBranch) != "" && currentBranch != cfg.BaseBranch && lifecycleGit.BranchExists(currentBranch) && lifecycleGit.BranchExists(cfg.BaseBranch) {
+		files, diffErr := lifecycleGit.DiffNames(cfg.BaseBranch, currentBranch)
 		if diffErr == nil {
 			referenceDirs = topLevelDirs(files)
 		}
 	}
 
-	if err := s.git.EnsureBranchExists(cfg.BaseBranch); err != nil {
+	if err := lifecycleGit.EnsureBranchExists(cfg.BaseBranch); err != nil {
 		return nil, nil, fmt.Errorf("ensure base branch: %w", err)
 	}
-	if err := s.git.EnsureBootstrapCommit("chore: bootstrap base branch for Sophia"); err != nil {
+	if err := lifecycleGit.EnsureBootstrapCommit("chore: bootstrap base branch for Sophia"); err != nil {
 		return nil, nil, fmt.Errorf("ensure bootstrap commit: %w", err)
 	}
 	if err := s.ensureNextCRIDFloor(cfg.BaseBranch); err != nil {
@@ -80,7 +82,7 @@ func (s *Service) addCRWithOptionsWithWarningsUnlocked(title, description string
 		return nil, nil, err
 	}
 
-	id, err := s.store.NextCRID()
+	id, err := lifecycleStore.NextCRID()
 	if err != nil {
 		return nil, nil, err
 	}
@@ -93,23 +95,23 @@ func (s *Service) addCRWithOptionsWithWarningsUnlocked(title, description string
 	if err != nil {
 		return nil, nil, err
 	}
-	if strings.TrimSpace(opts.BranchAlias) != "" && s.git.BranchExists(branch) {
+	if strings.TrimSpace(opts.BranchAlias) != "" && lifecycleGit.BranchExists(branch) {
 		return nil, nil, fmt.Errorf("branch %q already exists", branch)
 	}
 	switchBranch := servicecr.ShouldSwitch(opts.NoSwitch, opts.Switch)
 
 	if switchBranch {
-		if err := s.git.CreateBranchFrom(branch, baseContext.baseCommit); err != nil {
+		if err := lifecycleGit.CreateBranchFrom(branch, baseContext.baseCommit); err != nil {
 			return nil, nil, err
 		}
 	} else {
-		if err := s.git.CreateBranchAt(branch, baseContext.baseCommit); err != nil {
+		if err := lifecycleGit.CreateBranchAt(branch, baseContext.baseCommit); err != nil {
 			return nil, nil, err
 		}
 	}
 
 	now := s.timestamp()
-	actor := s.git.Actor()
+	actor := lifecycleGit.Actor()
 	cr := servicecr.BuildCR(servicecr.BuildInput{
 		ID:          id,
 		UID:         uid,
@@ -124,7 +126,7 @@ func (s *Service) addCRWithOptionsWithWarningsUnlocked(title, description string
 		Actor:       actor,
 	})
 
-	if err := s.store.SaveCR(cr); err != nil {
+	if err := lifecycleStore.SaveCR(cr); err != nil {
 		return nil, nil, err
 	}
 	if err := s.syncCRRef(cr); err != nil {
@@ -136,11 +138,13 @@ func (s *Service) addCRWithOptionsWithWarningsUnlocked(title, description string
 }
 
 func (s *Service) resolveAddCRBaseContext(cfg model.Config, opts AddCROptions) (addCRBaseContext, error) {
+	lifecycleStore := s.activeLifecycleStoreProvider()
+	lifecycleGit := s.activeLifecycleGitProvider()
 	baseContext := addCRBaseContext{
 		baseRef: strings.TrimSpace(opts.BaseRef),
 	}
 	if opts.ParentCRID > 0 {
-		parent, err := s.store.LoadCR(opts.ParentCRID)
+		parent, err := lifecycleStore.LoadCR(opts.ParentCRID)
 		if err != nil {
 			return addCRBaseContext{}, err
 		}
@@ -159,7 +163,7 @@ func (s *Service) resolveAddCRBaseContext(cfg model.Config, opts AddCROptions) (
 		baseContext.baseRef = cfg.BaseBranch
 	}
 	if strings.TrimSpace(baseContext.baseCommit) == "" {
-		resolved, err := s.git.ResolveRef(baseContext.baseRef)
+		resolved, err := lifecycleGit.ResolveRef(baseContext.baseRef)
 		if err != nil {
 			return addCRBaseContext{}, fmt.Errorf("resolve base ref %q: %w", baseContext.baseRef, err)
 		}
@@ -169,6 +173,7 @@ func (s *Service) resolveAddCRBaseContext(cfg model.Config, opts AddCROptions) (
 }
 
 func (s *Service) resolveAddCRBranch(cfg model.Config, opts AddCROptions, id int, uid, title string) (string, error) {
+	lifecycleGit := s.activeLifecycleGitProvider()
 	if strings.TrimSpace(opts.BranchAlias) != "" {
 		return validateExplicitCRBranchAlias(opts.BranchAlias, id)
 	}
@@ -176,7 +181,7 @@ func (s *Service) resolveAddCRBranch(cfg model.Config, opts AddCROptions, id int
 	if opts.OwnerPrefixSet {
 		ownerPrefix = opts.OwnerPrefix
 	}
-	return formatCRBranchAliasWithFallback(title, ownerPrefix, uid, s.git.BranchExists)
+	return formatCRBranchAliasWithFallback(title, ownerPrefix, uid, lifecycleGit.BranchExists)
 }
 
 func resolveAddCRUID(opts AddCROptions) (string, error) {
@@ -198,7 +203,8 @@ func (s *Service) ListCRs() ([]model.CR, error) {
 }
 
 func (s *Service) loadCRForMutation(id int) (*model.CR, error) {
-	cr, err := s.store.LoadCR(id)
+	lifecycleStore := s.activeLifecycleStoreProvider()
+	cr, err := lifecycleStore.LoadCR(id)
 	if err != nil {
 		return nil, err
 	}
@@ -209,15 +215,17 @@ func (s *Service) loadCRForMutation(id int) (*model.CR, error) {
 }
 
 func (s *Service) appendCRMutationEventAndSave(cr *model.CR, event model.Event) error {
+	lifecycleGit := s.activeLifecycleGitProvider()
+	lifecycleStore := s.activeLifecycleStoreProvider()
 	if strings.TrimSpace(event.TS) == "" {
 		event.TS = s.timestamp()
 	}
 	if strings.TrimSpace(event.Actor) == "" {
-		event.Actor = s.git.Actor()
+		event.Actor = lifecycleGit.Actor()
 	}
 	cr.UpdatedAt = event.TS
 	cr.Events = append(cr.Events, event)
-	return s.store.SaveCR(cr)
+	return lifecycleStore.SaveCR(cr)
 }
 
 func (s *Service) AddNote(id int, note string) error {
@@ -230,7 +238,7 @@ func (s *Service) AddNote(id int, note string) error {
 			return err
 		}
 		now := s.timestamp()
-		actor := s.git.Actor()
+		actor := s.activeLifecycleGitProvider().Actor()
 		cr.Notes = append(cr.Notes, note)
 		return s.appendCRMutationEventAndSave(cr, model.Event{
 			TS:      now,
@@ -264,7 +272,7 @@ func (s *Service) EditCR(id int, newTitle, newDescription *string) ([]string, er
 		}
 
 		now := s.timestamp()
-		actor := s.git.Actor()
+		actor := s.activeLifecycleGitProvider().Actor()
 		return s.appendCRMutationEventAndSave(cr, model.Event{
 			TS:      now,
 			Actor:   actor,
@@ -301,7 +309,7 @@ func (s *Service) SetCRContract(id int, patch ContractPatch) ([]string, error) {
 		}
 
 		now := s.timestamp()
-		actor := s.git.Actor()
+		actor := s.activeLifecycleGitProvider().Actor()
 		cr.Contract.UpdatedAt = now
 		cr.Contract.UpdatedBy = actor
 		return s.appendCRMutationEventAndSave(cr, model.Event{
@@ -346,11 +354,13 @@ func (s *Service) SetCRBase(id int, ref string, rebase bool) (*model.CR, error) 
 }
 
 func (s *Service) setCRBaseUnlocked(id int, ref string, rebase bool) (*model.CR, error) {
+	lifecycleStore := s.activeLifecycleStoreProvider()
+	lifecycleGit := s.activeLifecycleGitProvider()
 	ref = strings.TrimSpace(ref)
 	if ref == "" {
 		return nil, errors.New("base ref cannot be empty")
 	}
-	cr, err := s.store.LoadCR(id)
+	cr, err := lifecycleStore.LoadCR(id)
 	if err != nil {
 		return nil, err
 	}
@@ -360,12 +370,12 @@ func (s *Service) setCRBaseUnlocked(id int, ref string, rebase bool) (*model.CR,
 	if cr.Status != model.StatusInProgress {
 		return nil, fmt.Errorf("cr %d is not in progress", id)
 	}
-	baseCommit, err := s.git.ResolveRef(ref)
+	baseCommit, err := lifecycleGit.ResolveRef(ref)
 	if err != nil {
 		return nil, fmt.Errorf("resolve base ref %q: %w", ref, err)
 	}
 	if rebase {
-		if !s.git.BranchExists(cr.Branch) {
+		if !lifecycleGit.BranchExists(cr.Branch) {
 			return nil, fmt.Errorf("cr branch %q does not exist", cr.Branch)
 		}
 		if err := s.rebaseBranchOnto(cr.Branch, ref); err != nil {
@@ -374,7 +384,7 @@ func (s *Service) setCRBaseUnlocked(id int, ref string, rebase bool) (*model.CR,
 	}
 
 	now := s.timestamp()
-	actor := s.git.Actor()
+	actor := lifecycleGit.Actor()
 	cr.BaseRef = ref
 	cr.BaseCommit = strings.TrimSpace(baseCommit)
 	cr.ParentCRID = 0
@@ -391,7 +401,7 @@ func (s *Service) setCRBaseUnlocked(id int, ref string, rebase bool) (*model.CR,
 			"rebase":      strconv.FormatBool(rebase),
 		},
 	})
-	if err := s.store.SaveCR(cr); err != nil {
+	if err := lifecycleStore.SaveCR(cr); err != nil {
 		return nil, err
 	}
 	return cr, nil
@@ -410,7 +420,9 @@ func (s *Service) RestackCR(id int) (*model.CR, error) {
 }
 
 func (s *Service) restackCRUnlocked(id int) (*model.CR, error) {
-	cr, err := s.store.LoadCR(id)
+	lifecycleStore := s.activeLifecycleStoreProvider()
+	lifecycleGit := s.activeLifecycleGitProvider()
+	cr, err := lifecycleStore.LoadCR(id)
 	if err != nil {
 		return nil, err
 	}
@@ -423,17 +435,17 @@ func (s *Service) restackCRUnlocked(id int) (*model.CR, error) {
 	if cr.ParentCRID <= 0 {
 		return nil, ErrParentCRRequired
 	}
-	if !s.git.BranchExists(cr.Branch) {
+	if !lifecycleGit.BranchExists(cr.Branch) {
 		return nil, fmt.Errorf("cr branch %q does not exist", cr.Branch)
 	}
 
-	parent, err := s.store.LoadCR(cr.ParentCRID)
+	parent, err := lifecycleStore.LoadCR(cr.ParentCRID)
 	if err != nil {
 		return nil, err
 	}
 	targetRef := ""
 	switch {
-	case parent.Status == model.StatusInProgress && s.git.BranchExists(parent.Branch):
+	case parent.Status == model.StatusInProgress && lifecycleGit.BranchExists(parent.Branch):
 		targetRef = parent.Branch
 	case parent.Status == model.StatusMerged && strings.TrimSpace(parent.MergedCommit) != "":
 		targetRef = strings.TrimSpace(parent.MergedCommit)
@@ -444,7 +456,7 @@ func (s *Service) restackCRUnlocked(id int) (*model.CR, error) {
 	if err := s.rebaseBranchOnto(cr.Branch, targetRef); err != nil {
 		return nil, err
 	}
-	targetCommit, err := s.git.ResolveRef(targetRef)
+	targetCommit, err := lifecycleGit.ResolveRef(targetRef)
 	if err != nil {
 		return nil, err
 	}
@@ -459,7 +471,7 @@ func (s *Service) restackCRUnlocked(id int) (*model.CR, error) {
 	cr.UpdatedAt = now
 	cr.Events = append(cr.Events, model.Event{
 		TS:      now,
-		Actor:   s.git.Actor(),
+		Actor:   lifecycleGit.Actor(),
 		Type:    model.EventTypeCRRestacked,
 		Summary: fmt.Sprintf("Restacked CR %d onto parent CR %d", cr.ID, parent.ID),
 		Ref:     fmt.Sprintf("cr:%d", cr.ID),
@@ -470,7 +482,7 @@ func (s *Service) restackCRUnlocked(id int) (*model.CR, error) {
 			"base_commit": cr.BaseCommit,
 		},
 	})
-	if err := s.store.SaveCR(cr); err != nil {
+	if err := lifecycleStore.SaveCR(cr); err != nil {
 		return nil, err
 	}
 	return cr, nil
