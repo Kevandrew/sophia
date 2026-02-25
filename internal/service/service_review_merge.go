@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"sophia/internal/gitx"
 	"sophia/internal/model"
+	servicemerge "sophia/internal/service/merge"
 	"strconv"
 	"strings"
 )
@@ -244,16 +245,7 @@ func (s *Service) MergeStatusCR(id int) (*MergeStatusView, error) {
 			targetMatches = strings.TrimSpace(targetHead) == strings.TrimSpace(mergeHead)
 		}
 	}
-	advice := []string{}
-	if inProgress {
-		advice = append(advice, fmt.Sprintf("Resolve conflicted files and run sophia cr merge resume %d.", cr.ID))
-		advice = append(advice, fmt.Sprintf("Run sophia cr merge abort %d to abandon the in-progress merge.", cr.ID))
-		if !targetMatches {
-			advice = append(advice, "Current in-progress merge does not match this CR target branch.")
-		}
-	} else {
-		advice = append(advice, "No merge in progress for this CR.")
-	}
+	advice := servicemerge.BuildStatusAdvice(inProgress, targetMatches, cr.ID)
 
 	return &MergeStatusView{
 		CRID:          cr.ID,
@@ -550,19 +542,16 @@ func (s *Service) finalizeCRMergedState(cr *model.CR, validation *ValidationRepo
 		})
 	}
 	if strings.TrimSpace(overrideReason) != "" {
-		riskTier := "-"
-		validationErrors := "0"
-		trustVerdict := "-"
-		trustGateBlocked := "false"
+		evidence := servicemerge.OverrideEvidence{}
 		if validation != nil {
-			validationErrors = strconv.Itoa(len(validation.Errors))
+			evidence.ValidationErrorCount = len(validation.Errors)
 			if validation.Impact != nil {
-				riskTier = nonEmptyTrimmed(validation.Impact.RiskTier, "-")
+				evidence.RiskTier = validation.Impact.RiskTier
 			}
 		}
 		if trust != nil {
-			trustVerdict = nonEmptyTrimmed(trust.Verdict, "-")
-			trustGateBlocked = strconv.FormatBool(trust.Gate.Blocked)
+			evidence.TrustVerdict = trust.Verdict
+			evidence.TrustGateBlocked = trust.Gate.Blocked
 		}
 		cr.Events = append(cr.Events, model.Event{
 			TS:      mergedAt,
@@ -570,13 +559,7 @@ func (s *Service) finalizeCRMergedState(cr *model.CR, validation *ValidationRepo
 			Type:    "cr_merge_overridden",
 			Summary: fmt.Sprintf("Merged with validation override: %s", overrideReason),
 			Ref:     fmt.Sprintf("cr:%d", cr.ID),
-			Meta: map[string]string{
-				"override_reason":    overrideReason,
-				"risk_tier":          riskTier,
-				"validation_errors":  validationErrors,
-				"trust_verdict":      trustVerdict,
-				"trust_gate_blocked": trustGateBlocked,
-			},
+			Meta:    servicemerge.BuildOverrideEventMeta(overrideReason, evidence),
 		})
 	}
 	cr.Events = append(cr.Events, model.Event{
@@ -603,22 +586,7 @@ func (s *Service) finalizeCRMergedState(cr *model.CR, validation *ValidationRepo
 
 func (s *Service) recordMergeConflictEvent(cr *model.CR, actor, worktreePath string, conflictFiles []string, cause error) error {
 	now := s.timestamp()
-	meta := map[string]string{
-		"worktree_path":  strings.TrimSpace(worktreePath),
-		"base_branch":    strings.TrimSpace(cr.BaseBranch),
-		"cr_branch":      strings.TrimSpace(cr.Branch),
-		"conflict_count": strconv.Itoa(len(conflictFiles)),
-	}
-	if len(conflictFiles) > 0 {
-		limit := conflictFiles
-		if len(limit) > 20 {
-			limit = limit[:20]
-		}
-		meta["conflict_files"] = strings.Join(limit, ",")
-	}
-	if cause != nil {
-		meta["cause"] = strings.TrimSpace(cause.Error())
-	}
+	meta := servicemerge.BuildConflictEventMeta(worktreePath, cr.BaseBranch, cr.Branch, conflictFiles, cause)
 	return s.appendCRMutationEventAndSave(cr, model.Event{
 		TS:      now,
 		Actor:   actor,
