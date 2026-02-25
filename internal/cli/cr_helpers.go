@@ -211,6 +211,31 @@ func parseIDAndService(cmd *cobra.Command, rawID string, argName string) (int, *
 	return id, svc, nil
 }
 
+func parseOptionalCRIDAndService(cmd *cobra.Command, args []string, argName string) (int, *service.Service, error) {
+	svc, err := newServiceForCmd(cmd)
+	if err != nil {
+		return 0, nil, err
+	}
+	if len(args) > 0 {
+		id, parseErr := parsePositiveIntArg(args[0], argName)
+		if parseErr != nil {
+			return 0, nil, parseErr
+		}
+		return id, svc, nil
+	}
+	ctx, err := svc.CurrentCR()
+	if err != nil {
+		if errorsIs(err, service.ErrNoActiveCRContext) {
+			return 0, nil, fmt.Errorf("no CR selector provided and current branch has no active CR context; pass <id|uid> or run `sophia cr switch <id>`: %w", err)
+		}
+		return 0, nil, err
+	}
+	if ctx == nil || ctx.CR == nil || ctx.CR.ID <= 0 {
+		return 0, nil, fmt.Errorf("failed to resolve active CR from current branch")
+	}
+	return ctx.CR.ID, svc, nil
+}
+
 func parseCRTaskIDsAndService(cmd *cobra.Command, rawCRID, rawTaskID string) (int, int, *service.Service, error) {
 	crID, err := parsePositiveIntArg(rawCRID, "cr-id")
 	if err != nil {

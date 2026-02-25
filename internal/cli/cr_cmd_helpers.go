@@ -20,6 +20,20 @@ func withParsedIDAndService(
 	return run(id, svc)
 }
 
+func withOptionalCRIDAndService(
+	cmd *cobra.Command,
+	asJSON bool,
+	args []string,
+	argName string,
+	run func(id int, svc *service.Service) error,
+) error {
+	id, svc, err := parseOptionalCRIDAndService(cmd, args, argName)
+	if err != nil {
+		return commandError(cmd, asJSON, err)
+	}
+	return run(id, svc)
+}
+
 func withParsedCRTaskIDsAndService(
 	cmd *cobra.Command,
 	asJSON bool,
