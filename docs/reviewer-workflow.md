@@ -7,19 +7,19 @@ Review Sophia changes by intent and evidence first, then inspect diffs where nee
 1. Confirm contract quality and task completion state.
 
 ```bash
-sophia cr status <cr-id>
+sophia cr status [<cr-id>|<cr-uid>]
 ```
 
 2. Verify policy/contract validity.
 
 ```bash
-sophia cr validate <cr-id>
+sophia cr validate [<cr-id>|<cr-uid>]
 ```
 
 3. Evaluate trust verdict and required actions.
 
 ```bash
-sophia cr review <cr-id>
+sophia cr review [<cr-id>|<cr-uid>]
 ```
 
 4. Inspect evidence coverage.
@@ -53,7 +53,7 @@ Request additional evidence when:
 
 Merge when all are true:
 
-1. `sophia cr validate <cr-id>` has no errors.
-2. `sophia cr review <cr-id>` has no unresolved required actions.
+1. `sophia cr validate [<cr-id>|<cr-uid>]` has no errors.
+2. `sophia cr review [<cr-id>|<cr-uid>]` has no unresolved required actions.
 3. evidence exists for contract-required checks.
-4. `sophia cr status <cr-id>` shows all tasks complete and no merge blockers.
+4. `sophia cr status [<cr-id>|<cr-uid>]` shows all tasks complete and no merge blockers.

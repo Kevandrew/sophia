@@ -41,20 +41,20 @@ sophia cr merge abort <cr-id>
 | `pre_staged_changes` | Index already has staged files before checkpointing. | Unstage first, then retry `task done` with explicit scope |
 | `no_task_scope_matches` | Selected completion mode found no eligible files. | Use `--path`/`--patch-file`, or update task scope |
 | `merge_in_progress` | Mutating command blocked during unresolved merge. | `sophia cr merge status <cr-id>` then `resume`/`abort` |
-| `validation_failed` | Contract/policy or change validation failed. | Run `sophia cr validate <cr-id>` and address required items |
+| `validation_failed` | Contract/policy or change validation failed. | Run `sophia cr validate [<cr-id>|<cr-uid>]` and address required items |
 | `not_found` | Requested CR/task/entity missing. | Verify ID/selector via `sophia cr list` / `sophia cr search` |
 
 ## Recovery patterns
 
 - Stuck after conflict: use `merge status`, resolve files, then `merge resume`.
-- Bad local metadata after manual Git operations: run `repair`, then `cr status <id>`.
-- Checkpoint mismatch or orphan suspicion: use `cr reconcile <id>`, then `cr review <id>`.
+- Bad local metadata after manual Git operations: run `repair`, then `cr status [<id>|<uid>]`.
+- Checkpoint mismatch or orphan suspicion: use `cr reconcile <id>`, then `cr review [<id>|<uid>]`.
 
 ## Useful machine-readable checks
 
 ```bash
 sophia doctor --json
-sophia cr status <cr-id> --json
-sophia cr check status <cr-id> --json
-sophia cr validate <cr-id> --json
+sophia cr status [<cr-id>|<cr-uid>] --json
+sophia cr check status [<cr-id>|<cr-uid>] --json
+sophia cr validate [<cr-id>|<cr-uid>] --json
 ```
