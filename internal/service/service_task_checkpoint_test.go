@@ -1,6 +1,7 @@
 package service
 
 import (
+	"bytes"
 	"errors"
 	"os"
 	"path/filepath"
@@ -9,6 +10,25 @@ import (
 
 	"sophia/internal/model"
 )
+
+func TestPatchFileDisplayNameUsesBaseName(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "nested", "task.patch")
+	if got := patchFileDisplayName(path); got != "task.patch" {
+		t.Fatalf("expected base filename, got %q", got)
+	}
+}
+
+func TestReadPatchManifestContentRejectsOversize(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "huge.patch")
+	payload := bytes.Repeat([]byte("x"), maxPatchManifestBytes+1)
+	if err := os.WriteFile(path, payload, 0o644); err != nil {
+		t.Fatalf("write huge patch: %v", err)
+	}
+	if _, err := readPatchManifestContent(path); err == nil {
+		t.Fatalf("expected oversize patch manifest error")
+	}
+}
 
 func TestTaskAddAndDonePreservesOrderAndStatus(t *testing.T) {
 	dir := t.TempDir()

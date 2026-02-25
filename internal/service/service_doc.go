@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	servicetasks "sophia/internal/service/tasks"
 	"sort"
 	"strings"
 
@@ -118,7 +119,7 @@ func cloneSubtasks(tasks []model.Subtask) []model.Subtask {
 		copyTask.CheckpointScope = append([]string(nil), task.CheckpointScope...)
 		copyTask.CheckpointChunks = append([]model.CheckpointChunk(nil), task.CheckpointChunks...)
 		copyTask.Delegations = append([]model.TaskDelegation(nil), task.Delegations...)
-		copyTask.Contract = cloneTaskContract(task.Contract)
+		copyTask.Contract = servicetasks.CloneTaskContract(task.Contract)
 		copyTask.ContractBaseline = cloneTaskContractBaseline(task.ContractBaseline)
 		copyTask.ContractDrifts = cloneTaskContractDrifts(task.ContractDrifts)
 		out = append(out, copyTask)

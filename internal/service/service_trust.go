@@ -3,6 +3,7 @@ package service
 import (
 	"fmt"
 	"sophia/internal/model"
+	servicetasks "sophia/internal/service/tasks"
 	servicetrust "sophia/internal/service/trust"
 	"sort"
 	"strconv"
@@ -1012,7 +1013,7 @@ func requiredTaskAcceptanceChecks(tasks []model.Subtask) []taskAcceptanceCheckRe
 		if task.Status != model.TaskStatusDone {
 			continue
 		}
-		for _, key := range normalizeAcceptanceCheckKeys(task.Contract.AcceptanceChecks) {
+		for _, key := range servicetasks.NormalizeAcceptanceCheckKeys(task.Contract.AcceptanceChecks) {
 			marker := fmt.Sprintf("%d:%s", task.ID, key)
 			if _, ok := seen[marker]; ok {
 				continue
