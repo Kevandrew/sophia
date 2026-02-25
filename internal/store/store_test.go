@@ -1,6 +1,7 @@
 package store
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -212,5 +213,24 @@ func TestLoadCRByUID(t *testing.T) {
 	}
 	if loaded.ID != cr.ID {
 		t.Fatalf("expected id %d, got %d", cr.ID, loaded.ID)
+	}
+}
+
+func TestLoadCRTypedErrors(t *testing.T) {
+	s := New(t.TempDir())
+	if err := s.Init("main", model.MetadataModeLocal); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	if _, err := s.LoadCR(99); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected ErrNotFound for missing CR id, got %v", err)
+	}
+
+	if _, err := s.LoadCRByUID(""); !errors.Is(err, ErrInvalidArgument) {
+		t.Fatalf("expected ErrInvalidArgument for empty uid, got %v", err)
+	}
+
+	if _, err := s.LoadCRByUID("cr_missing"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected ErrNotFound for missing uid, got %v", err)
 	}
 }

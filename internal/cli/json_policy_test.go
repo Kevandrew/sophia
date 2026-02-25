@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"sophia/internal/service"
+	"sophia/internal/store"
 )
 
 func TestJSONErrorCodePolicyErrors(t *testing.T) {
@@ -19,5 +20,20 @@ func TestJSONErrorCodePolicyErrors(t *testing.T) {
 	}
 	if got := jsonErrorCode(fmt.Errorf("wrapped: %w", service.ErrPolicyViolation)); got != "policy_violation" {
 		t.Fatalf("jsonErrorCode(wrapped ErrPolicyViolation) = %q, want policy_violation", got)
+	}
+}
+
+func TestJSONErrorCodeStoreTypedErrors(t *testing.T) {
+	if got := jsonErrorCode(store.NotFoundError{Resource: "cr", Value: "123"}); got != "not_found" {
+		t.Fatalf("jsonErrorCode(store.NotFoundError) = %q, want not_found", got)
+	}
+	if got := jsonErrorCode(fmt.Errorf("wrapped: %w", store.NotFoundError{Resource: "cr uid", Value: "cr_abc"})); got != "not_found" {
+		t.Fatalf("jsonErrorCode(wrapped store.NotFoundError) = %q, want not_found", got)
+	}
+	if got := jsonErrorCode(store.InvalidArgumentError{Argument: "cr uid", Message: "cannot be empty"}); got != "invalid_argument" {
+		t.Fatalf("jsonErrorCode(store.InvalidArgumentError) = %q, want invalid_argument", got)
+	}
+	if got := jsonErrorCode(fmt.Errorf("wrapped: %w", store.InvalidArgumentError{Argument: "selector", Message: "cannot be empty"})); got != "invalid_argument" {
+		t.Fatalf("jsonErrorCode(wrapped store.InvalidArgumentError) = %q, want invalid_argument", got)
 	}
 }

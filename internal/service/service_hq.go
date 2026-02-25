@@ -13,6 +13,7 @@ import (
 	"path"
 	"path/filepath"
 	"sophia/internal/model"
+	"sophia/internal/store"
 	"strings"
 	"time"
 
@@ -516,7 +517,7 @@ func (s *Service) SyncCRFromHQ(uid string) (*HQSyncResult, error) {
 		created = false
 		replaced = true
 	case existingErr != nil:
-		if !strings.Contains(strings.ToLower(existingErr.Error()), "not found") {
+		if !errors.Is(existingErr, store.ErrNotFound) {
 			return nil, existingErr
 		}
 		nextID, nextErr := s.store.NextCRID()

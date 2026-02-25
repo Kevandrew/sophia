@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"sophia/internal/store"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -145,6 +146,10 @@ func jsonErrorCode(err error) string {
 		return "hq_patch_conflict"
 	case errors.Is(err, service.ErrHQTaskSyncUnsupported):
 		return "hq_task_sync_unsupported"
+	case errors.Is(err, store.ErrNotFound):
+		return "not_found"
+	case errors.Is(err, store.ErrInvalidArgument):
+		return "invalid_argument"
 	}
 	lower := strings.ToLower(strings.TrimSpace(err.Error()))
 	switch {

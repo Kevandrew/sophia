@@ -14,6 +14,54 @@ import (
 )
 
 var ErrNotInitialized = errors.New("sophia is not initialized in this repository")
+var ErrNotFound = errors.New("resource not found")
+var ErrInvalidArgument = errors.New("invalid argument")
+
+type NotFoundError struct {
+	Resource string
+	Value    string
+}
+
+func (e NotFoundError) Error() string {
+	resource := strings.TrimSpace(e.Resource)
+	value := strings.TrimSpace(e.Value)
+	switch {
+	case resource == "" && value == "":
+		return "resource not found"
+	case value == "":
+		return fmt.Sprintf("%s not found", resource)
+	default:
+		return fmt.Sprintf("%s %q not found", resource, value)
+	}
+}
+
+func (e NotFoundError) Is(target error) bool {
+	return target == ErrNotFound
+}
+
+type InvalidArgumentError struct {
+	Argument string
+	Message  string
+}
+
+func (e InvalidArgumentError) Error() string {
+	argument := strings.TrimSpace(e.Argument)
+	message := strings.TrimSpace(e.Message)
+	switch {
+	case argument == "" && message == "":
+		return "invalid argument"
+	case argument == "":
+		return message
+	case message == "":
+		return fmt.Sprintf("invalid %s", argument)
+	default:
+		return fmt.Sprintf("invalid %s: %s", argument, message)
+	}
+}
+
+func (e InvalidArgumentError) Is(target error) bool {
+	return target == ErrInvalidArgument
+}
 
 type Store struct {
 	Root       string
@@ -201,7 +249,7 @@ func (s *Store) LoadCR(id int) (*model.CR, error) {
 	path := s.CRPath(id)
 	if _, err := os.Stat(path); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return nil, fmt.Errorf("cr %d not found", id)
+			return nil, NotFoundError{Resource: "cr", Value: fmt.Sprintf("%d", id)}
 		}
 		return nil, fmt.Errorf("stat cr file: %w", err)
 	}
@@ -255,7 +303,7 @@ func (s *Store) LoadCRByUID(uid string) (*model.CR, error) {
 	}
 	needle := strings.TrimSpace(uid)
 	if needle == "" {
-		return nil, fmt.Errorf("cr uid cannot be empty")
+		return nil, InvalidArgumentError{Argument: "cr uid", Message: "cannot be empty"}
 	}
 	crs, err := s.ListCRs()
 	if err != nil {
@@ -270,7 +318,7 @@ func (s *Store) LoadCRByUID(uid string) (*model.CR, error) {
 	}
 	switch len(matches) {
 	case 0:
-		return nil, fmt.Errorf("cr uid %q not found", needle)
+		return nil, NotFoundError{Resource: "cr uid", Value: needle}
 	case 1:
 		cr := matches[0]
 		return &cr, nil
