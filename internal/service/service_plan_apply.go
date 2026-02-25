@@ -236,107 +236,13 @@ func (s *Service) validateCRPlan(plan *crPlanSpec) (*planOrder, error) {
 		return nil, err
 	}
 	allowedScopePrefixes := append([]string(nil), policy.Scope.AllowedPrefixes...)
-
-	byKey := make(map[string]crPlanCRSpec, len(plan.CRs))
-	keyOrder := make([]string, 0, len(plan.CRs))
-	for i, raw := range plan.CRs {
-		cr := raw
-		cr.Key = strings.TrimSpace(cr.Key)
-		cr.Title = strings.TrimSpace(cr.Title)
-		cr.Description = strings.TrimSpace(cr.Description)
-		cr.Base = strings.TrimSpace(cr.Base)
-		cr.ParentKey = strings.TrimSpace(cr.ParentKey)
-		cr.BranchAlias = strings.TrimSpace(cr.BranchAlias)
-		cr.OwnerPrefix = strings.TrimSpace(cr.OwnerPrefix)
-		if cr.Key == "" {
-			return nil, fmt.Errorf("cr[%d] key cannot be empty", i)
-		}
-		if _, exists := byKey[cr.Key]; exists {
-			return nil, fmt.Errorf("duplicate cr key %q", cr.Key)
-		}
-		if cr.Title == "" {
-			return nil, fmt.Errorf("cr[%d] (%s) title cannot be empty", i, cr.Key)
-		}
-		if cr.Base != "" && cr.ParentKey != "" {
-			return nil, fmt.Errorf("cr %q cannot define both base and parent_key", cr.Key)
-		}
-		if cr.BranchAlias != "" && cr.OwnerPrefix != "" {
-			return nil, fmt.Errorf("cr %q cannot define both branch_alias and owner_prefix", cr.Key)
-		}
-		if cr.BranchAlias != "" {
-			if _, aliasErr := validateCRBranchAliasShape(cr.BranchAlias); aliasErr != nil {
-				return nil, fmt.Errorf("cr %q branch_alias invalid: %v", cr.Key, aliasErr)
-			}
-		}
-		if cr.OwnerPrefix != "" {
-			if _, prefixErr := normalizeCRBranchOwnerPrefix(cr.OwnerPrefix); prefixErr != nil {
-				return nil, fmt.Errorf("cr %q owner_prefix invalid: %v", cr.Key, prefixErr)
-			}
-		}
-		if err := s.validatePlanContract(cr.Key, cr.Contract, allowedScopePrefixes); err != nil {
-			return nil, err
-		}
-
-		taskKeys := map[string]struct{}{}
-		for j, taskRaw := range cr.Tasks {
-			task := taskRaw
-			task.Key = strings.TrimSpace(task.Key)
-			task.Title = strings.TrimSpace(task.Title)
-			if task.Key == "" {
-				return nil, fmt.Errorf("cr %q task[%d] key cannot be empty", cr.Key, j)
-			}
-			if _, exists := taskKeys[task.Key]; exists {
-				return nil, fmt.Errorf("cr %q contains duplicate task key %q", cr.Key, task.Key)
-			}
-			taskKeys[task.Key] = struct{}{}
-			if task.Title == "" {
-				return nil, fmt.Errorf("cr %q task %q title cannot be empty", cr.Key, task.Key)
-			}
-			if err := s.validatePlanTaskContract(cr.Key, task.Key, task.Contract, allowedScopePrefixes); err != nil {
-				return nil, err
-			}
-
-			delegationSeen := map[string]struct{}{}
-			for _, childRaw := range task.DelegateTo {
-				childKey := strings.TrimSpace(childRaw)
-				if childKey == "" {
-					return nil, fmt.Errorf("cr %q task %q delegate_to cannot contain empty key", cr.Key, task.Key)
-				}
-				if _, exists := delegationSeen[childKey]; exists {
-					return nil, fmt.Errorf("cr %q task %q duplicate delegate_to key %q", cr.Key, task.Key, childKey)
-				}
-				delegationSeen[childKey] = struct{}{}
-			}
-		}
-
-		byKey[cr.Key] = cr
-		keyOrder = append(keyOrder, cr.Key)
-	}
-
-	cfg, err := s.store.LoadConfig()
+	byKey, keyOrder, err := s.normalizeAndValidatePlanCRSpecs(plan.CRs, allowedScopePrefixes)
 	if err != nil {
 		return nil, err
 	}
-	for _, key := range keyOrder {
-		cr := byKey[key]
-		if cr.ParentKey != "" {
-			if _, exists := byKey[cr.ParentKey]; !exists {
-				return nil, fmt.Errorf("cr %q parent_key %q not found", cr.Key, cr.ParentKey)
-			}
-			continue
-		}
-		effectiveRef := cr.Base
-		if effectiveRef == "" {
-			effectiveRef = cfg.BaseBranch
-		}
-		if _, err := s.git.ResolveRef(effectiveRef); err != nil {
-			if !s.git.HasCommit() && (effectiveRef == cfg.BaseBranch || s.git.BranchExists(effectiveRef)) {
-				continue
-			}
-			return nil, fmt.Errorf("cr %q base ref %q is invalid: %w", cr.Key, effectiveRef, err)
-		}
+	if err := s.validatePlanBaseRefs(byKey, keyOrder); err != nil {
+		return nil, err
 	}
-
 	if err := validateCRPlanAcyclic(byKey, keyOrder); err != nil {
 		return nil, err
 	}
@@ -345,7 +251,144 @@ func (s *Service) validateCRPlan(plan *crPlanSpec) (*planOrder, error) {
 	if err != nil {
 		return nil, err
 	}
+	delegations, taskOrderMap, err := buildPlanDelegationsAndTaskOrder(crOrder, byKey)
+	if err != nil {
+		return nil, err
+	}
 
+	return &planOrder{
+		CROrder:      crOrder,
+		ByKey:        byKey,
+		Delegations:  delegations,
+		TaskOrderMap: taskOrderMap,
+	}, nil
+}
+
+func (s *Service) normalizeAndValidatePlanCRSpecs(rawCRs []crPlanCRSpec, allowedScopePrefixes []string) (map[string]crPlanCRSpec, []string, error) {
+	byKey := make(map[string]crPlanCRSpec, len(rawCRs))
+	keyOrder := make([]string, 0, len(rawCRs))
+	for i, raw := range rawCRs {
+		cr, err := s.normalizeAndValidatePlanCRSpec(i, raw, allowedScopePrefixes, byKey)
+		if err != nil {
+			return nil, nil, err
+		}
+		byKey[cr.Key] = cr
+		keyOrder = append(keyOrder, cr.Key)
+	}
+	return byKey, keyOrder, nil
+}
+
+func (s *Service) normalizeAndValidatePlanCRSpec(index int, raw crPlanCRSpec, allowedScopePrefixes []string, existing map[string]crPlanCRSpec) (crPlanCRSpec, error) {
+	cr := raw
+	cr.Key = strings.TrimSpace(cr.Key)
+	cr.Title = strings.TrimSpace(cr.Title)
+	cr.Description = strings.TrimSpace(cr.Description)
+	cr.Base = strings.TrimSpace(cr.Base)
+	cr.ParentKey = strings.TrimSpace(cr.ParentKey)
+	cr.BranchAlias = strings.TrimSpace(cr.BranchAlias)
+	cr.OwnerPrefix = strings.TrimSpace(cr.OwnerPrefix)
+	if cr.Key == "" {
+		return crPlanCRSpec{}, fmt.Errorf("cr[%d] key cannot be empty", index)
+	}
+	if _, exists := existing[cr.Key]; exists {
+		return crPlanCRSpec{}, fmt.Errorf("duplicate cr key %q", cr.Key)
+	}
+	if cr.Title == "" {
+		return crPlanCRSpec{}, fmt.Errorf("cr[%d] (%s) title cannot be empty", index, cr.Key)
+	}
+	if cr.Base != "" && cr.ParentKey != "" {
+		return crPlanCRSpec{}, fmt.Errorf("cr %q cannot define both base and parent_key", cr.Key)
+	}
+	if cr.BranchAlias != "" && cr.OwnerPrefix != "" {
+		return crPlanCRSpec{}, fmt.Errorf("cr %q cannot define both branch_alias and owner_prefix", cr.Key)
+	}
+	if cr.BranchAlias != "" {
+		if _, err := validateCRBranchAliasShape(cr.BranchAlias); err != nil {
+			return crPlanCRSpec{}, fmt.Errorf("cr %q branch_alias invalid: %v", cr.Key, err)
+		}
+	}
+	if cr.OwnerPrefix != "" {
+		if _, err := normalizeCRBranchOwnerPrefix(cr.OwnerPrefix); err != nil {
+			return crPlanCRSpec{}, fmt.Errorf("cr %q owner_prefix invalid: %v", cr.Key, err)
+		}
+	}
+	if err := s.validatePlanContract(cr.Key, cr.Contract, allowedScopePrefixes); err != nil {
+		return crPlanCRSpec{}, err
+	}
+	tasks, err := s.normalizeAndValidatePlanTasks(cr.Key, cr.Tasks, allowedScopePrefixes)
+	if err != nil {
+		return crPlanCRSpec{}, err
+	}
+	cr.Tasks = tasks
+	return cr, nil
+}
+
+func (s *Service) normalizeAndValidatePlanTasks(crKey string, tasks []crPlanTaskSpec, allowedScopePrefixes []string) ([]crPlanTaskSpec, error) {
+	taskKeys := map[string]struct{}{}
+	normalized := make([]crPlanTaskSpec, 0, len(tasks))
+	for i, raw := range tasks {
+		task := raw
+		task.Key = strings.TrimSpace(task.Key)
+		task.Title = strings.TrimSpace(task.Title)
+		if task.Key == "" {
+			return nil, fmt.Errorf("cr %q task[%d] key cannot be empty", crKey, i)
+		}
+		if _, exists := taskKeys[task.Key]; exists {
+			return nil, fmt.Errorf("cr %q contains duplicate task key %q", crKey, task.Key)
+		}
+		taskKeys[task.Key] = struct{}{}
+		if task.Title == "" {
+			return nil, fmt.Errorf("cr %q task %q title cannot be empty", crKey, task.Key)
+		}
+		if err := s.validatePlanTaskContract(crKey, task.Key, task.Contract, allowedScopePrefixes); err != nil {
+			return nil, err
+		}
+		seenDelegates := map[string]struct{}{}
+		for _, childRaw := range task.DelegateTo {
+			childKey := strings.TrimSpace(childRaw)
+			if childKey == "" {
+				return nil, fmt.Errorf("cr %q task %q delegate_to cannot contain empty key", crKey, task.Key)
+			}
+			if _, exists := seenDelegates[childKey]; exists {
+				return nil, fmt.Errorf("cr %q task %q duplicate delegate_to key %q", crKey, task.Key, childKey)
+			}
+			seenDelegates[childKey] = struct{}{}
+		}
+		normalized = append(normalized, task)
+	}
+	return normalized, nil
+}
+
+func (s *Service) validatePlanBaseRefs(byKey map[string]crPlanCRSpec, keyOrder []string) error {
+	cfg, err := s.store.LoadConfig()
+	if err != nil {
+		return err
+	}
+	for _, key := range keyOrder {
+		cr := byKey[key]
+		if cr.ParentKey != "" {
+			if _, exists := byKey[cr.ParentKey]; !exists {
+				return fmt.Errorf("cr %q parent_key %q not found", cr.Key, cr.ParentKey)
+			}
+			continue
+		}
+		effectiveRef := cr.Base
+		if effectiveRef == "" {
+			effectiveRef = cfg.BaseBranch
+		}
+		_, resolveErr := s.git.ResolveRef(effectiveRef)
+		if resolveErr == nil {
+			continue
+		}
+		if !s.git.HasCommit() && (effectiveRef == cfg.BaseBranch || s.git.BranchExists(effectiveRef)) {
+			continue
+		}
+		return fmt.Errorf("cr %q base ref %q is invalid: %w", cr.Key, effectiveRef, resolveErr)
+	}
+	return nil
+}
+
+func buildPlanDelegationsAndTaskOrder(crOrder []string, byKey map[string]crPlanCRSpec) ([]ApplyCRPlanDelegation, map[planTaskRef]int, error) {
 	delegations := make([]ApplyCRPlanDelegation, 0)
 	taskOrderMap := map[planTaskRef]int{}
 	taskOrderIndex := 0
@@ -359,10 +402,10 @@ func (s *Service) validateCRPlan(plan *crPlanSpec) (*planOrder, error) {
 				childKey := strings.TrimSpace(childRaw)
 				childCR, ok := byKey[childKey]
 				if !ok {
-					return nil, fmt.Errorf("cr %q task %q delegate_to child %q not found", crKey, task.Key, childKey)
+					return nil, nil, fmt.Errorf("cr %q task %q delegate_to child %q not found", crKey, task.Key, childKey)
 				}
 				if childCR.ParentKey != crKey {
-					return nil, fmt.Errorf("cr %q task %q can only delegate to direct child CRs, but %q parent is %q", crKey, task.Key, childKey, childCR.ParentKey)
+					return nil, nil, fmt.Errorf("cr %q task %q can only delegate to direct child CRs, but %q parent is %q", crKey, task.Key, childKey, childCR.ParentKey)
 				}
 				delegations = append(delegations, ApplyCRPlanDelegation{
 					ParentCRKey:   crKey,
@@ -372,13 +415,7 @@ func (s *Service) validateCRPlan(plan *crPlanSpec) (*planOrder, error) {
 			}
 		}
 	}
-
-	return &planOrder{
-		CROrder:      crOrder,
-		ByKey:        byKey,
-		Delegations:  delegations,
-		TaskOrderMap: taskOrderMap,
-	}, nil
+	return delegations, taskOrderMap, nil
 }
 
 func (s *Service) validatePlanContract(crKey string, contract crPlanContract, allowedScopePrefixes []string) error {
