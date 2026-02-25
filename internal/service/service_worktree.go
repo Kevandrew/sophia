@@ -9,11 +9,12 @@ import (
 )
 
 func (s *Service) branchOwnerWorktree(branch string) (*gitx.Worktree, error) {
+	mergeGit := s.activeMergeGitProvider()
 	branch = strings.TrimSpace(branch)
 	if branch == "" {
 		return nil, nil
 	}
-	return s.git.WorktreeForBranch(branch)
+	return mergeGit.WorktreeForBranch(branch)
 }
 
 func (s *Service) isCurrentWorktreePath(path string) bool {
@@ -28,15 +29,15 @@ func (s *Service) isCurrentWorktreePath(path string) bool {
 	return filepath.Clean(currentAbs) == filepath.Clean(otherAbs)
 }
 
-func (s *Service) gitClientForBranch(branch string) (*gitx.Client, *gitx.Worktree, error) {
+func (s *Service) gitClientForBranch(branch string) (mergeRuntimeGit, *gitx.Worktree, error) {
 	owner, err := s.branchOwnerWorktree(branch)
 	if err != nil {
 		return nil, nil, err
 	}
 	if owner != nil && !s.isCurrentWorktreePath(owner.Path) {
-		return gitx.New(owner.Path), owner, nil
+		return s.activeMergeGitFactory()(owner.Path), owner, nil
 	}
-	return s.git, owner, nil
+	return s.activeMergeGitProvider(), owner, nil
 }
 
 func (s *Service) rebaseBranchOnto(branch, ontoRef string) error {
@@ -69,22 +70,22 @@ func (s *Service) rebaseBranchOnto(branch, ontoRef string) error {
 	return rebaseGit.RebaseBranchOnto(branch, ontoRef)
 }
 
-func (s *Service) effectiveMergeGitForCR(cr *model.CR) (*gitx.Client, string, error) {
+func (s *Service) effectiveMergeGitForCR(cr *model.CR) (mergeRuntimeGit, string, error) {
 	if cr == nil {
 		return nil, "", fmt.Errorf("cr is required")
 	}
-	mergeGit := s.git
+	mergeGit := s.activeMergeGitProvider()
 	worktreePath := strings.TrimSpace(s.git.WorkDir)
 	baseOwner, err := s.branchOwnerWorktree(cr.BaseBranch)
 	if err != nil {
 		return nil, "", err
 	}
 	if baseOwner != nil && !s.isCurrentWorktreePath(baseOwner.Path) {
-		mergeGit = gitx.New(baseOwner.Path)
+		mergeGit = s.activeMergeGitFactory()(baseOwner.Path)
 		worktreePath = strings.TrimSpace(baseOwner.Path)
 	}
 	if strings.TrimSpace(worktreePath) == "" {
-		worktreePath = strings.TrimSpace(mergeGit.WorkDir)
+		worktreePath = strings.TrimSpace(s.git.WorkDir)
 	}
 	return mergeGit, worktreePath, nil
 }
