@@ -15,7 +15,8 @@ func (s *Service) WhyCR(id int) (*WhyView, error) {
 	if err != nil {
 		return nil, err
 	}
-	if _, err := s.ensureCRBaseFields(cr, true); err != nil {
+	cr, err = s.ensureCRBaseFieldsPersisted(cr)
+	if err != nil {
 		return nil, err
 	}
 
@@ -52,7 +53,8 @@ func (s *Service) StatusCR(id int) (*CRStatusView, error) {
 	if err != nil {
 		return nil, err
 	}
-	if _, err := s.ensureCRBaseFields(cr, true); err != nil {
+	cr, err = s.ensureCRBaseFieldsPersisted(cr)
+	if err != nil {
 		return nil, err
 	}
 
@@ -132,25 +134,6 @@ func (s *Service) StatusCR(id int) (*CRStatusView, error) {
 	if cr.Status == model.StatusInProgress {
 		report, validateErr := s.ValidateCR(id)
 		if validateErr != nil {
-			if errors.Is(validateErr, ErrCRBranchContextUnavailable) {
-				fallbackErrors := []string{
-					fmt.Sprintf("unable to validate CR diff because branch context is unavailable for %q", strings.TrimSpace(cr.Branch)),
-				}
-				for _, field := range missingFields {
-					fallbackErrors = append(fallbackErrors, fmt.Sprintf("missing required contract field: %s", field))
-				}
-				fallback := &ValidationReport{
-					Valid:    false,
-					Errors:   dedupeStrings(fallbackErrors),
-					Warnings: []string{"branch context unavailable; status derived from CR metadata only"},
-				}
-				view.ValidationValid = fallback.Valid
-				view.ValidationErrors = len(fallback.Errors)
-				view.ValidationWarnings = len(fallback.Warnings)
-				view.MergeBlockers = s.mergeBlockersForCR(cr, fallback)
-				view.MergeBlocked = len(view.MergeBlockers) > 0
-				return view, nil
-			}
 			return nil, validateErr
 		}
 		view.ValidationValid = report.Valid
@@ -176,7 +159,7 @@ func (s *Service) ImpactCR(id int) (*ImpactReport, error) {
 	if err != nil {
 		return nil, err
 	}
-	diff, err := s.summarizeCRDiff(cr)
+	diff, err := s.summarizeCRDiffWithPolicy(cr, policy)
 	if err != nil {
 		if errors.Is(err, ErrCRBranchContextUnavailable) {
 			diff = s.summarizeCRDiffFromTaskCheckpoints(cr, policy)
@@ -203,7 +186,7 @@ func (s *Service) ValidateCR(id int) (*ValidationReport, error) {
 	if err != nil {
 		return nil, err
 	}
-	diff, err := s.summarizeCRDiff(cr)
+	diff, err := s.summarizeCRDiffWithPolicy(cr, policy)
 	if err != nil {
 		if errors.Is(err, ErrCRBranchContextUnavailable) {
 			return s.validateCRWithoutDiffContext(cr, policy, policyWarnings), nil
@@ -274,6 +257,12 @@ func (s *Service) validateCRWithoutDiffContext(cr *model.CR, policy *model.RepoP
 }
 
 func (s *Service) RecordCRValidation(id int, report *ValidationReport) error {
+	return s.withMutationLock(func() error {
+		return s.recordCRValidationUnlocked(id, report)
+	})
+}
+
+func (s *Service) recordCRValidationUnlocked(id int, report *ValidationReport) error {
 	if report == nil {
 		return errors.New("validation report is required")
 	}

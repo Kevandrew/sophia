@@ -498,7 +498,7 @@ func (s *Service) doneTaskWithCheckpointUnlocked(crID, taskID int, opts DoneTask
 	if _, err := ensureCRUID(cr); err != nil {
 		return "", err
 	}
-	if _, err := s.ensureCRBaseFields(cr, true); err != nil {
+	if _, err := s.ensureCRBaseFields(cr, false); err != nil {
 		return "", err
 	}
 	policy, err := s.repoPolicy()

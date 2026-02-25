@@ -174,7 +174,7 @@ func (s *Service) resolveCRAnchors(cr *model.CR) (*crAnchorResolution, error) {
 	if cr == nil {
 		return nil, fmt.Errorf("cr is required")
 	}
-	if _, err := s.ensureCRBaseFields(cr, true); err != nil {
+	if _, err := s.ensureCRBaseFields(cr, false); err != nil {
 		return nil, err
 	}
 	res := &crAnchorResolution{
