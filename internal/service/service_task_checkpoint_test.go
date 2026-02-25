@@ -1,6 +1,7 @@
 package service
 
 import (
+	"bytes"
 	"errors"
 	"os"
 	"path/filepath"
@@ -9,6 +10,25 @@ import (
 
 	"sophia/internal/model"
 )
+
+func TestPatchFileDisplayNameUsesBaseName(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "nested", "task.patch")
+	if got := patchFileDisplayName(path); got != "task.patch" {
+		t.Fatalf("expected base filename, got %q", got)
+	}
+}
+
+func TestReadPatchManifestContentRejectsOversize(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "huge.patch")
+	payload := bytes.Repeat([]byte("x"), maxPatchManifestBytes+1)
+	if err := os.WriteFile(path, payload, 0o644); err != nil {
+		t.Fatalf("write huge patch: %v", err)
+	}
+	if _, err := readPatchManifestContent(path); err == nil {
+		t.Fatalf("expected oversize patch manifest error")
+	}
+}
 
 func TestTaskAddAndDonePreservesOrderAndStatus(t *testing.T) {
 	dir := t.TempDir()
@@ -51,7 +71,7 @@ func TestTaskAddAndDonePreservesOrderAndStatus(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadCR() error = %v", err)
 	}
-	if got := cr.Events[len(cr.Events)-1].Type; got != "task_done" {
+	if got := cr.Events[len(cr.Events)-1].Type; got != model.EventTypeTaskDone {
 		t.Fatalf("expected last event task_done, got %q", got)
 	}
 }
@@ -107,7 +127,7 @@ func TestDoneTaskWithCheckpointCreatesCommit(t *testing.T) {
 		t.Fatalf("expected checkpoint metadata on task, got %#v", loaded.Subtasks[0])
 	}
 	lastTwo := loaded.Events[len(loaded.Events)-2:]
-	if lastTwo[0].Type != "task_checkpointed" || lastTwo[1].Type != "task_done" {
+	if lastTwo[0].Type != model.EventTypeTaskCheckpointed || lastTwo[1].Type != model.EventTypeTaskDone {
 		t.Fatalf("expected checkpoint then done events, got %#v", lastTwo)
 	}
 }
@@ -498,7 +518,7 @@ func TestDoneTaskWithCheckpointFromContractScopesToChangedFiles(t *testing.T) {
 		t.Fatalf("expected checkpoint scope from contract path, got %#v", loaded.Subtasks[0].CheckpointScope)
 	}
 	lastTwo := loaded.Events[len(loaded.Events)-2:]
-	if lastTwo[0].Type != "task_checkpointed" {
+	if lastTwo[0].Type != model.EventTypeTaskCheckpointed {
 		t.Fatalf("expected task_checkpointed event, got %#v", lastTwo)
 	}
 	if lastTwo[0].Meta["scope_source"] != "task_contract" {

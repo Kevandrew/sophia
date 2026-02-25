@@ -65,7 +65,7 @@ func BuildCR(input BuildInput) *model.CR {
 			{
 				TS:      input.Now,
 				Actor:   input.Actor,
-				Type:    "cr_created",
+				Type:    model.EventTypeCRCreated,
 				Summary: fmt.Sprintf("Created CR %d", input.ID),
 				Ref:     fmt.Sprintf("cr:%d", input.ID),
 			},

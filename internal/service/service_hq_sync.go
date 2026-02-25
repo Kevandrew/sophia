@@ -597,17 +597,17 @@ func (s *Service) applyRemoteIntentAndPersist(localCR, remoteCR *model.CR, resol
 	}
 	mergeRemoteIntentIntoLocal(localCR, remoteCR)
 	localCR.UpdatedAt = now
-	eventType := "hq_synced"
+	eventType := model.EventTypeHQSynced
 	eventSummary := "Synced CR intent with remote"
 	pulled := false
 	pushed := false
 	switch strings.ToLower(strings.TrimSpace(source)) {
 	case "pull":
-		eventType = "hq_pulled"
+		eventType = model.EventTypeHQPulled
 		eventSummary = fmt.Sprintf("Pulled CR intent from remote (%s)", ternary(forced, "forced", "merge-safe"))
 		pulled = true
 	case "push":
-		eventType = "hq_pushed"
+		eventType = model.EventTypeHQPushed
 		eventSummary = "Synced local CR intent to remote"
 		pushed = true
 	}
@@ -760,96 +760,117 @@ func buildHQIntentPatchOps(remoteCR, localCR *model.CR) ([]json.RawMessage, []st
 		return nil, nil, fmt.Errorf("both remote and local CRs are required")
 	}
 	ops := make([]json.RawMessage, 0)
-	warnings := []string{}
+	if err := addHQSetFieldOp(&ops, "cr.title", strings.TrimSpace(remoteCR.Title), strings.TrimSpace(localCR.Title)); err != nil {
+		return nil, nil, err
+	}
+	if err := addHQSetFieldOp(&ops, "cr.description", strings.TrimSpace(remoteCR.Description), strings.TrimSpace(localCR.Description)); err != nil {
+		return nil, nil, err
+	}
+	if err := addHQSetFieldOp(&ops, "cr.status", strings.TrimSpace(remoteCR.Status), strings.TrimSpace(localCR.Status)); err != nil {
+		return nil, nil, err
+	}
+	if err := addHQContractPatchOp(&ops, canonicalHQIntentContract(remoteCR.Contract), canonicalHQIntentContract(localCR.Contract)); err != nil {
+		return nil, nil, err
+	}
+	if err := addHQNotePatchOps(&ops, remoteCR.Notes, localCR.Notes); err != nil {
+		return nil, nil, err
+	}
 
-	addSetField := func(field string, before any, after any) error {
-		if reflect.DeepEqual(before, after) {
-			return nil
-		}
-		payload, err := json.Marshal(map[string]any{
-			"op":     "set_field",
-			"field":  field,
-			"before": before,
-			"after":  after,
-		})
-		if err != nil {
-			return err
-		}
-		ops = append(ops, payload)
+	remoteTasks, remoteMaxTaskID := indexHQTasksByID(remoteCR.Subtasks)
+	localTasks, _ := indexHQTasksByID(localCR.Subtasks)
+	if err := validateHQMissingLocalTaskIDs(localCR, remoteTasks, localTasks, remoteMaxTaskID); err != nil {
+		return nil, nil, err
+	}
+	warnings := collectHQMissingRemoteTaskWarnings(remoteTasks, localTasks)
+	if err := addHQTaskPatchOps(&ops, remoteTasks, localTasks); err != nil {
+		return nil, nil, err
+	}
+	return ops, warnings, nil
+}
+
+func addHQSetFieldOp(ops *[]json.RawMessage, field string, before, after any) error {
+	if reflect.DeepEqual(before, after) {
 		return nil
 	}
+	payload, err := json.Marshal(map[string]any{
+		"op":     "set_field",
+		"field":  field,
+		"before": before,
+		"after":  after,
+	})
+	if err != nil {
+		return err
+	}
+	*ops = append(*ops, payload)
+	return nil
+}
 
-	if err := addSetField("cr.title", strings.TrimSpace(remoteCR.Title), strings.TrimSpace(localCR.Title)); err != nil {
-		return nil, nil, err
-	}
-	if err := addSetField("cr.description", strings.TrimSpace(remoteCR.Description), strings.TrimSpace(localCR.Description)); err != nil {
-		return nil, nil, err
-	}
-	if err := addSetField("cr.status", strings.TrimSpace(remoteCR.Status), strings.TrimSpace(localCR.Status)); err != nil {
-		return nil, nil, err
-	}
-
-	remoteContract := canonicalHQIntentContract(remoteCR.Contract)
-	localContract := canonicalHQIntentContract(localCR.Contract)
-	contractChanges := map[string]any{}
-	addContractChange := func(field string, before any, after any) {
+func addHQContractPatchOp(ops *[]json.RawMessage, remoteContract, localContract model.HQIntentContractSnapshot) error {
+	changes := map[string]any{}
+	addField := func(field string, before, after any) {
 		if reflect.DeepEqual(before, after) {
 			return
 		}
-		contractChanges[field] = map[string]any{
+		changes[field] = map[string]any{
 			"before": before,
 			"after":  after,
 		}
 	}
-	addContractChange("why", remoteContract.Why, localContract.Why)
-	addContractChange("scope", remoteContract.Scope, localContract.Scope)
-	addContractChange("non_goals", remoteContract.NonGoals, localContract.NonGoals)
-	addContractChange("invariants", remoteContract.Invariants, localContract.Invariants)
-	addContractChange("blast_radius", remoteContract.BlastRadius, localContract.BlastRadius)
-	addContractChange("risk_critical_scopes", remoteContract.RiskCriticalScopes, localContract.RiskCriticalScopes)
-	addContractChange("risk_tier_hint", remoteContract.RiskTierHint, localContract.RiskTierHint)
-	addContractChange("risk_rationale", remoteContract.RiskRationale, localContract.RiskRationale)
-	addContractChange("test_plan", remoteContract.TestPlan, localContract.TestPlan)
-	addContractChange("rollback_plan", remoteContract.RollbackPlan, localContract.RollbackPlan)
-	if len(contractChanges) > 0 {
-		payload, err := json.Marshal(map[string]any{
-			"op":      "set_contract",
-			"changes": contractChanges,
-		})
-		if err != nil {
-			return nil, nil, err
-		}
-		ops = append(ops, payload)
+	addField("why", remoteContract.Why, localContract.Why)
+	addField("scope", remoteContract.Scope, localContract.Scope)
+	addField("non_goals", remoteContract.NonGoals, localContract.NonGoals)
+	addField("invariants", remoteContract.Invariants, localContract.Invariants)
+	addField("blast_radius", remoteContract.BlastRadius, localContract.BlastRadius)
+	addField("risk_critical_scopes", remoteContract.RiskCriticalScopes, localContract.RiskCriticalScopes)
+	addField("risk_tier_hint", remoteContract.RiskTierHint, localContract.RiskTierHint)
+	addField("risk_rationale", remoteContract.RiskRationale, localContract.RiskRationale)
+	addField("test_plan", remoteContract.TestPlan, localContract.TestPlan)
+	addField("rollback_plan", remoteContract.RollbackPlan, localContract.RollbackPlan)
+	if len(changes) == 0 {
+		return nil
 	}
+	payload, err := json.Marshal(map[string]any{
+		"op":      "set_contract",
+		"changes": changes,
+	})
+	if err != nil {
+		return err
+	}
+	*ops = append(*ops, payload)
+	return nil
+}
 
-	remoteNotes := map[string]struct{}{}
-	for _, note := range normalizeStringList(remoteCR.Notes) {
-		remoteNotes[noteHash(note)] = struct{}{}
+func addHQNotePatchOps(ops *[]json.RawMessage, remoteNotes, localNotes []string) error {
+	remoteByHash := map[string]struct{}{}
+	for _, note := range normalizeStringList(remoteNotes) {
+		remoteByHash[noteHash(note)] = struct{}{}
 	}
-	for _, note := range normalizeStringList(localCR.Notes) {
-		if _, ok := remoteNotes[noteHash(note)]; ok {
+	for _, note := range normalizeStringList(localNotes) {
+		if _, ok := remoteByHash[noteHash(note)]; ok {
 			continue
 		}
 		payload, err := json.Marshal(patchAddNoteOp{Op: "add_note", Text: note})
 		if err != nil {
-			return nil, nil, err
+			return err
 		}
-		ops = append(ops, payload)
+		*ops = append(*ops, payload)
 	}
+	return nil
+}
 
-	remoteTasks := map[int]model.Subtask{}
-	remoteMaxTaskID := 0
-	for _, task := range remoteCR.Subtasks {
-		remoteTasks[task.ID] = task
-		if task.ID > remoteMaxTaskID {
-			remoteMaxTaskID = task.ID
+func indexHQTasksByID(tasks []model.Subtask) (map[int]model.Subtask, int) {
+	index := make(map[int]model.Subtask, len(tasks))
+	maxID := 0
+	for _, task := range tasks {
+		index[task.ID] = task
+		if task.ID > maxID {
+			maxID = task.ID
 		}
 	}
-	localTasks := map[int]model.Subtask{}
-	for _, task := range localCR.Subtasks {
-		localTasks[task.ID] = task
-	}
+	return index, maxID
+}
 
+func validateHQMissingLocalTaskIDs(localCR *model.CR, remoteTasks, localTasks map[int]model.Subtask, remoteMaxTaskID int) error {
 	missingLocal := make([]int, 0)
 	for id := range localTasks {
 		if _, ok := remoteTasks[id]; ok {
@@ -858,32 +879,41 @@ func buildHQIntentPatchOps(remoteCR, localCR *model.CR) ([]json.RawMessage, []st
 		missingLocal = append(missingLocal, id)
 	}
 	sort.Ints(missingLocal)
-	if len(missingLocal) > 0 {
-		expected := remoteMaxTaskID + 1
-		for i, id := range missingLocal {
-			if id != expected+i {
-				uid := strings.TrimSpace(localCR.UID)
-				return nil, nil, &HQTaskSyncUnsupportedError{
-					CRID:             localCR.ID,
-					CRUID:            uid,
-					RemoteMaxTaskID:  remoteMaxTaskID,
-					MissingLocalTask: missingLocal,
-					SuggestedActions: []string{
-						"sophia cr pull " + uid,
-						"sophia cr push " + uid + " --force",
-					},
-				}
-			}
+	if len(missingLocal) == 0 {
+		return nil
+	}
+	expected := remoteMaxTaskID + 1
+	for i, id := range missingLocal {
+		if id == expected+i {
+			continue
+		}
+		uid := strings.TrimSpace(localCR.UID)
+		return &HQTaskSyncUnsupportedError{
+			CRID:             localCR.ID,
+			CRUID:            uid,
+			RemoteMaxTaskID:  remoteMaxTaskID,
+			MissingLocalTask: missingLocal,
+			SuggestedActions: []string{
+				"sophia cr pull " + uid,
+				"sophia cr push " + uid + " --force",
+			},
 		}
 	}
+	return nil
+}
 
+func collectHQMissingRemoteTaskWarnings(remoteTasks, localTasks map[int]model.Subtask) []string {
+	warnings := []string{}
 	for id := range remoteTasks {
 		if _, ok := localTasks[id]; ok {
 			continue
 		}
 		warnings = append(warnings, fmt.Sprintf("remote task %d exists but local task is missing; task deletion is not encoded in push patch", id))
 	}
+	return warnings
+}
 
+func addHQTaskPatchOps(ops *[]json.RawMessage, remoteTasks, localTasks map[int]model.Subtask) error {
 	ids := make([]int, 0, len(localTasks))
 	for id := range localTasks {
 		ids = append(ids, id)
@@ -891,104 +921,117 @@ func buildHQIntentPatchOps(remoteCR, localCR *model.CR) ([]json.RawMessage, []st
 	sort.Ints(ids)
 	for _, id := range ids {
 		localTask := localTasks[id]
-		remoteTask, ok := remoteTasks[id]
-		if !ok {
-			title := strings.TrimSpace(localTask.Title)
-			payload, err := json.Marshal(map[string]any{
-				"op":    "add_task",
-				"title": title,
-			})
-			if err != nil {
-				return nil, nil, err
-			}
-			ops = append(ops, payload)
-
-			// After add_task, remote creates a new open task with the same title; publish remaining intent via update_task.
-			localTaskContract := canonicalHQIntentTaskContract(localTask.Contract)
-			taskChanges := map[string]any{}
-			if status := strings.TrimSpace(localTask.Status); status != "" && status != model.TaskStatusOpen {
-				taskChanges["status"] = map[string]any{
-					"before": model.TaskStatusOpen,
-					"after":  status,
-				}
-			}
-			contract := map[string]any{}
-			if localTaskContract.Intent != "" {
-				contract["intent"] = map[string]any{"before": "", "after": localTaskContract.Intent}
-			}
-			if len(localTaskContract.AcceptanceCriteria) > 0 {
-				contract["acceptance_criteria"] = map[string]any{"before": []string{}, "after": localTaskContract.AcceptanceCriteria}
-			}
-			if len(localTaskContract.Scope) > 0 {
-				contract["scope"] = map[string]any{"before": []string{}, "after": localTaskContract.Scope}
-			}
-			if len(localTaskContract.AcceptanceChecks) > 0 {
-				contract["acceptance_checks"] = map[string]any{"before": []string{}, "after": localTaskContract.AcceptanceChecks}
-			}
-			if len(contract) > 0 {
-				taskChanges["contract"] = contract
-			}
-			if len(taskChanges) > 0 {
-				updatePayload, err := json.Marshal(map[string]any{
-					"op":      "update_task",
-					"task_id": id,
-					"changes": taskChanges,
-				})
-				if err != nil {
-					return nil, nil, err
-				}
-				ops = append(ops, updatePayload)
+		remoteTask, existsRemote := remoteTasks[id]
+		if !existsRemote {
+			if err := addHQAddTaskPatchOps(ops, id, localTask); err != nil {
+				return err
 			}
 			continue
 		}
-
-		taskChanges := map[string]any{}
-		if strings.TrimSpace(remoteTask.Title) != strings.TrimSpace(localTask.Title) {
-			taskChanges["title"] = map[string]any{
-				"before": strings.TrimSpace(remoteTask.Title),
-				"after":  strings.TrimSpace(localTask.Title),
-			}
-		}
-		if strings.TrimSpace(remoteTask.Status) != strings.TrimSpace(localTask.Status) {
-			taskChanges["status"] = map[string]any{
-				"before": strings.TrimSpace(remoteTask.Status),
-				"after":  strings.TrimSpace(localTask.Status),
-			}
-		}
-
-		remoteTaskContract := canonicalHQIntentTaskContract(remoteTask.Contract)
-		localTaskContract := canonicalHQIntentTaskContract(localTask.Contract)
-		contract := map[string]any{}
-		if remoteTaskContract.Intent != localTaskContract.Intent {
-			contract["intent"] = map[string]any{"before": remoteTaskContract.Intent, "after": localTaskContract.Intent}
-		}
-		if !reflect.DeepEqual(remoteTaskContract.AcceptanceCriteria, localTaskContract.AcceptanceCriteria) {
-			contract["acceptance_criteria"] = map[string]any{"before": remoteTaskContract.AcceptanceCriteria, "after": localTaskContract.AcceptanceCriteria}
-		}
-		if !reflect.DeepEqual(remoteTaskContract.Scope, localTaskContract.Scope) {
-			contract["scope"] = map[string]any{"before": remoteTaskContract.Scope, "after": localTaskContract.Scope}
-		}
-		if !reflect.DeepEqual(remoteTaskContract.AcceptanceChecks, localTaskContract.AcceptanceChecks) {
-			contract["acceptance_checks"] = map[string]any{"before": remoteTaskContract.AcceptanceChecks, "after": localTaskContract.AcceptanceChecks}
-		}
-		if len(contract) > 0 {
-			taskChanges["contract"] = contract
-		}
-		if len(taskChanges) == 0 {
+		changes := buildHQExistingTaskChanges(remoteTask, localTask)
+		if len(changes) == 0 {
 			continue
 		}
 		payload, err := json.Marshal(map[string]any{
 			"op":      "update_task",
 			"task_id": id,
-			"changes": taskChanges,
+			"changes": changes,
 		})
 		if err != nil {
-			return nil, nil, err
+			return err
 		}
-		ops = append(ops, payload)
+		*ops = append(*ops, payload)
 	}
+	return nil
+}
 
-	return ops, warnings, nil
+func addHQAddTaskPatchOps(ops *[]json.RawMessage, id int, localTask model.Subtask) error {
+	payload, err := json.Marshal(map[string]any{
+		"op":    "add_task",
+		"title": strings.TrimSpace(localTask.Title),
+	})
+	if err != nil {
+		return err
+	}
+	*ops = append(*ops, payload)
+
+	changes := buildHQNewTaskFollowupChanges(localTask)
+	if len(changes) == 0 {
+		return nil
+	}
+	updatePayload, err := json.Marshal(map[string]any{
+		"op":      "update_task",
+		"task_id": id,
+		"changes": changes,
+	})
+	if err != nil {
+		return err
+	}
+	*ops = append(*ops, updatePayload)
+	return nil
+}
+
+func buildHQNewTaskFollowupChanges(localTask model.Subtask) map[string]any {
+	changes := map[string]any{}
+	if status := strings.TrimSpace(localTask.Status); status != "" && status != model.TaskStatusOpen {
+		changes["status"] = map[string]any{
+			"before": model.TaskStatusOpen,
+			"after":  status,
+		}
+	}
+	contract := map[string]any{}
+	localContract := canonicalHQIntentTaskContract(localTask.Contract)
+	if localContract.Intent != "" {
+		contract["intent"] = map[string]any{"before": "", "after": localContract.Intent}
+	}
+	if len(localContract.AcceptanceCriteria) > 0 {
+		contract["acceptance_criteria"] = map[string]any{"before": []string{}, "after": localContract.AcceptanceCriteria}
+	}
+	if len(localContract.Scope) > 0 {
+		contract["scope"] = map[string]any{"before": []string{}, "after": localContract.Scope}
+	}
+	if len(localContract.AcceptanceChecks) > 0 {
+		contract["acceptance_checks"] = map[string]any{"before": []string{}, "after": localContract.AcceptanceChecks}
+	}
+	if len(contract) > 0 {
+		changes["contract"] = contract
+	}
+	return changes
+}
+
+func buildHQExistingTaskChanges(remoteTask, localTask model.Subtask) map[string]any {
+	changes := map[string]any{}
+	if strings.TrimSpace(remoteTask.Title) != strings.TrimSpace(localTask.Title) {
+		changes["title"] = map[string]any{
+			"before": strings.TrimSpace(remoteTask.Title),
+			"after":  strings.TrimSpace(localTask.Title),
+		}
+	}
+	if strings.TrimSpace(remoteTask.Status) != strings.TrimSpace(localTask.Status) {
+		changes["status"] = map[string]any{
+			"before": strings.TrimSpace(remoteTask.Status),
+			"after":  strings.TrimSpace(localTask.Status),
+		}
+	}
+	remoteContract := canonicalHQIntentTaskContract(remoteTask.Contract)
+	localContract := canonicalHQIntentTaskContract(localTask.Contract)
+	contract := map[string]any{}
+	if remoteContract.Intent != localContract.Intent {
+		contract["intent"] = map[string]any{"before": remoteContract.Intent, "after": localContract.Intent}
+	}
+	if !reflect.DeepEqual(remoteContract.AcceptanceCriteria, localContract.AcceptanceCriteria) {
+		contract["acceptance_criteria"] = map[string]any{"before": remoteContract.AcceptanceCriteria, "after": localContract.AcceptanceCriteria}
+	}
+	if !reflect.DeepEqual(remoteContract.Scope, localContract.Scope) {
+		contract["scope"] = map[string]any{"before": remoteContract.Scope, "after": localContract.Scope}
+	}
+	if !reflect.DeepEqual(remoteContract.AcceptanceChecks, localContract.AcceptanceChecks) {
+		contract["acceptance_checks"] = map[string]any{"before": remoteContract.AcceptanceChecks, "after": localContract.AcceptanceChecks}
+	}
+	if len(contract) > 0 {
+		changes["contract"] = contract
+	}
+	return changes
 }
 
 func (s *Service) upsertHQRemoteCR(ctx context.Context, client *hqClient, repoID string, localCR *model.CR) (*hqRemoteCRDoc, error) {

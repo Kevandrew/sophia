@@ -1,0 +1,446 @@
+schema_version: sophia.cr_archive.v1
+notice: Historical archive snapshot. Corrections are append-only revisions.
+archived_at: "2026-02-25T12:54:10Z"
+revision: 1
+cr:
+    id: 68
+    uid: cr_da12a67a-5b9f-4193-8dc3-b48bf4f6e7a8
+    title: 'Tech debt: reduce god files and decouple service/CLI core for mockable task runtime'
+    description: 'Large core files and mixed service/infra orchestration are raising maintenance cost and regression risk. This CR broadens from task-only cleanup to a larger technical-debt slice: split god files in service and CLI core, normalize task lifecycle abstractions, centralize checkpoint state mutations, and introduce narrow runtime seams so follow-up CRs can implement fast mocked tests without changing user-facing behavior.'
+    status: merged
+    base_branch: main
+    base_ref: main
+    base_commit: 9094baae68c285751094bc11949bd0e593755554
+    branch: cr-tech-debt-task-service-boundary-cleanup-and-prov-da12
+    merged_at: "2026-02-25T12:54:10Z"
+    merged_by: Kevandrew <143258544+Kevandrew@users.noreply.github.com>
+contract:
+    why: Current task workflows mix domain transitions, git execution, and persistence in large service methods, which increases regression risk and slows testing. This CR isolates lifecycle logic behind focused helpers and provider seams without changing CLI behavior.
+    scope:
+        - internal/cli
+        - internal/gitx
+        - internal/model
+        - internal/service
+        - internal/service/service.go
+        - internal/service/service_cr.go
+        - internal/service/service_tasks.go
+        - internal/service/tasks
+        - internal/store
+    non_goals:
+        - No CR/task metadata format breaking change.
+        - No trust-policy redesign.
+        - No user-facing command or flag behavior changes.
+    invariants:
+        - Checkpoint metadata remains backward compatible.
+        - Merge/review guardrails remain behaviorally equivalent.
+        - Task status semantics remain compatible (open/done/delegated).
+    blast_radius: 'Service and CLI core refactor surface: task completion/reopen internals, checkpoint state transitions, CR service decomposition, and CR command wiring splits without user-facing semantic changes.'
+    risk_critical_scopes:
+        - internal/service
+    risk_tier_hint: medium
+    risk_rationale: Core task lifecycle path is being refactored.
+    test_plan: go test ./internal/service ./internal/model && go test ./... && go vet ./...
+    rollback_plan: Revert the CR-68 merge commit.
+tasks:
+    - id: 1
+      title: Normalize task lookup and transition guards
+      status: done
+      contract:
+        intent: Use a single helper path for task lookup and transition preconditions in task mutators.
+        acceptance_criteria:
+            - Manual duplicated task-search loops are removed from core task mutators.
+            - Task-not-found and invalid-state errors remain deterministic.
+        scope:
+            - internal/service/service_tasks.go
+            - internal/service/tasks
+      checkpoint:
+        at: "2026-02-25T10:55:53Z"
+        source: task_no_checkpoint
+    - id: 2
+      title: Split task lifecycle flow into focused domain phases
+      status: done
+      contract:
+        intent: Break task lifecycle logic into explicit validation, checkpoint staging, and finalize phases.
+        acceptance_criteria:
+            - Existing task lifecycle tests continue to pass.
+            - Task lifecycle code paths are split into focused helpers with preserved behavior.
+        scope:
+            - internal/model/types.go
+            - internal/service/service_tasks.go
+            - internal/service/tasks
+      checkpoint:
+        commit: 7e32b57a
+        at: "2026-02-25T10:55:26Z"
+        source: task_checkpoint
+        scope:
+            - internal/model/types.go
+            - internal/service/service_tasks.go
+            - internal/service/tasks/checkpoint_state.go
+    - id: 3
+      title: Introduce narrow git/store provider seams for task logic
+      status: done
+      contract:
+        intent: Complete provider seam adoption for task lifecycle mutators beyond checkpoint path.
+        acceptance_criteria:
+            - Existing CLI/task behavior remains unchanged.
+            - Reopen and task contract mutation flows can execute through active task runtime providers without direct concrete store/git dependency.
+        scope:
+            - internal/service/service.go
+            - internal/service/service_merge_guard.go
+            - internal/service/service_task_runtime.go
+            - internal/service/service_tasks.go
+      checkpoint:
+        at: "2026-02-25T11:42:55Z"
+        source: task_no_checkpoint
+    - id: 4
+      title: Split service.go type/errors surface into capability-focused files
+      status: done
+      contract:
+        intent: Decompose service.go into focused capability files while preserving existing behavior and public service API.
+        acceptance_criteria:
+            - Errors/types/constants are moved into focused files with no call-site regressions.
+            - Service constructor/init behavior remains unchanged after file split.
+        scope:
+            - internal/service
+            - internal/service/service.go
+      checkpoint:
+        at: "2026-02-25T10:55:53Z"
+        source: task_no_checkpoint
+    - id: 5
+      title: Split service_cr.go into lifecycle/contract/status/history slices
+      status: done
+      contract:
+        intent: Split service_cr.go into lifecycle, contract, status, and history-focused files to reduce god-file density.
+        acceptance_criteria:
+            - CR lifecycle, contract mutation, status, and history paths remain behaviorally compatible.
+            - Method signatures exposed to CLI callers remain stable.
+        scope:
+            - internal/service
+            - internal/service/service_cr.go
+      checkpoint:
+        commit: 597d8d52
+        at: "2026-02-25T10:55:35Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_cr.go
+            - internal/service/service_cr_history.go
+            - internal/service/service_cr_status.go
+    - id: 6
+      title: Split CLI cr_cmd_core.go by command family without behavior changes
+      status: done
+      contract:
+        intent: Reduce CLI CR command wiring repetition with shared execution helpers while preserving JSON/text contracts.
+        acceptance_criteria:
+            - CR command tests remain green.
+            - Moved CR command handlers preserve flags/outputs and reduce repeated parse/service/error glue.
+        scope:
+            - internal/cli/cr_cmd_core.go
+            - internal/cli/cr_cmd_helpers.go
+            - internal/cli/cr_cmd_history_redact.go
+            - internal/cli/cr_cmd_navigation.go
+            - internal/cli/cr_cmd_task.go
+      checkpoint:
+        commit: 80ec7ba9
+        at: "2026-02-25T11:42:18Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/cr_cmd_core.go
+            - internal/cli/cr_cmd_helpers.go
+            - internal/cli/cr_cmd_history_redact.go
+            - internal/cli/cr_cmd_navigation.go
+            - internal/cli/cr_cmd_task.go
+    - id: 7
+      title: Centralize checkpoint state transitions and replace magic literals with constants
+      status: done
+      contract:
+        intent: Continue replacing task/event magic literals with model constants across service paths.
+        acceptance_criteria:
+            - No behavior drift in event history or checkpoint metadata.
+            - Task/event related literal strings are centralized in model constants and call sites are migrated.
+        scope:
+            - internal/model/types.go
+            - internal/service
+            - internal/service/service_cr.go
+            - internal/service/service_cr_history.go
+            - internal/service/service_review_merge.go
+            - internal/service/service_tasks.go
+      checkpoint:
+        at: "2026-02-25T11:42:55Z"
+        source: task_no_checkpoint
+    - id: 8
+      title: Run regression pass for service+CLI refactor and fix behavioral drift
+      status: done
+      contract:
+        intent: Re-run targeted and full regression after refactor + seam + constant cleanups.
+        acceptance_criteria:
+            - Targeted task/CR/CLI tests for touched code pass.
+            - go test ./... and go vet ./... pass.
+        scope:
+            - internal/cli
+            - internal/service
+      checkpoint:
+        commit: 6fa4d4cc
+        at: "2026-02-25T12:00:50Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_doc.go
+            - internal/service/service_task_checkpoint_test.go
+            - internal/service/service_trust.go
+            - internal/service/tasks/contract_transition_test.go
+    - id: 9
+      title: Expand task runtime seam into reopen/contract paths + add mock-based reopen unit tests
+      status: done
+      contract:
+        intent: Add mockable seams for reopen/contract flows and convert reopen tests to seam-based unit tests.
+        acceptance_criteria:
+            - At least one integration reopen test remains to protect end-to-end wiring.
+            - service_task_reopen tests no longer require real git subprocess or working tree file writes for core behavior checks.
+        scope:
+            - internal/service/service_messages.go
+            - internal/service/service_task_checkpoint.go
+            - internal/service/service_task_reopen_integration_test.go
+            - internal/service/service_task_reopen_test.go
+            - internal/service/service_task_runtime.go
+            - internal/service/service_task_runtime_test.go
+            - internal/service/service_tasks.go
+      checkpoint:
+        commit: c7b8f773
+        at: "2026-02-25T12:16:13Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_messages.go
+            - internal/service/service_task_checkpoint.go
+            - internal/service/service_task_reopen_test.go
+            - internal/service/service_task_runtime.go
+            - internal/service/service_tasks.go
+    - id: 10
+      title: Decompose high-complexity intent/plan functions (hq_sync + plan_apply) into focused helpers
+      status: done
+      contract:
+        intent: Decompose high-complexity HQ intent patching and plan validation flows into focused helpers.
+        acceptance_criteria:
+            - Existing HQ/plan apply tests stay green.
+            - Top-level functions delegate to smaller helpers with reduced branching depth and unchanged behavior.
+        scope:
+            - internal/service/service_hq_sync.go
+            - internal/service/service_plan_apply.go
+      checkpoint:
+        commit: feab549c
+        at: "2026-02-25T11:42:13Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_hq_sync.go
+            - internal/service/service_plan_apply.go
+    - id: 11
+      title: Reduce contract mutation duplication across CR/task set contract flows
+      status: done
+      contract:
+        intent: Factor shared contract mutation primitives to reduce duplicated field-by-field patch logic.
+        acceptance_criteria:
+            - CR and task contract patch flows share reusable normalization/comparison/mutation helpers.
+            - Event metadata and drift semantics remain stable.
+        scope:
+            - internal/service/service_contract_mutation.go
+            - internal/service/service_cr.go
+            - internal/service/service_tasks.go
+            - internal/service/tasks
+      checkpoint:
+        commit: f6d6356f
+        at: "2026-02-25T12:00:39Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_contract_mutation.go
+            - internal/service/service_tasks.go
+            - internal/service/tasks/contract_transition.go
+    - id: 12
+      title: Centralize service event type literals into model constants and migrate call sites
+      status: done
+      contract:
+        intent: Centralize service event type names into model constants and migrate producers/consumers.
+        acceptance_criteria:
+            - Event types used across CR/task/merge/history paths reference constants instead of ad-hoc literals.
+            - Review/history outputs remain unchanged.
+        scope:
+            - internal/model/types.go
+            - internal/service
+      checkpoint:
+        commit: 9033c939
+        at: "2026-02-25T11:42:44Z"
+        source: task_checkpoint
+        scope:
+            - '*'
+git_summary:
+    base_parent: 9094baae68c285751094bc11949bd0e593755554
+    cr_parent: c7b8f773eef7a1d254b27c977d7f2d5d2724811d
+    files_changed:
+        - internal/cli/cr_cmd_core.go
+        - internal/cli/cr_cmd_helpers.go
+        - internal/cli/cr_cmd_history_redact.go
+        - internal/cli/cr_cmd_navigation.go
+        - internal/cli/cr_cmd_task.go
+        - internal/model/types.go
+        - internal/service/cr/add.go
+        - internal/service/service.go
+        - internal/service/service_collab.go
+        - internal/service/service_contract_merge_review_test.go
+        - internal/service/service_contract_mutation.go
+        - internal/service/service_cr.go
+        - internal/service/service_cr_history.go
+        - internal/service/service_cr_integrity.go
+        - internal/service/service_cr_status.go
+        - internal/service/service_delegate_stack.go
+        - internal/service/service_diff.go
+        - internal/service/service_doc.go
+        - internal/service/service_errors_patterns.go
+        - internal/service/service_evidence.go
+        - internal/service/service_evidence_test.go
+        - internal/service/service_hq_sync.go
+        - internal/service/service_maintenance.go
+        - internal/service/service_merge_recovery_test.go
+        - internal/service/service_messages.go
+        - internal/service/service_metadata_test.go
+        - internal/service/service_mutation_lock_test.go
+        - internal/service/service_plan_apply.go
+        - internal/service/service_review_merge.go
+        - internal/service/service_task_checkpoint.go
+        - internal/service/service_task_checkpoint_test.go
+        - internal/service/service_task_mutation_lock_test.go
+        - internal/service/service_task_reopen_integration_test.go
+        - internal/service/service_task_reopen_test.go
+        - internal/service/service_task_runtime.go
+        - internal/service/service_task_runtime_test.go
+        - internal/service/service_tasks.go
+        - internal/service/service_test.go
+        - internal/service/service_trust.go
+        - internal/service/tasks/checkpoint_state.go
+        - internal/service/tasks/contract_transition.go
+        - internal/service/tasks/contract_transition_test.go
+    diffstat:
+        summary: 42 files changed, 2678 insertions(+), 2076 deletions(-)
+        files:
+            - path: internal/cli/cr_cmd_core.go
+              insertions: 28
+              deletions: 512
+            - path: internal/cli/cr_cmd_helpers.go
+              insertions: 35
+              deletions: 0
+            - path: internal/cli/cr_cmd_history_redact.go
+              insertions: 159
+              deletions: 0
+            - path: internal/cli/cr_cmd_navigation.go
+              insertions: 282
+              deletions: 0
+            - path: internal/cli/cr_cmd_task.go
+              insertions: 69
+              deletions: 111
+            - path: internal/model/types.go
+              insertions: 46
+              deletions: 0
+            - path: internal/service/cr/add.go
+              insertions: 1
+              deletions: 1
+            - path: internal/service/service.go
+              insertions: 3
+              deletions: 54
+            - path: internal/service/service_collab.go
+              insertions: 1
+              deletions: 1
+            - path: internal/service/service_contract_merge_review_test.go
+              insertions: 2
+              deletions: 1
+            - path: internal/service/service_contract_mutation.go
+              insertions: 136
+              deletions: 0
+            - path: internal/service/service_cr.go
+              insertions: 8
+              deletions: 548
+            - path: internal/service/service_cr_history.go
+              insertions: 174
+              deletions: 0
+            - path: internal/service/service_cr_integrity.go
+              insertions: 2
+              deletions: 2
+            - path: internal/service/service_cr_status.go
+              insertions: 308
+              deletions: 0
+            - path: internal/service/service_delegate_stack.go
+              insertions: 4
+              deletions: 4
+            - path: internal/service/service_diff.go
+              insertions: 1
+              deletions: 1
+            - path: internal/service/service_doc.go
+              insertions: 2
+              deletions: 1
+            - path: internal/service/service_errors_patterns.go
+              insertions: 58
+              deletions: 0
+            - path: internal/service/service_evidence.go
+              insertions: 1
+              deletions: 1
+            - path: internal/service/service_evidence_test.go
+              insertions: 2
+              deletions: 1
+            - path: internal/service/service_hq_sync.go
+              insertions: 209
+              deletions: 166
+            - path: internal/service/service_maintenance.go
+              insertions: 1
+              deletions: 1
+            - path: internal/service/service_merge_recovery_test.go
+              insertions: 4
+              deletions: 4
+            - path: internal/service/service_messages.go
+              insertions: 11
+              deletions: 2
+            - path: internal/service/service_metadata_test.go
+              insertions: 3
+              deletions: 2
+            - path: internal/service/service_mutation_lock_test.go
+              insertions: 5
+              deletions: 4
+            - path: internal/service/service_plan_apply.go
+              insertions: 129
+              deletions: 92
+            - path: internal/service/service_review_merge.go
+              insertions: 6
+              deletions: 6
+            - path: internal/service/service_task_checkpoint.go
+              insertions: 2
+              deletions: 2
+            - path: internal/service/service_task_checkpoint_test.go
+              insertions: 23
+              deletions: 3
+            - path: internal/service/service_task_mutation_lock_test.go
+              insertions: 2
+              deletions: 1
+            - path: internal/service/service_task_reopen_integration_test.go
+              insertions: 57
+              deletions: 0
+            - path: internal/service/service_task_reopen_test.go
+              insertions: 220
+              deletions: 121
+            - path: internal/service/service_task_runtime.go
+              insertions: 55
+              deletions: 0
+            - path: internal/service/service_task_runtime_test.go
+              insertions: 26
+              deletions: 0
+            - path: internal/service/service_tasks.go
+              insertions: 381
+              deletions: 431
+            - path: internal/service/service_test.go
+              insertions: 2
+              deletions: 2
+            - path: internal/service/service_trust.go
+              insertions: 2
+              deletions: 1
+            - path: internal/service/tasks/checkpoint_state.go
+              insertions: 71
+              deletions: 0
+            - path: internal/service/tasks/contract_transition.go
+              insertions: 79
+              deletions: 0
+            - path: internal/service/tasks/contract_transition_test.go
+              insertions: 68
+              deletions: 0

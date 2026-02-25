@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sophia/internal/model"
 	"strings"
 	"testing"
 )
@@ -48,7 +49,7 @@ func TestEditCRMergedAndNoOpValidation(t *testing.T) {
 		t.Fatalf("expected title %q, got %q", newTitle, loaded.Title)
 	}
 	last := loaded.Events[len(loaded.Events)-1]
-	if last.Type != "cr_amended" {
+	if last.Type != model.EventTypeCRAmended {
 		t.Fatalf("expected cr_amended event, got %#v", last)
 	}
 	if last.Meta == nil || last.Meta["fields"] != "title" {
@@ -85,7 +86,7 @@ func TestRedactNoteAndEventWithAuditTrail(t *testing.T) {
 		t.Fatalf("expected note placeholder, got %q", cr.Notes[0])
 	}
 	last := cr.Events[len(cr.Events)-1]
-	if last.Type != "cr_redacted" || last.Ref != "note:1" {
+	if last.Type != model.EventTypeCRRedacted || last.Ref != "note:1" {
 		t.Fatalf("expected note redaction event, got %#v", last)
 	}
 	if strings.TrimSpace(last.RedactionReason) == "" {

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sophia/internal/model"
 	"strings"
 	"sync"
 	"testing"
@@ -132,9 +133,9 @@ func TestConcurrentCRMutationsPreserveNotesAndContractEvents(t *testing.T) {
 	contractEvents := 0
 	for _, event := range stored.Events {
 		switch event.Type {
-		case "note_added":
+		case model.EventTypeNoteAdded:
 			noteEvents++
-		case "contract_updated":
+		case model.EventTypeContractUpdated:
 			contractEvents++
 		}
 	}
@@ -197,9 +198,9 @@ func TestConcurrentEditAndContractSetMutationsPreserveAllEvents(t *testing.T) {
 	contractEvents := 0
 	for _, event := range stored.Events {
 		switch event.Type {
-		case "cr_amended":
+		case model.EventTypeCRAmended:
 			amendedEvents++
-		case "contract_updated":
+		case model.EventTypeContractUpdated:
 			contractEvents++
 		}
 	}

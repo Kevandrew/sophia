@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sophia/internal/model"
 	"strings"
 	"testing"
 )
@@ -48,7 +49,7 @@ func TestAddEvidenceManualNoteAndHistory(t *testing.T) {
 	if len(loaded.Evidence) != 1 {
 		t.Fatalf("expected one evidence entry, got %#v", loaded.Evidence)
 	}
-	if loaded.Events[len(loaded.Events)-1].Type != "evidence_added" {
+	if loaded.Events[len(loaded.Events)-1].Type != model.EventTypeEvidenceAdded {
 		t.Fatalf("expected evidence_added event, got %#v", loaded.Events[len(loaded.Events)-1])
 	}
 

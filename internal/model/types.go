@@ -8,6 +8,52 @@ const (
 	TaskStatusDone      = "done"
 	TaskStatusDelegated = "delegated"
 
+	TaskCheckpointSourceTaskCheckpoint   = "task_checkpoint"
+	TaskCheckpointSourceTaskNoCheckpoint = "task_no_checkpoint"
+
+	TaskScopeModeAll           = "all"
+	TaskScopeModeTaskContract  = "task_contract"
+	TaskScopeModePatchManifest = "patch_manifest"
+	TaskScopeModePath          = "path"
+
+	EventTypeCRCreated         = "cr_created"
+	EventTypeCRAmended         = "cr_amended"
+	EventTypeCRBaseUpdated     = "cr_base_updated"
+	EventTypeCRRestacked       = "cr_restacked"
+	EventTypeCRParentMerged    = "cr_parent_merged"
+	EventTypeCRRedacted        = "cr_redacted"
+	EventTypeCRValidated       = "cr_validated"
+	EventTypeCRRepaired        = "cr_repaired"
+	EventTypeCRReconciled      = "cr_reconciled"
+	EventTypeCRMergeConflict   = "cr_merge_conflict"
+	EventTypeCRMergeAborted    = "cr_merge_aborted"
+	EventTypeCRMergeResumed    = "cr_merge_resumed"
+	EventTypeCRMergeOverridden = "cr_merge_overridden"
+	EventTypeCRMerged          = "cr_merged"
+	EventTypeCRReopened        = "cr_reopened"
+
+	EventTypeNoteAdded       = "note_added"
+	EventTypeContractUpdated = "contract_updated"
+
+	EventTypeTaskAdded                     = "task_added"
+	EventTypeTaskDone                      = "task_done"
+	EventTypeTaskDoneAuto                  = "task_done_auto"
+	EventTypeTaskCheckpointed              = "task_checkpointed"
+	EventTypeTaskReopened                  = "task_reopened"
+	EventTypeTaskDelegated                 = "task_delegated"
+	EventTypeTaskDelegationReceived        = "task_delegation_received"
+	EventTypeTaskUndelegated               = "task_undelegated"
+	EventTypeTaskContractUpdated           = "task_contract_updated"
+	EventTypeTaskContractDriftRecorded     = "task_contract_drift_recorded"
+	EventTypeTaskContractDriftAcknowledged = "task_contract_drift_acknowledged"
+
+	EventTypeEvidenceAdded = "evidence_added"
+	EventTypePatchApplied  = "patch_applied"
+
+	EventTypeHQSynced = "hq_synced"
+	EventTypeHQPulled = "hq_pulled"
+	EventTypeHQPushed = "hq_pushed"
+
 	MetadataModeLocal   = "local"
 	MetadataModeTracked = "tracked"
 )

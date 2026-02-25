@@ -3,7 +3,9 @@ package service
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
+	"path/filepath"
 	"sophia/internal/model"
 	servicetasks "sophia/internal/service/tasks"
 	"sort"
@@ -36,7 +38,7 @@ func (s *Service) AddTask(crID int, title string) (*model.Subtask, error) {
 		if err := s.appendCRMutationEventAndSave(cr, model.Event{
 			TS:      now,
 			Actor:   actor,
-			Type:    "task_added",
+			Type:    model.EventTypeTaskAdded,
 			Summary: title,
 			Ref:     fmt.Sprintf("task:%d", newTaskID),
 		}); err != nil {
@@ -50,36 +52,8 @@ func (s *Service) AddTask(crID int, title string) (*model.Subtask, error) {
 	return &added, nil
 }
 
-func cloneTaskContract(contract model.TaskContract) model.TaskContract {
-	return servicetasks.CloneTaskContract(contract)
-}
-
-func normalizeAcceptanceCheckKeys(values []string) []string {
-	return servicetasks.NormalizeAcceptanceCheckKeys(values)
-}
-
-func taskContractBaselineIsEmpty(baseline model.TaskContractBaseline) bool {
-	return servicetasks.TaskContractBaselineIsEmpty(baseline)
-}
-
-func taskContractBaselineFromContract(contract model.TaskContract, capturedAt, capturedBy string) model.TaskContractBaseline {
-	return servicetasks.TaskContractBaselineFromContract(contract, capturedAt, capturedBy)
-}
-
-func nextTaskContractDriftID(drifts []model.TaskContractDrift) int {
-	return servicetasks.NextTaskContractDriftID(drifts)
-}
-
-func scopeWidened(beforeScope, afterScope []string) bool {
-	return servicetasks.ScopeWidened(beforeScope, afterScope, pathMatchesScopePrefix)
-}
-
-func taskAcceptanceCheckPolicyMap(policy *model.RepoPolicy) map[string]struct{} {
-	return servicetasks.TaskAcceptanceCheckPolicyMap(policy)
-}
-
 func validateTaskAcceptanceCheckKeys(taskID int, checks []string, policy *model.RepoPolicy) error {
-	allowed := taskAcceptanceCheckPolicyMap(policy)
+	allowed := servicetasks.TaskAcceptanceCheckPolicyMap(policy)
 	if len(allowed) == 0 && len(checks) > 0 {
 		return fmt.Errorf("%w: task %d acceptance_checks configured but trust.checks.definitions is empty", ErrPolicyViolation, taskID)
 	}
@@ -95,155 +69,89 @@ func validateTaskAcceptanceCheckKeys(taskID int, checks []string, policy *model.
 func (s *Service) SetTaskContract(crID, taskID int, patch TaskContractPatch) ([]string, error) {
 	var changed []string
 	if err := s.withMutationLock(func() error {
-		cr, err := s.store.LoadCR(crID)
-		if err != nil {
-			return err
-		}
-		if guardErr := s.ensureNoMergeInProgressForCR(cr); guardErr != nil {
-			return guardErr
-		}
-		policy, err := s.repoPolicy()
-		if err != nil {
-			return err
-		}
-		taskIndex := indexOfTask(cr.Subtasks, taskID)
-		if taskIndex < 0 {
-			return fmt.Errorf("task %d not found in cr %d", taskID, crID)
-		}
-		task := &cr.Subtasks[taskIndex]
-		beforeContract := cloneTaskContract(task.Contract)
+		var err error
+		changed, err = s.setTaskContractUnlocked(crID, taskID, patch)
+		return err
+	}); err != nil {
+		return nil, err
+	}
+	return changed, nil
+}
 
-		changed = []string{}
-		if patch.Intent != nil {
-			normalized := strings.TrimSpace(*patch.Intent)
-			if task.Contract.Intent != normalized {
-				task.Contract.Intent = normalized
-				changed = append(changed, "intent")
-			}
-		}
-		if patch.AcceptanceCriteria != nil {
-			normalized := normalizeNonEmptyStringList(*patch.AcceptanceCriteria)
-			if !equalStringSlices(task.Contract.AcceptanceCriteria, normalized) {
-				task.Contract.AcceptanceCriteria = normalized
-				changed = append(changed, "acceptance_criteria")
-			}
-		}
-		if patch.Scope != nil {
-			normalized, normalizeErr := s.normalizeContractScopePrefixes(*patch.Scope)
-			if normalizeErr != nil {
-				return normalizeErr
-			}
-			if scopeErr := enforceScopeAllowlist(normalized, policy.Scope.AllowedPrefixes, "task contract scope"); scopeErr != nil {
-				return scopeErr
-			}
-			if !equalStringSlices(task.Contract.Scope, normalized) {
-				task.Contract.Scope = normalized
-				changed = append(changed, "scope")
-			}
-		}
-		if patch.AcceptanceChecks != nil {
-			normalized := normalizeAcceptanceCheckKeys(*patch.AcceptanceChecks)
-			if validateErr := validateTaskAcceptanceCheckKeys(taskID, normalized, policy); validateErr != nil {
-				return validateErr
-			}
-			if !equalStringSlices(task.Contract.AcceptanceChecks, normalized) {
-				task.Contract.AcceptanceChecks = normalized
-				changed = append(changed, "acceptance_checks")
-			}
-		}
-		if len(changed) == 0 {
-			return ErrNoCRChanges
-		}
+func (s *Service) setTaskContractUnlocked(crID, taskID int, patch TaskContractPatch) ([]string, error) {
+	taskStore := s.activeTaskStoreProvider()
+	taskGit := s.activeTaskGitProvider()
+	taskMergeGuard := s.activeTaskMergeGuard()
 
-		now := s.timestamp()
-		actor := s.git.Actor()
-		changeReason := ""
-		if patch.ChangeReason != nil {
-			changeReason = strings.TrimSpace(*patch.ChangeReason)
-		}
+	cr, err := taskStore.LoadCR(crID)
+	if err != nil {
+		return nil, err
+	}
+	if guardErr := taskMergeGuard(cr); guardErr != nil {
+		return nil, guardErr
+	}
+	policy, err := s.repoPolicy()
+	if err != nil {
+		return nil, err
+	}
+	taskIndex := indexOfTask(cr.Subtasks, taskID)
+	if taskIndex < 0 {
+		return nil, fmt.Errorf("task %d not found in cr %d", taskID, crID)
+	}
+	task := &cr.Subtasks[taskIndex]
+	beforeContract := servicetasks.CloneTaskContract(task.Contract)
 
-		taskHasCheckpoint := strings.TrimSpace(task.CheckpointCommit) != ""
-		if taskHasCheckpoint && taskContractBaselineIsEmpty(task.ContractBaseline) {
-			task.ContractBaseline = taskContractBaselineFromContract(beforeContract, now, actor)
-		}
+	changed, err := s.applyTaskContractPatch(taskID, &task.Contract, patch, policy)
+	if err != nil {
+		return nil, err
+	}
+	if len(changed) == 0 {
+		return nil, ErrNoCRChanges
+	}
 
-		var drift *model.TaskContractDrift
-		if taskHasCheckpoint {
-			driftFields := []string{}
-			scopeChanged := !equalStringSlices(beforeContract.Scope, task.Contract.Scope)
-			if scopeChanged && scopeWidened(beforeContract.Scope, task.Contract.Scope) {
-				driftFields = append(driftFields, "scope_widened")
-			}
-			checksChanged := !equalStringSlices(beforeContract.AcceptanceChecks, task.Contract.AcceptanceChecks)
-			if checksChanged {
-				driftFields = append(driftFields, "acceptance_checks_changed")
-			}
-			if len(driftFields) > 0 {
-				record := model.TaskContractDrift{
-					ID:                     nextTaskContractDriftID(task.ContractDrifts),
-					TS:                     now,
-					Actor:                  actor,
-					Fields:                 append([]string(nil), driftFields...),
-					BeforeScope:            append([]string(nil), beforeContract.Scope...),
-					AfterScope:             append([]string(nil), task.Contract.Scope...),
-					BeforeAcceptanceChecks: append([]string(nil), beforeContract.AcceptanceChecks...),
-					AfterAcceptanceChecks:  append([]string(nil), task.Contract.AcceptanceChecks...),
-					CheckpointCommit:       strings.TrimSpace(task.CheckpointCommit),
-					Reason:                 changeReason,
-				}
-				if changeReason != "" {
-					record.Acknowledged = true
-					record.AcknowledgedAt = now
-					record.AcknowledgedBy = actor
-					record.AckReason = changeReason
-				}
-				task.ContractDrifts = append(task.ContractDrifts, record)
-				drift = &record
-			}
-		}
+	now := s.timestamp()
+	actor := taskGit.Actor()
+	changeReason := ""
+	if patch.ChangeReason != nil {
+		changeReason = strings.TrimSpace(*patch.ChangeReason)
+	}
 
-		task.Contract.UpdatedAt = now
-		task.Contract.UpdatedBy = actor
-		task.UpdatedAt = now
-		cr.UpdatedAt = now
-		meta := map[string]string{
-			"fields": strings.Join(changed, ","),
+	drift := servicetasks.ApplyTaskContractTransition(task, beforeContract, now, actor, changeReason, pathMatchesScopePrefix)
+	cr.UpdatedAt = now
+	meta := map[string]string{
+		"fields": strings.Join(changed, ","),
+	}
+	if changeReason != "" {
+		meta["change_reason"] = changeReason
+	}
+	cr.Events = append(cr.Events, model.Event{
+		TS:      now,
+		Actor:   actor,
+		Type:    model.EventTypeTaskContractUpdated,
+		Summary: fmt.Sprintf("Updated task %d contract fields: %s", taskID, strings.Join(changed, ",")),
+		Ref:     fmt.Sprintf("task:%d", taskID),
+		Meta:    meta,
+	})
+	if drift != nil {
+		driftMeta := map[string]string{
+			"drift_id":          strconv.Itoa(drift.ID),
+			"fields":            strings.Join(drift.Fields, ","),
+			"checkpoint_commit": drift.CheckpointCommit,
+			"acknowledged":      strconv.FormatBool(drift.Acknowledged),
 		}
-		if changeReason != "" {
-			meta["change_reason"] = changeReason
+		if drift.Reason != "" {
+			driftMeta["reason"] = drift.Reason
 		}
 		cr.Events = append(cr.Events, model.Event{
 			TS:      now,
 			Actor:   actor,
-			Type:    "task_contract_updated",
-			Summary: fmt.Sprintf("Updated task %d contract fields: %s", taskID, strings.Join(changed, ",")),
+			Type:    model.EventTypeTaskContractDriftRecorded,
+			Summary: fmt.Sprintf("Recorded task %d contract drift #%d (%s)", taskID, drift.ID, strings.Join(drift.Fields, ",")),
 			Ref:     fmt.Sprintf("task:%d", taskID),
-			Meta:    meta,
+			Meta:    driftMeta,
 		})
-		if drift != nil {
-			driftMeta := map[string]string{
-				"drift_id":          strconv.Itoa(drift.ID),
-				"fields":            strings.Join(drift.Fields, ","),
-				"checkpoint_commit": drift.CheckpointCommit,
-				"acknowledged":      strconv.FormatBool(drift.Acknowledged),
-			}
-			if drift.Reason != "" {
-				driftMeta["reason"] = drift.Reason
-			}
-			cr.Events = append(cr.Events, model.Event{
-				TS:      now,
-				Actor:   actor,
-				Type:    "task_contract_drift_recorded",
-				Summary: fmt.Sprintf("Recorded task %d contract drift #%d (%s)", taskID, drift.ID, strings.Join(drift.Fields, ",")),
-				Ref:     fmt.Sprintf("task:%d", taskID),
-				Meta:    driftMeta,
-			})
-		}
-		if err := s.store.SaveCR(cr); err != nil {
-			return err
-		}
-		return nil
-	}); err != nil {
+	}
+	if err := taskStore.SaveCR(cr); err != nil {
 		return nil, err
 	}
 	return changed, nil
@@ -300,13 +208,7 @@ func (s *Service) AckTaskContractDrift(crID, taskID, driftID int, reason string)
 			return fmt.Errorf("task %d not found in cr %d", taskID, crID)
 		}
 		task := &cr.Subtasks[taskIndex]
-		driftIndex := -1
-		for i := range task.ContractDrifts {
-			if task.ContractDrifts[i].ID == driftID {
-				driftIndex = i
-				break
-			}
-		}
+		driftIndex := indexOfDrift(task.ContractDrifts, driftID)
 		if driftIndex < 0 {
 			return fmt.Errorf("task %d drift %d not found in cr %d", taskID, driftID, crID)
 		}
@@ -321,7 +223,7 @@ func (s *Service) AckTaskContractDrift(crID, taskID, driftID int, reason string)
 		if err := s.appendCRMutationEventAndSave(cr, model.Event{
 			TS:      now,
 			Actor:   actor,
-			Type:    "task_contract_drift_acknowledged",
+			Type:    model.EventTypeTaskContractDriftAcknowledged,
 			Summary: fmt.Sprintf("Acknowledged task %d contract drift #%d", taskID, driftID),
 			Ref:     fmt.Sprintf("task:%d", taskID),
 			Meta: map[string]string{
@@ -417,9 +319,16 @@ func (s *Service) ExportTaskChunkWorkingTreePatch(crID, taskID int, chunkIDs, pa
 }
 
 func (s *Service) loadWorkingTreeTaskChunks(crID, taskID int, paths []string) ([]parsedPatchFile, []TaskChunk, string, error) {
-	cr, err := s.store.LoadCR(crID)
+	taskStore := s.activeTaskStoreProvider()
+	taskGit := s.activeTaskGitProvider()
+	taskMergeGuard := s.activeTaskMergeGuard()
+
+	cr, err := taskStore.LoadCR(crID)
 	if err != nil {
 		return nil, nil, "", err
+	}
+	if guardErr := taskMergeGuard(cr); guardErr != nil {
+		return nil, nil, "", guardErr
 	}
 	if cr.Status != model.StatusInProgress {
 		return nil, nil, "", fmt.Errorf("cr %d is not in progress", crID)
@@ -427,14 +336,14 @@ func (s *Service) loadWorkingTreeTaskChunks(crID, taskID int, paths []string) ([
 	if indexOfTask(cr.Subtasks, taskID) < 0 {
 		return nil, nil, "", fmt.Errorf("task %d not found in cr %d", taskID, crID)
 	}
-	currentBranch, branchErr := s.git.CurrentBranch()
+	currentBranch, branchErr := taskGit.CurrentBranch()
 	if branchErr != nil {
 		return nil, nil, "", branchErr
 	}
 	if currentBranch != cr.Branch {
 		return nil, nil, "", fmt.Errorf("task chunk commands requires active CR branch %q, current branch is %q; run `sophia cr switch %d`", cr.Branch, currentBranch, cr.ID)
 	}
-	hasStaged, stagedErr := s.git.HasStagedChanges()
+	hasStaged, stagedErr := taskGit.HasStagedChanges()
 	if stagedErr != nil {
 		return nil, nil, "", stagedErr
 	}
@@ -449,7 +358,7 @@ func (s *Service) loadWorkingTreeTaskChunks(crID, taskID int, paths []string) ([
 		}
 		normalizedPaths = normalized
 	}
-	diff, err := s.git.WorkingTreeUnifiedDiff(normalizedPaths, 0)
+	diff, err := taskGit.WorkingTreeUnifiedDiff(normalizedPaths, 0)
 	if err != nil {
 		return nil, nil, "", err
 	}
@@ -498,65 +407,66 @@ func (s *Service) DoneTask(crID, taskID int) error {
 func (s *Service) ReopenTask(crID, taskID int, opts ReopenTaskOptions) (*model.Subtask, error) {
 	var reopened model.Subtask
 	if err := s.withMutationLock(func() error {
-		cr, err := s.loadCRForMutation(crID)
+		var err error
+		reopened, err = s.reopenTaskUnlocked(crID, taskID, opts)
 		if err != nil {
 			return err
 		}
-		if cr.Status != model.StatusInProgress {
-			return fmt.Errorf("cr %d is not in progress", crID)
-		}
-		taskIndex := indexOfTask(cr.Subtasks, taskID)
-		if taskIndex < 0 {
-			return fmt.Errorf("task %d not found in cr %d", taskID, crID)
-		}
-		task := &cr.Subtasks[taskIndex]
-		if task.Status != model.TaskStatusDone {
-			return fmt.Errorf("%w: task %d in cr %d has status %q", ErrTaskNotDone, taskID, crID, task.Status)
-		}
-
-		now := s.timestamp()
-		actor := s.git.Actor()
-		previousCheckpoint := strings.TrimSpace(task.CheckpointCommit)
-
-		task.Status = model.TaskStatusOpen
-		task.UpdatedAt = now
-		task.CompletedAt = ""
-		task.CompletedBy = ""
-		if opts.ClearCheckpoint {
-			task.CheckpointCommit = ""
-			task.CheckpointAt = ""
-			task.CheckpointMessage = ""
-			task.CheckpointScope = nil
-			task.CheckpointChunks = nil
-			task.CheckpointOrphan = false
-			task.CheckpointReason = ""
-			task.CheckpointSource = ""
-			task.CheckpointSyncAt = ""
-		}
-
-		meta := map[string]string{
-			"checkpoint_cleared": strconv.FormatBool(opts.ClearCheckpoint),
-		}
-		if previousCheckpoint != "" {
-			meta["previous_checkpoint_commit"] = previousCheckpoint
-		}
-		if err := s.appendCRMutationEventAndSave(cr, model.Event{
-			TS:      now,
-			Actor:   actor,
-			Type:    "task_reopened",
-			Summary: task.Title,
-			Ref:     fmt.Sprintf("task:%d", taskID),
-			Meta:    meta,
-		}); err != nil {
-			return err
-		}
-
-		reopened = cr.Subtasks[taskIndex]
 		return nil
 	}); err != nil {
 		return nil, err
 	}
 	return &reopened, nil
+}
+
+func (s *Service) reopenTaskUnlocked(crID, taskID int, opts ReopenTaskOptions) (model.Subtask, error) {
+	taskStore := s.activeTaskStoreProvider()
+	taskGit := s.activeTaskGitProvider()
+	taskMergeGuard := s.activeTaskMergeGuard()
+
+	cr, err := taskStore.LoadCR(crID)
+	if err != nil {
+		return model.Subtask{}, err
+	}
+	if guardErr := taskMergeGuard(cr); guardErr != nil {
+		return model.Subtask{}, guardErr
+	}
+	if cr.Status != model.StatusInProgress {
+		return model.Subtask{}, fmt.Errorf("cr %d is not in progress", crID)
+	}
+	taskIndex := indexOfTask(cr.Subtasks, taskID)
+	if taskIndex < 0 {
+		return model.Subtask{}, fmt.Errorf("task %d not found in cr %d", taskID, crID)
+	}
+	task := &cr.Subtasks[taskIndex]
+	if task.Status != model.TaskStatusDone {
+		return model.Subtask{}, fmt.Errorf("%w: task %d in cr %d has status %q", ErrTaskNotDone, taskID, crID, task.Status)
+	}
+
+	now := s.timestamp()
+	actor := taskGit.Actor()
+	previousCheckpoint := strings.TrimSpace(task.CheckpointCommit)
+	servicetasks.MarkTaskReopened(task, now, opts.ClearCheckpoint)
+
+	meta := map[string]string{
+		"checkpoint_cleared": strconv.FormatBool(opts.ClearCheckpoint),
+	}
+	if previousCheckpoint != "" {
+		meta["previous_checkpoint_commit"] = previousCheckpoint
+	}
+	cr.Events = append(cr.Events, model.Event{
+		TS:      now,
+		Actor:   actor,
+		Type:    model.EventTypeTaskReopened,
+		Summary: task.Title,
+		Ref:     fmt.Sprintf("task:%d", taskID),
+		Meta:    meta,
+	})
+	cr.UpdatedAt = now
+	if err := taskStore.SaveCR(cr); err != nil {
+		return model.Subtask{}, err
+	}
+	return cr.Subtasks[taskIndex], nil
 }
 
 func (s *Service) DoneTaskWithCheckpoint(crID, taskID int, opts DoneTaskOptions) (string, error) {
@@ -575,11 +485,14 @@ func (s *Service) DoneTaskWithCheckpoint(crID, taskID int, opts DoneTaskOptions)
 }
 
 func (s *Service) doneTaskWithCheckpointUnlocked(crID, taskID int, opts DoneTaskOptions) (string, error) {
-	cr, err := s.store.LoadCR(crID)
+	taskStore := s.activeTaskStoreProvider()
+	taskGit := s.activeTaskGitProvider()
+
+	cr, err := taskStore.LoadCR(crID)
 	if err != nil {
 		return "", err
 	}
-	if guardErr := s.ensureNoMergeInProgressForCR(cr); guardErr != nil {
+	if guardErr := s.activeTaskMergeGuard()(cr); guardErr != nil {
 		return "", guardErr
 	}
 	if _, err := ensureCRUID(cr); err != nil {
@@ -600,224 +513,261 @@ func (s *Service) doneTaskWithCheckpointUnlocked(crID, taskID int, opts DoneTask
 	}
 
 	now := s.timestamp()
-	actor := s.git.Actor()
-	found := false
-	title := ""
-	taskIndex := -1
-	for i := range cr.Subtasks {
-		if cr.Subtasks[i].ID == taskID {
-			found = true
-			title = cr.Subtasks[i].Title
-			taskIndex = i
-			break
-		}
-	}
-	if !found {
+	actor := taskGit.Actor()
+	taskIndex := indexOfTask(cr.Subtasks, taskID)
+	if taskIndex < 0 {
 		return "", fmt.Errorf("task %d not found in cr %d", taskID, crID)
 	}
-	if cr.Subtasks[taskIndex].Status == model.TaskStatusDelegated {
-		return "", fmt.Errorf("%w: task %d in cr %d is delegated to child CRs", ErrTaskDelegated, taskID, crID)
-	}
-	missingContractFields := missingTaskContractFields(cr.Subtasks[taskIndex].Contract, policy.TaskContract.RequiredFields)
-	if len(missingContractFields) > 0 {
-		return "", fmt.Errorf("%w: task %d missing %s", ErrTaskContractIncomplete, taskID, strings.Join(missingContractFields, ","))
+	task := &cr.Subtasks[taskIndex]
+	if err := ensureTaskReadyForDone(task, taskID, crID, policy); err != nil {
+		return "", err
 	}
 
-	commitSHA := ""
-	if opts.Checkpoint {
-		currentBranch, branchErr := s.git.CurrentBranch()
-		if branchErr != nil {
-			return "", branchErr
-		}
-		if currentBranch != cr.Branch {
-			return "", fmt.Errorf("checkpoint requires active CR branch %q, current branch is %q; run `sophia cr switch %d`", cr.Branch, currentBranch, cr.ID)
-		}
-
-		preStaged, stagedErr := s.git.HasStagedChanges()
-		if stagedErr != nil {
-			return "", stagedErr
-		}
-		if preStaged {
-			return "", fmt.Errorf("%w: unstage changes before running task checkpoint", ErrPreStagedChanges)
-		}
-
-		checkpointScope := []string{}
-		checkpointChunks := []model.CheckpointChunk{}
-		scopeMode := ""
-		if opts.StageAll {
-			dirty, _, dirtyErr := s.workingTreeDirtySummary()
-			if dirtyErr != nil {
-				return "", dirtyErr
-			}
-			if !dirty {
-				return "", fmt.Errorf("%w: task %d has no working tree changes", ErrNoTaskChanges, taskID)
-			}
-			if err := s.git.StageAll(); err != nil {
-				return "", err
-			}
-			checkpointScope = []string{"*"}
-			scopeMode = "all"
-		} else if opts.FromContract {
-			normalizedScope, normalizeErr := s.normalizeContractScopePrefixes(cr.Subtasks[taskIndex].Contract.Scope)
-			if normalizeErr != nil {
-				return "", normalizeErr
-			}
-			paths, resolveErr := s.resolveTaskCheckpointPathsFromContract(normalizedScope)
-			if resolveErr != nil {
-				return "", resolveErr
-			}
-			if err := s.git.StagePaths(paths); err != nil {
-				return "", err
-			}
-			checkpointScope = paths
-			scopeMode = "task_contract"
-		} else if strings.TrimSpace(opts.PatchFile) != "" {
-			patchPath, pathErr := s.normalizePatchFilePath(opts.PatchFile)
-			if pathErr != nil {
-				return "", pathErr
-			}
-			patchContent, readErr := os.ReadFile(patchPath)
-			if readErr != nil {
-				return "", fmt.Errorf("read patch file %q: %w", opts.PatchFile, readErr)
-			}
-			parsedChunks, parseErr := parsePatchChunks(string(patchContent))
-			if parseErr != nil {
-				return "", fmt.Errorf("%w: parse patch file: %v", ErrInvalidTaskScope, parseErr)
-			}
-			if len(parsedChunks) == 0 {
-				return "", fmt.Errorf("%w: patch file %q contains no hunks", ErrNoTaskChanges, opts.PatchFile)
-			}
-			if err := s.git.ApplyPatchToIndex(patchPath); err != nil {
-				return "", err
-			}
-			checkpointScope = checkpointChunkPaths(parsedChunks)
-			checkpointChunks = make([]model.CheckpointChunk, 0, len(parsedChunks))
-			for _, chunk := range parsedChunks {
-				checkpointChunks = append(checkpointChunks, model.CheckpointChunk{
-					ID:       chunk.ID,
-					Path:     chunk.Path,
-					OldStart: chunk.OldStart,
-					OldLines: chunk.OldLines,
-					NewStart: chunk.NewStart,
-					NewLines: chunk.NewLines,
-				})
-			}
-			scopeMode = "patch_manifest"
-		} else {
-			normalizedPaths, normalizeErr := s.normalizeTaskScopePaths(opts.Paths)
-			if normalizeErr != nil {
-				return "", normalizeErr
-			}
-
-			changedPathFound := false
-			for _, scopePath := range normalizedPaths {
-				hasChanges, hasErr := s.git.PathHasChanges(scopePath)
-				if hasErr != nil {
-					return "", hasErr
-				}
-				if hasChanges {
-					changedPathFound = true
-					break
-				}
-			}
-			if !changedPathFound {
-				return "", fmt.Errorf("%w: none of the scoped paths have changes", ErrNoTaskChanges)
-			}
-			if err := s.git.StagePaths(normalizedPaths); err != nil {
-				return "", err
-			}
-			checkpointScope = normalizedPaths
-			scopeMode = "path"
-		}
-
-		hasStaged, stagedErr := s.git.HasStagedChanges()
-		if stagedErr != nil {
-			return "", stagedErr
-		}
-		if !hasStaged {
-			return "", fmt.Errorf("%w: no staged changes after applying scope", ErrNoTaskChanges)
-		}
-
-		commitMessage := buildTaskCheckpointMessage(cr, &cr.Subtasks[taskIndex], scopeMode, len(checkpointChunks))
-		if err := s.git.Commit(commitMessage); err != nil {
-			return "", err
-		}
-		sha, shaErr := s.git.HeadShortSHA()
-		if shaErr != nil {
-			return "", shaErr
-		}
-		commitSHA = sha
-		cr.Subtasks[taskIndex].CheckpointCommit = sha
-		cr.Subtasks[taskIndex].CheckpointAt = now
-		cr.Subtasks[taskIndex].CheckpointMessage = commitMessage
-		cr.Subtasks[taskIndex].CheckpointScope = append([]string(nil), checkpointScope...)
-		cr.Subtasks[taskIndex].CheckpointChunks = append([]model.CheckpointChunk(nil), checkpointChunks...)
-		cr.Subtasks[taskIndex].CheckpointOrphan = false
-		cr.Subtasks[taskIndex].CheckpointReason = ""
-		cr.Subtasks[taskIndex].CheckpointSource = "task_checkpoint"
-		cr.Subtasks[taskIndex].CheckpointSyncAt = now
-		if taskContractBaselineIsEmpty(cr.Subtasks[taskIndex].ContractBaseline) {
-			cr.Subtasks[taskIndex].ContractBaseline = taskContractBaselineFromContract(cr.Subtasks[taskIndex].Contract, now, actor)
-		}
-		cr.Events = append(cr.Events, model.Event{
-			TS:      now,
-			Actor:   actor,
-			Type:    "task_checkpointed",
-			Summary: fmt.Sprintf("Checkpointed task %d as %s", taskID, sha),
-			Ref:     fmt.Sprintf("task:%d", taskID),
-			Meta: map[string]string{
-				"commit":  sha,
-				"message": strings.SplitN(commitMessage, "\n", 2)[0],
-				"scope":   strings.Join(checkpointScope, ","),
-			},
-		})
-		if opts.FromContract {
-			cr.Events[len(cr.Events)-1].Meta["scope_source"] = "task_contract"
-		}
-		if strings.TrimSpace(opts.PatchFile) != "" {
-			cr.Events[len(cr.Events)-1].Meta["scope_source"] = "patch_manifest"
-			cr.Events[len(cr.Events)-1].Meta["chunk_count"] = strconv.Itoa(len(checkpointChunks))
-		}
-	} else {
-		reason := strings.TrimSpace(opts.NoCheckpointReason)
-		cr.Subtasks[taskIndex].CheckpointCommit = ""
-		cr.Subtasks[taskIndex].CheckpointAt = now
-		cr.Subtasks[taskIndex].CheckpointMessage = ""
-		cr.Subtasks[taskIndex].CheckpointScope = []string{}
-		cr.Subtasks[taskIndex].CheckpointChunks = []model.CheckpointChunk{}
-		cr.Subtasks[taskIndex].CheckpointOrphan = false
-		cr.Subtasks[taskIndex].CheckpointReason = reason
-		cr.Subtasks[taskIndex].CheckpointSource = "task_no_checkpoint"
-		cr.Subtasks[taskIndex].CheckpointSyncAt = now
+	commitSHA, err := s.applyTaskCheckpointForDone(taskGit, cr, task, taskIndex, taskID, now, actor, opts)
+	if err != nil {
+		return "", err
 	}
 
-	cr.Subtasks[taskIndex].Status = model.TaskStatusDone
-	cr.Subtasks[taskIndex].UpdatedAt = now
-	cr.Subtasks[taskIndex].CompletedAt = now
-	cr.Subtasks[taskIndex].CompletedBy = actor
+	servicetasks.MarkTaskDone(task, now, actor)
 
 	taskDoneMeta := map[string]string{
 		"checkpoint": strconv.FormatBool(opts.Checkpoint),
 	}
 	if opts.Checkpoint {
 		taskDoneMeta["checkpoint_commit"] = commitSHA
-		taskDoneMeta["checkpoint_source"] = "task_checkpoint"
+		taskDoneMeta["checkpoint_source"] = model.TaskCheckpointSourceTaskCheckpoint
 	} else {
-		taskDoneMeta["checkpoint_source"] = "task_no_checkpoint"
+		taskDoneMeta["checkpoint_source"] = model.TaskCheckpointSourceTaskNoCheckpoint
 		taskDoneMeta["no_checkpoint_reason"] = strings.TrimSpace(opts.NoCheckpointReason)
 	}
 	cr.Events = append(cr.Events, model.Event{
 		TS:      now,
 		Actor:   actor,
-		Type:    "task_done",
-		Summary: title,
+		Type:    model.EventTypeTaskDone,
+		Summary: task.Title,
 		Ref:     fmt.Sprintf("task:%d", taskID),
 		Meta:    taskDoneMeta,
 	})
 	cr.UpdatedAt = now
 
-	if err := s.store.SaveCR(cr); err != nil {
+	if err := taskStore.SaveCR(cr); err != nil {
 		return "", err
 	}
 	return commitSHA, nil
+}
+
+func ensureTaskReadyForDone(task *model.Subtask, taskID, crID int, policy *model.RepoPolicy) error {
+	if task == nil {
+		return fmt.Errorf("task %d not found in cr %d", taskID, crID)
+	}
+	if task.Status == model.TaskStatusDelegated {
+		return fmt.Errorf("%w: task %d in cr %d is delegated to child CRs", ErrTaskDelegated, taskID, crID)
+	}
+	missingContractFields := missingTaskContractFields(task.Contract, policy.TaskContract.RequiredFields)
+	if len(missingContractFields) > 0 {
+		return fmt.Errorf("%w: task %d missing %s", ErrTaskContractIncomplete, taskID, strings.Join(missingContractFields, ","))
+	}
+	return nil
+}
+
+func (s *Service) applyTaskCheckpointForDone(gitProvider taskLifecycleGitProvider, cr *model.CR, task *model.Subtask, taskIndex, taskID int, now, actor string, opts DoneTaskOptions) (string, error) {
+	if !opts.Checkpoint {
+		servicetasks.ApplyNoCheckpointState(task, now, strings.TrimSpace(opts.NoCheckpointReason))
+		return "", nil
+	}
+
+	currentBranch, branchErr := gitProvider.CurrentBranch()
+	if branchErr != nil {
+		return "", branchErr
+	}
+	if currentBranch != cr.Branch {
+		return "", fmt.Errorf("checkpoint requires active CR branch %q, current branch is %q; run `sophia cr switch %d`", cr.Branch, currentBranch, cr.ID)
+	}
+
+	preStaged, stagedErr := gitProvider.HasStagedChanges()
+	if stagedErr != nil {
+		return "", stagedErr
+	}
+	if preStaged {
+		return "", fmt.Errorf("%w: unstage changes before running task checkpoint", ErrPreStagedChanges)
+	}
+
+	checkpointScope, checkpointChunks, scopeMode, stageErr := s.stageTaskCheckpointForDone(gitProvider, cr, taskIndex, taskID, opts)
+	if stageErr != nil {
+		return "", stageErr
+	}
+
+	hasStaged, stagedErr := gitProvider.HasStagedChanges()
+	if stagedErr != nil {
+		return "", stagedErr
+	}
+	if !hasStaged {
+		return "", fmt.Errorf("%w: no staged changes after applying scope", ErrNoTaskChanges)
+	}
+
+	commitMessage := buildTaskCheckpointMessage(cr, task, scopeMode, len(checkpointChunks))
+	if err := gitProvider.Commit(commitMessage); err != nil {
+		return "", err
+	}
+	sha, shaErr := gitProvider.HeadShortSHA()
+	if shaErr != nil {
+		return "", shaErr
+	}
+
+	servicetasks.ApplyCheckpointState(task, now, sha, commitMessage, checkpointScope, checkpointChunks)
+	if servicetasks.TaskContractBaselineIsEmpty(task.ContractBaseline) {
+		task.ContractBaseline = servicetasks.TaskContractBaselineFromContract(task.Contract, now, actor)
+	}
+
+	meta := map[string]string{
+		"commit":  sha,
+		"message": strings.SplitN(commitMessage, "\n", 2)[0],
+		"scope":   strings.Join(checkpointScope, ","),
+	}
+	if scopeMode == model.TaskScopeModeTaskContract {
+		meta["scope_source"] = model.TaskScopeModeTaskContract
+	}
+	if scopeMode == model.TaskScopeModePatchManifest {
+		meta["scope_source"] = model.TaskScopeModePatchManifest
+		meta["chunk_count"] = strconv.Itoa(len(checkpointChunks))
+	}
+	cr.Events = append(cr.Events, model.Event{
+		TS:      now,
+		Actor:   actor,
+		Type:    model.EventTypeTaskCheckpointed,
+		Summary: fmt.Sprintf("Checkpointed task %d as %s", taskID, sha),
+		Ref:     fmt.Sprintf("task:%d", taskID),
+		Meta:    meta,
+	})
+
+	return sha, nil
+}
+
+func (s *Service) stageTaskCheckpointForDone(gitProvider taskLifecycleGitProvider, cr *model.CR, taskIndex, taskID int, opts DoneTaskOptions) ([]string, []model.CheckpointChunk, string, error) {
+	if opts.StageAll {
+		dirty, dirtyErr := s.hasTaskWorkingTreeChanges(gitProvider)
+		if dirtyErr != nil {
+			return nil, nil, "", dirtyErr
+		}
+		if !dirty {
+			return nil, nil, "", fmt.Errorf("%w: task %d has no working tree changes", ErrNoTaskChanges, taskID)
+		}
+		if err := gitProvider.StageAll(); err != nil {
+			return nil, nil, "", err
+		}
+		return []string{"*"}, nil, model.TaskScopeModeAll, nil
+	}
+
+	if opts.FromContract {
+		normalizedScope, normalizeErr := s.normalizeContractScopePrefixes(cr.Subtasks[taskIndex].Contract.Scope)
+		if normalizeErr != nil {
+			return nil, nil, "", normalizeErr
+		}
+		paths, resolveErr := s.resolveTaskCheckpointPathsFromContract(gitProvider, normalizedScope)
+		if resolveErr != nil {
+			return nil, nil, "", resolveErr
+		}
+		if err := gitProvider.StagePaths(paths); err != nil {
+			return nil, nil, "", err
+		}
+		return paths, nil, model.TaskScopeModeTaskContract, nil
+	}
+
+	if strings.TrimSpace(opts.PatchFile) != "" {
+		patchPath, pathErr := s.normalizePatchFilePath(opts.PatchFile)
+		if pathErr != nil {
+			return nil, nil, "", pathErr
+		}
+		patchContent, readErr := readPatchManifestContent(patchPath)
+		if readErr != nil {
+			return nil, nil, "", fmt.Errorf("read patch file %q: %w", patchFileDisplayName(opts.PatchFile), readErr)
+		}
+		parsedChunks, parseErr := parsePatchChunks(patchContent)
+		if parseErr != nil {
+			return nil, nil, "", fmt.Errorf("%w: parse patch file: %v", ErrInvalidTaskScope, parseErr)
+		}
+		if len(parsedChunks) == 0 {
+			return nil, nil, "", fmt.Errorf("%w: patch file %q contains no hunks", ErrNoTaskChanges, patchFileDisplayName(opts.PatchFile))
+		}
+		if err := gitProvider.ApplyPatchToIndex(patchPath); err != nil {
+			return nil, nil, "", err
+		}
+		checkpointChunks := make([]model.CheckpointChunk, 0, len(parsedChunks))
+		for _, chunk := range parsedChunks {
+			checkpointChunks = append(checkpointChunks, model.CheckpointChunk{
+				ID:       chunk.ID,
+				Path:     chunk.Path,
+				OldStart: chunk.OldStart,
+				OldLines: chunk.OldLines,
+				NewStart: chunk.NewStart,
+				NewLines: chunk.NewLines,
+			})
+		}
+		return checkpointChunkPaths(parsedChunks), checkpointChunks, model.TaskScopeModePatchManifest, nil
+	}
+
+	normalizedPaths, normalizeErr := s.normalizeTaskScopePaths(opts.Paths)
+	if normalizeErr != nil {
+		return nil, nil, "", normalizeErr
+	}
+
+	changedPathFound := false
+	for _, scopePath := range normalizedPaths {
+		hasChanges, hasErr := gitProvider.PathHasChanges(scopePath)
+		if hasErr != nil {
+			return nil, nil, "", hasErr
+		}
+		if hasChanges {
+			changedPathFound = true
+			break
+		}
+	}
+	if !changedPathFound {
+		return nil, nil, "", fmt.Errorf("%w: none of the scoped paths have changes", ErrNoTaskChanges)
+	}
+	if err := gitProvider.StagePaths(normalizedPaths); err != nil {
+		return nil, nil, "", err
+	}
+	return normalizedPaths, nil, model.TaskScopeModePath, nil
+}
+
+func (s *Service) hasTaskWorkingTreeChanges(gitProvider taskLifecycleGitProvider) (bool, error) {
+	entries, err := gitProvider.WorkingTreeStatus()
+	if err != nil {
+		return false, err
+	}
+	for _, entry := range entries {
+		if s.isIgnorableWorktreeEntry(entry) {
+			continue
+		}
+		return true, nil
+	}
+	return false, nil
+}
+
+const maxPatchManifestBytes = 8 * 1024 * 1024
+
+func readPatchManifestContent(path string) (string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+
+	data, err := io.ReadAll(io.LimitReader(file, maxPatchManifestBytes+1))
+	if err != nil {
+		return "", err
+	}
+	if len(data) > maxPatchManifestBytes {
+		return "", fmt.Errorf("patch manifest exceeds %d bytes", maxPatchManifestBytes)
+	}
+	return string(data), nil
+}
+
+func patchFileDisplayName(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return "(patch-file)"
+	}
+	return filepath.Base(trimmed)
 }

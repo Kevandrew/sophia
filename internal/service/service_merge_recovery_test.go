@@ -52,7 +52,7 @@ func TestMergeConflictReturnsStructuredErrorAndStatus(t *testing.T) {
 	}
 	foundConflictEvent := false
 	for _, event := range loaded.Events {
-		if event.Type == "cr_merge_conflict" {
+		if event.Type == model.EventTypeCRMergeConflict {
 			foundConflictEvent = true
 			break
 		}
@@ -86,7 +86,7 @@ func TestAbortMergeClearsStateAndRecordsEvent(t *testing.T) {
 	}
 	foundAbortEvent := false
 	for _, event := range loaded.Events {
-		if event.Type == "cr_merge_aborted" {
+		if event.Type == model.EventTypeCRMergeAborted {
 			foundAbortEvent = true
 			break
 		}
@@ -129,10 +129,10 @@ func TestResumeMergeFinalizesAfterManualResolution(t *testing.T) {
 	foundResumedEvent := false
 	foundMergedEvent := false
 	for _, event := range merged.Events {
-		if event.Type == "cr_merge_resumed" {
+		if event.Type == model.EventTypeCRMergeResumed {
 			foundResumedEvent = true
 		}
-		if event.Type == "cr_merged" {
+		if event.Type == model.EventTypeCRMerged {
 			foundMergedEvent = true
 		}
 	}

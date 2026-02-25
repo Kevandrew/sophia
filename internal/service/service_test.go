@@ -153,7 +153,7 @@ func TestAddCRCreatesBranchAndCRFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadCR() error = %v", err)
 	}
-	if loaded.Title != "Bootstrap" || len(loaded.Events) == 0 || loaded.Events[0].Type != "cr_created" {
+	if loaded.Title != "Bootstrap" || len(loaded.Events) == 0 || loaded.Events[0].Type != model.EventTypeCRCreated {
 		t.Fatalf("unexpected loaded CR: %#v", loaded)
 	}
 	if loaded.UID != cr.UID {
@@ -404,7 +404,7 @@ func TestNoteAppendsAndUpdatesCR(t *testing.T) {
 	if len(cr.Notes) != 1 || cr.Notes[0] != "Refactored payment client" {
 		t.Fatalf("unexpected notes: %#v", cr.Notes)
 	}
-	if got := cr.Events[len(cr.Events)-1].Type; got != "note_added" {
+	if got := cr.Events[len(cr.Events)-1].Type; got != model.EventTypeNoteAdded {
 		t.Fatalf("expected last event note_added, got %q", got)
 	}
 }

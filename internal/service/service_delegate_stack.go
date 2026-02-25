@@ -80,7 +80,7 @@ func (s *Service) DelegateTaskToChild(parentCRID, taskID, childCRID int) (*Deleg
 	child.Events = append(child.Events, model.Event{
 		TS:      now,
 		Actor:   actor,
-		Type:    "task_delegation_received",
+		Type:    model.EventTypeTaskDelegationReceived,
 		Summary: fmt.Sprintf("Received delegated task from CR %d task %d", parent.ID, parentTask.ID),
 		Ref:     fmt.Sprintf("task:%d", childTaskID),
 		Meta: map[string]string{
@@ -104,7 +104,7 @@ func (s *Service) DelegateTaskToChild(parentCRID, taskID, childCRID int) (*Deleg
 	parent.Events = append(parent.Events, model.Event{
 		TS:      now,
 		Actor:   actor,
-		Type:    "task_delegated",
+		Type:    model.EventTypeTaskDelegated,
 		Summary: fmt.Sprintf("Delegated task %d to child CR %d", parentTask.ID, child.ID),
 		Ref:     fmt.Sprintf("task:%d", parentTask.ID),
 		Meta: map[string]string{
@@ -168,7 +168,7 @@ func (s *Service) UndelegateTaskFromChild(parentCRID, taskID, childCRID int) (*U
 	parent.Events = append(parent.Events, model.Event{
 		TS:      now,
 		Actor:   actor,
-		Type:    "task_undelegated",
+		Type:    model.EventTypeTaskUndelegated,
 		Summary: fmt.Sprintf("Removed delegation from task %d to child CR %d", taskID, childCRID),
 		Ref:     fmt.Sprintf("task:%d", taskID),
 		Meta: map[string]string{
@@ -408,7 +408,7 @@ func (s *Service) syncDelegatedTasksAfterChildMerge(childCRID int) error {
 			cr.Events = append(cr.Events, model.Event{
 				TS:      now,
 				Actor:   actor,
-				Type:    "task_done_auto",
+				Type:    model.EventTypeTaskDoneAuto,
 				Summary: fmt.Sprintf("Auto-completed delegated task %d after child CR merge", task.ID),
 				Ref:     fmt.Sprintf("task:%d", task.ID),
 				Meta: map[string]string{

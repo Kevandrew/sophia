@@ -631,11 +631,6 @@ func newCREditCmd() *cobra.Command {
 		Short: "Edit CR title/description with audit trail",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			id, err := parsePositiveIntArg(args[0], "id")
-			if err != nil {
-				return commandError(cmd, asJSON, err)
-			}
-
 			titleChanged := cmd.Flags().Changed("title")
 			descriptionChanged := cmd.Flags().Changed("description")
 			if !titleChanged && !descriptionChanged {
@@ -651,23 +646,20 @@ func newCREditCmd() *cobra.Command {
 			if descriptionChanged {
 				descriptionPtr = &description
 			}
-
-			svc, err := newService()
-			if err != nil {
-				return commandError(cmd, asJSON, err)
-			}
-			changedFields, err := svc.EditCR(id, titlePtr, descriptionPtr)
-			if err != nil {
-				return commandError(cmd, asJSON, err)
-			}
-			if asJSON {
-				return writeJSONSuccess(cmd, map[string]any{
-					"cr_id":          id,
-					"changed_fields": stringSliceOrEmpty(changedFields),
-				})
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Updated CR %d fields: %s\n", id, strings.Join(changedFields, ", "))
-			return nil
+			return withParsedIDAndService(cmd, asJSON, args[0], "id", func(id int, svc *service.Service) error {
+				changedFields, err := svc.EditCR(id, titlePtr, descriptionPtr)
+				if err != nil {
+					return commandError(cmd, asJSON, err)
+				}
+				if asJSON {
+					return writeJSONSuccess(cmd, map[string]any{
+						"cr_id":          id,
+						"changed_fields": stringSliceOrEmpty(changedFields),
+					})
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "Updated CR %d fields: %s\n", id, strings.Join(changedFields, ", "))
+				return nil
+			})
 		},
 	}
 
@@ -706,11 +698,6 @@ func newCRContractSetCmd() *cobra.Command {
 		Example: "  sophia cr contract set 25 --why \"Reduce merge churn\" --scope internal/service --scope internal/cli\n  sophia cr contract set 25 --risk-critical-scope internal/service --risk-tier-hint medium --risk-rationale \"Touches merge behavior\"\n  sophia cr contract set 25 --test-plan \"go test ./... && go vet ./...\" --rollback-plan \"Revert [CR-25] merge commit\"",
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			id, err := parsePositiveIntArg(args[0], "id")
-			if err != nil {
-				return commandError(cmd, asJSON, err)
-			}
-
 			patch := service.ContractPatch{}
 			if cmd.Flags().Changed("why") {
 				v := why
@@ -756,23 +743,20 @@ func newCRContractSetCmd() *cobra.Command {
 				err := fmt.Errorf("provide at least one contract field flag")
 				return commandError(cmd, asJSON, err)
 			}
-
-			svc, err := newService()
-			if err != nil {
-				return commandError(cmd, asJSON, err)
-			}
-			changed, err := svc.SetCRContract(id, patch)
-			if err != nil {
-				return commandError(cmd, asJSON, err)
-			}
-			if asJSON {
-				return writeJSONSuccess(cmd, map[string]any{
-					"cr_id":          id,
-					"changed_fields": stringSliceOrEmpty(changed),
-				})
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Updated CR %d contract fields: %s\n", id, strings.Join(changed, ", "))
-			return nil
+			return withParsedIDAndService(cmd, asJSON, args[0], "id", func(id int, svc *service.Service) error {
+				changed, err := svc.SetCRContract(id, patch)
+				if err != nil {
+					return commandError(cmd, asJSON, err)
+				}
+				if asJSON {
+					return writeJSONSuccess(cmd, map[string]any{
+						"cr_id":          id,
+						"changed_fields": stringSliceOrEmpty(changed),
+					})
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "Updated CR %d contract fields: %s\n", id, strings.Join(changed, ", "))
+				return nil
+			})
 		},
 	}
 
@@ -934,474 +918,6 @@ func newCRValidateCmd() *cobra.Command {
 	}
 
 	cmd.Flags().BoolVar(&record, "record", false, "Record validation event in CR history")
-	cmd.Flags().BoolVar(&asJSON, "json", false, "Output in JSON format")
-	return cmd
-}
-
-func newCRRedactCmd() *cobra.Command {
-	var noteIndex int
-	var eventIndex int
-	var reason string
-	var asJSON bool
-
-	cmd := &cobra.Command{
-		Use:   "redact <id>",
-		Short: "Redact CR note/event payload with audit event",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			id, err := parsePositiveIntArg(args[0], "id")
-			if err != nil {
-				return commandError(cmd, asJSON, err)
-			}
-			reason = strings.TrimSpace(reason)
-			if reason == "" {
-				err := fmt.Errorf("--reason is required")
-				return commandError(cmd, asJSON, err)
-			}
-
-			noteChanged := cmd.Flags().Changed("note-index")
-			eventChanged := cmd.Flags().Changed("event-index")
-			if noteChanged == eventChanged {
-				err := fmt.Errorf("provide exactly one of --note-index or --event-index")
-				return commandError(cmd, asJSON, err)
-			}
-
-			svc, err := newService()
-			if err != nil {
-				return commandError(cmd, asJSON, err)
-			}
-			if noteChanged {
-				if err := svc.RedactCRNote(id, noteIndex, reason); err != nil {
-					return commandError(cmd, asJSON, err)
-				}
-				if asJSON {
-					return writeJSONSuccess(cmd, map[string]any{
-						"cr_id":  id,
-						"target": "note",
-						"index":  noteIndex,
-						"reason": reason,
-					})
-				}
-				fmt.Fprintf(cmd.OutOrStdout(), "Redacted note #%d in CR %d\n", noteIndex, id)
-				return nil
-			}
-			if err := svc.RedactCREvent(id, eventIndex, reason); err != nil {
-				return commandError(cmd, asJSON, err)
-			}
-			if asJSON {
-				return writeJSONSuccess(cmd, map[string]any{
-					"cr_id":  id,
-					"target": "event",
-					"index":  eventIndex,
-					"reason": reason,
-				})
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Redacted event #%d in CR %d\n", eventIndex, id)
-			return nil
-		},
-	}
-
-	cmd.Flags().IntVar(&noteIndex, "note-index", 0, "1-based note index to redact")
-	cmd.Flags().IntVar(&eventIndex, "event-index", 0, "1-based event index to redact")
-	cmd.Flags().StringVar(&reason, "reason", "", "Redaction reason (required)")
-	cmd.Flags().BoolVar(&asJSON, "json", false, "Output in JSON format")
-	return cmd
-}
-
-func newCRHistoryCmd() *cobra.Command {
-	var showRedacted bool
-	var asJSON bool
-
-	cmd := &cobra.Command{
-		Use:   "history <id>",
-		Short: "Show CR notes/events timeline with indices",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			id, svc, err := parseIDAndService(args[0], "id")
-			if err != nil {
-				return commandError(cmd, asJSON, err)
-			}
-			history, err := svc.HistoryCR(id, showRedacted)
-			if err != nil {
-				return commandError(cmd, asJSON, err)
-			}
-			if asJSON {
-				return writeJSONSuccess(cmd, historyToJSONMap(history, showRedacted))
-			}
-
-			fmt.Fprintf(cmd.OutOrStdout(), "CR %d: %s\n", history.CRID, history.Title)
-			fmt.Fprintf(cmd.OutOrStdout(), "Status: %s\n", history.Status)
-			fmt.Fprintf(cmd.OutOrStdout(), "Intent: %s\n", nonEmpty(history.Description, "(none)"))
-
-			fmt.Fprintln(cmd.OutOrStdout(), "\nNotes:")
-			if len(history.Notes) == 0 {
-				fmt.Fprintln(cmd.OutOrStdout(), "- (none)")
-			} else {
-				for _, note := range history.Notes {
-					suffix := ""
-					if note.Redacted {
-						suffix = " [redacted]"
-					}
-					fmt.Fprintf(cmd.OutOrStdout(), "- #%d %s%s\n", note.Index, note.Text, suffix)
-				}
-			}
-
-			fmt.Fprintln(cmd.OutOrStdout(), "\nEvidence:")
-			if len(history.Evidence) == 0 {
-				fmt.Fprintln(cmd.OutOrStdout(), "- (none)")
-			} else {
-				for _, evidence := range history.Evidence {
-					fmt.Fprintf(cmd.OutOrStdout(), "- #%d %s %s %s: %s\n", evidence.Index, nonEmpty(strings.TrimSpace(evidence.TS), "-"), nonEmpty(strings.TrimSpace(evidence.Type), "-"), nonEmpty(strings.TrimSpace(evidence.Actor), "-"), nonEmpty(strings.TrimSpace(evidence.Summary), "-"))
-					if strings.TrimSpace(evidence.Scope) != "" {
-						fmt.Fprintf(cmd.OutOrStdout(), "  scope: %s\n", evidence.Scope)
-					}
-					if strings.TrimSpace(evidence.Command) != "" {
-						fmt.Fprintf(cmd.OutOrStdout(), "  command: %s\n", evidence.Command)
-					}
-					if evidence.ExitCode != nil {
-						fmt.Fprintf(cmd.OutOrStdout(), "  exit_code: %d\n", *evidence.ExitCode)
-					}
-					if strings.TrimSpace(evidence.OutputHash) != "" {
-						fmt.Fprintf(cmd.OutOrStdout(), "  output_hash: %s\n", evidence.OutputHash)
-					}
-					if len(evidence.Attachments) > 0 {
-						fmt.Fprintf(cmd.OutOrStdout(), "  attachments: %s\n", strings.Join(evidence.Attachments, ", "))
-					}
-				}
-			}
-
-			fmt.Fprintln(cmd.OutOrStdout(), "\nEvents:")
-			if len(history.Events) == 0 {
-				fmt.Fprintln(cmd.OutOrStdout(), "- (none)")
-			} else {
-				for _, event := range history.Events {
-					suffix := ""
-					if event.Redacted {
-						suffix = " [redacted]"
-					}
-					fmt.Fprintf(cmd.OutOrStdout(), "- #%d %s %s %s: %s%s\n", event.Index, event.TS, event.Type, event.Actor, event.Summary, suffix)
-					if strings.TrimSpace(event.Ref) != "" {
-						fmt.Fprintf(cmd.OutOrStdout(), "  ref: %s\n", event.Ref)
-					}
-					if showRedacted && strings.TrimSpace(event.RedactionReason) != "" {
-						fmt.Fprintf(cmd.OutOrStdout(), "  redaction_reason: %s\n", event.RedactionReason)
-					}
-				}
-			}
-			return nil
-		},
-	}
-
-	cmd.Flags().BoolVar(&showRedacted, "show-redacted", false, "Show redaction metadata (payload remains redacted)")
-	cmd.Flags().BoolVar(&asJSON, "json", false, "Output in JSON format")
-	return cmd
-}
-
-func newCRCurrentCmd() *cobra.Command {
-	var asJSON bool
-
-	cmd := &cobra.Command{
-		Use:   "current",
-		Short: "Show the active CR context for the current branch",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			svc, err := newService()
-			if err != nil {
-				return commandError(cmd, asJSON, err)
-			}
-			ctx, err := svc.CurrentCR()
-			if err != nil {
-				if errorsIs(err, service.ErrNoActiveCRContext) {
-					fmt.Fprintln(cmd.OutOrStdout(), "No active CR context on current branch.")
-				}
-				return commandError(cmd, asJSON, err)
-			}
-			if asJSON {
-				return writeJSONSuccess(cmd, map[string]any{
-					"branch": ctx.Branch,
-					"cr": map[string]any{
-						"id":           ctx.CR.ID,
-						"uid":          ctx.CR.UID,
-						"title":        ctx.CR.Title,
-						"status":       ctx.CR.Status,
-						"base_branch":  ctx.CR.BaseBranch,
-						"base_ref":     ctx.CR.BaseRef,
-						"base_commit":  ctx.CR.BaseCommit,
-						"parent_cr_id": ctx.CR.ParentCRID,
-						"branch":       ctx.CR.Branch,
-					},
-				})
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Branch: %s\n", ctx.Branch)
-			fmt.Fprintf(cmd.OutOrStdout(), "CR: %d\n", ctx.CR.ID)
-			fmt.Fprintf(cmd.OutOrStdout(), "Title: %s\n", ctx.CR.Title)
-			fmt.Fprintf(cmd.OutOrStdout(), "Status: %s\n", ctx.CR.Status)
-			fmt.Fprintf(cmd.OutOrStdout(), "Base: %s\n", ctx.CR.BaseBranch)
-			fmt.Fprintf(cmd.OutOrStdout(), "Base Ref: %s\n", nonEmpty(ctx.CR.BaseRef, "(missing)"))
-			fmt.Fprintf(cmd.OutOrStdout(), "Base Commit: %s\n", nonEmpty(ctx.CR.BaseCommit, "(missing)"))
-			fmt.Fprintf(cmd.OutOrStdout(), "Parent CR: %d\n", ctx.CR.ParentCRID)
-			return nil
-		},
-	}
-
-	cmd.Flags().BoolVar(&asJSON, "json", false, "Output in JSON format")
-	return cmd
-}
-
-func newCRSwitchCmd() *cobra.Command {
-	var asJSON bool
-
-	cmd := &cobra.Command{
-		Use:   "switch <id>",
-		Short: "Switch to the branch for a CR",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			id, err := parsePositiveIntArg(args[0], "id")
-			if err != nil {
-				return commandError(cmd, asJSON, err)
-			}
-			svc, err := newService()
-			if err != nil {
-				return commandError(cmd, asJSON, err)
-			}
-			cr, err := svc.SwitchCR(id)
-			if err != nil {
-				if !asJSON && errorsIs(err, service.ErrWorkingTreeDirty) {
-					fmt.Fprintln(cmd.OutOrStdout(), "Working tree is dirty. Commit changes or run `git stash`, then retry.")
-				} else if !asJSON && errorsIs(err, service.ErrBranchInOtherWorktree) {
-					fmt.Fprintln(cmd.OutOrStdout(), "Target branch is already checked out in another worktree. Run this command from that worktree path.")
-				}
-				return commandError(cmd, asJSON, err)
-			}
-			if asJSON {
-				return writeJSONSuccess(cmd, map[string]any{
-					"cr_id":  cr.ID,
-					"branch": cr.Branch,
-				})
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Switched to CR %d branch %s\n", cr.ID, cr.Branch)
-			return nil
-		},
-	}
-	cmd.Flags().BoolVar(&asJSON, "json", false, "Output in JSON format")
-	return cmd
-}
-
-func newCRReopenCmd() *cobra.Command {
-	var asJSON bool
-
-	cmd := &cobra.Command{
-		Use:   "reopen <id>",
-		Short: "Reopen a merged CR and switch to its branch",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			id, err := parsePositiveIntArg(args[0], "id")
-			if err != nil {
-				return commandError(cmd, asJSON, err)
-			}
-			svc, err := newService()
-			if err != nil {
-				return commandError(cmd, asJSON, err)
-			}
-			cr, err := svc.ReopenCR(id)
-			if err != nil {
-				if !asJSON && errorsIs(err, service.ErrWorkingTreeDirty) {
-					fmt.Fprintln(cmd.OutOrStdout(), "Working tree is dirty. Commit changes or run `git stash`, then retry.")
-				} else if !asJSON && errorsIs(err, service.ErrBranchInOtherWorktree) {
-					fmt.Fprintln(cmd.OutOrStdout(), "Target branch is already checked out in another worktree. Reopen from that worktree path.")
-				}
-				return commandError(cmd, asJSON, err)
-			}
-			if asJSON {
-				return writeJSONSuccess(cmd, map[string]any{
-					"cr_id":  cr.ID,
-					"branch": cr.Branch,
-					"status": cr.Status,
-				})
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Reopened CR %d on branch %s\n", cr.ID, cr.Branch)
-			return nil
-		},
-	}
-	cmd.Flags().BoolVar(&asJSON, "json", false, "Output in JSON format")
-	return cmd
-}
-
-func newCRBaseCmd() *cobra.Command {
-	baseCmd := &cobra.Command{
-		Use:   "base",
-		Short: "Manage per-CR base ref settings",
-	}
-	baseCmd.AddCommand(newCRBaseSetCmd())
-	return baseCmd
-}
-
-func newCRBaseSetCmd() *cobra.Command {
-	var ref string
-	var rebase bool
-	var asJSON bool
-
-	cmd := &cobra.Command{
-		Use:   "set <id>",
-		Short: "Set a CR base ref with optional immediate rebase",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			id, err := parsePositiveIntArg(args[0], "id")
-			if err != nil {
-				return commandError(cmd, asJSON, err)
-			}
-			ref = strings.TrimSpace(ref)
-			if ref == "" {
-				err := fmt.Errorf("--ref is required")
-				return commandError(cmd, asJSON, err)
-			}
-
-			svc, err := newService()
-			if err != nil {
-				return commandError(cmd, asJSON, err)
-			}
-			cr, err := svc.SetCRBase(id, ref, rebase)
-			if err != nil {
-				return commandError(cmd, asJSON, err)
-			}
-			if asJSON {
-				return writeJSONSuccess(cmd, map[string]any{
-					"cr_id":       cr.ID,
-					"base_ref":    cr.BaseRef,
-					"base_commit": cr.BaseCommit,
-					"rebased":     rebase,
-				})
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Updated CR %d base to %s (%s)\n", cr.ID, cr.BaseRef, nonEmpty(cr.BaseCommit, "-"))
-			return nil
-		},
-	}
-
-	cmd.Flags().StringVar(&ref, "ref", "", "Git ref to use as CR base")
-	cmd.Flags().BoolVar(&rebase, "rebase", false, "Rebase CR branch onto the new base ref")
-	cmd.Flags().BoolVar(&asJSON, "json", false, "Output in JSON format")
-	return cmd
-}
-
-func newCRRestackCmd() *cobra.Command {
-	var asJSON bool
-
-	cmd := &cobra.Command{
-		Use:   "restack <id>",
-		Short: "Restack a child CR onto its parent effective head",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			id, err := parsePositiveIntArg(args[0], "id")
-			if err != nil {
-				return commandError(cmd, asJSON, err)
-			}
-			svc, err := newService()
-			if err != nil {
-				return commandError(cmd, asJSON, err)
-			}
-			cr, err := svc.RestackCR(id)
-			if err != nil {
-				return commandError(cmd, asJSON, err)
-			}
-			if asJSON {
-				return writeJSONSuccess(cmd, map[string]any{
-					"cr_id":       cr.ID,
-					"base_ref":    cr.BaseRef,
-					"base_commit": cr.BaseCommit,
-				})
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Restacked CR %d onto base %s (%s)\n", cr.ID, nonEmpty(cr.BaseRef, "-"), nonEmpty(cr.BaseCommit, "-"))
-			return nil
-		},
-	}
-	cmd.Flags().BoolVar(&asJSON, "json", false, "Output in JSON format")
-	return cmd
-}
-
-func newCRRefreshCmd() *cobra.Command {
-	var strategy string
-	var dryRun bool
-	var asJSON bool
-
-	cmd := &cobra.Command{
-		Use:   "refresh <id>",
-		Short: "Refresh a CR onto latest base/parent with an explicit strategy",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			id, err := parsePositiveIntArg(args[0], "id")
-			if err != nil {
-				return commandError(cmd, asJSON, err)
-			}
-			svc, err := newService()
-			if err != nil {
-				return commandError(cmd, asJSON, err)
-			}
-			view, err := svc.RefreshCR(id, service.RefreshOptions{
-				Strategy: strategy,
-				DryRun:   dryRun,
-			})
-			if err != nil {
-				return commandError(cmd, asJSON, err)
-			}
-			if asJSON {
-				return writeJSONSuccess(cmd, crRefreshToJSONMap(view))
-			}
-
-			action := "Refreshed"
-			if view.DryRun {
-				action = "Would refresh"
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "%s CR %d using strategy %s\n", action, view.CRID, view.Strategy)
-			fmt.Fprintf(cmd.OutOrStdout(), "Base Ref: %s\n", nonEmpty(strings.TrimSpace(view.BaseRef), "-"))
-			fmt.Fprintf(cmd.OutOrStdout(), "Target Ref: %s\n", nonEmpty(strings.TrimSpace(view.TargetRef), "-"))
-			fmt.Fprintf(cmd.OutOrStdout(), "Before Head: %s\n", nonEmpty(strings.TrimSpace(view.BeforeHead), "-"))
-			if strings.TrimSpace(view.AfterHead) != "" {
-				fmt.Fprintf(cmd.OutOrStdout(), "After Head: %s\n", strings.TrimSpace(view.AfterHead))
-			}
-			if len(view.Warnings) > 0 {
-				fmt.Fprintln(cmd.OutOrStdout(), "Warnings:")
-				for _, warning := range view.Warnings {
-					fmt.Fprintf(cmd.OutOrStdout(), "- %s\n", warning)
-				}
-			}
-			return nil
-		},
-	}
-
-	cmd.Flags().StringVar(&strategy, "strategy", service.RefreshStrategyAuto, "Refresh strategy: auto|restack|rebase")
-	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview strategy/target without mutating branch history")
-	cmd.Flags().BoolVar(&asJSON, "json", false, "Output in JSON format")
-	return cmd
-}
-
-func newCRNoteCmd() *cobra.Command {
-	var asJSON bool
-
-	cmd := &cobra.Command{
-		Use:   "note <id> <note>",
-		Short: "Append a note to a change request",
-		Args:  cobra.ExactArgs(2),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			id, err := parsePositiveIntArg(args[0], "id")
-			if err != nil {
-				return commandError(cmd, asJSON, err)
-			}
-			svc, err := newService()
-			if err != nil {
-				return commandError(cmd, asJSON, err)
-			}
-			if err := svc.AddNote(id, args[1]); err != nil {
-				return commandError(cmd, asJSON, err)
-			}
-			if asJSON {
-				return writeJSONSuccess(cmd, map[string]any{
-					"cr_id": id,
-					"note":  args[1],
-				})
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Added note to CR %d\n", id)
-			return nil
-		},
-	}
 	cmd.Flags().BoolVar(&asJSON, "json", false, "Output in JSON format")
 	return cmd
 }
