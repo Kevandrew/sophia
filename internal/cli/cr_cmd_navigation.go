@@ -258,23 +258,37 @@ func newCRNoteCmd() *cobra.Command {
 	var asJSON bool
 
 	cmd := &cobra.Command{
-		Use:   "note <id> <note>",
+		Use:   "note <note>",
 		Short: "Append a note to a change request",
-		Args:  cobra.ExactArgs(2),
+		Args:  cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return withParsedIDAndService(cmd, asJSON, args[0], "id", func(id int, svc *service.Service) error {
-				if err := svc.AddNote(id, args[1]); err != nil {
-					return commandError(cmd, asJSON, err)
-				}
-				if asJSON {
-					return writeJSONSuccess(cmd, map[string]any{
-						"cr_id": id,
-						"note":  args[1],
-					})
-				}
-				fmt.Fprintf(cmd.OutOrStdout(), "Added note to CR %d\n", id)
-				return nil
-			})
+			svc, err := newServiceForCmd(cmd)
+			if err != nil {
+				return commandError(cmd, asJSON, err)
+			}
+			var id int
+			note := ""
+			if len(args) == 1 {
+				id, err = resolveCurrentCRID(svc)
+				note = args[0]
+			} else {
+				id, err = resolveCRIDFromSelector(svc, args[0], "id")
+				note = args[1]
+			}
+			if err != nil {
+				return commandError(cmd, asJSON, err)
+			}
+			if err := svc.AddNote(id, note); err != nil {
+				return commandError(cmd, asJSON, err)
+			}
+			if asJSON {
+				return writeJSONSuccess(cmd, map[string]any{
+					"cr_id": id,
+					"note":  note,
+				})
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "Added note to CR %d\n", id)
+			return nil
 		},
 	}
 	cmd.Flags().BoolVar(&asJSON, "json", false, "Output in JSON format")

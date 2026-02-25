@@ -33,57 +33,44 @@ func newCREvidenceAddCmd() *cobra.Command {
 	var asJSON bool
 
 	cmd := &cobra.Command{
-		Use:   "add <id>",
+		Use:   "add [id]",
 		Short: "Add an evidence ledger entry to a CR",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			id, err := parsePositiveIntArg(args[0], "id")
-			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
+			return withOptionalCRIDAndService(cmd, asJSON, args, "id", func(id int, svc *service.Service) error {
+				combinedSummary := strings.TrimSpace(summary)
+				if combinedSummary == "" {
+					combinedSummary = strings.TrimSpace(text)
 				}
-				return err
-			}
-			svc, err := newServiceForCmd(cmd)
-			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
+				var exitCodePtr *int
+				if cmd.Flags().Changed("exit-code") {
+					value := exitCode
+					exitCodePtr = &value
 				}
-				return err
-			}
-
-			combinedSummary := strings.TrimSpace(summary)
-			if combinedSummary == "" {
-				combinedSummary = strings.TrimSpace(text)
-			}
-			var exitCodePtr *int
-			if cmd.Flags().Changed("exit-code") {
-				value := exitCode
-				exitCodePtr = &value
-			}
-			entry, err := svc.AddEvidence(id, service.AddEvidenceOptions{
-				Type:        evidenceType,
-				Scope:       scope,
-				Summary:     combinedSummary,
-				Command:     command,
-				Capture:     capture,
-				ExitCode:    exitCodePtr,
-				Attachments: append([]string(nil), attachments...),
-			})
-			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
-			}
-			if asJSON {
-				return writeJSONSuccess(cmd, map[string]any{
-					"cr_id":    id,
-					"evidence": evidenceEntryToJSONMap(*entry),
+				entry, err := svc.AddEvidence(id, service.AddEvidenceOptions{
+					Type:        evidenceType,
+					Scope:       scope,
+					Summary:     combinedSummary,
+					Command:     command,
+					Capture:     capture,
+					ExitCode:    exitCodePtr,
+					Attachments: append([]string(nil), attachments...),
 				})
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Added %s evidence to CR %d\n", entry.Type, id)
-			return nil
+				if err != nil {
+					if asJSON {
+						return writeJSONError(cmd, err)
+					}
+					return err
+				}
+				if asJSON {
+					return writeJSONSuccess(cmd, map[string]any{
+						"cr_id":    id,
+						"evidence": evidenceEntryToJSONMap(*entry),
+					})
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "Added %s evidence to CR %d\n", entry.Type, id)
+				return nil
+			})
 		},
 	}
 
