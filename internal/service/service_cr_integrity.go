@@ -17,13 +17,26 @@ func (s *Service) DoctorCR(id int) (*CRDoctorReport, error) {
 	if err != nil {
 		return nil, err
 	}
-	if _, err := s.ensureCRBaseFields(cr, true); err != nil {
+	cr, err = s.ensureCRBaseFieldsPersisted(cr)
+	if err != nil {
 		return nil, err
 	}
 	return s.buildCRDoctorReport(cr)
 }
 
 func (s *Service) ReconcileCR(id int, opts ReconcileCROptions) (*ReconcileCRReport, error) {
+	var report *ReconcileCRReport
+	if err := s.withMutationLock(func() error {
+		var err error
+		report, err = s.reconcileCRUnlocked(id, opts)
+		return err
+	}); err != nil {
+		return nil, err
+	}
+	return report, nil
+}
+
+func (s *Service) reconcileCRUnlocked(id int, opts ReconcileCROptions) (*ReconcileCRReport, error) {
 	cr, err := s.store.LoadCR(id)
 	if err != nil {
 		return nil, err
@@ -31,7 +44,7 @@ func (s *Service) ReconcileCR(id int, opts ReconcileCROptions) (*ReconcileCRRepo
 	if guardErr := s.ensureNoMergeInProgressForCR(cr); guardErr != nil {
 		return nil, guardErr
 	}
-	if _, err := s.ensureCRBaseFields(cr, true); err != nil {
+	if _, err := s.ensureCRBaseFields(cr, false); err != nil {
 		return nil, err
 	}
 	now := s.timestamp()
