@@ -8,6 +8,7 @@ import (
 	"testing"
 )
 
+// Integration coverage: merge recovery depends on real git conflict state transitions.
 func TestMergeConflictReturnsStructuredErrorAndStatus(t *testing.T) {
 	svc, cr, _ := setupMergeConflictScenario(t)
 

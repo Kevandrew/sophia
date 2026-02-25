@@ -11,6 +11,7 @@ import (
 	"sophia/internal/model"
 )
 
+// Integration coverage: archive behavior depends on real git/worktree merge semantics.
 type mergeRuntimeGitAdapter struct {
 	*gitx.Client
 }
