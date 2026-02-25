@@ -30,7 +30,7 @@ func (s *Service) ReviewCR(id int) (*Review, error) {
 	if err != nil {
 		return nil, err
 	}
-	diff, err := s.summarizeCRDiff(cr)
+	diff, err := s.summarizeCRDiffWithPolicy(cr, policy)
 	if err != nil {
 		if errors.Is(err, ErrCRBranchContextUnavailable) {
 			diff = &diffSummary{}
@@ -86,7 +86,7 @@ func (s *Service) mergeCRWithWarningsUnlocked(id int, keepBranch bool, overrideR
 	if _, err := ensureCRUID(cr); err != nil {
 		return "", warnings, err
 	}
-	if _, err := s.ensureCRBaseFields(cr, true); err != nil {
+	if _, err := s.ensureCRBaseFields(cr, false); err != nil {
 		return "", warnings, err
 	}
 	if guardErr := s.ensureNoMergeInProgressForCR(cr); guardErr != nil {
@@ -105,14 +105,9 @@ func (s *Service) mergeCRWithWarningsUnlocked(id int, keepBranch bool, overrideR
 	if !s.git.BranchExists(cr.Branch) {
 		return "", warnings, fmt.Errorf("cr branch %q does not exist", cr.Branch)
 	}
-	archiveConfig, err := s.archivePolicyConfig()
+	archiveConfig, archiveEnabled, err := s.resolveMergeArchiveConfig()
 	if err != nil {
 		return "", warnings, err
-	}
-	if archivePolicyEnabled(archiveConfig) {
-		if err := s.requireArchiveConfigSupported(archiveConfig); err != nil {
-			return "", warnings, err
-		}
 	}
 
 	mergeGit, worktreePath, err := s.effectiveMergeGitForCR(cr)
@@ -170,7 +165,7 @@ func (s *Service) mergeCRWithWarningsUnlocked(id int, keepBranch bool, overrideR
 		return "", warnings, err
 	}
 	if inProgress {
-		if archivePolicyEnabled(archiveConfig) {
+		if archiveEnabled {
 			mergeHead, mergeHeadErr := mergeGit.MergeHeadSHA()
 			if mergeHeadErr != nil {
 				return "", warnings, mergeHeadErr
@@ -185,21 +180,15 @@ func (s *Service) mergeCRWithWarningsUnlocked(id int, keepBranch bool, overrideR
 		if err := mergeGit.Commit(msg); err != nil {
 			return "", warnings, err
 		}
-	} else if archivePolicyEnabled(archiveConfig) {
+	} else if archiveEnabled {
 		warnings = append(warnings, fmt.Sprintf("Skipped archive write for CR %d because merge produced no new commit", cr.ID))
 	}
 
-	if !keepBranch {
-		crOwner, ownerErr := s.branchOwnerWorktree(cr.Branch)
-		if ownerErr != nil {
-			return "", warnings, ownerErr
-		}
-		if crOwner != nil {
-			warnings = append(warnings, fmt.Sprintf("Kept branch %s because it is checked out in worktree %s", cr.Branch, crOwner.Path))
-		} else if err := s.git.DeleteBranch(cr.Branch, true); err != nil {
-			return "", warnings, err
-		}
+	branchWarnings, err := s.maybeDeleteMergedCRBranch(cr.Branch, keepBranch)
+	if err != nil {
+		return "", warnings, err
 	}
+	warnings = append(warnings, branchWarnings...)
 
 	sha, err := mergeGit.HeadShortSHA()
 	if err != nil {
@@ -218,7 +207,7 @@ func (s *Service) MergeStatusCR(id int) (*MergeStatusView, error) {
 	if err != nil {
 		return nil, err
 	}
-	if _, err := s.ensureCRBaseFields(cr, true); err != nil {
+	if _, err := s.ensureCRBaseFields(cr, false); err != nil {
 		return nil, err
 	}
 	mergeGit, worktreePath, err := s.effectiveMergeGitForCR(cr)
@@ -363,14 +352,9 @@ func (s *Service) resumeMergeCRUnlocked(id int, keepBranch bool, overrideReason 
 	if err != nil {
 		return "", nil, err
 	}
-	archiveConfig, err := s.archivePolicyConfig()
+	archiveConfig, archiveEnabled, err := s.resolveMergeArchiveConfig()
 	if err != nil {
 		return "", nil, err
-	}
-	if archivePolicyEnabled(archiveConfig) {
-		if err := s.requireArchiveConfigSupported(archiveConfig); err != nil {
-			return "", nil, err
-		}
 	}
 
 	mergeGit, _, err := s.effectiveMergeGitForCR(cr)
@@ -379,7 +363,7 @@ func (s *Service) resumeMergeCRUnlocked(id int, keepBranch bool, overrideReason 
 	}
 	actor := mergeGit.Actor()
 	mergedAt := s.timestamp()
-	if archivePolicyEnabled(archiveConfig) {
+	if archiveEnabled {
 		baseParent, baseParentErr := mergeGit.ResolveRef("HEAD")
 		if baseParentErr != nil {
 			return "", nil, baseParentErr
@@ -399,17 +383,11 @@ func (s *Service) resumeMergeCRUnlocked(id int, keepBranch bool, overrideReason 
 		return "", nil, err
 	}
 	warnings := []string{}
-	if !keepBranch {
-		crOwner, ownerErr := s.branchOwnerWorktree(cr.Branch)
-		if ownerErr != nil {
-			return "", warnings, ownerErr
-		}
-		if crOwner != nil {
-			warnings = append(warnings, fmt.Sprintf("Kept branch %s because it is checked out in worktree %s", cr.Branch, crOwner.Path))
-		} else if err := s.git.DeleteBranch(cr.Branch, true); err != nil {
-			return "", warnings, err
-		}
+	branchWarnings, err := s.maybeDeleteMergedCRBranch(cr.Branch, keepBranch)
+	if err != nil {
+		return "", warnings, err
 	}
+	warnings = append(warnings, branchWarnings...)
 	sha, err := mergeGit.HeadShortSHA()
 	if err != nil {
 		return "", warnings, err
@@ -418,6 +396,37 @@ func (s *Service) resumeMergeCRUnlocked(id int, keepBranch bool, overrideReason 
 		return "", warnings, err
 	}
 	return sha, warnings, nil
+}
+
+func (s *Service) resolveMergeArchiveConfig() (model.PolicyArchive, bool, error) {
+	archiveConfig, err := s.archivePolicyConfig()
+	if err != nil {
+		return model.PolicyArchive{}, false, err
+	}
+	enabled := archivePolicyEnabled(archiveConfig)
+	if enabled {
+		if err := s.requireArchiveConfigSupported(archiveConfig); err != nil {
+			return model.PolicyArchive{}, false, err
+		}
+	}
+	return archiveConfig, enabled, nil
+}
+
+func (s *Service) maybeDeleteMergedCRBranch(branch string, keepBranch bool) ([]string, error) {
+	if keepBranch {
+		return nil, nil
+	}
+	crOwner, ownerErr := s.branchOwnerWorktree(branch)
+	if ownerErr != nil {
+		return nil, ownerErr
+	}
+	if crOwner != nil {
+		return []string{fmt.Sprintf("Kept branch %s because it is checked out in worktree %s", branch, crOwner.Path)}, nil
+	}
+	if err := s.git.DeleteBranch(branch, true); err != nil {
+		return nil, err
+	}
+	return nil, nil
 }
 
 func (s *Service) writeAutomaticCRArchiveForMerge(mergeGit *gitx.Client, cr *model.CR, archiveConfig model.PolicyArchive, actor, mergedAt, baseParent, crParent string, reuseExisting bool) error {
@@ -477,7 +486,7 @@ func (s *Service) prepareMergePreflight(id int, cr *model.CR, overrideReason str
 	if err != nil {
 		return nil, err
 	}
-	diff, err := s.summarizeCRDiff(cr)
+	diff, err := s.summarizeCRDiffWithPolicy(cr, policy)
 	if err != nil {
 		return nil, err
 	}
@@ -523,8 +532,8 @@ func (s *Service) finalizeCRMergedState(cr *model.CR, validation *ValidationRepo
 		files, diffErr := s.diffNamesForCR(cr)
 		if diffErr == nil {
 			cr.FilesTouchedCount = len(files)
-		} else if err != nil {
-			return err
+		} else {
+			return diffErr
 		}
 	}
 	cr.Status = model.StatusMerged
@@ -725,7 +734,8 @@ func (s *Service) CurrentCR() (*CurrentCRContext, error) {
 	if err != nil {
 		return nil, err
 	}
-	if _, err := s.ensureCRBaseFields(cr, true); err != nil {
+	cr, err = s.ensureCRBaseFieldsPersisted(cr)
+	if err != nil {
 		return nil, err
 	}
 	return &CurrentCRContext{Branch: branch, CR: cr}, nil
@@ -766,6 +776,18 @@ func (s *Service) resolveCRFromBranch(branch string) (*model.CR, error) {
 }
 
 func (s *Service) SwitchCR(id int) (*model.CR, error) {
+	var cr *model.CR
+	if err := s.withMutationLock(func() error {
+		var err error
+		cr, err = s.switchCRUnlocked(id)
+		return err
+	}); err != nil {
+		return nil, err
+	}
+	return cr, nil
+}
+
+func (s *Service) switchCRUnlocked(id int) (*model.CR, error) {
 	if dirty, summary, err := s.workingTreeDirtySummary(); err != nil {
 		return nil, err
 	} else if dirty {
@@ -776,7 +798,7 @@ func (s *Service) SwitchCR(id int) (*model.CR, error) {
 	if err != nil {
 		return nil, err
 	}
-	if _, err := s.ensureCRBaseFields(cr, true); err != nil {
+	if _, err := s.ensureCRBaseFields(cr, false); err != nil {
 		return nil, err
 	}
 	if s.git.BranchExists(cr.Branch) {
@@ -821,6 +843,18 @@ func (s *Service) SwitchCR(id int) (*model.CR, error) {
 }
 
 func (s *Service) ReopenCR(id int) (*model.CR, error) {
+	var cr *model.CR
+	if err := s.withMutationLock(func() error {
+		var err error
+		cr, err = s.reopenCRUnlocked(id)
+		return err
+	}); err != nil {
+		return nil, err
+	}
+	return cr, nil
+}
+
+func (s *Service) reopenCRUnlocked(id int) (*model.CR, error) {
 	if dirty, summary, err := s.workingTreeDirtySummary(); err != nil {
 		return nil, err
 	} else if dirty {
@@ -831,7 +865,7 @@ func (s *Service) ReopenCR(id int) (*model.CR, error) {
 	if err != nil {
 		return nil, err
 	}
-	if _, err := s.ensureCRBaseFields(cr, true); err != nil {
+	if _, err := s.ensureCRBaseFields(cr, false); err != nil {
 		return nil, err
 	}
 	if cr.Status != model.StatusMerged {
