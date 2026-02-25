@@ -278,3 +278,13 @@ func TestWithMutationLockRejectsNilCallback(t *testing.T) {
 		t.Fatalf("expected ErrInvalidArgument for nil callback, got %v", err)
 	}
 }
+
+func TestWithMutationLockPathRejectsEmptyPath(t *testing.T) {
+	s := New(t.TempDir())
+	if err := s.Init("main", model.MetadataModeLocal); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	if err := s.WithMutationLockPath(" ", time.Second, func() error { return nil }); !errors.Is(err, ErrInvalidArgument) {
+		t.Fatalf("expected ErrInvalidArgument for empty lock path, got %v", err)
+	}
+}
