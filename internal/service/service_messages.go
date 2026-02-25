@@ -25,6 +25,15 @@ func indexOfTask(tasks []model.Subtask, taskID int) int {
 	return -1
 }
 
+func indexOfDrift(drifts []model.TaskContractDrift, driftID int) int {
+	for i := range drifts {
+		if drifts[i].ID == driftID {
+			return i
+		}
+	}
+	return -1
+}
+
 func buildMergeCommitMessage(cr *model.CR, actor, mergedAt string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "[CR-%d] %s\n\n", cr.ID, cr.Title)

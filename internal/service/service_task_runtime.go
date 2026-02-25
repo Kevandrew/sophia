@@ -14,6 +14,7 @@ type taskLifecycleGitProvider interface {
 	Actor() string
 	CurrentBranch() (string, error)
 	HasStagedChanges() (bool, error)
+	WorkingTreeUnifiedDiff(paths []string, contextLines int) (string, error)
 	StageAll() error
 	StagePaths(paths []string) error
 	ApplyPatchToIndex(patchPath string) error

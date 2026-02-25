@@ -208,13 +208,7 @@ func (s *Service) AckTaskContractDrift(crID, taskID, driftID int, reason string)
 			return fmt.Errorf("task %d not found in cr %d", taskID, crID)
 		}
 		task := &cr.Subtasks[taskIndex]
-		driftIndex := -1
-		for i := range task.ContractDrifts {
-			if task.ContractDrifts[i].ID == driftID {
-				driftIndex = i
-				break
-			}
-		}
+		driftIndex := indexOfDrift(task.ContractDrifts, driftID)
 		if driftIndex < 0 {
 			return fmt.Errorf("task %d drift %d not found in cr %d", taskID, driftID, crID)
 		}
@@ -325,9 +319,16 @@ func (s *Service) ExportTaskChunkWorkingTreePatch(crID, taskID int, chunkIDs, pa
 }
 
 func (s *Service) loadWorkingTreeTaskChunks(crID, taskID int, paths []string) ([]parsedPatchFile, []TaskChunk, string, error) {
-	cr, err := s.store.LoadCR(crID)
+	taskStore := s.activeTaskStoreProvider()
+	taskGit := s.activeTaskGitProvider()
+	taskMergeGuard := s.activeTaskMergeGuard()
+
+	cr, err := taskStore.LoadCR(crID)
 	if err != nil {
 		return nil, nil, "", err
+	}
+	if guardErr := taskMergeGuard(cr); guardErr != nil {
+		return nil, nil, "", guardErr
 	}
 	if cr.Status != model.StatusInProgress {
 		return nil, nil, "", fmt.Errorf("cr %d is not in progress", crID)
@@ -335,14 +336,14 @@ func (s *Service) loadWorkingTreeTaskChunks(crID, taskID int, paths []string) ([
 	if indexOfTask(cr.Subtasks, taskID) < 0 {
 		return nil, nil, "", fmt.Errorf("task %d not found in cr %d", taskID, crID)
 	}
-	currentBranch, branchErr := s.git.CurrentBranch()
+	currentBranch, branchErr := taskGit.CurrentBranch()
 	if branchErr != nil {
 		return nil, nil, "", branchErr
 	}
 	if currentBranch != cr.Branch {
 		return nil, nil, "", fmt.Errorf("task chunk commands requires active CR branch %q, current branch is %q; run `sophia cr switch %d`", cr.Branch, currentBranch, cr.ID)
 	}
-	hasStaged, stagedErr := s.git.HasStagedChanges()
+	hasStaged, stagedErr := taskGit.HasStagedChanges()
 	if stagedErr != nil {
 		return nil, nil, "", stagedErr
 	}
@@ -357,7 +358,7 @@ func (s *Service) loadWorkingTreeTaskChunks(crID, taskID int, paths []string) ([
 		}
 		normalizedPaths = normalized
 	}
-	diff, err := s.git.WorkingTreeUnifiedDiff(normalizedPaths, 0)
+	diff, err := taskGit.WorkingTreeUnifiedDiff(normalizedPaths, 0)
 	if err != nil {
 		return nil, nil, "", err
 	}
@@ -662,7 +663,7 @@ func (s *Service) stageTaskCheckpointForDone(gitProvider taskLifecycleGitProvide
 		if normalizeErr != nil {
 			return nil, nil, "", normalizeErr
 		}
-		paths, resolveErr := s.resolveTaskCheckpointPathsFromContract(normalizedScope)
+		paths, resolveErr := s.resolveTaskCheckpointPathsFromContract(gitProvider, normalizedScope)
 		if resolveErr != nil {
 			return nil, nil, "", resolveErr
 		}

@@ -49,8 +49,8 @@ func validateDoneTaskOptions(opts DoneTaskOptions) error {
 	return nil
 }
 
-func (s *Service) resolveTaskCheckpointPathsFromContract(scopePrefixes []string) ([]string, error) {
-	statusEntries, err := s.git.WorkingTreeStatus()
+func (s *Service) resolveTaskCheckpointPathsFromContract(gitProvider taskLifecycleGitProvider, scopePrefixes []string) ([]string, error) {
+	statusEntries, err := gitProvider.WorkingTreeStatus()
 	if err != nil {
 		return nil, err
 	}

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sophia/internal/gitx"
 	"sophia/internal/model"
+	"strings"
 	"testing"
 	"time"
 )
@@ -38,14 +39,21 @@ func (s *stubTaskRuntimeStore) SaveCR(cr *model.CR) error {
 }
 
 type stubTaskRuntimeGit struct {
-	actor string
+	actor         string
+	currentBranch string
+	hasStaged     bool
+	diff          string
 }
 
 func (g *stubTaskRuntimeGit) Actor() string { return g.actor }
 
-func (g *stubTaskRuntimeGit) CurrentBranch() (string, error) { return "", nil }
+func (g *stubTaskRuntimeGit) CurrentBranch() (string, error) { return g.currentBranch, nil }
 
-func (g *stubTaskRuntimeGit) HasStagedChanges() (bool, error) { return false, nil }
+func (g *stubTaskRuntimeGit) HasStagedChanges() (bool, error) { return g.hasStaged, nil }
+
+func (g *stubTaskRuntimeGit) WorkingTreeUnifiedDiff(paths []string, contextLines int) (string, error) {
+	return g.diff, nil
+}
 
 func (g *stubTaskRuntimeGit) StageAll() error { return nil }
 
@@ -65,7 +73,10 @@ func testTaskRuntimeService(t *testing.T, cr *model.CR) (*Service, *stubTaskRunt
 	t.Helper()
 	now := time.Date(2026, time.February, 25, 12, 0, 0, 0, time.UTC)
 	store := &stubTaskRuntimeStore{cr: cloneRemoteCR(cr)}
-	git := &stubTaskRuntimeGit{actor: "Runtime Tester <runtime@test>"}
+	git := &stubTaskRuntimeGit{
+		actor:         "Runtime Tester <runtime@test>",
+		currentBranch: cr.Branch,
+	}
 	svc := &Service{
 		repoRoot: t.TempDir(),
 		now:      func() time.Time { return now },
@@ -224,5 +235,43 @@ func TestSetTaskContractUnlockedUsesRuntimeProviders(t *testing.T) {
 	}
 	if last.Actor != "Runtime Tester <runtime@test>" {
 		t.Fatalf("expected event actor from runtime git provider, got %q", last.Actor)
+	}
+}
+
+func TestLoadWorkingTreeTaskChunksUsesRuntimeProviders(t *testing.T) {
+	cr := &model.CR{
+		ID:        1,
+		Branch:    "cr-1-runtime",
+		Status:    model.StatusInProgress,
+		CreatedAt: "2026-02-25T00:00:00Z",
+		UpdatedAt: "2026-02-25T00:00:00Z",
+		Subtasks: []model.Subtask{{
+			ID:        1,
+			Title:     "chunk task",
+			Status:    model.TaskStatusOpen,
+			CreatedAt: "2026-02-25T00:00:00Z",
+			UpdatedAt: "2026-02-25T00:00:00Z",
+		}},
+	}
+	svc, _ := testTaskRuntimeService(t, cr)
+	svc.taskGit.(*stubTaskRuntimeGit).diff = strings.Join([]string{
+		"diff --git a/runtime.txt b/runtime.txt",
+		"--- a/runtime.txt",
+		"+++ b/runtime.txt",
+		"@@ -1 +1 @@",
+		"-old",
+		"+new",
+		"",
+	}, "\n")
+
+	chunks, err := svc.ListTaskChunks(cr.ID, 1, nil)
+	if err != nil {
+		t.Fatalf("ListTaskChunks() error = %v", err)
+	}
+	if len(chunks) != 1 {
+		t.Fatalf("expected one chunk from runtime provider diff, got %#v", chunks)
+	}
+	if chunks[0].Path != "runtime.txt" {
+		t.Fatalf("expected chunk path runtime.txt, got %q", chunks[0].Path)
 	}
 }
