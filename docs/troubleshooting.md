@@ -37,7 +37,7 @@ sophia cr merge abort <cr-id>
 | `error.code` | Meaning | Remediation |
 | --- | --- | --- |
 | `no_active_cr_context` | Current branch is not active CR context for mutation. | `sophia cr switch <id>` |
-| `task_contract_incomplete` | Task missing required contract fields. | `sophia cr task contract set <cr-id> <task-id> ...` |
+| `task_contract_incomplete` | Task missing required contract fields. | `sophia cr task contract set [<cr-id>|<cr-uid>] <task-id> ...` |
 | `pre_staged_changes` | Index already has staged files before checkpointing. | Unstage first, then retry `task done` with explicit scope |
 | `no_task_scope_matches` | Selected completion mode found no eligible files. | Use `--path`/`--patch-file`, or update task scope |
 | `merge_in_progress` | Mutating command blocked during unresolved merge. | `sophia cr merge status <cr-id>` then `resume`/`abort` |

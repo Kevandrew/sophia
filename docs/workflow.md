@@ -21,14 +21,14 @@ sophia cr switch <cr-id>
 ## Define contract and tasks
 
 ```bash
-sophia cr contract set <cr-id> \
+sophia cr contract set [<cr-id>|<cr-uid>] \
   --why "..." \
   --scope <prefix> \
   --test-plan "go test ./... && go vet ./..." \
   --rollback-plan "Revert CR merge commit"
 
-sophia cr task add <cr-id> "<task>"
-sophia cr task contract set <cr-id> <task-id> \
+sophia cr task add [<cr-id>|<cr-uid>] "<task>"
+sophia cr task contract set [<cr-id>|<cr-uid>] <task-id> \
   --intent "..." \
   --acceptance "..." \
   --scope <prefix>
@@ -47,13 +47,13 @@ Use exactly one completion scope mode per `task done` call:
 Examples:
 
 ```bash
-sophia cr task done <cr-id> <task-id> \
+sophia cr task done [<cr-id>|<cr-uid>] <task-id> \
   --path internal/service/retry.go \
   --path internal/service/retry_test.go
 
-sophia cr task done <cr-id> <task-id> --patch-file task.patch
-sophia cr task done <cr-id> <task-id> --all
-sophia cr task done <cr-id> <task-id> --no-checkpoint --no-checkpoint-reason "metadata-only"
+sophia cr task done [<cr-id>|<cr-uid>] <task-id> --patch-file task.patch
+sophia cr task done [<cr-id>|<cr-uid>] <task-id> --all
+sophia cr task done [<cr-id>|<cr-uid>] <task-id> --no-checkpoint --no-checkpoint-reason "metadata-only"
 ```
 
 ## Chunk flow (pre-checkpoint)
@@ -64,7 +64,7 @@ Use chunk mode when you need hunk-level control:
 sophia cr task chunk list <cr-id> <task-id> [--path <file>] [--json]
 sophia cr task chunk show <cr-id> <task-id> <chunk-id> [--path <file>] [--json]
 sophia cr task chunk export <cr-id> <task-id> --chunk <chunk-id> --out task.patch
-sophia cr task done <cr-id> <task-id> --patch-file task.patch
+sophia cr task done [<cr-id>|<cr-uid>] <task-id> --patch-file task.patch
 ```
 
 Chunk commands inspect unstaged working-tree changes and require a clean index.
@@ -80,7 +80,7 @@ sophia cr status [<cr-id>|<cr-uid>]
 If contracts name specific checks, attach logs:
 
 ```bash
-sophia cr evidence add <cr-id> \
+sophia cr evidence add [<cr-id>|<cr-uid>] \
   --type command_run \
   --summary "targeted tests" \
   --cmd "go test ./..." \
@@ -90,7 +90,7 @@ sophia cr evidence add <cr-id> \
 
 ## If you see X, do Y
 
-- `task_contract_incomplete`: run `sophia cr task contract set <cr-id> <task-id> ...` and provide missing fields.
+- `task_contract_incomplete`: run `sophia cr task contract set [<cr-id>|<cr-uid>] <task-id> ...` and provide missing fields.
 - `pre_staged_changes`: unstage first (`git restore --staged <file>`), then retry with explicit scope.
 - `no_task_scope_matches`: use `--path` or `--patch-file` with actual changed files, or update task scope.
 - `merge_in_progress`: use `sophia cr merge status <cr-id>`, then `merge resume` or `merge abort` before other mutations.

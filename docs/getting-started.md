@@ -35,7 +35,7 @@ Expected outcome:
 ## 3) Set CR contract before coding
 
 ```bash
-sophia cr contract set <cr-id> \
+sophia cr contract set [<cr-id>|<cr-uid>] \
   --why "Lower transient incident rate while preserving request ordering guarantees" \
   --scope internal/service \
   --test-plan "go test ./... && go vet ./..." \
@@ -49,8 +49,8 @@ Expected outcome:
 ## 4) Decompose into tasks with task contracts
 
 ```bash
-sophia cr task add <cr-id> "Implement bounded jitter strategy"
-sophia cr task contract set <cr-id> <task-id> \
+sophia cr task add [<cr-id>|<cr-uid>] "Implement bounded jitter strategy"
+sophia cr task contract set [<cr-id>|<cr-uid>] <task-id> \
   --intent "Bound retry jitter and preserve deterministic backoff floor" \
   --acceptance "Retries stay in configured bounds and pass existing integration tests" \
   --scope internal/service
@@ -63,7 +63,7 @@ Expected outcome:
 ## 5) Implement and checkpoint with explicit scope
 
 ```bash
-sophia cr task done <cr-id> <task-id> \
+sophia cr task done [<cr-id>|<cr-uid>] <task-id> \
   --path internal/service/retry.go \
   --path internal/service/retry_test.go
 ```
@@ -73,7 +73,7 @@ For hunk-level checkpoints:
 ```bash
 sophia cr task chunk list <cr-id> <task-id>
 sophia cr task chunk export <cr-id> <task-id> --chunk <chunk-id> --out task.patch
-sophia cr task done <cr-id> <task-id> --patch-file task.patch
+sophia cr task done [<cr-id>|<cr-uid>] <task-id> --patch-file task.patch
 ```
 
 Expected outcome:
@@ -87,7 +87,7 @@ If acceptance criteria or test plans require targeted commands, persist the proo
 ```bash
 go test ./... 2>&1 | tee _docs/cr-<cr-id>-evidence/tests.log
 
-sophia cr evidence add <cr-id> \
+sophia cr evidence add [<cr-id>|<cr-uid>] \
   --type command_run \
   --summary "Full suite before merge" \
   --cmd "go test ./..." \
