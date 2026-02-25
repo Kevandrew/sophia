@@ -37,8 +37,6 @@ func TestValidateCRDetectsScopeDriftAsError(t *testing.T) {
 	if _, err := svc.Init("main", ""); err != nil {
 		t.Fatalf("Init() error = %v", err)
 	}
-	runGit(t, dir, "config", "user.name", "Test User")
-	runGit(t, dir, "config", "user.email", "test@example.com")
 
 	cr, err := svc.AddCR("Scope drift", "drift")
 	if err != nil {
@@ -66,7 +64,7 @@ func TestValidateCRDetectsScopeDriftAsError(t *testing.T) {
 		t.Fatalf("write README: %v", err)
 	}
 	runGit(t, dir, "add", "README.md")
-	runGit(t, dir, "commit", "-m", "docs: drift")
+	runGit(t, dir, "-c", "user.name=Test User", "-c", "user.email=test@example.com", "commit", "-m", "docs: drift")
 
 	report, err := svc.ValidateCR(cr.ID)
 	if err != nil {
@@ -86,8 +84,6 @@ func TestValidateCRWarnsOnTaskScopeMismatch(t *testing.T) {
 	if _, err := svc.Init("main", ""); err != nil {
 		t.Fatalf("Init() error = %v", err)
 	}
-	runGit(t, dir, "config", "user.name", "Test User")
-	runGit(t, dir, "config", "user.email", "test@example.com")
 
 	cr, err := svc.AddCR("Task warning", "task scope warning")
 	if err != nil {
@@ -106,7 +102,7 @@ func TestValidateCRWarnsOnTaskScopeMismatch(t *testing.T) {
 		t.Fatalf("write docs file: %v", err)
 	}
 	runGit(t, dir, "add", "docs/in_scope.md")
-	runGit(t, dir, "commit", "-m", "docs: in scope")
+	runGit(t, dir, "-c", "user.name=Test User", "-c", "user.email=test@example.com", "commit", "-m", "docs: in scope")
 
 	loaded, err := svc.store.LoadCR(cr.ID)
 	if err != nil {
@@ -138,8 +134,6 @@ func TestValidateCRWarnsOnTaskContractScopeDrift(t *testing.T) {
 	if _, err := svc.Init("main", ""); err != nil {
 		t.Fatalf("Init() error = %v", err)
 	}
-	runGit(t, dir, "config", "user.name", "Test User")
-	runGit(t, dir, "config", "user.email", "test@example.com")
 
 	cr, err := svc.AddCR("Task contract drift", "warn on drift")
 	if err != nil {
@@ -181,8 +175,6 @@ func TestValidateCRUsesCheckpointChunksWhenCheckpointScopeMissing(t *testing.T) 
 	if _, err := svc.Init("main", ""); err != nil {
 		t.Fatalf("Init() error = %v", err)
 	}
-	runGit(t, dir, "config", "user.name", "Test User")
-	runGit(t, dir, "config", "user.email", "test@example.com")
 
 	cr, err := svc.AddCR("Chunk fallback", "validate chunk-only checkpoint metadata")
 	if err != nil {
@@ -239,8 +231,6 @@ func TestValidateCRWarnsOnInvalidCheckpointChunkMetadata(t *testing.T) {
 	if _, err := svc.Init("main", ""); err != nil {
 		t.Fatalf("Init() error = %v", err)
 	}
-	runGit(t, dir, "config", "user.name", "Test User")
-	runGit(t, dir, "config", "user.email", "test@example.com")
 
 	cr, err := svc.AddCR("Chunk validation", "warn on invalid chunk metadata")
 	if err != nil {

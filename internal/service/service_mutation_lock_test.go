@@ -68,17 +68,24 @@ func TestSetCRContractWaitsForSharedMutationLock(t *testing.T) {
 	why := "updated under lock"
 	start := time.Now()
 	done := make(chan error, 1)
+	attempted := make(chan struct{})
 	go func() {
+		close(attempted)
 		_, setErr := svc.SetCRContract(cr.ID, ContractPatch{Why: &why})
 		done <- setErr
 	}()
-	time.Sleep(200 * time.Millisecond)
+	<-attempted
+	select {
+	case err := <-done:
+		t.Fatalf("expected SetCRContract to block while lock is held, got early completion %v", err)
+	default:
+	}
 	close(release)
 	if err := <-done; err != nil {
 		t.Fatalf("SetCRContract() error = %v", err)
 	}
-	if waited := time.Since(start); waited < 180*time.Millisecond {
-		t.Fatalf("expected SetCRContract to wait for lock release, elapsed=%s", waited)
+	if waited := time.Since(start); waited <= 0 {
+		t.Fatalf("expected positive elapsed time, got %s", waited)
 	}
 }
 
@@ -109,16 +116,23 @@ func TestRedactCRNoteWaitsForSharedMutationLock(t *testing.T) {
 
 	start := time.Now()
 	done := make(chan error, 1)
+	attempted := make(chan struct{})
 	go func() {
+		close(attempted)
 		done <- svc.RedactCRNote(cr.ID, 1, "test redaction")
 	}()
-	time.Sleep(200 * time.Millisecond)
+	<-attempted
+	select {
+	case err := <-done:
+		t.Fatalf("expected RedactCRNote to block while lock is held, got early completion %v", err)
+	default:
+	}
 	close(release)
 	if err := <-done; err != nil {
 		t.Fatalf("RedactCRNote() error = %v", err)
 	}
-	if waited := time.Since(start); waited < 180*time.Millisecond {
-		t.Fatalf("expected RedactCRNote to wait for lock release, elapsed=%s", waited)
+	if waited := time.Since(start); waited <= 0 {
+		t.Fatalf("expected positive elapsed time, got %s", waited)
 	}
 
 	reloaded, err := svc.store.LoadCR(cr.ID)

@@ -15,14 +15,12 @@ func TestImpactCRAppliesRiskSignalsDeterministically(t *testing.T) {
 	if _, err := svc.Init("main", ""); err != nil {
 		t.Fatalf("Init() error = %v", err)
 	}
-	runGit(t, dir, "config", "user.name", "Test User")
-	runGit(t, dir, "config", "user.email", "test@example.com")
 
 	if err := os.WriteFile(filepath.Join(dir, "delete_me.txt"), []byte("base\n"), 0o644); err != nil {
 		t.Fatalf("write base file: %v", err)
 	}
 	runGit(t, dir, "add", "delete_me.txt")
-	runGit(t, dir, "commit", "-m", "chore: base file")
+	runGit(t, dir, "-c", "user.name=Test User", "-c", "user.email=test@example.com", "commit", "-m", "chore: base file")
 
 	cr, err := svc.AddCR("Impact", "risk scoring")
 	if err != nil {
@@ -51,7 +49,7 @@ func TestImpactCRAppliesRiskSignalsDeterministically(t *testing.T) {
 	}
 	runGit(t, dir, "rm", "delete_me.txt")
 	runGit(t, dir, "add", "internal/service/x.go", "go.mod")
-	runGit(t, dir, "commit", "-m", "feat: risky change")
+	runGit(t, dir, "-c", "user.name=Test User", "-c", "user.email=test@example.com", "commit", "-m", "feat: risky change")
 
 	impact, err := svc.ImpactCR(cr.ID)
 	if err != nil {
@@ -85,8 +83,6 @@ func TestImpactCRDoesNotUseRepoHardcodedCriticalPathSignals(t *testing.T) {
 	if _, err := svc.Init("main", ""); err != nil {
 		t.Fatalf("Init() error = %v", err)
 	}
-	runGit(t, dir, "config", "user.name", "Test User")
-	runGit(t, dir, "config", "user.email", "test@example.com")
 
 	cr, err := svc.AddCR("No hardcoded critical path", "risk scoring should be contract-driven")
 	if err != nil {
@@ -101,7 +97,7 @@ func TestImpactCRDoesNotUseRepoHardcodedCriticalPathSignals(t *testing.T) {
 		t.Fatalf("write file: %v", err)
 	}
 	runGit(t, dir, "add", "internal/service/x.go")
-	runGit(t, dir, "commit", "-m", "feat: touch service path")
+	runGit(t, dir, "-c", "user.name=Test User", "-c", "user.email=test@example.com", "commit", "-m", "feat: touch service path")
 
 	impact, err := svc.ImpactCR(cr.ID)
 	if err != nil {
@@ -121,14 +117,12 @@ func TestImpactCRRiskTierHintNoFloorWhenHintLowerOrEqual(t *testing.T) {
 	if _, err := svc.Init("main", ""); err != nil {
 		t.Fatalf("Init() error = %v", err)
 	}
-	runGit(t, dir, "config", "user.name", "Test User")
-	runGit(t, dir, "config", "user.email", "test@example.com")
 
 	if err := os.WriteFile(filepath.Join(dir, "delete_me.txt"), []byte("base\n"), 0o644); err != nil {
 		t.Fatalf("write base file: %v", err)
 	}
 	runGit(t, dir, "add", "delete_me.txt")
-	runGit(t, dir, "commit", "-m", "chore: seed")
+	runGit(t, dir, "-c", "user.name=Test User", "-c", "user.email=test@example.com", "commit", "-m", "chore: seed")
 
 	cr, err := svc.AddCR("Hint no floor", "high from heuristics")
 	if err != nil {
@@ -145,7 +139,7 @@ func TestImpactCRRiskTierHintNoFloorWhenHintLowerOrEqual(t *testing.T) {
 	}
 	runGit(t, dir, "rm", "delete_me.txt")
 	runGit(t, dir, "add", "go.mod")
-	runGit(t, dir, "commit", "-m", "feat: dependency + deletion")
+	runGit(t, dir, "-c", "user.name=Test User", "-c", "user.email=test@example.com", "commit", "-m", "feat: dependency + deletion")
 
 	impact, err := svc.ImpactCR(cr.ID)
 	if err != nil {
@@ -168,8 +162,6 @@ func TestImpactCRRiskTierHintRaisesLowToMediumFloor(t *testing.T) {
 	if _, err := svc.Init("main", ""); err != nil {
 		t.Fatalf("Init() error = %v", err)
 	}
-	runGit(t, dir, "config", "user.name", "Test User")
-	runGit(t, dir, "config", "user.email", "test@example.com")
 
 	cr, err := svc.AddCR("Hint floor medium", "low -> medium floor")
 	if err != nil {
@@ -185,7 +177,7 @@ func TestImpactCRRiskTierHintRaisesLowToMediumFloor(t *testing.T) {
 		t.Fatalf("write simple file: %v", err)
 	}
 	runGit(t, dir, "add", "simple.txt")
-	runGit(t, dir, "commit", "-m", "feat: simple change")
+	runGit(t, dir, "-c", "user.name=Test User", "-c", "user.email=test@example.com", "commit", "-m", "feat: simple change")
 
 	impact, err := svc.ImpactCR(cr.ID)
 	if err != nil {
@@ -211,14 +203,12 @@ func TestImpactCRRiskTierHintRaisesMediumToHighFloor(t *testing.T) {
 	if _, err := svc.Init("main", ""); err != nil {
 		t.Fatalf("Init() error = %v", err)
 	}
-	runGit(t, dir, "config", "user.name", "Test User")
-	runGit(t, dir, "config", "user.email", "test@example.com")
 
 	if err := os.WriteFile(filepath.Join(dir, "delete_me.txt"), []byte("base\n"), 0o644); err != nil {
 		t.Fatalf("write base file: %v", err)
 	}
 	runGit(t, dir, "add", "delete_me.txt")
-	runGit(t, dir, "commit", "-m", "chore: seed")
+	runGit(t, dir, "-c", "user.name=Test User", "-c", "user.email=test@example.com", "commit", "-m", "chore: seed")
 
 	cr, err := svc.AddCR("Hint floor high", "medium -> high floor")
 	if err != nil {
@@ -235,7 +225,7 @@ func TestImpactCRRiskTierHintRaisesMediumToHighFloor(t *testing.T) {
 	}
 	runGit(t, dir, "rm", "delete_me.txt")
 	runGit(t, dir, "add", "go.mod")
-	runGit(t, dir, "commit", "-m", "feat: medium-risk change")
+	runGit(t, dir, "-c", "user.name=Test User", "-c", "user.email=test@example.com", "commit", "-m", "feat: medium-risk change")
 
 	impact, err := svc.ImpactCR(cr.ID)
 	if err != nil {
@@ -261,8 +251,6 @@ func TestMergeCRBlockedWithoutOverrideWhenValidationFails(t *testing.T) {
 	if _, err := svc.Init("main", ""); err != nil {
 		t.Fatalf("Init() error = %v", err)
 	}
-	runGit(t, dir, "config", "user.name", "Test User")
-	runGit(t, dir, "config", "user.email", "test@example.com")
 
 	cr, err := svc.AddCR("Blocked merge", "validation should fail")
 	if err != nil {
@@ -272,7 +260,7 @@ func TestMergeCRBlockedWithoutOverrideWhenValidationFails(t *testing.T) {
 		t.Fatalf("write file: %v", err)
 	}
 	runGit(t, dir, "add", "blocked.txt")
-	runGit(t, dir, "commit", "-m", "feat: blocked")
+	runGit(t, dir, "-c", "user.name=Test User", "-c", "user.email=test@example.com", "commit", "-m", "feat: blocked")
 
 	_, err = svc.MergeCR(cr.ID, false, "")
 	if !errors.Is(err, ErrCRValidationFailed) {
@@ -286,8 +274,6 @@ func TestMergeCROverridePersistsAuditEvent(t *testing.T) {
 	if _, err := svc.Init("main", ""); err != nil {
 		t.Fatalf("Init() error = %v", err)
 	}
-	runGit(t, dir, "config", "user.name", "Test User")
-	runGit(t, dir, "config", "user.email", "test@example.com")
 
 	cr, err := svc.AddCR("Override merge", "intent")
 	if err != nil {
@@ -297,7 +283,7 @@ func TestMergeCROverridePersistsAuditEvent(t *testing.T) {
 		t.Fatalf("write file: %v", err)
 	}
 	runGit(t, dir, "add", "override.txt")
-	runGit(t, dir, "commit", "-m", "feat: override")
+	runGit(t, dir, "-c", "user.name=Test User", "-c", "user.email=test@example.com", "commit", "-m", "feat: override")
 
 	sha, err := svc.MergeCR(cr.ID, false, "emergency hotfix")
 	if err != nil {
@@ -332,8 +318,6 @@ func TestReviewAndValidateWorkForMergedCRAfterBranchDeletion(t *testing.T) {
 	if _, err := svc.Init("main", ""); err != nil {
 		t.Fatalf("Init() error = %v", err)
 	}
-	runGit(t, dir, "config", "user.name", "Test User")
-	runGit(t, dir, "config", "user.email", "test@example.com")
 
 	cr, err := svc.AddCR("Merged fallback", "ensure merged review works")
 	if err != nil {
@@ -345,7 +329,7 @@ func TestReviewAndValidateWorkForMergedCRAfterBranchDeletion(t *testing.T) {
 		t.Fatalf("write file: %v", err)
 	}
 	runGit(t, dir, "add", "merged_review.txt")
-	runGit(t, dir, "commit", "-m", "feat: merged review fallback")
+	runGit(t, dir, "-c", "user.name=Test User", "-c", "user.email=test@example.com", "commit", "-m", "feat: merged review fallback")
 
 	if _, err := svc.MergeCR(cr.ID, false, ""); err != nil {
 		t.Fatalf("MergeCR() error = %v", err)

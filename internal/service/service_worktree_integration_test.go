@@ -8,6 +8,7 @@ import (
 	"testing"
 )
 
+// Integration coverage: worktree behavior requires real git worktree orchestration.
 func TestWorktreeSharedLocalMetadataAndCRIDSequence(t *testing.T) {
 	dir := t.TempDir()
 	svcMain := New(dir)

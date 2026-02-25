@@ -1,0 +1,238 @@
+schema_version: sophia.cr_archive.v1
+notice: Historical archive snapshot. Corrections are append-only revisions.
+archived_at: "2026-02-25T16:02:54Z"
+revision: 1
+cr:
+    id: 71
+    uid: cr_70fd3699-6164-4529-90b1-45ffcfedf3eb
+    title: 'Test infra: migrate service suites to fake runtime harness and minimize temp-repo git flows'
+    description: Replace integration-first service tests with harnessed fake runtime tests wherever behavior does not require real git semantics. Keep a small explicit integration tier for real repository/worktree behavior.
+    status: merged
+    base_branch: main
+    base_ref: main
+    base_commit: f63ebf07b1019c5568b6e2463f346b0dd13a49fa
+    branch: cr-test-infra-migrate-service-suites-to-fake-runtim-70fd
+    merged_at: "2026-02-25T16:02:54Z"
+    merged_by: Kevandrew <143258544+Kevandrew@users.noreply.github.com>
+contract:
+    why: Service tests are currently dominated by temp directory setup and git subprocess orchestration. This increases runtime and brittleness, and limits deterministic failure reproduction. This CR migrates behavior-level coverage to fake runtime harnesses and leaves only true integration cases on real repositories.
+    scope:
+        - internal/service
+        - internal/service/tasks
+    non_goals:
+        - No CLI test harness changes (handled in separate CR).
+        - No production behavior changes in service commands.
+        - No removal of required real-git integration coverage.
+    invariants:
+        - Functional assertions for migrated tests remain equivalent.
+        - Integration tests that validate real git semantics remain present.
+        - Test flake rate and runtime should improve, not regress.
+    blast_radius: Service test suite architecture, helper utilities, and classification of unit vs integration tests. Main risk is accidental loss of integration coverage during migration.
+    risk_critical_scopes:
+        - internal/service
+    risk_tier_hint: medium
+    risk_rationale: Broad test-surface migration touching many critical service behavior suites.
+    test_plan: go test ./internal/service/... -count=1 && go test ./... -count=1 && go vet ./...
+    rollback_plan: Revert the CR merge commit.
+tasks:
+    - id: 1
+      title: Create reusable service test harness fakes for store/git/runtime dependencies
+      status: done
+      contract:
+        intent: Provide shared fake implementations so service tests can run without temp repos by default.
+        acceptance_criteria:
+            - Harness APIs are documented in-code and reusable across service test files.
+            - Shared fake harness can model load/save, actor/time, branch context, and staged/diff state.
+        scope:
+            - internal/service
+      checkpoint:
+        commit: 01827c61
+        at: "2026-02-25T15:22:10Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_runtime_fakes_test.go
+            - internal/service/service_runtime_harness_test.go
+            - internal/service/service_runtime_seed_test.go
+    - id: 2
+      title: Migrate task lifecycle behavior tests to fake harness where real git is not required
+      status: done
+      contract:
+        intent: Convert task behavior tests from temp-repo setup to in-memory runtime harness executions.
+        acceptance_criteria:
+            - Behavior-only task tests no longer shell out to git.
+            - Task checkpoint/reopen logic assertions remain equivalent.
+        scope:
+            - internal/service/service_task_checkpoint_test.go
+            - internal/service/service_task_mutation_lock_test.go
+            - internal/service/service_task_reopen_test.go
+      checkpoint:
+        commit: e918aeb1
+        at: "2026-02-25T15:27:10Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_runtime_harness_test.go
+            - internal/service/service_task_checkpoint_test.go
+            - internal/service/service_task_reopen_test.go
+    - id: 3
+      title: Migrate collab/patch behavior tests to harnessed store/runtime paths
+      status: done
+      contract:
+        intent: Reduce filesystem/process coupling in collab tests that validate patch semantics only.
+        acceptance_criteria:
+            - Conflict/success assertions remain equivalent.
+            - Patch operation behavior tests execute without git subprocess setup unless semantically required.
+        scope:
+            - internal/service/service_collab_test.go
+      checkpoint:
+        commit: 9d484d61
+        at: "2026-02-25T15:29:14Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_collab_test.go
+    - id: 4
+      title: Migrate contract and validation behavior tests to fake harness
+      status: done
+      contract:
+        intent: Move contract mutation/validation tests to deterministic in-memory service harness inputs.
+        acceptance_criteria:
+            - Contract and validation tests no longer require repo init when git semantics are irrelevant.
+            - Validation warning/error expectations remain equivalent.
+        scope:
+            - internal/service/service_contract_merge_review_test.go
+            - internal/service/service_contract_validation_test.go
+            - internal/service/service_test.go
+      checkpoint:
+        commit: ea4efe87
+        at: "2026-02-25T15:32:11Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_contract_merge_review_test.go
+            - internal/service/service_contract_validation_test.go
+            - internal/service/service_test.go
+    - id: 5
+      title: Constrain HQ tests to httptest + harness fakes without repo subprocess setup
+      status: done
+      contract:
+        intent: Keep HQ tests network-mocked and remove incidental git/process setup dependencies.
+        acceptance_criteria:
+            - HQ state transition assertions remain equivalent.
+            - HQ sync/status tests rely on httptest and in-memory harness only.
+        scope:
+            - internal/service/service_hq_intent_test.go
+            - internal/service/service_hq_status_test.go
+            - internal/service/service_hq_test.go
+      checkpoint:
+        at: "2026-02-25T15:32:34Z"
+        source: task_no_checkpoint
+    - id: 6
+      title: Isolate required real-git service tests as explicit integration tier
+      status: done
+      contract:
+        intent: Keep only semantics-critical tests on real repos and make that boundary explicit.
+        acceptance_criteria:
+            - No behavior-only tests remain unnecessarily integration-coupled.
+            - Real-git dependency tests are explicitly named/scoped as integration coverage.
+        scope:
+            - internal/service/service_archive_test.go
+            - internal/service/service_merge_recovery_test.go
+            - internal/service/service_worktree_integration_test.go
+      checkpoint:
+        commit: 59ea77d2
+        at: "2026-02-25T15:32:14Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_archive_test.go
+            - internal/service/service_merge_recovery_test.go
+            - internal/service/service_worktree_integration_test.go
+    - id: 7
+      title: Reduce timing-sensitive service tests and replace sleeps with deterministic synchronization
+      status: done
+      contract:
+        intent: Lower flake risk by replacing ad-hoc sleep timing with deterministic coordination where feasible.
+        acceptance_criteria:
+            - Mutation lock and retry tests use deterministic synchronization paths when possible.
+            - No new sleep-based assertions are introduced.
+        scope:
+            - internal/service
+            - internal/service/service_mutation_lock_test.go
+      checkpoint:
+        commit: ad5bf978
+        at: "2026-02-25T15:32:18Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_mutation_lock_test.go
+    - id: 8
+      title: Run uncached service suite regression and confirm stability
+      status: done
+      contract:
+        intent: Verify migrated suites remain green and faster under uncached runs.
+        acceptance_criteria:
+            - go test ./... -count=1 and go vet ./... pass.
+            - go test ./internal/service/... -count=1 passes.
+        scope:
+            - internal/service
+      checkpoint:
+        commit: 9311b51a
+        at: "2026-02-25T15:40:57Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_runtime_fakes_test.go
+git_summary:
+    base_parent: f63ebf07b1019c5568b6e2463f346b0dd13a49fa
+    cr_parent: 9311b51a4373577aba327c08ec4b812b219a46e8
+    files_changed:
+        - internal/service/service_archive_test.go
+        - internal/service/service_collab_test.go
+        - internal/service/service_contract_merge_review_test.go
+        - internal/service/service_contract_validation_test.go
+        - internal/service/service_merge_recovery_test.go
+        - internal/service/service_mutation_lock_test.go
+        - internal/service/service_runtime_fakes_test.go
+        - internal/service/service_runtime_harness_test.go
+        - internal/service/service_runtime_seed_test.go
+        - internal/service/service_task_checkpoint_test.go
+        - internal/service/service_task_reopen_test.go
+        - internal/service/service_test.go
+        - internal/service/service_worktree_integration_test.go
+    diffstat:
+        summary: 13 files changed, 1309 insertions(+), 345 deletions(-)
+        files:
+            - path: internal/service/service_archive_test.go
+              insertions: 1
+              deletions: 0
+            - path: internal/service/service_collab_test.go
+              insertions: 1
+              deletions: 41
+            - path: internal/service/service_contract_merge_review_test.go
+              insertions: 11
+              deletions: 27
+            - path: internal/service/service_contract_validation_test.go
+              insertions: 2
+              deletions: 12
+            - path: internal/service/service_merge_recovery_test.go
+              insertions: 1
+              deletions: 0
+            - path: internal/service/service_mutation_lock_test.go
+              insertions: 20
+              deletions: 6
+            - path: internal/service/service_runtime_fakes_test.go
+              insertions: 879
+              deletions: 0
+            - path: internal/service/service_runtime_harness_test.go
+              insertions: 179
+              deletions: 0
+            - path: internal/service/service_runtime_seed_test.go
+              insertions: 104
+              deletions: 0
+            - path: internal/service/service_task_checkpoint_test.go
+              insertions: 40
+              deletions: 63
+            - path: internal/service/service_task_reopen_test.go
+              insertions: 62
+              deletions: 178
+            - path: internal/service/service_test.go
+              insertions: 8
+              deletions: 18
+            - path: internal/service/service_worktree_integration_test.go
+              insertions: 1
+              deletions: 0
