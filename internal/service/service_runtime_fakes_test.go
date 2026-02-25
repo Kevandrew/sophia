@@ -677,17 +677,36 @@ func (g *fakeMergeGit) WorktreeForBranch(branch string) (*gitx.Worktree, error) 
 }
 
 func (g *fakeMergeGit) clone() *fakeMergeGit {
-	out := *g
-	out.counter = fakeCallCounter{}
-	out.branchExists = cloneBoolMapHarness(g.branchExists)
-	out.resolve = cloneStringMapHarness(g.resolve)
-	out.resolveErr = cloneErrorMapHarness(g.resolveErr)
-	out.status = append([]gitx.StatusEntry(nil), g.status...)
-	out.diffCached = append([]gitx.FileChange(nil), g.diffCached...)
-	out.diffNumStat = append([]gitx.DiffNumStat(nil), g.diffNumStat...)
-	out.recentCommits = append([]gitx.Commit(nil), g.recentCommits...)
-	out.trackedFiles = append([]string(nil), g.trackedFiles...)
-	out.worktrees = map[string]*gitx.Worktree{}
+	out := &fakeMergeGit{
+		actor:         g.actor,
+		currentBranch: g.currentBranch,
+		currentErr:    g.currentErr,
+		statusErr:     g.statusErr,
+		diffCachedErr: g.diffCachedErr,
+		diffNumErr:    g.diffNumErr,
+		recentErr:     g.recentErr,
+		trackedErr:    g.trackedErr,
+		mergeInProg:   g.mergeInProg,
+		mergeErr:      g.mergeErr,
+		mergeFiles:    append([]string(nil), g.mergeFiles...),
+		headShortSHA:  g.headShortSHA,
+		headShortErr:  g.headShortErr,
+		mergeHeadSHA:  g.mergeHeadSHA,
+		mergeHeadErr:  g.mergeHeadErr,
+		changedCount:  g.changedCount,
+		changedErr:    g.changedErr,
+		branchExists:  cloneBoolMapHarness(g.branchExists),
+		resolve:       cloneStringMapHarness(g.resolve),
+		resolveErr:    cloneErrorMapHarness(g.resolveErr),
+		status:        append([]gitx.StatusEntry(nil), g.status...),
+		diffCached:    append([]gitx.FileChange(nil), g.diffCached...),
+		diffNumStat:   append([]gitx.DiffNumStat(nil), g.diffNumStat...),
+		recentCommits: append([]gitx.Commit(nil), g.recentCommits...),
+		trackedFiles:  append([]string(nil), g.trackedFiles...),
+		worktrees:     map[string]*gitx.Worktree{},
+		worktreeErr:   cloneErrorMapHarness(g.worktreeErr),
+		actionErr:     cloneErrorMapHarness(g.actionErr),
+	}
 	for key, value := range g.worktrees {
 		if value == nil {
 			out.worktrees[key] = nil
@@ -696,9 +715,7 @@ func (g *fakeMergeGit) clone() *fakeMergeGit {
 		copyWT := *value
 		out.worktrees[key] = &copyWT
 	}
-	out.worktreeErr = cloneErrorMapHarness(g.worktreeErr)
-	out.actionErr = cloneErrorMapHarness(g.actionErr)
-	return &out
+	return out
 }
 
 type fakeTaskGit struct {
