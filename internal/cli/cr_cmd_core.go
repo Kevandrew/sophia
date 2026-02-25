@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	clicr "sophia/internal/cli/cr"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -18,15 +19,14 @@ type crAddRenderOptions struct {
 }
 
 func buildAddCROptions(baseRef string, parentCRID int, switchBranch bool, branchAlias string, ownerPrefix string, ownerPrefixSet bool) service.AddCROptions {
-	return service.AddCROptions{
-		BaseRef:        strings.TrimSpace(baseRef),
+	return clicr.BuildAddCROptions(clicr.AddOptionsInput{
+		BaseRef:        baseRef,
 		ParentCRID:     parentCRID,
-		Switch:         switchBranch,
-		NoSwitch:       !switchBranch,
-		BranchAlias:    strings.TrimSpace(branchAlias),
-		OwnerPrefix:    strings.TrimSpace(ownerPrefix),
+		SwitchBranch:   switchBranch,
+		BranchAlias:    branchAlias,
+		OwnerPrefix:    ownerPrefix,
 		OwnerPrefixSet: ownerPrefixSet,
-	}
+	})
 }
 
 func runCRAddFlow(

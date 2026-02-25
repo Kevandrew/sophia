@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"sophia/internal/model"
+	servicetasks "sophia/internal/service/tasks"
 	"sort"
 	"strconv"
 	"strings"
@@ -50,96 +51,31 @@ func (s *Service) AddTask(crID int, title string) (*model.Subtask, error) {
 }
 
 func cloneTaskContract(contract model.TaskContract) model.TaskContract {
-	out := contract
-	out.AcceptanceCriteria = append([]string(nil), contract.AcceptanceCriteria...)
-	out.Scope = append([]string(nil), contract.Scope...)
-	out.AcceptanceChecks = append([]string(nil), contract.AcceptanceChecks...)
-	return out
+	return servicetasks.CloneTaskContract(contract)
 }
 
 func normalizeAcceptanceCheckKeys(values []string) []string {
-	seen := map[string]struct{}{}
-	out := make([]string, 0, len(values))
-	for _, raw := range values {
-		key := strings.TrimSpace(raw)
-		if key == "" {
-			continue
-		}
-		if _, ok := seen[key]; ok {
-			continue
-		}
-		seen[key] = struct{}{}
-		out = append(out, key)
-	}
-	sort.Strings(out)
-	return out
+	return servicetasks.NormalizeAcceptanceCheckKeys(values)
 }
 
 func taskContractBaselineIsEmpty(baseline model.TaskContractBaseline) bool {
-	return strings.TrimSpace(baseline.CapturedAt) == "" &&
-		strings.TrimSpace(baseline.CapturedBy) == "" &&
-		strings.TrimSpace(baseline.Intent) == "" &&
-		len(baseline.AcceptanceCriteria) == 0 &&
-		len(baseline.Scope) == 0 &&
-		len(baseline.AcceptanceChecks) == 0
+	return servicetasks.TaskContractBaselineIsEmpty(baseline)
 }
 
 func taskContractBaselineFromContract(contract model.TaskContract, capturedAt, capturedBy string) model.TaskContractBaseline {
-	return model.TaskContractBaseline{
-		CapturedAt:         capturedAt,
-		CapturedBy:         capturedBy,
-		Intent:             strings.TrimSpace(contract.Intent),
-		AcceptanceCriteria: append([]string(nil), contract.AcceptanceCriteria...),
-		Scope:              append([]string(nil), contract.Scope...),
-		AcceptanceChecks:   append([]string(nil), contract.AcceptanceChecks...),
-	}
+	return servicetasks.TaskContractBaselineFromContract(contract, capturedAt, capturedBy)
 }
 
 func nextTaskContractDriftID(drifts []model.TaskContractDrift) int {
-	maxID := 0
-	for _, drift := range drifts {
-		if drift.ID > maxID {
-			maxID = drift.ID
-		}
-	}
-	return maxID + 1
+	return servicetasks.NextTaskContractDriftID(drifts)
 }
 
 func scopeWidened(beforeScope, afterScope []string) bool {
-	if len(afterScope) == 0 {
-		return false
-	}
-	if len(beforeScope) == 0 {
-		return true
-	}
-	for _, next := range afterScope {
-		covered := false
-		for _, prev := range beforeScope {
-			if pathMatchesScopePrefix(next, prev) {
-				covered = true
-				break
-			}
-		}
-		if !covered {
-			return true
-		}
-	}
-	return false
+	return servicetasks.ScopeWidened(beforeScope, afterScope, pathMatchesScopePrefix)
 }
 
 func taskAcceptanceCheckPolicyMap(policy *model.RepoPolicy) map[string]struct{} {
-	out := map[string]struct{}{}
-	if policy == nil {
-		return out
-	}
-	for _, check := range policy.Trust.Checks.Definitions {
-		key := strings.TrimSpace(check.Key)
-		if key == "" {
-			continue
-		}
-		out[key] = struct{}{}
-	}
-	return out
+	return servicetasks.TaskAcceptanceCheckPolicyMap(policy)
 }
 
 func validateTaskAcceptanceCheckKeys(taskID int, checks []string, policy *model.RepoPolicy) error {

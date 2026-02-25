@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"sophia/internal/model"
+	servicecr "sophia/internal/service/cr"
 	"sort"
 	"strconv"
 	"strings"
@@ -25,14 +26,8 @@ type addCRBaseContext struct {
 }
 
 func (s *Service) AddCRWithOptionsWithWarnings(title, description string, opts AddCROptions) (*model.CR, []string, error) {
-	if strings.TrimSpace(title) == "" {
-		return nil, nil, errors.New("title cannot be empty")
-	}
-	if strings.TrimSpace(opts.BaseRef) != "" && opts.ParentCRID > 0 {
-		return nil, nil, errors.New("--base and --parent cannot be combined")
-	}
-	if strings.TrimSpace(opts.BranchAlias) != "" && opts.OwnerPrefixSet {
-		return nil, nil, errors.New("--branch-alias and --owner-prefix cannot be combined")
+	if err := servicecr.ValidateAddRequest(title, opts.BaseRef, opts.ParentCRID, opts.BranchAlias, opts.OwnerPrefixSet); err != nil {
+		return nil, nil, err
 	}
 	if err := s.store.EnsureInitialized(); err != nil {
 		return nil, nil, err
@@ -86,7 +81,7 @@ func (s *Service) AddCRWithOptionsWithWarnings(title, description string, opts A
 	if strings.TrimSpace(opts.BranchAlias) != "" && s.git.BranchExists(branch) {
 		return nil, nil, fmt.Errorf("branch %q already exists", branch)
 	}
-	switchBranch := shouldSwitchForAddCR(opts)
+	switchBranch := servicecr.ShouldSwitch(opts.NoSwitch, opts.Switch)
 
 	if switchBranch {
 		if err := s.git.CreateBranchFrom(branch, baseContext.baseCommit); err != nil {
@@ -100,7 +95,19 @@ func (s *Service) AddCRWithOptionsWithWarnings(title, description string, opts A
 
 	now := s.timestamp()
 	actor := s.git.Actor()
-	cr := buildCRForAdd(id, uid, title, description, cfg, baseContext, branch, now, actor)
+	cr := servicecr.BuildCR(servicecr.BuildInput{
+		ID:          id,
+		UID:         uid,
+		Title:       title,
+		Description: description,
+		BaseBranch:  cfg.BaseBranch,
+		BaseRef:     baseContext.baseRef,
+		BaseCommit:  baseContext.baseCommit,
+		ParentCRID:  baseContext.parentID,
+		Branch:      branch,
+		Now:         now,
+		Actor:       actor,
+	})
 
 	if err := s.store.SaveCR(cr); err != nil {
 		return nil, nil, err
@@ -162,46 +169,6 @@ func resolveAddCRUID(opts AddCROptions) (string, error) {
 		return normalizeCRUID(opts.UIDOverride)
 	}
 	return newCRUID()
-}
-
-func shouldSwitchForAddCR(opts AddCROptions) bool {
-	switchBranch := true
-	if opts.NoSwitch {
-		switchBranch = false
-	}
-	if opts.Switch {
-		switchBranch = true
-	}
-	return switchBranch
-}
-
-func buildCRForAdd(id int, uid, title, description string, cfg model.Config, baseContext addCRBaseContext, branch, now, actor string) *model.CR {
-	return &model.CR{
-		ID:          id,
-		UID:         uid,
-		Title:       title,
-		Description: description,
-		Status:      model.StatusInProgress,
-		BaseBranch:  cfg.BaseBranch,
-		BaseRef:     baseContext.baseRef,
-		BaseCommit:  baseContext.baseCommit,
-		ParentCRID:  baseContext.parentID,
-		Branch:      branch,
-		Notes:       []string{},
-		Evidence:    []model.EvidenceEntry{},
-		Subtasks:    []model.Subtask{},
-		Events: []model.Event{
-			{
-				TS:      now,
-				Actor:   actor,
-				Type:    "cr_created",
-				Summary: fmt.Sprintf("Created CR %d", id),
-				Ref:     fmt.Sprintf("cr:%d", id),
-			},
-		},
-		CreatedAt: now,
-		UpdatedAt: now,
-	}
 }
 
 func (s *Service) ListCRs() ([]model.CR, error) {

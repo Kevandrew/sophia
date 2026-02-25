@@ -1,0 +1,362 @@
+schema_version: sophia.cr_archive.v1
+notice: Historical archive snapshot. Corrections are append-only revisions.
+archived_at: "2026-02-25T10:25:55Z"
+revision: 1
+cr:
+    id: 67
+    uid: cr_4a06a382-4d6c-49f7-886d-6abf01a0541f
+    title: 'Tech debt: split large service/cli files into capability directories (scoping-first)'
+    description: Tracking CR to refactor monolithic internal/service and internal/cli files into per-capability directories so CR/task scopes can cleanly target dir prefixes (internal/service/cr/, internal/service/trust/, internal/cli/cr/, internal/cli/json/).
+    status: merged
+    base_branch: main
+    base_ref: main
+    base_commit: fafbe2ff0c787481f7cac078f1b50f20e499cbfa
+    branch: cr-tech-debt-split-large-service-cli-files-into-cap-4a06
+    merged_at: "2026-02-25T10:25:55Z"
+    merged_by: Kevandrew <143258544+Kevandrew@users.noreply.github.com>
+contract:
+    why: Large files in internal/service and internal/cli increase merge conflicts and make scoped task ownership hard. Refactor into capability-oriented directories so contracts can scope to narrow dir prefixes like internal/service/cr/, internal/service/trust/, internal/cli/cr/, and internal/cli/json/.
+    scope:
+        - docs
+        - internal/cli
+        - internal/service
+    non_goals:
+        - No behavior changes; refactor-only.
+        - No renaming of user-facing commands/flags/output.
+    invariants:
+        - All existing tests must pass; refactor must be semantics-preserving.
+        - Directory structure is capability-based (cr/, diff/, trust/, policy/, merge/, tasks/, collab/, json/), not milestone-based.
+    blast_radius: Internal wiring/layout only; primary risk is refactor regression.
+    risk_tier_hint: medium
+    risk_rationale: Touches core command/service code paths even with intended no behavior change.
+    test_plan: go test ./... && go vet ./...
+    rollback_plan: Revert the merge commit.
+tasks:
+    - id: 1
+      title: Write decision-complete split map + sequencing
+      status: done
+      contract:
+        intent: Use existing CR/task contracts as the canonical split map; remove redundant standalone doc artifact.
+        acceptance_criteria:
+            - CR/task contracts remain the source of truth for boundaries and sequencing.
+            - No standalone split-map doc file is required in docs/.
+        scope:
+            - docs
+      checkpoint:
+        commit: 1ad25d3e
+        at: "2026-02-25T09:16:06Z"
+        source: task_checkpoint
+        scope:
+            - docs/cr-67-split-map.md
+    - id: 2
+      title: 'Refactor: internal/service/cr/ (CR lifecycle + contracts)'
+      status: done
+      contract:
+        intent: Move CR lifecycle/service_cr responsibilities into internal/service/cr with unchanged behavior.
+        acceptance_criteria:
+            - CR lifecycle orchestration lives under internal/service/cr.
+            - No behavior changes; tests pass.
+        scope:
+            - internal/service/cr
+            - internal/service/service_cr.go
+      checkpoint:
+        commit: 1e461366
+        at: "2026-02-25T09:20:35Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/cr/add.go
+            - internal/service/service_cr.go
+    - id: 3
+      title: 'Refactor: internal/service/diff/ (diff summarization + anchors)'
+      status: done
+      contract:
+        intent: Move diff-related helpers into internal/service/diff with unchanged behavior.
+        acceptance_criteria:
+            - Diff summarization + anchor resolution lives under internal/service/diff.
+            - No behavior changes; tests pass.
+        scope:
+            - internal/service/diff
+            - internal/service/service_diff.go
+      checkpoint:
+        commit: 6087554c
+        at: "2026-02-25T09:26:18Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/diff/helpers.go
+            - internal/service/service_diff.go
+    - id: 4
+      title: 'Refactor: internal/service/trust/ (trust scoring + review depth)'
+      status: done
+      contract:
+        intent: Move trust evaluation and scoring into internal/service/trust with unchanged behavior.
+        acceptance_criteria:
+            - No behavior changes; tests pass.
+            - Trust logic lives under internal/service/trust.
+        scope:
+            - internal/service/service_trust.go
+            - internal/service/trust
+      checkpoint:
+        commit: 9fe7f36c
+        at: "2026-02-25T09:33:34Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_trust.go
+            - internal/service/trust/helpers.go
+    - id: 5
+      title: 'Refactor: internal/service/policy/ (repo policy parsing/normalization)'
+      status: done
+      contract:
+        intent: Move SOPHIA.yaml parsing/normalization into internal/service/policy with unchanged behavior.
+        acceptance_criteria:
+            - No behavior changes; policy tests pass.
+            - Policy parsing lives under internal/service/policy.
+        scope:
+            - internal/service/policy
+            - internal/service/service_policy.go
+      checkpoint:
+        commit: 6b97538d
+        at: "2026-02-25T09:39:12Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/policy/helpers.go
+            - internal/service/service_policy.go
+    - id: 6
+      title: 'Refactor: internal/service/merge/ (merge + recovery flows)'
+      status: done
+      contract:
+        intent: Move merge/recovery orchestration into internal/service/merge with unchanged behavior.
+        acceptance_criteria:
+            - Merge and recovery flows live under internal/service/merge.
+            - No behavior changes; merge recovery tests pass.
+        scope:
+            - internal/service/merge
+            - internal/service/service_review_merge.go
+      checkpoint:
+        commit: 4c0238d3
+        at: "2026-02-25T09:43:20Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/merge/helpers.go
+            - internal/service/service_review_merge.go
+    - id: 7
+      title: 'Refactor: internal/service/tasks/ (task lifecycle + checkpointing)'
+      status: done
+      contract:
+        intent: Move task lifecycle and checkpointing into internal/service/tasks with unchanged behavior.
+        acceptance_criteria:
+            - No behavior changes; checkpoint tests pass.
+            - Task lifecycle/checkpoint code lives under internal/service/tasks.
+        scope:
+            - internal/service/service_task_checkpoint.go
+            - internal/service/service_tasks.go
+            - internal/service/tasks
+      checkpoint:
+        commit: e6f2f8ab
+        at: "2026-02-25T09:48:35Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_task_checkpoint.go
+            - internal/service/service_tasks.go
+            - internal/service/tasks/checkpoint.go
+            - internal/service/tasks/helpers.go
+    - id: 8
+      title: 'Refactor: internal/service/collab/ (export/import/patch/HQ sync)'
+      status: done
+      contract:
+        intent: Move collaboration/export/import/patch/HQ sync into internal/service/collab with unchanged behavior.
+        acceptance_criteria:
+            - Collab/HQ logic lives under internal/service/collab.
+            - No behavior changes; collab/HQ tests pass.
+        scope:
+            - internal/service/collab
+            - internal/service/service_collab.go
+            - internal/service/service_hq.go
+            - internal/service/service_hq_sync.go
+      checkpoint:
+        commit: 70e211e0
+        at: "2026-02-25T09:55:29Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/collab/helpers.go
+            - internal/service/service_collab.go
+            - internal/service/service_hq.go
+    - id: 9
+      title: 'Refactor: internal/cli/cr/ (CR command wiring)'
+      status: done
+      contract:
+        intent: Split CR command wiring into internal/cli/cr grouped by command families with stable behavior.
+        acceptance_criteria:
+            - CR command constructors are grouped under internal/cli/cr.
+            - No behavior changes; CLI tests pass.
+        scope:
+            - internal/cli/cr
+            - internal/cli/cr_cmd_core.go
+            - internal/cli/cr_cmd_task.go
+      checkpoint:
+        commit: d0023e05
+        at: "2026-02-25T10:00:32Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/cr/helpers.go
+            - internal/cli/cr_cmd_core.go
+            - internal/cli/cr_cmd_task.go
+    - id: 10
+      title: 'Refactor: internal/cli/json/ (JSON mappers + envelope helpers)'
+      status: done
+      contract:
+        intent: Move JSON mapping helpers into internal/cli/json with stable outputs.
+        acceptance_criteria:
+            - JSON mapping helpers live under internal/cli/json.
+            - No behavior changes; JSON tests pass.
+        scope:
+            - internal/cli/cr_json_mappers.go
+            - internal/cli/json
+            - internal/cli/json.go
+      checkpoint:
+        commit: d1ad23b3
+        at: "2026-02-25T09:58:15Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/cr_json_mappers.go
+            - internal/cli/json.go
+            - internal/cli/json/helpers.go
+    - id: 11
+      title: 'Refactor safety net: targeted tests for wiring/output stability'
+      status: done
+      contract:
+        intent: Add minimal high-signal tests to ensure refactor keeps CLI wiring and JSON outputs stable.
+        acceptance_criteria:
+            - No new behavior dependencies introduced by file moves.
+            - Targeted CLI JSON surface tests cover critical commands after refactor.
+        scope:
+            - internal/cli
+            - internal/service
+      checkpoint:
+        commit: 916419a6
+        at: "2026-02-25T10:02:58Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/cr/helpers_test.go
+            - internal/cli/json/helpers_test.go
+            - internal/service/policy/helpers_test.go
+            - internal/service/tasks/checkpoint_test.go
+            - internal/service/trust/helpers_test.go
+git_summary:
+    base_parent: fafbe2ff0c787481f7cac078f1b50f20e499cbfa
+    cr_parent: 916419a6496ecdcafd4341b1a63b76828e7a7bad
+    files_changed:
+        - internal/cli/cr/helpers.go
+        - internal/cli/cr/helpers_test.go
+        - internal/cli/cr_cmd_core.go
+        - internal/cli/cr_cmd_task.go
+        - internal/cli/cr_json_mappers.go
+        - internal/cli/json.go
+        - internal/cli/json/helpers.go
+        - internal/cli/json/helpers_test.go
+        - internal/service/collab/helpers.go
+        - internal/service/cr/add.go
+        - internal/service/diff/helpers.go
+        - internal/service/merge/helpers.go
+        - internal/service/policy/helpers.go
+        - internal/service/policy/helpers_test.go
+        - internal/service/service_collab.go
+        - internal/service/service_cr.go
+        - internal/service/service_diff.go
+        - internal/service/service_hq.go
+        - internal/service/service_policy.go
+        - internal/service/service_review_merge.go
+        - internal/service/service_task_checkpoint.go
+        - internal/service/service_tasks.go
+        - internal/service/service_trust.go
+        - internal/service/tasks/checkpoint.go
+        - internal/service/tasks/checkpoint_test.go
+        - internal/service/tasks/helpers.go
+        - internal/service/trust/helpers.go
+        - internal/service/trust/helpers_test.go
+    diffstat:
+        summary: 28 files changed, 1521 insertions(+), 834 deletions(-)
+        files:
+            - path: internal/cli/cr/helpers.go
+              insertions: 111
+              deletions: 0
+            - path: internal/cli/cr/helpers_test.go
+              insertions: 56
+              deletions: 0
+            - path: internal/cli/cr_cmd_core.go
+              insertions: 7
+              deletions: 7
+            - path: internal/cli/cr_cmd_task.go
+              insertions: 25
+              deletions: 60
+            - path: internal/cli/cr_json_mappers.go
+              insertions: 5
+              deletions: 57
+            - path: internal/cli/json.go
+              insertions: 3
+              deletions: 24
+            - path: internal/cli/json/helpers.go
+              insertions: 104
+              deletions: 0
+            - path: internal/cli/json/helpers_test.go
+              insertions: 33
+              deletions: 0
+            - path: internal/service/collab/helpers.go
+              insertions: 187
+              deletions: 0
+            - path: internal/service/cr/add.go
+              insertions: 76
+              deletions: 0
+            - path: internal/service/diff/helpers.go
+              insertions: 131
+              deletions: 0
+            - path: internal/service/merge/helpers.go
+              insertions: 69
+              deletions: 0
+            - path: internal/service/policy/helpers.go
+              insertions: 124
+              deletions: 0
+            - path: internal/service/policy/helpers_test.go
+              insertions: 34
+              deletions: 0
+            - path: internal/service/service_collab.go
+              insertions: 9
+              deletions: 108
+            - path: internal/service/service_cr.go
+              insertions: 17
+              deletions: 50
+            - path: internal/service/service_diff.go
+              insertions: 19
+              deletions: 93
+            - path: internal/service/service_hq.go
+              insertions: 4
+              deletions: 23
+            - path: internal/service/service_policy.go
+              insertions: 10
+              deletions: 95
+            - path: internal/service/service_review_merge.go
+              insertions: 9
+              deletions: 41
+            - path: internal/service/service_task_checkpoint.go
+              insertions: 8
+              deletions: 63
+            - path: internal/service/service_tasks.go
+              insertions: 8
+              deletions: 72
+            - path: internal/service/service_trust.go
+              insertions: 23
+              deletions: 141
+            - path: internal/service/tasks/checkpoint.go
+              insertions: 83
+              deletions: 0
+            - path: internal/service/tasks/checkpoint_test.go
+              insertions: 41
+              deletions: 0
+            - path: internal/service/tasks/helpers.go
+              insertions: 100
+              deletions: 0
+            - path: internal/service/trust/helpers.go
+              insertions: 192
+              deletions: 0
+            - path: internal/service/trust/helpers_test.go
+              insertions: 33
+              deletions: 0

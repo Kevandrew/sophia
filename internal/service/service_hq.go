@@ -13,6 +13,7 @@ import (
 	"path"
 	"path/filepath"
 	"sophia/internal/model"
+	servicecollab "sophia/internal/service/collab"
 	"sophia/internal/store"
 	"strings"
 	"time"
@@ -611,35 +612,15 @@ func (s *Service) ensureHQWritesAllowed() error {
 }
 
 func normalizeHQRemoteAlias(raw string) (string, error) {
-	normalized := strings.TrimSpace(raw)
-	if normalized == "" {
-		return "", fmt.Errorf("hq remote alias cannot be empty")
-	}
-	return normalized, nil
+	return servicecollab.NormalizeHQRemoteAlias(raw)
 }
 
 func normalizeHQRepoID(raw string) (string, error) {
-	normalized := strings.TrimSpace(raw)
-	if normalized == "" {
-		return "", fmt.Errorf("hq repo id cannot be empty")
-	}
-	return normalized, nil
+	return servicecollab.NormalizeHQRepoID(raw)
 }
 
 func normalizeHQBaseURL(raw string) (string, error) {
-	normalized := strings.TrimSpace(raw)
-	if normalized == "" {
-		return "", fmt.Errorf("hq base url cannot be empty")
-	}
-	parsed, err := url.Parse(normalized)
-	if err != nil || !parsed.IsAbs() {
-		return "", fmt.Errorf("invalid hq base url %q", raw)
-	}
-	if parsed.Scheme != "http" && parsed.Scheme != "https" {
-		return "", fmt.Errorf("invalid hq base url %q: scheme must be http or https", raw)
-	}
-	parsed.Path = strings.TrimRight(parsed.Path, "/")
-	return parsed.String(), nil
+	return servicecollab.NormalizeHQBaseURL(raw)
 }
 
 func (s *Service) resolveHQRuntimeConfig() (hqRuntimeConfig, error) {

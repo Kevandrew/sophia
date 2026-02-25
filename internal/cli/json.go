@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	clijson "sophia/internal/cli/json"
 	"sophia/internal/store"
 	"strings"
 
@@ -13,34 +14,12 @@ import (
 	"sophia/internal/service"
 )
 
-type handledError struct {
-	err error
-}
-
-func (h *handledError) Error() string {
-	if h == nil || h.err == nil {
-		return ""
-	}
-	return h.err.Error()
-}
-
-func (h *handledError) Unwrap() error {
-	if h == nil {
-		return nil
-	}
-	return h.err
-}
-
 func markHandled(err error) error {
-	if err == nil {
-		return nil
-	}
-	return &handledError{err: err}
+	return clijson.MarkHandled(err)
 }
 
 func IsHandledError(err error) bool {
-	var handled *handledError
-	return errors.As(err, &handled)
+	return clijson.IsHandled(err)
 }
 
 type jsonEnvelope struct {

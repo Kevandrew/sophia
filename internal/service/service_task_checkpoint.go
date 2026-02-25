@@ -4,25 +4,14 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"os"
-	"path"
-	"path/filepath"
+	servicetasks "sophia/internal/service/tasks"
 	"sort"
 	"strconv"
 	"strings"
 )
 
 func dedupeStrings(values []string) []string {
-	seen := map[string]struct{}{}
-	res := make([]string, 0, len(values))
-	for _, value := range values {
-		if _, ok := seen[value]; ok {
-			continue
-		}
-		seen[value] = struct{}{}
-		res = append(res, value)
-	}
-	return res
+	return servicetasks.DedupeStrings(values)
 }
 
 func validateDoneTaskOptions(opts DoneTaskOptions) error {
@@ -96,63 +85,19 @@ func (s *Service) resolveTaskCheckpointPathsFromContract(scopePrefixes []string)
 }
 
 func (s *Service) normalizeTaskScopePaths(paths []string) ([]string, error) {
-	normalized := make([]string, 0, len(paths))
-	seen := map[string]struct{}{}
-	for _, raw := range paths {
-		trimmed := strings.TrimSpace(raw)
-		if trimmed == "" {
-			return nil, fmt.Errorf("%w: empty path", ErrInvalidTaskScope)
-		}
-
-		slashPath := strings.ReplaceAll(trimmed, "\\", "/")
-		if filepath.IsAbs(trimmed) || strings.HasPrefix(slashPath, "/") {
-			return nil, fmt.Errorf("%w: path %q must be repo-relative", ErrInvalidTaskScope, raw)
-		}
-		if strings.ContainsAny(slashPath, "*?[]{}") {
-			return nil, fmt.Errorf("%w: path %q must be exact (no glob patterns)", ErrInvalidTaskScope, raw)
-		}
-
-		cleaned := path.Clean(slashPath)
-		if cleaned == "." || cleaned == ".." || strings.HasPrefix(cleaned, "../") {
-			return nil, fmt.Errorf("%w: path %q escapes repository root", ErrInvalidTaskScope, raw)
-		}
-		if cleaned != slashPath {
-			return nil, fmt.Errorf("%w: path %q must be normalized", ErrInvalidTaskScope, raw)
-		}
-
-		absPath := filepath.Join(s.git.WorkDir, filepath.FromSlash(cleaned))
-		if info, statErr := os.Stat(absPath); statErr == nil && info.IsDir() {
-			return nil, fmt.Errorf("%w: path %q is a directory; select files only", ErrInvalidTaskScope, raw)
-		}
-		if _, exists := seen[cleaned]; exists {
-			return nil, fmt.Errorf("%w: duplicate path %q", ErrInvalidTaskScope, raw)
-		}
-		seen[cleaned] = struct{}{}
-		normalized = append(normalized, cleaned)
+	normalized, err := servicetasks.NormalizeScopePaths(s.git.WorkDir, paths)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrInvalidTaskScope, err)
 	}
 	return normalized, nil
 }
 
 func (s *Service) normalizePatchFilePath(raw string) (string, error) {
-	trimmed := strings.TrimSpace(raw)
-	if trimmed == "" {
-		return "", fmt.Errorf("%w: patch file path is required", ErrInvalidTaskScope)
-	}
-	patchPath := trimmed
-	if !filepath.IsAbs(patchPath) {
-		patchPath = filepath.Join(s.git.WorkDir, patchPath)
-	}
-	info, err := os.Stat(patchPath)
+	normalized, err := servicetasks.NormalizePatchFilePath(s.git.WorkDir, raw)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return "", fmt.Errorf("%w: patch file %q does not exist", ErrInvalidTaskScope, raw)
-		}
-		return "", fmt.Errorf("%w: patch file %q: %v", ErrInvalidTaskScope, raw, err)
+		return "", fmt.Errorf("%w: %v", ErrInvalidTaskScope, err)
 	}
-	if info.IsDir() {
-		return "", fmt.Errorf("%w: patch file %q is a directory", ErrInvalidTaskScope, raw)
-	}
-	return patchPath, nil
+	return normalized, nil
 }
 
 func parsePatchChunks(diff string) ([]parsedPatchChunk, error) {

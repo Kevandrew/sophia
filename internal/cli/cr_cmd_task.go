@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"os"
+	clicr "sophia/internal/cli/cr"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -663,77 +664,41 @@ type taskDoneFlags struct {
 }
 
 func validateTaskDoneFlags(flags taskDoneFlags) error {
-	trimmedReason := strings.TrimSpace(flags.noCheckpointReason)
-	trimmedPatchFile := strings.TrimSpace(flags.patchFile)
-	if flags.noCheckpoint && (flags.stageAll || flags.fromContract || len(flags.scopePaths) > 0 || trimmedPatchFile != "") {
-		return fmt.Errorf("--no-checkpoint cannot be combined with --from-contract, --path, --patch-file, or --all")
-	}
-	if flags.noCheckpoint && trimmedReason == "" {
-		return fmt.Errorf("--no-checkpoint requires --no-checkpoint-reason")
-	}
-	if !flags.noCheckpoint && trimmedReason != "" {
-		return fmt.Errorf("--no-checkpoint-reason requires --no-checkpoint")
-	}
-	if flags.noCheckpoint {
-		return nil
-	}
-	modeCount := 0
-	if flags.stageAll {
-		modeCount++
-	}
-	if flags.fromContract {
-		modeCount++
-	}
-	if len(flags.scopePaths) > 0 {
-		modeCount++
-	}
-	if trimmedPatchFile != "" {
-		modeCount++
-	}
-	if modeCount > 1 {
-		return fmt.Errorf("exactly one checkpoint scope mode is required: --from-contract, --path <file> (repeatable), --patch-file <file>, or --all")
-	}
-	if modeCount == 0 {
-		return fmt.Errorf("checkpoint scope required: use --from-contract, --path <file> (repeatable), --patch-file <file>, or --all")
-	}
-	return nil
+	return clicr.ValidateTaskDoneFlags(clicr.TaskDoneFlags{
+		NoCheckpoint:       flags.noCheckpoint,
+		NoCheckpointReason: flags.noCheckpointReason,
+		StageAll:           flags.stageAll,
+		FromContract:       flags.fromContract,
+		ScopePaths:         append([]string(nil), flags.scopePaths...),
+		PatchFile:          flags.patchFile,
+	})
 }
 
 func buildTaskDoneOptions(flags taskDoneFlags) service.DoneTaskOptions {
-	return service.DoneTaskOptions{
-		Checkpoint:         !flags.noCheckpoint,
+	return clicr.BuildTaskDoneOptions(clicr.TaskDoneFlags{
+		NoCheckpoint:       flags.noCheckpoint,
+		NoCheckpointReason: flags.noCheckpointReason,
 		StageAll:           flags.stageAll,
 		FromContract:       flags.fromContract,
-		Paths:              append([]string(nil), flags.scopePaths...),
-		PatchFile:          strings.TrimSpace(flags.patchFile),
-		NoCheckpointReason: strings.TrimSpace(flags.noCheckpointReason),
-	}
+		ScopePaths:         append([]string(nil), flags.scopePaths...),
+		PatchFile:          flags.patchFile,
+	})
 }
 
 func taskDoneScopeMode(flags taskDoneFlags) string {
-	if flags.noCheckpoint {
-		return "none"
-	}
-	if flags.stageAll {
-		return "all"
-	}
-	if flags.fromContract {
-		return "from_contract"
-	}
-	if len(flags.scopePaths) > 0 {
-		return "path"
-	}
-	if strings.TrimSpace(flags.patchFile) != "" {
-		return "patch_file"
-	}
-	return "unknown"
+	return clicr.TaskDoneScopeMode(clicr.TaskDoneFlags{
+		NoCheckpoint: flags.noCheckpoint,
+		StageAll:     flags.stageAll,
+		FromContract: flags.fromContract,
+		ScopePaths:   append([]string(nil), flags.scopePaths...),
+		PatchFile:    flags.patchFile,
+	})
 }
 
 func taskDoneCheckpointSource(flags taskDoneFlags) string {
-	if flags.noCheckpoint {
-		return "task_no_checkpoint"
-	}
-	return "task_checkpoint"
+	return clicr.TaskDoneCheckpointSource(clicr.TaskDoneFlags{
+		NoCheckpoint: flags.noCheckpoint,
+	})
 }
 
 func writeTaskDoneResult(cmd *cobra.Command, asJSON bool, crID, taskID int, sha string, flags taskDoneFlags) error {

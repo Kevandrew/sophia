@@ -2,8 +2,8 @@ package service
 
 import (
 	"fmt"
-	"regexp"
 	"sophia/internal/model"
+	servicetrust "sophia/internal/service/trust"
 	"sort"
 	"strconv"
 	"strings"
@@ -17,8 +17,6 @@ const (
 	trustTrustedMinRatio       = 0.85
 	trustAttentionMinRatio     = 0.60
 )
-
-var leadingIntPattern = regexp.MustCompile(`^\d+`)
 
 func buildTrustReport(cr *model.CR, validation *ValidationReport, diff *diffSummary, requiredCRFields []string) *TrustReport {
 	policy := defaultRepoPolicy()
@@ -385,10 +383,7 @@ func trustRequirementsSatisfied(requirements []TrustRequirement) bool {
 }
 
 func trustScoreRatio(score, max int) float64 {
-	if max <= 0 {
-		return 0
-	}
-	return float64(score) / float64(max)
+	return servicetrust.TrustScoreRatio(score, max)
 }
 
 func isTrustGatingAction(action string) bool {
@@ -409,25 +404,11 @@ func isTrustGatingAction(action string) bool {
 }
 
 func trustThresholdForTier(trust model.PolicyTrust, riskTier string) float64 {
-	switch normalizedRiskTier(riskTier) {
-	case "high":
-		return floatValueOrDefault(trust.Thresholds.High, defaultTrustThresholdHigh)
-	case "medium":
-		return floatValueOrDefault(trust.Thresholds.Medium, defaultTrustThresholdMedium)
-	default:
-		return floatValueOrDefault(trust.Thresholds.Low, defaultTrustThresholdLow)
-	}
+	return servicetrust.TrustThresholdForTier(trust, riskTier, defaultTrustThresholdLow, defaultTrustThresholdMedium, defaultTrustThresholdHigh)
 }
 
 func normalizedRiskTier(raw string) string {
-	switch strings.ToLower(strings.TrimSpace(raw)) {
-	case "high":
-		return "high"
-	case "medium":
-		return "medium"
-	default:
-		return "low"
-	}
+	return servicetrust.NormalizeRiskTier(raw)
 }
 
 func evaluateTrustChecks(evidence []model.EvidenceEntry, trust model.PolicyTrust, riskTier string, taskRequired map[string][]int, now time.Time) []TrustCheckResult {
@@ -609,20 +590,7 @@ func evaluateTrustReviewDepth(cr *model.CR, trust model.PolicyTrust, riskTier st
 }
 
 func sampleScopesMatchCriticalScope(sampleScopes []string, criticalScope string) bool {
-	critical := strings.TrimSpace(criticalScope)
-	if critical == "" {
-		return false
-	}
-	for _, sample := range sampleScopes {
-		scope := strings.TrimSpace(sample)
-		if scope == "" {
-			continue
-		}
-		if pathMatchesScopePrefix(critical, scope) || pathMatchesScopePrefix(scope, critical) {
-			return true
-		}
-	}
-	return false
+	return servicetrust.SampleScopesMatchCriticalScope(sampleScopes, criticalScope, pathMatchesScopePrefix)
 }
 
 func buildTrustGateSummary(trust model.PolicyTrust, riskTier, verdict string) TrustGateSummary {
@@ -655,120 +623,53 @@ func buildTrustGateSummary(trust model.PolicyTrust, riskTier, verdict string) Tr
 }
 
 func policyTrustGateEnabled(trust model.PolicyTrust) bool {
-	return strings.EqualFold(strings.TrimSpace(trust.Mode), policyTrustModeGate) && boolValueOrDefault(trust.Gate.Enabled, false)
+	return strings.EqualFold(strings.TrimSpace(trust.Mode), policyTrustModeGate) && servicetrust.BoolValueOrDefault(trust.Gate.Enabled, false)
 }
 
 func trustGateAppliesToRiskTier(trust model.PolicyTrust, riskTier string) bool {
-	tiers := trust.Gate.ApplyRiskTiers
-	if len(tiers) == 0 {
-		tiers = defaultTrustGateApplyRiskTiers
-	}
-	return stringSliceContains(tiers, normalizedRiskTier(riskTier))
+	return servicetrust.TrustGateAppliesToRiskTier(trust.Gate.ApplyRiskTiers, defaultTrustGateApplyRiskTiers, riskTier)
 }
 
 func trustVerdictRank(verdict string) int {
-	switch strings.ToLower(strings.TrimSpace(verdict)) {
-	case trustVerdictTrusted:
-		return 2
-	case trustVerdictNeedsAttention:
-		return 1
-	default:
-		return 0
-	}
+	return servicetrust.TrustVerdictRank(verdict, trustVerdictTrusted, trustVerdictNeedsAttention)
 }
 
 func boolValueOrDefault(value *bool, fallback bool) bool {
-	if value == nil {
-		return fallback
-	}
-	return *value
+	return servicetrust.BoolValueOrDefault(value, fallback)
 }
 
 func intValueOrDefault(value *int, fallback int) int {
-	if value == nil {
-		return fallback
-	}
-	return *value
+	return servicetrust.IntValueOrDefault(value, fallback)
 }
 
 func floatValueOrDefault(value *float64, fallback float64) float64 {
-	if value == nil {
-		return fallback
-	}
-	return *value
+	return servicetrust.FloatValueOrDefault(value, fallback)
 }
 
 func containsInt(values []int, target int) bool {
-	for _, value := range values {
-		if value == target {
-			return true
-		}
-	}
-	return false
+	return servicetrust.ContainsInt(values, target)
 }
 
 func stringSliceContains(values []string, target string) bool {
-	for _, value := range values {
-		if strings.EqualFold(strings.TrimSpace(value), strings.TrimSpace(target)) {
-			return true
-		}
-	}
-	return false
+	return servicetrust.StringSliceContains(values, target)
 }
 
-type shortStatMetrics struct {
-	FilesChanged int
-	Insertions   int
-	Deletions    int
-}
+type shortStatMetrics = servicetrust.ShortStatMetrics
 
 func parseShortStatMetrics(shortStat string) shortStatMetrics {
-	metrics := shortStatMetrics{}
-	trimmed := strings.TrimSpace(shortStat)
-	if trimmed == "" {
-		return metrics
-	}
-	for _, rawPart := range strings.Split(trimmed, ",") {
-		part := strings.ToLower(strings.TrimSpace(rawPart))
-		if part == "" {
-			continue
-		}
-		value := parseLeadingInt(part)
-		switch {
-		case strings.Contains(part, "file") && strings.Contains(part, "changed"):
-			metrics.FilesChanged = value
-		case strings.Contains(part, "insertion"):
-			metrics.Insertions = value
-		case strings.Contains(part, "deletion"):
-			metrics.Deletions = value
-		}
-	}
-	return metrics
-}
-
-func parseLeadingInt(input string) int {
-	match := leadingIntPattern.FindString(strings.TrimSpace(input))
-	if strings.TrimSpace(match) == "" {
-		return 0
-	}
-	value, err := strconv.Atoi(match)
-	if err != nil {
-		return 0
-	}
-	return value
+	return servicetrust.ParseShortStatMetrics(shortStat)
 }
 
 func effectiveFilesChanged(impact *ImpactReport, diff *diffSummary, shortStat shortStatMetrics) int {
-	if impact != nil && impact.FilesChanged > 0 {
-		return impact.FilesChanged
+	impactFilesChanged := 0
+	if impact != nil {
+		impactFilesChanged = impact.FilesChanged
 	}
-	if diff != nil && len(diff.Files) > 0 {
-		return len(diff.Files)
+	diffFilesChanged := 0
+	if diff != nil {
+		diffFilesChanged = len(diff.Files)
 	}
-	if shortStat.FilesChanged > 0 {
-		return shortStat.FilesChanged
-	}
-	return 0
+	return servicetrust.EffectiveFilesChanged(impactFilesChanged, diffFilesChanged, shortStat)
 }
 
 func buildContractQualityDimension(contract model.Contract) TrustDimension {
@@ -1078,26 +979,7 @@ func hasDependencyOrTestEvidence(impact *ImpactReport, diff *diffSummary) bool {
 }
 
 func isWeakTrustText(value string) bool {
-	trimmed := strings.TrimSpace(value)
-	if trimmed == "" {
-		return true
-	}
-	if len([]rune(trimmed)) < 20 {
-		return true
-	}
-	normalized := strings.ToLower(trimmed)
-	for _, token := range strings.Fields(normalized) {
-		switch token {
-		case "todo", "tbd", "n/a", "na", "none", "...":
-			return true
-		}
-	}
-	switch normalized {
-	case "n/a", "na", "none", "todo", "tbd", "...":
-		return true
-	default:
-		return false
-	}
+	return servicetrust.IsWeakTrustText(value)
 }
 
 type taskAcceptanceCheckRequirement struct {
