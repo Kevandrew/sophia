@@ -148,3 +148,72 @@ func TestConcurrentCRMutationsPreserveNotesAndContractEvents(t *testing.T) {
 		t.Fatalf("expected non-empty final contract why after concurrent updates")
 	}
 }
+
+func TestConcurrentEditAndContractSetMutationsPreserveAllEvents(t *testing.T) {
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	cr, err := svc.AddCR("concurrent mixed mutations", "")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+
+	const workers = 20
+	start := make(chan struct{})
+	errCh := make(chan error, workers*2)
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			<-start
+			worker := New(dir)
+			if _, editErr := worker.EditCR(cr.ID, strPtr(fmt.Sprintf("title-%02d", idx)), nil); editErr != nil {
+				errCh <- editErr
+				return
+			}
+			why := fmt.Sprintf("why-%02d", idx)
+			_, setErr := worker.SetCRContract(cr.ID, ContractPatch{Why: &why})
+			errCh <- setErr
+		}(i)
+	}
+
+	close(start)
+	wg.Wait()
+	close(errCh)
+	for err := range errCh {
+		if err != nil {
+			t.Fatalf("concurrent mixed mutation error = %v", err)
+		}
+	}
+
+	stored, err := svc.store.LoadCR(cr.ID)
+	if err != nil {
+		t.Fatalf("LoadCR() error = %v", err)
+	}
+	amendedEvents := 0
+	contractEvents := 0
+	for _, event := range stored.Events {
+		switch event.Type {
+		case "cr_amended":
+			amendedEvents++
+		case "contract_updated":
+			contractEvents++
+		}
+	}
+	if amendedEvents != workers {
+		t.Fatalf("expected %d cr_amended events, got %d", workers, amendedEvents)
+	}
+	if contractEvents != workers {
+		t.Fatalf("expected %d contract_updated events, got %d", workers, contractEvents)
+	}
+	if strings.TrimSpace(stored.Title) == "" {
+		t.Fatalf("expected non-empty final title after edits")
+	}
+}
+
+func strPtr(v string) *string {
+	return &v
+}

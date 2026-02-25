@@ -353,47 +353,53 @@ func (s *Service) AckTaskContractDrift(crID, taskID, driftID int, reason string)
 	if reason == "" {
 		return nil, fmt.Errorf("ack reason is required")
 	}
-	cr, err := s.loadCRForMutation(crID)
-	if err != nil {
-		return nil, err
-	}
-	taskIndex := indexOfTask(cr.Subtasks, taskID)
-	if taskIndex < 0 {
-		return nil, fmt.Errorf("task %d not found in cr %d", taskID, crID)
-	}
-	task := &cr.Subtasks[taskIndex]
-	driftIndex := -1
-	for i := range task.ContractDrifts {
-		if task.ContractDrifts[i].ID == driftID {
-			driftIndex = i
-			break
+	var ack model.TaskContractDrift
+	if err := s.withMutationLock(func() error {
+		cr, err := s.loadCRForMutation(crID)
+		if err != nil {
+			return err
 		}
-	}
-	if driftIndex < 0 {
-		return nil, fmt.Errorf("task %d drift %d not found in cr %d", taskID, driftID, crID)
-	}
+		taskIndex := indexOfTask(cr.Subtasks, taskID)
+		if taskIndex < 0 {
+			return fmt.Errorf("task %d not found in cr %d", taskID, crID)
+		}
+		task := &cr.Subtasks[taskIndex]
+		driftIndex := -1
+		for i := range task.ContractDrifts {
+			if task.ContractDrifts[i].ID == driftID {
+				driftIndex = i
+				break
+			}
+		}
+		if driftIndex < 0 {
+			return fmt.Errorf("task %d drift %d not found in cr %d", taskID, driftID, crID)
+		}
 
-	now := s.timestamp()
-	actor := s.git.Actor()
-	task.ContractDrifts[driftIndex].Acknowledged = true
-	task.ContractDrifts[driftIndex].AcknowledgedAt = now
-	task.ContractDrifts[driftIndex].AcknowledgedBy = actor
-	task.ContractDrifts[driftIndex].AckReason = reason
-	task.UpdatedAt = now
-	if err := s.appendCRMutationEventAndSave(cr, model.Event{
-		TS:      now,
-		Actor:   actor,
-		Type:    "task_contract_drift_acknowledged",
-		Summary: fmt.Sprintf("Acknowledged task %d contract drift #%d", taskID, driftID),
-		Ref:     fmt.Sprintf("task:%d", taskID),
-		Meta: map[string]string{
-			"drift_id": strconv.Itoa(driftID),
-			"reason":   reason,
-		},
+		now := s.timestamp()
+		actor := s.git.Actor()
+		task.ContractDrifts[driftIndex].Acknowledged = true
+		task.ContractDrifts[driftIndex].AcknowledgedAt = now
+		task.ContractDrifts[driftIndex].AcknowledgedBy = actor
+		task.ContractDrifts[driftIndex].AckReason = reason
+		task.UpdatedAt = now
+		if err := s.appendCRMutationEventAndSave(cr, model.Event{
+			TS:      now,
+			Actor:   actor,
+			Type:    "task_contract_drift_acknowledged",
+			Summary: fmt.Sprintf("Acknowledged task %d contract drift #%d", taskID, driftID),
+			Ref:     fmt.Sprintf("task:%d", taskID),
+			Meta: map[string]string{
+				"drift_id": strconv.Itoa(driftID),
+				"reason":   reason,
+			},
+		}); err != nil {
+			return err
+		}
+		ack = task.ContractDrifts[driftIndex]
+		return nil
 	}); err != nil {
 		return nil, err
 	}
-	ack := task.ContractDrifts[driftIndex]
 	ack.Fields = append([]string(nil), ack.Fields...)
 	ack.BeforeScope = append([]string(nil), ack.BeforeScope...)
 	ack.AfterScope = append([]string(nil), ack.AfterScope...)
@@ -554,60 +560,66 @@ func (s *Service) DoneTask(crID, taskID int) error {
 
 // Reopen preserves checkpoint evidence by default unless the caller explicitly clears it.
 func (s *Service) ReopenTask(crID, taskID int, opts ReopenTaskOptions) (*model.Subtask, error) {
-	cr, err := s.loadCRForMutation(crID)
-	if err != nil {
-		return nil, err
-	}
-	if cr.Status != model.StatusInProgress {
-		return nil, fmt.Errorf("cr %d is not in progress", crID)
-	}
-	taskIndex := indexOfTask(cr.Subtasks, taskID)
-	if taskIndex < 0 {
-		return nil, fmt.Errorf("task %d not found in cr %d", taskID, crID)
-	}
-	task := &cr.Subtasks[taskIndex]
-	if task.Status != model.TaskStatusDone {
-		return nil, fmt.Errorf("%w: task %d in cr %d has status %q", ErrTaskNotDone, taskID, crID, task.Status)
-	}
+	var reopened model.Subtask
+	if err := s.withMutationLock(func() error {
+		cr, err := s.loadCRForMutation(crID)
+		if err != nil {
+			return err
+		}
+		if cr.Status != model.StatusInProgress {
+			return fmt.Errorf("cr %d is not in progress", crID)
+		}
+		taskIndex := indexOfTask(cr.Subtasks, taskID)
+		if taskIndex < 0 {
+			return fmt.Errorf("task %d not found in cr %d", taskID, crID)
+		}
+		task := &cr.Subtasks[taskIndex]
+		if task.Status != model.TaskStatusDone {
+			return fmt.Errorf("%w: task %d in cr %d has status %q", ErrTaskNotDone, taskID, crID, task.Status)
+		}
 
-	now := s.timestamp()
-	actor := s.git.Actor()
-	previousCheckpoint := strings.TrimSpace(task.CheckpointCommit)
+		now := s.timestamp()
+		actor := s.git.Actor()
+		previousCheckpoint := strings.TrimSpace(task.CheckpointCommit)
 
-	task.Status = model.TaskStatusOpen
-	task.UpdatedAt = now
-	task.CompletedAt = ""
-	task.CompletedBy = ""
-	if opts.ClearCheckpoint {
-		task.CheckpointCommit = ""
-		task.CheckpointAt = ""
-		task.CheckpointMessage = ""
-		task.CheckpointScope = nil
-		task.CheckpointChunks = nil
-		task.CheckpointOrphan = false
-		task.CheckpointReason = ""
-		task.CheckpointSource = ""
-		task.CheckpointSyncAt = ""
-	}
+		task.Status = model.TaskStatusOpen
+		task.UpdatedAt = now
+		task.CompletedAt = ""
+		task.CompletedBy = ""
+		if opts.ClearCheckpoint {
+			task.CheckpointCommit = ""
+			task.CheckpointAt = ""
+			task.CheckpointMessage = ""
+			task.CheckpointScope = nil
+			task.CheckpointChunks = nil
+			task.CheckpointOrphan = false
+			task.CheckpointReason = ""
+			task.CheckpointSource = ""
+			task.CheckpointSyncAt = ""
+		}
 
-	meta := map[string]string{
-		"checkpoint_cleared": strconv.FormatBool(opts.ClearCheckpoint),
-	}
-	if previousCheckpoint != "" {
-		meta["previous_checkpoint_commit"] = previousCheckpoint
-	}
-	if err := s.appendCRMutationEventAndSave(cr, model.Event{
-		TS:      now,
-		Actor:   actor,
-		Type:    "task_reopened",
-		Summary: task.Title,
-		Ref:     fmt.Sprintf("task:%d", taskID),
-		Meta:    meta,
+		meta := map[string]string{
+			"checkpoint_cleared": strconv.FormatBool(opts.ClearCheckpoint),
+		}
+		if previousCheckpoint != "" {
+			meta["previous_checkpoint_commit"] = previousCheckpoint
+		}
+		if err := s.appendCRMutationEventAndSave(cr, model.Event{
+			TS:      now,
+			Actor:   actor,
+			Type:    "task_reopened",
+			Summary: task.Title,
+			Ref:     fmt.Sprintf("task:%d", taskID),
+			Meta:    meta,
+		}); err != nil {
+			return err
+		}
+
+		reopened = cr.Subtasks[taskIndex]
+		return nil
 	}); err != nil {
 		return nil, err
 	}
-
-	reopened := cr.Subtasks[taskIndex]
 	return &reopened, nil
 }
 

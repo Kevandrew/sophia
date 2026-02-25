@@ -2,9 +2,11 @@ package store
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -286,5 +288,57 @@ func TestWithMutationLockPathRejectsEmptyPath(t *testing.T) {
 	}
 	if err := s.WithMutationLockPath(" ", time.Second, func() error { return nil }); !errors.Is(err, ErrInvalidArgument) {
 		t.Fatalf("expected ErrInvalidArgument for empty lock path, got %v", err)
+	}
+}
+
+func TestConcurrentSaveCRDoesNotRaceOnTempRename(t *testing.T) {
+	s := New(t.TempDir())
+	if err := s.Init("main", model.MetadataModeLocal); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	cr := &model.CR{
+		ID:          1,
+		UID:         "cr_concurrent-save",
+		Title:       "base",
+		Description: "base",
+		Status:      model.StatusInProgress,
+		BaseBranch:  "main",
+		Branch:      "sophia/cr-1",
+		Notes:       []string{},
+		Subtasks:    []model.Subtask{},
+		Events:      []model.Event{},
+		CreatedAt:   "2026-01-01T00:00:00Z",
+		UpdatedAt:   "2026-01-01T00:00:00Z",
+	}
+	if err := s.SaveCR(cr); err != nil {
+		t.Fatalf("SaveCR(seed) error = %v", err)
+	}
+
+	const workers = 24
+	start := make(chan struct{})
+	errCh := make(chan error, workers)
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			<-start
+			loaded, err := s.LoadCR(1)
+			if err != nil {
+				errCh <- err
+				return
+			}
+			loaded.Title = fmt.Sprintf("title-%02d", idx)
+			errCh <- s.SaveCR(loaded)
+		}(i)
+	}
+	close(start)
+	wg.Wait()
+	close(errCh)
+
+	for err := range errCh {
+		if err != nil {
+			t.Fatalf("concurrent SaveCR() error = %v", err)
+		}
 	}
 }

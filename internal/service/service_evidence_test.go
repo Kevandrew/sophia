@@ -1,6 +1,8 @@
 package service
 
 import (
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -107,5 +109,27 @@ func TestAddEvidenceRejectsInvalidTypeAndCaptureMismatch(t *testing.T) {
 	}
 	if _, err := svc.AddEvidence(1, AddEvidenceOptions{Type: "manual_note", Command: "echo x", Capture: true}); err == nil {
 		t.Fatalf("expected capture/type mismatch error")
+	}
+}
+
+func TestAddEvidenceCaptureDoesNotExecuteCommandWhenCRMissing(t *testing.T) {
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	marker := filepath.Join(dir, "capture-side-effect.txt")
+	command := fmt.Sprintf("echo sideeffect > %q", marker)
+	if _, err := svc.AddEvidence(999, AddEvidenceOptions{
+		Type:    "command_run",
+		Command: command,
+		Capture: true,
+		Summary: "should not execute",
+	}); err == nil {
+		t.Fatalf("expected AddEvidence() to fail for missing CR")
+	}
+	if _, statErr := os.Stat(marker); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("expected capture command side effects to be skipped for missing CR, stat error: %v", statErr)
 	}
 }

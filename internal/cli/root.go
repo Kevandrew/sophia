@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -191,7 +192,15 @@ func isArgumentArityError(err error) bool {
 
 func argsContainJSONFlag(argv []string) bool {
 	for _, arg := range argv {
-		if strings.TrimSpace(arg) == "--json" {
+		trimmed := strings.TrimSpace(arg)
+		if trimmed == "--json" {
+			return true
+		}
+		if !strings.HasPrefix(trimmed, "--json=") {
+			continue
+		}
+		raw := strings.TrimSpace(strings.TrimPrefix(trimmed, "--json="))
+		if enabled, err := strconv.ParseBool(raw); err == nil && enabled {
 			return true
 		}
 	}

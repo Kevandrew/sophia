@@ -261,35 +261,38 @@ func (s *Service) AddNote(id int, note string) error {
 }
 
 func (s *Service) EditCR(id int, newTitle, newDescription *string) ([]string, error) {
-	cr, err := s.loadCRForMutation(id)
-	if err != nil {
-		return nil, err
-	}
-
 	changedFields := make([]string, 0, 2)
-	if newTitle != nil && cr.Title != *newTitle {
-		cr.Title = *newTitle
-		changedFields = append(changedFields, "title")
-	}
-	if newDescription != nil && cr.Description != *newDescription {
-		cr.Description = *newDescription
-		changedFields = append(changedFields, "description")
-	}
-	if len(changedFields) == 0 {
-		return nil, ErrNoCRChanges
-	}
+	if err := s.withMutationLock(func() error {
+		cr, err := s.loadCRForMutation(id)
+		if err != nil {
+			return err
+		}
 
-	now := s.timestamp()
-	actor := s.git.Actor()
-	if err := s.appendCRMutationEventAndSave(cr, model.Event{
-		TS:      now,
-		Actor:   actor,
-		Type:    "cr_amended",
-		Summary: fmt.Sprintf("Amended CR fields: %s", strings.Join(changedFields, ",")),
-		Ref:     fmt.Sprintf("cr:%d", id),
-		Meta: map[string]string{
-			"fields": strings.Join(changedFields, ","),
-		},
+		changedFields = changedFields[:0]
+		if newTitle != nil && cr.Title != *newTitle {
+			cr.Title = *newTitle
+			changedFields = append(changedFields, "title")
+		}
+		if newDescription != nil && cr.Description != *newDescription {
+			cr.Description = *newDescription
+			changedFields = append(changedFields, "description")
+		}
+		if len(changedFields) == 0 {
+			return ErrNoCRChanges
+		}
+
+		now := s.timestamp()
+		actor := s.git.Actor()
+		return s.appendCRMutationEventAndSave(cr, model.Event{
+			TS:      now,
+			Actor:   actor,
+			Type:    "cr_amended",
+			Summary: fmt.Sprintf("Amended CR fields: %s", strings.Join(changedFields, ",")),
+			Ref:     fmt.Sprintf("cr:%d", id),
+			Meta: map[string]string{
+				"fields": strings.Join(changedFields, ","),
+			},
+		})
 	}); err != nil {
 		return nil, err
 	}

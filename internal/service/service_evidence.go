@@ -35,6 +35,20 @@ func (s *Service) AddEvidence(id int, opts AddEvidenceOptions) (*model.EvidenceE
 	if err != nil {
 		return nil, err
 	}
+	loadTargetCR := func() (*model.CR, error) {
+		cr, loadErr := s.store.LoadCR(id)
+		if loadErr != nil {
+			return nil, loadErr
+		}
+		if guardErr := s.ensureNoMergeInProgressForCR(cr); guardErr != nil {
+			return nil, guardErr
+		}
+		return cr, nil
+	}
+	if _, err := loadTargetCR(); err != nil {
+		return nil, err
+	}
+
 	command := strings.TrimSpace(opts.Command)
 	summary := strings.TrimSpace(opts.Summary)
 	attachments := []string{}
@@ -78,12 +92,9 @@ func (s *Service) AddEvidence(id int, opts AddEvidenceOptions) (*model.EvidenceE
 
 	var out model.EvidenceEntry
 	if err := s.withMutationLock(func() error {
-		cr, err := s.store.LoadCR(id)
+		cr, err := loadTargetCR()
 		if err != nil {
 			return err
-		}
-		if guardErr := s.ensureNoMergeInProgressForCR(cr); guardErr != nil {
-			return guardErr
 		}
 
 		now := s.timestamp()
