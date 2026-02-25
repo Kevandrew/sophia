@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 
@@ -14,6 +15,76 @@ import (
 )
 
 var ErrNotInitialized = errors.New("sophia is not initialized in this repository")
+var ErrNotFound = errors.New("resource not found")
+var ErrInvalidArgument = errors.New("invalid argument")
+var ErrMutationLockTimeout = errors.New("timed out acquiring mutation lock")
+
+type NotFoundError struct {
+	Resource string
+	Value    string
+}
+
+func (e NotFoundError) Error() string {
+	resource := strings.TrimSpace(e.Resource)
+	value := strings.TrimSpace(e.Value)
+	switch {
+	case resource == "" && value == "":
+		return "resource not found"
+	case value == "":
+		return fmt.Sprintf("%s not found", resource)
+	default:
+		return fmt.Sprintf("%s %q not found", resource, value)
+	}
+}
+
+func (e NotFoundError) Is(target error) bool {
+	return target == ErrNotFound
+}
+
+type InvalidArgumentError struct {
+	Argument string
+	Message  string
+}
+
+func (e InvalidArgumentError) Error() string {
+	argument := strings.TrimSpace(e.Argument)
+	message := strings.TrimSpace(e.Message)
+	switch {
+	case argument == "" && message == "":
+		return "invalid argument"
+	case argument == "":
+		return message
+	case message == "":
+		return fmt.Sprintf("invalid %s", argument)
+	default:
+		return fmt.Sprintf("invalid %s: %s", argument, message)
+	}
+}
+
+func (e InvalidArgumentError) Is(target error) bool {
+	return target == ErrInvalidArgument
+}
+
+type MutationLockTimeoutError struct {
+	Path    string
+	Timeout time.Duration
+}
+
+func (e MutationLockTimeoutError) Error() string {
+	lockPath := strings.TrimSpace(e.Path)
+	if lockPath == "" {
+		lockPath = "mutation.lock"
+	}
+	timeout := e.Timeout
+	if timeout <= 0 {
+		timeout = 0
+	}
+	return fmt.Sprintf("unable to acquire Sophia mutation lock %q within %s; another mutation is likely in progress, retry shortly", lockPath, timeout)
+}
+
+func (e MutationLockTimeoutError) Is(target error) bool {
+	return target == ErrMutationLockTimeout
+}
 
 type Store struct {
 	Root       string
@@ -201,7 +272,7 @@ func (s *Store) LoadCR(id int) (*model.CR, error) {
 	path := s.CRPath(id)
 	if _, err := os.Stat(path); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return nil, fmt.Errorf("cr %d not found", id)
+			return nil, NotFoundError{Resource: "cr", Value: fmt.Sprintf("%d", id)}
 		}
 		return nil, fmt.Errorf("stat cr file: %w", err)
 	}
@@ -255,7 +326,7 @@ func (s *Store) LoadCRByUID(uid string) (*model.CR, error) {
 	}
 	needle := strings.TrimSpace(uid)
 	if needle == "" {
-		return nil, fmt.Errorf("cr uid cannot be empty")
+		return nil, InvalidArgumentError{Argument: "cr uid", Message: "cannot be empty"}
 	}
 	crs, err := s.ListCRs()
 	if err != nil {
@@ -270,7 +341,7 @@ func (s *Store) LoadCRByUID(uid string) (*model.CR, error) {
 	}
 	switch len(matches) {
 	case 0:
-		return nil, fmt.Errorf("cr uid %q not found", needle)
+		return nil, NotFoundError{Resource: "cr uid", Value: needle}
 	case 1:
 		cr := matches[0]
 		return &cr, nil
@@ -345,4 +416,43 @@ func (s *Store) writeYAMLAtomic(path string, v any) error {
 		return fmt.Errorf("rename temp file for %s: %w", path, err)
 	}
 	return nil
+}
+
+func (s *Store) mutationLockPath() string {
+	return filepath.Join(s.SophiaDir(), "mutation.lock")
+}
+
+func (s *Store) WithMutationLock(timeout time.Duration, fn func() error) error {
+	if fn == nil {
+		return InvalidArgumentError{Argument: "mutation callback", Message: "cannot be nil"}
+	}
+	if timeout <= 0 {
+		timeout = 10 * time.Second
+	}
+	lockPath := s.mutationLockPath()
+	if err := os.MkdirAll(filepath.Dir(lockPath), 0o755); err != nil {
+		return fmt.Errorf("create mutation lock directory for %s: %w", lockPath, err)
+	}
+	deadline := time.Now().Add(timeout)
+	for {
+		lockFile, err := os.OpenFile(lockPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+		if err == nil {
+			_, _ = fmt.Fprintf(lockFile, "pid=%d\nacquired_at=%s\n", os.Getpid(), time.Now().UTC().Format(time.RFC3339Nano))
+			_ = lockFile.Close()
+			defer func() {
+				_ = os.Remove(lockPath)
+			}()
+			return fn()
+		}
+		if !errors.Is(err, os.ErrExist) {
+			return fmt.Errorf("acquire mutation lock %q: %w", lockPath, err)
+		}
+		if time.Now().After(deadline) {
+			return MutationLockTimeoutError{
+				Path:    lockPath,
+				Timeout: timeout,
+			}
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
 }

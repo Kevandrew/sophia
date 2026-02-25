@@ -702,7 +702,7 @@ func (s *Service) ImpactCR(id int) (*ImpactReport, error) {
 	if err != nil {
 		return nil, err
 	}
-	policy, err := s.repoPolicy()
+	policy, policyWarnings, err := s.repoPolicyWithWarnings()
 	if err != nil {
 		return nil, err
 	}
@@ -711,12 +711,16 @@ func (s *Service) ImpactCR(id int) (*ImpactReport, error) {
 		if errors.Is(err, ErrCRBranchContextUnavailable) {
 			diff = s.summarizeCRDiffFromTaskCheckpoints(cr, policy)
 			impact := buildImpactReport(cr, diff, policy)
-			impact.Warnings = []string{"branch context unavailable; impact derived from CR metadata only"}
+			impact.Warnings = append([]string(nil), policyWarnings...)
+			impact.Warnings = append(impact.Warnings, "branch context unavailable; impact derived from CR metadata only")
+			impact.Warnings = dedupeStrings(impact.Warnings)
 			return impact, nil
 		}
 		return nil, err
 	}
 	impact := buildImpactReport(cr, diff, policy)
+	impact.Warnings = append(impact.Warnings, policyWarnings...)
+	impact.Warnings = dedupeStrings(impact.Warnings)
 	return impact, nil
 }
 
@@ -725,14 +729,14 @@ func (s *Service) ValidateCR(id int) (*ValidationReport, error) {
 	if err != nil {
 		return nil, err
 	}
-	policy, err := s.repoPolicy()
+	policy, policyWarnings, err := s.repoPolicyWithWarnings()
 	if err != nil {
 		return nil, err
 	}
 	diff, err := s.summarizeCRDiff(cr)
 	if err != nil {
 		if errors.Is(err, ErrCRBranchContextUnavailable) {
-			return s.validateCRWithoutDiffContext(cr, policy), nil
+			return s.validateCRWithoutDiffContext(cr, policy, policyWarnings), nil
 		}
 		return nil, err
 	}
@@ -754,9 +758,11 @@ func (s *Service) ValidateCR(id int) (*ValidationReport, error) {
 	errorsOut = dedupeStrings(errorsOut)
 	sort.Strings(errorsOut)
 
-	warnings := append([]string(nil), impact.TaskScopeWarnings...)
+	warnings := append([]string(nil), policyWarnings...)
+	warnings = append(warnings, impact.TaskScopeWarnings...)
 	warnings = append(warnings, impact.TaskContractWarnings...)
 	warnings = append(warnings, impact.TaskChunkWarnings...)
+	warnings = dedupeStrings(warnings)
 	return &ValidationReport{
 		Valid:    len(errorsOut) == 0,
 		Errors:   errorsOut,
@@ -765,7 +771,7 @@ func (s *Service) ValidateCR(id int) (*ValidationReport, error) {
 	}, nil
 }
 
-func (s *Service) validateCRWithoutDiffContext(cr *model.CR, policy *model.RepoPolicy) *ValidationReport {
+func (s *Service) validateCRWithoutDiffContext(cr *model.CR, policy *model.RepoPolicy, policyWarnings []string) *ValidationReport {
 	impact := buildImpactReport(cr, &diffSummary{}, policy)
 	errorsOut := []string{
 		fmt.Sprintf("unable to validate CR diff because branch context is unavailable for %q", strings.TrimSpace(cr.Branch)),
@@ -782,10 +788,12 @@ func (s *Service) validateCRWithoutDiffContext(cr *model.CR, policy *model.RepoP
 	errorsOut = dedupeStrings(errorsOut)
 	sort.Strings(errorsOut)
 
-	warnings := []string{"branch context unavailable; validation derived from CR metadata only"}
+	warnings := append([]string(nil), policyWarnings...)
+	warnings = append(warnings, "branch context unavailable; validation derived from CR metadata only")
 	warnings = append(warnings, impact.TaskScopeWarnings...)
 	warnings = append(warnings, impact.TaskContractWarnings...)
 	warnings = append(warnings, impact.TaskChunkWarnings...)
+	warnings = dedupeStrings(warnings)
 
 	return &ValidationReport{
 		Valid:    false,

@@ -1,9 +1,12 @@
 package store
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"sophia/internal/model"
 )
@@ -212,5 +215,66 @@ func TestLoadCRByUID(t *testing.T) {
 	}
 	if loaded.ID != cr.ID {
 		t.Fatalf("expected id %d, got %d", cr.ID, loaded.ID)
+	}
+}
+
+func TestLoadCRTypedErrors(t *testing.T) {
+	s := New(t.TempDir())
+	if err := s.Init("main", model.MetadataModeLocal); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	if _, err := s.LoadCR(99); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected ErrNotFound for missing CR id, got %v", err)
+	}
+
+	if _, err := s.LoadCRByUID(""); !errors.Is(err, ErrInvalidArgument) {
+		t.Fatalf("expected ErrInvalidArgument for empty uid, got %v", err)
+	}
+
+	if _, err := s.LoadCRByUID("cr_missing"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected ErrNotFound for missing uid, got %v", err)
+	}
+}
+
+func TestWithMutationLockTimeoutAndActionableError(t *testing.T) {
+	s := New(t.TempDir())
+	if err := s.Init("main", model.MetadataModeLocal); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	lockHeld := make(chan struct{})
+	releaseLock := make(chan struct{})
+	done := make(chan error, 1)
+	go func() {
+		done <- s.WithMutationLock(2*time.Second, func() error {
+			close(lockHeld)
+			<-releaseLock
+			return nil
+		})
+	}()
+	<-lockHeld
+
+	err := s.WithMutationLock(150*time.Millisecond, func() error { return nil })
+	if !errors.Is(err, ErrMutationLockTimeout) {
+		t.Fatalf("expected ErrMutationLockTimeout, got %v", err)
+	}
+	if !strings.Contains(strings.ToLower(err.Error()), "retry") {
+		t.Fatalf("expected actionable retry guidance in lock timeout error, got %v", err)
+	}
+
+	close(releaseLock)
+	if holdErr := <-done; holdErr != nil {
+		t.Fatalf("lock holder returned error: %v", holdErr)
+	}
+}
+
+func TestWithMutationLockRejectsNilCallback(t *testing.T) {
+	s := New(t.TempDir())
+	if err := s.Init("main", model.MetadataModeLocal); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	if err := s.WithMutationLock(time.Second, nil); !errors.Is(err, ErrInvalidArgument) {
+		t.Fatalf("expected ErrInvalidArgument for nil callback, got %v", err)
 	}
 }

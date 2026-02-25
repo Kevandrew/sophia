@@ -14,32 +14,39 @@ func (s *Service) AddTask(crID int, title string) (*model.Subtask, error) {
 	if strings.TrimSpace(title) == "" {
 		return nil, errors.New("task title cannot be empty")
 	}
-	cr, err := s.loadCRForMutation(crID)
-	if err != nil {
-		return nil, err
-	}
-	newTaskID := nextTaskID(cr.Subtasks)
-	now := s.timestamp()
-	actor := s.git.Actor()
-	task := model.Subtask{
-		ID:        newTaskID,
-		Title:     title,
-		Status:    model.TaskStatusOpen,
-		CreatedAt: now,
-		UpdatedAt: now,
-		CreatedBy: actor,
-	}
-	cr.Subtasks = append(cr.Subtasks, task)
-	if err := s.appendCRMutationEventAndSave(cr, model.Event{
-		TS:      now,
-		Actor:   actor,
-		Type:    "task_added",
-		Summary: title,
-		Ref:     fmt.Sprintf("task:%d", newTaskID),
+	var added model.Subtask
+	if err := s.withMutationLock(func() error {
+		cr, err := s.loadCRForMutation(crID)
+		if err != nil {
+			return err
+		}
+		newTaskID := nextTaskID(cr.Subtasks)
+		now := s.timestamp()
+		actor := s.git.Actor()
+		task := model.Subtask{
+			ID:        newTaskID,
+			Title:     title,
+			Status:    model.TaskStatusOpen,
+			CreatedAt: now,
+			UpdatedAt: now,
+			CreatedBy: actor,
+		}
+		cr.Subtasks = append(cr.Subtasks, task)
+		if err := s.appendCRMutationEventAndSave(cr, model.Event{
+			TS:      now,
+			Actor:   actor,
+			Type:    "task_added",
+			Summary: title,
+			Ref:     fmt.Sprintf("task:%d", newTaskID),
+		}); err != nil {
+			return err
+		}
+		added = task
+		return nil
 	}); err != nil {
 		return nil, err
 	}
-	return &task, nil
+	return &added, nil
 }
 
 func cloneTaskContract(contract model.TaskContract) model.TaskContract {
@@ -150,151 +157,157 @@ func validateTaskAcceptanceCheckKeys(taskID int, checks []string, policy *model.
 }
 
 func (s *Service) SetTaskContract(crID, taskID int, patch TaskContractPatch) ([]string, error) {
-	cr, err := s.store.LoadCR(crID)
-	if err != nil {
-		return nil, err
-	}
-	if guardErr := s.ensureNoMergeInProgressForCR(cr); guardErr != nil {
-		return nil, guardErr
-	}
-	policy, err := s.repoPolicy()
-	if err != nil {
-		return nil, err
-	}
-	taskIndex := indexOfTask(cr.Subtasks, taskID)
-	if taskIndex < 0 {
-		return nil, fmt.Errorf("task %d not found in cr %d", taskID, crID)
-	}
-	task := &cr.Subtasks[taskIndex]
-	beforeContract := cloneTaskContract(task.Contract)
+	var changed []string
+	if err := s.withMutationLock(func() error {
+		cr, err := s.store.LoadCR(crID)
+		if err != nil {
+			return err
+		}
+		if guardErr := s.ensureNoMergeInProgressForCR(cr); guardErr != nil {
+			return guardErr
+		}
+		policy, err := s.repoPolicy()
+		if err != nil {
+			return err
+		}
+		taskIndex := indexOfTask(cr.Subtasks, taskID)
+		if taskIndex < 0 {
+			return fmt.Errorf("task %d not found in cr %d", taskID, crID)
+		}
+		task := &cr.Subtasks[taskIndex]
+		beforeContract := cloneTaskContract(task.Contract)
 
-	changed := []string{}
-	if patch.Intent != nil {
-		normalized := strings.TrimSpace(*patch.Intent)
-		if task.Contract.Intent != normalized {
-			task.Contract.Intent = normalized
-			changed = append(changed, "intent")
-		}
-	}
-	if patch.AcceptanceCriteria != nil {
-		normalized := normalizeNonEmptyStringList(*patch.AcceptanceCriteria)
-		if !equalStringSlices(task.Contract.AcceptanceCriteria, normalized) {
-			task.Contract.AcceptanceCriteria = normalized
-			changed = append(changed, "acceptance_criteria")
-		}
-	}
-	if patch.Scope != nil {
-		normalized, normalizeErr := s.normalizeContractScopePrefixes(*patch.Scope)
-		if normalizeErr != nil {
-			return nil, normalizeErr
-		}
-		if scopeErr := enforceScopeAllowlist(normalized, policy.Scope.AllowedPrefixes, "task contract scope"); scopeErr != nil {
-			return nil, scopeErr
-		}
-		if !equalStringSlices(task.Contract.Scope, normalized) {
-			task.Contract.Scope = normalized
-			changed = append(changed, "scope")
-		}
-	}
-	if patch.AcceptanceChecks != nil {
-		normalized := normalizeAcceptanceCheckKeys(*patch.AcceptanceChecks)
-		if validateErr := validateTaskAcceptanceCheckKeys(taskID, normalized, policy); validateErr != nil {
-			return nil, validateErr
-		}
-		if !equalStringSlices(task.Contract.AcceptanceChecks, normalized) {
-			task.Contract.AcceptanceChecks = normalized
-			changed = append(changed, "acceptance_checks")
-		}
-	}
-	if len(changed) == 0 {
-		return nil, ErrNoCRChanges
-	}
-
-	now := s.timestamp()
-	actor := s.git.Actor()
-	changeReason := ""
-	if patch.ChangeReason != nil {
-		changeReason = strings.TrimSpace(*patch.ChangeReason)
-	}
-
-	taskHasCheckpoint := strings.TrimSpace(task.CheckpointCommit) != ""
-	if taskHasCheckpoint && taskContractBaselineIsEmpty(task.ContractBaseline) {
-		task.ContractBaseline = taskContractBaselineFromContract(beforeContract, now, actor)
-	}
-
-	var drift *model.TaskContractDrift
-	if taskHasCheckpoint {
-		driftFields := []string{}
-		scopeChanged := !equalStringSlices(beforeContract.Scope, task.Contract.Scope)
-		if scopeChanged && scopeWidened(beforeContract.Scope, task.Contract.Scope) {
-			driftFields = append(driftFields, "scope_widened")
-		}
-		checksChanged := !equalStringSlices(beforeContract.AcceptanceChecks, task.Contract.AcceptanceChecks)
-		if checksChanged {
-			driftFields = append(driftFields, "acceptance_checks_changed")
-		}
-		if len(driftFields) > 0 {
-			record := model.TaskContractDrift{
-				ID:                     nextTaskContractDriftID(task.ContractDrifts),
-				TS:                     now,
-				Actor:                  actor,
-				Fields:                 append([]string(nil), driftFields...),
-				BeforeScope:            append([]string(nil), beforeContract.Scope...),
-				AfterScope:             append([]string(nil), task.Contract.Scope...),
-				BeforeAcceptanceChecks: append([]string(nil), beforeContract.AcceptanceChecks...),
-				AfterAcceptanceChecks:  append([]string(nil), task.Contract.AcceptanceChecks...),
-				CheckpointCommit:       strings.TrimSpace(task.CheckpointCommit),
-				Reason:                 changeReason,
+		changed = []string{}
+		if patch.Intent != nil {
+			normalized := strings.TrimSpace(*patch.Intent)
+			if task.Contract.Intent != normalized {
+				task.Contract.Intent = normalized
+				changed = append(changed, "intent")
 			}
-			if changeReason != "" {
-				record.Acknowledged = true
-				record.AcknowledgedAt = now
-				record.AcknowledgedBy = actor
-				record.AckReason = changeReason
+		}
+		if patch.AcceptanceCriteria != nil {
+			normalized := normalizeNonEmptyStringList(*patch.AcceptanceCriteria)
+			if !equalStringSlices(task.Contract.AcceptanceCriteria, normalized) {
+				task.Contract.AcceptanceCriteria = normalized
+				changed = append(changed, "acceptance_criteria")
 			}
-			task.ContractDrifts = append(task.ContractDrifts, record)
-			drift = &record
 		}
-	}
+		if patch.Scope != nil {
+			normalized, normalizeErr := s.normalizeContractScopePrefixes(*patch.Scope)
+			if normalizeErr != nil {
+				return normalizeErr
+			}
+			if scopeErr := enforceScopeAllowlist(normalized, policy.Scope.AllowedPrefixes, "task contract scope"); scopeErr != nil {
+				return scopeErr
+			}
+			if !equalStringSlices(task.Contract.Scope, normalized) {
+				task.Contract.Scope = normalized
+				changed = append(changed, "scope")
+			}
+		}
+		if patch.AcceptanceChecks != nil {
+			normalized := normalizeAcceptanceCheckKeys(*patch.AcceptanceChecks)
+			if validateErr := validateTaskAcceptanceCheckKeys(taskID, normalized, policy); validateErr != nil {
+				return validateErr
+			}
+			if !equalStringSlices(task.Contract.AcceptanceChecks, normalized) {
+				task.Contract.AcceptanceChecks = normalized
+				changed = append(changed, "acceptance_checks")
+			}
+		}
+		if len(changed) == 0 {
+			return ErrNoCRChanges
+		}
 
-	task.Contract.UpdatedAt = now
-	task.Contract.UpdatedBy = actor
-	task.UpdatedAt = now
-	cr.UpdatedAt = now
-	meta := map[string]string{
-		"fields": strings.Join(changed, ","),
-	}
-	if changeReason != "" {
-		meta["change_reason"] = changeReason
-	}
-	cr.Events = append(cr.Events, model.Event{
-		TS:      now,
-		Actor:   actor,
-		Type:    "task_contract_updated",
-		Summary: fmt.Sprintf("Updated task %d contract fields: %s", taskID, strings.Join(changed, ",")),
-		Ref:     fmt.Sprintf("task:%d", taskID),
-		Meta:    meta,
-	})
-	if drift != nil {
-		driftMeta := map[string]string{
-			"drift_id":          strconv.Itoa(drift.ID),
-			"fields":            strings.Join(drift.Fields, ","),
-			"checkpoint_commit": drift.CheckpointCommit,
-			"acknowledged":      strconv.FormatBool(drift.Acknowledged),
+		now := s.timestamp()
+		actor := s.git.Actor()
+		changeReason := ""
+		if patch.ChangeReason != nil {
+			changeReason = strings.TrimSpace(*patch.ChangeReason)
 		}
-		if drift.Reason != "" {
-			driftMeta["reason"] = drift.Reason
+
+		taskHasCheckpoint := strings.TrimSpace(task.CheckpointCommit) != ""
+		if taskHasCheckpoint && taskContractBaselineIsEmpty(task.ContractBaseline) {
+			task.ContractBaseline = taskContractBaselineFromContract(beforeContract, now, actor)
+		}
+
+		var drift *model.TaskContractDrift
+		if taskHasCheckpoint {
+			driftFields := []string{}
+			scopeChanged := !equalStringSlices(beforeContract.Scope, task.Contract.Scope)
+			if scopeChanged && scopeWidened(beforeContract.Scope, task.Contract.Scope) {
+				driftFields = append(driftFields, "scope_widened")
+			}
+			checksChanged := !equalStringSlices(beforeContract.AcceptanceChecks, task.Contract.AcceptanceChecks)
+			if checksChanged {
+				driftFields = append(driftFields, "acceptance_checks_changed")
+			}
+			if len(driftFields) > 0 {
+				record := model.TaskContractDrift{
+					ID:                     nextTaskContractDriftID(task.ContractDrifts),
+					TS:                     now,
+					Actor:                  actor,
+					Fields:                 append([]string(nil), driftFields...),
+					BeforeScope:            append([]string(nil), beforeContract.Scope...),
+					AfterScope:             append([]string(nil), task.Contract.Scope...),
+					BeforeAcceptanceChecks: append([]string(nil), beforeContract.AcceptanceChecks...),
+					AfterAcceptanceChecks:  append([]string(nil), task.Contract.AcceptanceChecks...),
+					CheckpointCommit:       strings.TrimSpace(task.CheckpointCommit),
+					Reason:                 changeReason,
+				}
+				if changeReason != "" {
+					record.Acknowledged = true
+					record.AcknowledgedAt = now
+					record.AcknowledgedBy = actor
+					record.AckReason = changeReason
+				}
+				task.ContractDrifts = append(task.ContractDrifts, record)
+				drift = &record
+			}
+		}
+
+		task.Contract.UpdatedAt = now
+		task.Contract.UpdatedBy = actor
+		task.UpdatedAt = now
+		cr.UpdatedAt = now
+		meta := map[string]string{
+			"fields": strings.Join(changed, ","),
+		}
+		if changeReason != "" {
+			meta["change_reason"] = changeReason
 		}
 		cr.Events = append(cr.Events, model.Event{
 			TS:      now,
 			Actor:   actor,
-			Type:    "task_contract_drift_recorded",
-			Summary: fmt.Sprintf("Recorded task %d contract drift #%d (%s)", taskID, drift.ID, strings.Join(drift.Fields, ",")),
+			Type:    "task_contract_updated",
+			Summary: fmt.Sprintf("Updated task %d contract fields: %s", taskID, strings.Join(changed, ",")),
 			Ref:     fmt.Sprintf("task:%d", taskID),
-			Meta:    driftMeta,
+			Meta:    meta,
 		})
-	}
-	if err := s.store.SaveCR(cr); err != nil {
+		if drift != nil {
+			driftMeta := map[string]string{
+				"drift_id":          strconv.Itoa(drift.ID),
+				"fields":            strings.Join(drift.Fields, ","),
+				"checkpoint_commit": drift.CheckpointCommit,
+				"acknowledged":      strconv.FormatBool(drift.Acknowledged),
+			}
+			if drift.Reason != "" {
+				driftMeta["reason"] = drift.Reason
+			}
+			cr.Events = append(cr.Events, model.Event{
+				TS:      now,
+				Actor:   actor,
+				Type:    "task_contract_drift_recorded",
+				Summary: fmt.Sprintf("Recorded task %d contract drift #%d (%s)", taskID, drift.ID, strings.Join(drift.Fields, ",")),
+				Ref:     fmt.Sprintf("task:%d", taskID),
+				Meta:    driftMeta,
+			})
+		}
+		if err := s.store.SaveCR(cr); err != nil {
+			return err
+		}
+		return nil
+	}); err != nil {
 		return nil, err
 	}
 	return changed, nil

@@ -8,7 +8,8 @@ Policy controls what is required for CR/task contracts, how scope is interpreted
 
 - Path: `SOPHIA.yaml` (fixed)
 - Missing file: Sophia falls back to built-in defaults
-- Invalid YAML or unknown keys: deterministic failure (`policy_invalid`-style path)
+- Unknown keys: ignored for forward compatibility, with deterministic warnings surfaced in JSON validation surfaces and `sophia doctor`
+- Invalid YAML syntax/type mismatches: deterministic failure (`policy_invalid`-style path)
 
 ## Contract Requirements
 

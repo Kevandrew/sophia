@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"sophia/internal/model"
+	"sophia/internal/store"
 )
 
 const (
@@ -215,7 +216,7 @@ func (s *Service) ImportCRBundle(opts ImportCRBundleOptions) (*ImportCRBundleRes
 		created = false
 		replaced = true
 	case existingErr != nil:
-		if !strings.Contains(strings.ToLower(existingErr.Error()), "not found") {
+		if !errors.Is(existingErr, store.ErrNotFound) {
 			return nil, existingErr
 		}
 		newID, nextErr := s.store.NextCRID()

@@ -1,0 +1,196 @@
+schema_version: sophia.cr_archive.v1
+notice: Historical archive snapshot. Corrections are append-only revisions.
+archived_at: "2026-02-25T01:31:10Z"
+revision: 1
+cr:
+    id: 65
+    uid: cr_4b5ba32b-769d-4c42-aaf5-91546df37d04
+    title: 'Tech debt: harden policy compat and error surfaces'
+    description: Reduce brittleness in policy parsing and JSON error-code mapping; add guardrails/tests to prevent silent drift and concurrency foot-guns.
+    status: merged
+    base_branch: main
+    base_ref: main
+    base_commit: 83c7dba6dff6e32a57d00decf63420f91563311f
+    branch: cr-tech-debt-harden-policy-compat-and-error-surface-4b5b
+    merged_at: "2026-02-25T01:31:10Z"
+    merged_by: Kevandrew <143258544+Kevandrew@users.noreply.github.com>
+contract:
+    why: 'Harden Sophia’s infra-heavy Go workflow against drift and silent regressions by: (1) making SOPHIA.yaml forward/backward compatible across binaries via lenient unknown-field handling with explicit warnings, (2) making JSON error codes deterministic via typed/sentinel errors instead of substring matching, and (3) adding tests/guardrails around large JSON mapping surfaces and concurrent mutation foot-guns.'
+    scope:
+        - docs/repository-policy.md
+        - internal/cli
+        - internal/model
+        - internal/service
+        - internal/store
+    non_goals:
+        - No large package/module re-architecture; prefer small behavior-first changes.
+        - No new end-user workflow commands.
+    invariants:
+        - Invalid YAML remains a hard failure; only unknown fields become warnable.
+        - JSON output remains additive and backwards compatible (no key removals/renames).
+    blast_radius: Policy parsing, doctor output, JSON envelope error.code mapping, store/service mutation safety.
+    risk_tier_hint: medium
+    risk_rationale: Touches repo-wide config parsing and error surfaces.
+    test_plan: go test ./... && go vet ./...
+    rollback_plan: Revert the merge commit.
+tasks:
+    - id: 1
+      title: 'Policy parsing: tolerate unknown SOPHIA.yaml fields with warnings'
+      status: done
+      contract:
+        intent: Stop policy schema drift from bricking the CLI by retrying SOPHIA.yaml decode leniently on unknown-field errors and surfacing explicit warnings/findings.
+        acceptance_criteria:
+            - If SOPHIA.yaml contains unknown fields, commands do not fail with policy_invalid; they proceed with normalized known fields.
+            - Invalid YAML syntax and type mismatches remain hard policy_invalid failures.
+            - Unknown-field presence is surfaced deterministically (doctor finding and/or warnings in JSON surfaces).
+        scope:
+            - docs/repository-policy.md
+            - internal/cli
+            - internal/model/policy.go
+            - internal/service
+      checkpoint:
+        commit: bb5ace43
+        at: "2026-02-25T01:25:42Z"
+        source: task_checkpoint
+        scope:
+            - docs/repository-policy.md
+            - internal/cli/json_policy_test.go
+            - internal/service/service_cr.go
+            - internal/service/service_policy.go
+            - internal/service/service_policy_test.go
+            - internal/service/service_review_merge.go
+    - id: 2
+      title: 'JSON error codes: replace substring heuristics with typed errors'
+      status: done
+      contract:
+        intent: Make JSON error.code mapping deterministic by using typed/sentinel errors instead of strings.Contains heuristics for common not-found/invalid-argument paths.
+        acceptance_criteria:
+            - Existing codes for sentinel errors remain stable.
+            - Invalid arguments return error.code=invalid_argument without relying on substring matching.
+            - Missing CR id/uid returns error.code=not_found without relying on substring matching.
+        scope:
+            - internal/cli
+            - internal/service
+            - internal/store
+      checkpoint:
+        commit: fe14750e
+        at: "2026-02-25T01:11:14Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/json.go
+            - internal/cli/json_policy_test.go
+            - internal/service/service_collab.go
+            - internal/service/service_hq.go
+            - internal/store/store.go
+            - internal/store/store_test.go
+    - id: 3
+      title: 'CLI JSON surface: add key-set/compat regression tests'
+      status: done
+      contract:
+        intent: Reduce accidental JSON output drift by adding regression tests for key presence on critical JSON commands and tightening mapper helper usage where needed.
+        acceptance_criteria:
+            - New additive keys can be introduced by updating tests intentionally.
+            - Tests fail if a required key is removed from core JSON outputs (impact/review/validate/status/check status).
+        scope:
+            - internal/cli
+      checkpoint:
+        commit: a274ad95
+        at: "2026-02-25T01:25:46Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/cr_json_core_keys_test.go
+    - id: 4
+      title: 'Mutation robustness: prevent concurrent CR/task metadata write races'
+      status: done
+      contract:
+        intent: Eliminate lost-update races when multiple sophia processes mutate CR/task YAML concurrently (common in agent/automation usage).
+        acceptance_criteria:
+            - Concurrent 'task add/contract set' operations do not silently drop updates.
+            - Failure mode is deterministic and actionable if locking cannot be acquired.
+        scope:
+            - internal/cli
+            - internal/service
+            - internal/store
+      checkpoint:
+        commit: c340d5d0
+        at: "2026-02-25T01:25:56Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/json.go
+            - internal/cli/json_store_lock_test.go
+            - internal/service/service_common.go
+            - internal/service/service_task_mutation_lock_test.go
+            - internal/service/service_tasks.go
+            - internal/store/store.go
+            - internal/store/store_test.go
+git_summary:
+    base_parent: 83c7dba6dff6e32a57d00decf63420f91563311f
+    cr_parent: c340d5d05c0341cf89040a1a6ee18ce40566dfe2
+    files_changed:
+        - docs/repository-policy.md
+        - internal/cli/cr_json_core_keys_test.go
+        - internal/cli/json.go
+        - internal/cli/json_policy_test.go
+        - internal/cli/json_store_lock_test.go
+        - internal/service/service_collab.go
+        - internal/service/service_common.go
+        - internal/service/service_cr.go
+        - internal/service/service_hq.go
+        - internal/service/service_policy.go
+        - internal/service/service_policy_test.go
+        - internal/service/service_review_merge.go
+        - internal/service/service_task_mutation_lock_test.go
+        - internal/service/service_tasks.go
+        - internal/store/store.go
+        - internal/store/store_test.go
+    diffstat:
+        summary: 16 files changed, 813 insertions(+), 175 deletions(-)
+        files:
+            - path: docs/repository-policy.md
+              insertions: 2
+              deletions: 1
+            - path: internal/cli/cr_json_core_keys_test.go
+              insertions: 69
+              deletions: 0
+            - path: internal/cli/json.go
+              insertions: 7
+              deletions: 0
+            - path: internal/cli/json_policy_test.go
+              insertions: 86
+              deletions: 0
+            - path: internal/cli/json_store_lock_test.go
+              insertions: 13
+              deletions: 0
+            - path: internal/service/service_collab.go
+              insertions: 2
+              deletions: 1
+            - path: internal/service/service_common.go
+              insertions: 6
+              deletions: 0
+            - path: internal/service/service_cr.go
+              insertions: 15
+              deletions: 7
+            - path: internal/service/service_hq.go
+              insertions: 2
+              deletions: 1
+            - path: internal/service/service_policy.go
+              insertions: 91
+              deletions: 11
+            - path: internal/service/service_policy_test.go
+              insertions: 60
+              deletions: 2
+            - path: internal/service/service_review_merge.go
+              insertions: 6
+              deletions: 0
+            - path: internal/service/service_task_mutation_lock_test.go
+              insertions: 115
+              deletions: 0
+            - path: internal/service/service_tasks.go
+              insertions: 162
+              deletions: 149
+            - path: internal/store/store.go
+              insertions: 113
+              deletions: 3
+            - path: internal/store/store_test.go
+              insertions: 64
+              deletions: 0
