@@ -157,7 +157,9 @@ func (s *Service) workingTreeDirtySummary() (bool, string, error) {
 	return s.workingTreeDirtySummaryFor(s.git)
 }
 
-func (s *Service) workingTreeDirtySummaryFor(gitClient *gitx.Client) (bool, string, error) {
+func (s *Service) workingTreeDirtySummaryFor(gitClient interface {
+	WorkingTreeStatus() ([]gitx.StatusEntry, error)
+}) (bool, string, error) {
 	if gitClient == nil {
 		return false, "", nil
 	}

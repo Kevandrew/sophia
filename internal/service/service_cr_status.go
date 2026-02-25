@@ -11,7 +11,8 @@ import (
 )
 
 func (s *Service) WhyCR(id int) (*WhyView, error) {
-	cr, err := s.store.LoadCR(id)
+	statusStore := s.activeStatusStoreProvider()
+	cr, err := statusStore.LoadCR(id)
 	if err != nil {
 		return nil, err
 	}
@@ -49,7 +50,9 @@ func (s *Service) WhyCR(id int) (*WhyView, error) {
 }
 
 func (s *Service) StatusCR(id int) (*CRStatusView, error) {
-	cr, err := s.store.LoadCR(id)
+	statusStore := s.activeStatusStoreProvider()
+	statusGit := s.activeStatusGitProvider()
+	cr, err := statusStore.LoadCR(id)
 	if err != nil {
 		return nil, err
 	}
@@ -58,8 +61,8 @@ func (s *Service) StatusCR(id int) (*CRStatusView, error) {
 		return nil, err
 	}
 
-	currentBranch, _ := s.git.CurrentBranch()
-	statusEntries, err := s.git.WorkingTreeStatus()
+	currentBranch, _ := statusGit.CurrentBranch()
+	statusEntries, err := statusGit.WorkingTreeStatus()
 	if err != nil {
 		return nil, err
 	}
@@ -123,7 +126,7 @@ func (s *Service) StatusCR(id int) (*CRStatusView, error) {
 		RiskTier:              "-",
 	}
 	if cr.ParentCRID > 0 {
-		parent, parentErr := s.store.LoadCR(cr.ParentCRID)
+		parent, parentErr := statusStore.LoadCR(cr.ParentCRID)
 		if parentErr != nil {
 			view.ParentStatus = "missing"
 		} else {
@@ -151,7 +154,8 @@ func (s *Service) StatusCR(id int) (*CRStatusView, error) {
 }
 
 func (s *Service) ImpactCR(id int) (*ImpactReport, error) {
-	cr, err := s.store.LoadCR(id)
+	statusStore := s.activeStatusStoreProvider()
+	cr, err := statusStore.LoadCR(id)
 	if err != nil {
 		return nil, err
 	}
@@ -178,7 +182,8 @@ func (s *Service) ImpactCR(id int) (*ImpactReport, error) {
 }
 
 func (s *Service) ValidateCR(id int) (*ValidationReport, error) {
-	cr, err := s.store.LoadCR(id)
+	statusStore := s.activeStatusStoreProvider()
+	cr, err := statusStore.LoadCR(id)
 	if err != nil {
 		return nil, err
 	}
@@ -263,15 +268,17 @@ func (s *Service) RecordCRValidation(id int, report *ValidationReport) error {
 }
 
 func (s *Service) recordCRValidationUnlocked(id int, report *ValidationReport) error {
+	statusStore := s.activeStatusStoreProvider()
+	statusGit := s.activeStatusGitProvider()
 	if report == nil {
 		return errors.New("validation report is required")
 	}
-	cr, err := s.store.LoadCR(id)
+	cr, err := statusStore.LoadCR(id)
 	if err != nil {
 		return err
 	}
 	now := s.timestamp()
-	actor := s.git.Actor()
+	actor := statusGit.Actor()
 	status := "passed"
 	if !report.Valid {
 		status = "failed"
@@ -293,5 +300,5 @@ func (s *Service) recordCRValidationUnlocked(id int, report *ValidationReport) e
 		Ref:     fmt.Sprintf("cr:%d", id),
 		Meta:    meta,
 	})
-	return s.store.SaveCR(cr)
+	return statusStore.SaveCR(cr)
 }
