@@ -57,8 +57,7 @@ func runCLI(t *testing.T, dir string, args ...string) (string, string, error) {
 	var stderr bytes.Buffer
 	root.SetOut(&stdout)
 	root.SetErr(&stderr)
-	root.SetArgs(args)
-	err = root.Execute()
+	err = executeRootCmd(root, args)
 	return stdout.String(), stderr.String(), err
 }
 

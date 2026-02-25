@@ -3,14 +3,34 @@ package cli
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 
 	"sophia/internal/service"
+	"sophia/internal/store"
 )
 
 func Execute() error {
-	return newRootCmd().Execute()
+	root := newRootCmd()
+	return executeRootCmd(root, os.Args[1:])
+}
+
+func executeRootCmd(root *cobra.Command, args []string) error {
+	if root == nil {
+		return nil
+	}
+	root.SetArgs(args)
+	if err := root.Execute(); err != nil {
+		if IsHandledError(err) {
+			return err
+		}
+		if handled := maybeHandleArgumentUsageError(root, err, args); handled != nil {
+			return handled
+		}
+		return err
+	}
+	return nil
 }
 
 func newRootCmd() *cobra.Command {
@@ -93,4 +113,165 @@ func newService() (*service.Service, error) {
 		return nil, fmt.Errorf("resolve working directory: %w", err)
 	}
 	return service.New(cwd), nil
+}
+
+type usageArgumentError struct {
+	cause       error
+	commandPath string
+	useLine     string
+	example     string
+}
+
+func (e *usageArgumentError) Error() string {
+	if e == nil || e.cause == nil {
+		return ""
+	}
+	return e.cause.Error()
+}
+
+func (e *usageArgumentError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return store.InvalidArgumentError{
+		Argument: "arguments",
+		Message:  e.Error(),
+	}
+}
+
+func (e *usageArgumentError) Details() map[string]any {
+	if e == nil {
+		return nil
+	}
+	suggestedAction := strings.TrimSpace(e.commandPath)
+	if suggestedAction != "" {
+		suggestedAction += " --help"
+	} else {
+		suggestedAction = "sophia --help"
+	}
+	details := map[string]any{
+		"suggested_action": suggestedAction,
+	}
+	if strings.TrimSpace(e.useLine) != "" {
+		details["usage"] = strings.TrimSpace(e.useLine)
+	}
+	if strings.TrimSpace(e.example) != "" {
+		details["example"] = strings.TrimSpace(e.example)
+	}
+	return details
+}
+
+func maybeHandleArgumentUsageError(root *cobra.Command, err error, argv []string) error {
+	if !isArgumentArityError(err) {
+		return nil
+	}
+	cmd := resolveCommandForArgError(root, argv)
+	if cmd == nil {
+		cmd = root
+	}
+	usageErr := buildUsageArgumentError(cmd, err)
+	if argsContainJSONFlag(argv) {
+		return writeJSONError(cmd, usageErr)
+	}
+	renderActionableUsageError(cmd, err, usageErr)
+	return markHandled(err)
+}
+
+func isArgumentArityError(err error) bool {
+	if err == nil {
+		return false
+	}
+	lower := strings.ToLower(strings.TrimSpace(err.Error()))
+	if lower == "" {
+		return false
+	}
+	return strings.Contains(lower, "arg(s)") &&
+		(strings.Contains(lower, "accepts") || strings.Contains(lower, "requires"))
+}
+
+func argsContainJSONFlag(argv []string) bool {
+	for _, arg := range argv {
+		if strings.TrimSpace(arg) == "--json" {
+			return true
+		}
+	}
+	return false
+}
+
+func resolveCommandForArgError(root *cobra.Command, argv []string) *cobra.Command {
+	if root == nil {
+		return nil
+	}
+	if len(argv) == 0 {
+		return root
+	}
+	if cmd, _, err := root.Find(argv); err == nil && cmd != nil {
+		return cmd
+	}
+	for i := len(argv) - 1; i > 0; i-- {
+		if strings.HasPrefix(strings.TrimSpace(argv[i]), "-") {
+			continue
+		}
+		if cmd, _, err := root.Find(argv[:i]); err == nil && cmd != nil {
+			return cmd
+		}
+	}
+	return root
+}
+
+func buildUsageArgumentError(cmd *cobra.Command, cause error) *usageArgumentError {
+	commandPath := "sophia"
+	useLine := "sophia [command]"
+	example := "sophia --help"
+	if cmd != nil {
+		if path := strings.TrimSpace(cmd.CommandPath()); path != "" {
+			commandPath = path
+		}
+		if line := strings.TrimSpace(cmd.UseLine()); line != "" {
+			useLine = line
+		}
+		if ex := firstCommandExample(cmd); ex != "" {
+			example = ex
+		} else {
+			example = commandPath + " --help"
+		}
+	}
+	return &usageArgumentError{
+		cause:       cause,
+		commandPath: commandPath,
+		useLine:     useLine,
+		example:     example,
+	}
+}
+
+func firstCommandExample(cmd *cobra.Command) string {
+	if cmd == nil {
+		return ""
+	}
+	raw := strings.TrimSpace(cmd.Example)
+	if raw == "" {
+		return ""
+	}
+	for _, line := range strings.Split(raw, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		return trimmed
+	}
+	return ""
+}
+
+func renderActionableUsageError(cmd *cobra.Command, cause error, usageErr *usageArgumentError) {
+	if cmd == nil {
+		return
+	}
+	errOut := cmd.ErrOrStderr()
+	fmt.Fprintf(errOut, "Error: %s\n", strings.TrimSpace(cause.Error()))
+	if usageErr == nil {
+		return
+	}
+	fmt.Fprintf(errOut, "\nUsage:\n  %s\n", strings.TrimSpace(usageErr.useLine))
+	fmt.Fprintf(errOut, "\nExample:\n  %s\n", strings.TrimSpace(usageErr.example))
+	fmt.Fprintf(errOut, "\nNext step:\n  %s --help\n", strings.TrimSpace(usageErr.commandPath))
 }
