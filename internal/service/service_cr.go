@@ -151,7 +151,7 @@ func (s *Service) resolveAddCRBaseContext(cfg model.Config, opts AddCROptions) (
 		if guardErr := s.ensureNoMergeInProgressForCR(parent); guardErr != nil {
 			return addCRBaseContext{}, guardErr
 		}
-		ref, commit, err := s.parentBaseAnchor(parent)
+		ref, commit, err := s.parentBaseAnchorWithProviders(parent, lifecycleStore, lifecycleGit)
 		if err != nil {
 			return addCRBaseContext{}, err
 		}
