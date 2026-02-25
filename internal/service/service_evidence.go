@@ -35,24 +35,22 @@ func (s *Service) AddEvidence(id int, opts AddEvidenceOptions) (*model.EvidenceE
 	if err != nil {
 		return nil, err
 	}
-	command := strings.TrimSpace(opts.Command)
-	summary := strings.TrimSpace(opts.Summary)
-
-	if opts.Capture && evidenceType != evidenceTypeCommandRun {
-		return nil, fmt.Errorf("%w: --capture is only supported for %q evidence type", ErrInvalidEvidenceType, evidenceTypeCommandRun)
+	loadTargetCR := func() (*model.CR, error) {
+		cr, loadErr := s.store.LoadCR(id)
+		if loadErr != nil {
+			return nil, loadErr
+		}
+		if guardErr := s.ensureNoMergeInProgressForCR(cr); guardErr != nil {
+			return nil, guardErr
+		}
+		return cr, nil
 	}
-	if opts.Capture && command == "" {
-		return nil, fmt.Errorf("command is required when --capture is set")
-	}
-
-	cr, err := s.store.LoadCR(id)
-	if err != nil {
+	if _, err := loadTargetCR(); err != nil {
 		return nil, err
 	}
-	if guardErr := s.ensureNoMergeInProgressForCR(cr); guardErr != nil {
-		return nil, guardErr
-	}
 
+	command := strings.TrimSpace(opts.Command)
+	summary := strings.TrimSpace(opts.Summary)
 	attachments := []string{}
 	if len(opts.Attachments) > 0 {
 		normalized, normalizeErr := s.normalizeTaskScopePaths(opts.Attachments)
@@ -71,6 +69,12 @@ func (s *Service) AddEvidence(id int, opts AddEvidenceOptions) (*model.EvidenceE
 		exitCode = &exit
 	}
 
+	if opts.Capture && evidenceType != evidenceTypeCommandRun {
+		return nil, fmt.Errorf("%w: --capture is only supported for %q evidence type", ErrInvalidEvidenceType, evidenceTypeCommandRun)
+	}
+	if opts.Capture && command == "" {
+		return nil, fmt.Errorf("command is required when --capture is set")
+	}
 	if opts.Capture {
 		capturedExitCode, capturedOutputHash, capturedSummary, captureErr := s.captureEvidenceCommand(command)
 		if captureErr != nil {
@@ -82,60 +86,70 @@ func (s *Service) AddEvidence(id int, opts AddEvidenceOptions) (*model.EvidenceE
 			summary = capturedSummary
 		}
 	}
-
 	if summary == "" {
 		return nil, errors.New("summary cannot be empty")
 	}
 
-	now := s.timestamp()
-	actor := s.git.Actor()
-	entry := model.EvidenceEntry{
-		TS:          now,
-		Actor:       actor,
-		Type:        evidenceType,
-		Scope:       strings.TrimSpace(opts.Scope),
-		Command:     command,
-		ExitCode:    exitCode,
-		OutputHash:  outputHash,
-		Summary:     summary,
-		Attachments: append([]string(nil), attachments...),
-	}
+	var out model.EvidenceEntry
+	if err := s.withMutationLock(func() error {
+		cr, err := loadTargetCR()
+		if err != nil {
+			return err
+		}
 
-	cr.Evidence = append(cr.Evidence, entry)
-	meta := map[string]string{
-		"type": evidenceType,
-	}
-	if entry.Scope != "" {
-		meta["scope"] = entry.Scope
-	}
-	if entry.Command != "" {
-		meta["command"] = entry.Command
-	}
-	if entry.OutputHash != "" {
-		meta["output_hash"] = entry.OutputHash
-	}
-	if entry.ExitCode != nil {
-		meta["exit_code"] = strconv.Itoa(*entry.ExitCode)
-	}
-	if len(entry.Attachments) > 0 {
-		meta["attachments"] = strings.Join(entry.Attachments, ",")
-		meta["attachments_count"] = strconv.Itoa(len(entry.Attachments))
-	}
-	cr.Events = append(cr.Events, model.Event{
-		TS:      now,
-		Actor:   actor,
-		Type:    "evidence_added",
-		Summary: fmt.Sprintf("Added %s evidence: %s", evidenceType, truncateSummary(summary, 90)),
-		Ref:     fmt.Sprintf("cr:%d", id),
-		Meta:    meta,
-	})
-	cr.UpdatedAt = now
+		now := s.timestamp()
+		actor := s.git.Actor()
+		entry := model.EvidenceEntry{
+			TS:          now,
+			Actor:       actor,
+			Type:        evidenceType,
+			Scope:       strings.TrimSpace(opts.Scope),
+			Command:     command,
+			ExitCode:    exitCode,
+			OutputHash:  outputHash,
+			Summary:     summary,
+			Attachments: append([]string(nil), attachments...),
+		}
 
-	if err := s.store.SaveCR(cr); err != nil {
+		cr.Evidence = append(cr.Evidence, entry)
+		meta := map[string]string{
+			"type": evidenceType,
+		}
+		if entry.Scope != "" {
+			meta["scope"] = entry.Scope
+		}
+		if entry.Command != "" {
+			meta["command"] = entry.Command
+		}
+		if entry.OutputHash != "" {
+			meta["output_hash"] = entry.OutputHash
+		}
+		if entry.ExitCode != nil {
+			meta["exit_code"] = strconv.Itoa(*entry.ExitCode)
+		}
+		if len(entry.Attachments) > 0 {
+			meta["attachments"] = strings.Join(entry.Attachments, ",")
+			meta["attachments_count"] = strconv.Itoa(len(entry.Attachments))
+		}
+		cr.Events = append(cr.Events, model.Event{
+			TS:      now,
+			Actor:   actor,
+			Type:    "evidence_added",
+			Summary: fmt.Sprintf("Added %s evidence: %s", evidenceType, truncateSummary(summary, 90)),
+			Ref:     fmt.Sprintf("cr:%d", id),
+			Meta:    meta,
+		})
+		cr.UpdatedAt = now
+
+		if err := s.store.SaveCR(cr); err != nil {
+			return err
+		}
+		out = entry
+		out.Attachments = append([]string(nil), entry.Attachments...)
+		return nil
+	}); err != nil {
 		return nil, err
 	}
-	out := entry
-	out.Attachments = append([]string(nil), entry.Attachments...)
 	return &out, nil
 }
 

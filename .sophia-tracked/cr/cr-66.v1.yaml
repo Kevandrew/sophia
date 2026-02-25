@@ -1,0 +1,205 @@
+schema_version: sophia.cr_archive.v1
+notice: Historical archive snapshot. Corrections are append-only revisions.
+archived_at: "2026-02-25T09:08:12Z"
+revision: 1
+cr:
+    id: 66
+    uid: cr_080424c9-51d3-4c9b-b56a-902587408251
+    title: 'UX + Concurrency: actionable errors and serialized mutators'
+    description: Fix missing-arg UX ("expected 1 argument") and reduce agent-triggered concurrency failures (store lost-updates, git index.lock) by serializing mutating operations and improving error guidance.
+    status: merged
+    base_branch: main
+    base_ref: main
+    base_commit: 5dfe84dd5a2ee265bc033e25c3b278c4a79c6ac9
+    branch: cr-ux-concurrency-actionable-errors-and-serialized-0804
+    merged_at: "2026-02-25T09:08:12Z"
+    merged_by: Kevandrew <143258544+Kevandrew@users.noreply.github.com>
+contract:
+    why: Operators and agents hit dead-end errors like "expected 1 argument" with no next step (root SilenceUsage), and concurrent automation causes failures like git index.lock and lost updates in .sophia YAML metadata. This CR makes the CLI self-guiding in common failure cases and makes mutating operations safe under concurrency.
+    scope:
+        - internal/cli
+        - internal/gitx
+        - internal/service
+        - internal/store
+    non_goals:
+        - No behavior changes outside UX/error messaging and lock/serialization behavior.
+        - No new workflow commands.
+    invariants:
+        - JSON output remains additive (no key removals/renames).
+        - Locking must never silently drop updates; contention must be explicit and actionable.
+    blast_radius: CLI root/usage behavior; store YAML writes; git operations during task checkpoint/merge.
+    risk_tier_hint: high
+    risk_rationale: Touches checkpoint/merge paths and concurrency behavior; regressions would be workflow-blocking.
+    test_plan: go test ./... && go vet ./...
+    rollback_plan: Revert the merge commit.
+tasks:
+    - id: 1
+      title: Make missing-arg errors actionable (usage + examples)
+      status: done
+      contract:
+        intent: When args are missing/wrong arity, print usage plus concrete next steps instead of bare 'expected N arguments'.
+        acceptance_criteria:
+            - JSON mode returns a structured error with code=invalid_argument and includes a suggested action to run --help / next step.
+            - Non-usage runtime errors remain noise-free (do not dump usage for internal errors).
+            - Text mode missing-arg errors print the command usage plus at least 1 concrete example invocation.
+        scope:
+            - internal/cli
+      checkpoint:
+        commit: ed7153da
+        at: "2026-02-25T01:44:50Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/arg_error_ux_test.go
+            - internal/cli/cr_json_helpers_test.go
+            - internal/cli/root.go
+    - id: 2
+      title: Add repo mutation lock (serialize mutating Sophia ops)
+      status: done
+      contract:
+        intent: Prevent concurrent Sophia processes from clobbering .sophia YAML metadata and colliding on git operations by taking a repo-level lock for mutators.
+        acceptance_criteria:
+            - Lock contention waits up to a bounded timeout (default 10s) then errors with a clear message and next steps.
+            - Lock location is shared across worktrees (based on git common dir) so multiple worktrees still serialize.
+            - Mutating operations (contract/task/note/evidence writes and task checkpoint/merge) acquire a repo-level lock.
+        scope:
+            - internal/gitx
+            - internal/service
+            - internal/store
+      checkpoint:
+        commit: 02c47019
+        at: "2026-02-25T08:37:46Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_common.go
+            - internal/service/service_cr.go
+            - internal/service/service_evidence.go
+            - internal/service/service_review_merge.go
+            - internal/service/service_tasks.go
+            - internal/store/store.go
+    - id: 3
+      title: Improve git index.lock handling for checkpoint/merge flows
+      status: done
+      contract:
+        intent: Reduce flaky agent runs by making git index.lock collisions deterministic and recoverable.
+        acceptance_criteria:
+            - Non-lock git failures are not retried.
+            - Retry is bounded; it must not hang indefinitely.
+            - When git fails due to index.lock, Sophia retries with backoff within the same lock window or returns an actionable error.
+        scope:
+            - internal/gitx
+            - internal/service
+      checkpoint:
+        commit: 582b1dae
+        at: "2026-02-25T01:45:03Z"
+        source: task_checkpoint
+        scope:
+            - internal/gitx/git.go
+            - internal/gitx/git_index_lock_test.go
+    - id: 4
+      title: Add regression tests for lock + lost-update prevention
+      status: done
+      contract:
+        intent: Prove we can't lose updates when two Sophia mutations occur concurrently, and lock contention behavior is deterministic.
+        acceptance_criteria:
+            - Tests cover lock contention timeout and the actionable error path.
+            - Tests reproduce the prior lost-update scenario (e.g., concurrent task add/contract set) and assert both updates persist.
+        scope:
+            - internal/service
+            - internal/store
+      checkpoint:
+        commit: f8e5d2b4
+        at: "2026-02-25T08:37:53Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_mutation_lock_test.go
+            - internal/store/store_test.go
+    - id: 5
+      title: 'Fix deep-review regressions: capture validation ordering, mutator lock coverage, and JSON flag parsing'
+      status: done
+      contract:
+        intent: Close post-review regressions by preventing pre-validation capture side effects, serializing remaining mutators, and accepting --json=true in arity errors.
+        acceptance_criteria:
+            - Concurrent edit+contract updates must not lose events or fail due to temp-file rename races.
+            - Evidence capture must not execute command side effects when target CR is missing.
+            - Missing-arg errors with --json=true must return structured invalid_argument envelopes.
+        scope:
+            - internal/cli
+            - internal/service
+            - internal/store
+      checkpoint:
+        commit: 252a6327
+        at: "2026-02-25T08:59:36Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/arg_error_ux_test.go
+            - internal/cli/root.go
+            - internal/service/service_cr.go
+            - internal/service/service_evidence.go
+            - internal/service/service_evidence_test.go
+            - internal/service/service_mutation_lock_test.go
+            - internal/service/service_tasks.go
+            - internal/store/store.go
+            - internal/store/store_test.go
+git_summary:
+    base_parent: 5dfe84dd5a2ee265bc033e25c3b278c4a79c6ac9
+    cr_parent: 252a632775effddcba4a12b900d2bcc7b93de6a4
+    files_changed:
+        - internal/cli/arg_error_ux_test.go
+        - internal/cli/cr_json_helpers_test.go
+        - internal/cli/root.go
+        - internal/gitx/git.go
+        - internal/gitx/git_index_lock_test.go
+        - internal/service/service_common.go
+        - internal/service/service_cr.go
+        - internal/service/service_evidence.go
+        - internal/service/service_evidence_test.go
+        - internal/service/service_mutation_lock_test.go
+        - internal/service/service_review_merge.go
+        - internal/service/service_tasks.go
+        - internal/store/store.go
+        - internal/store/store_test.go
+    diffstat:
+        summary: 14 files changed, 1124 insertions(+), 295 deletions(-)
+        files:
+            - path: internal/cli/arg_error_ux_test.go
+              insertions: 72
+              deletions: 0
+            - path: internal/cli/cr_json_helpers_test.go
+              insertions: 1
+              deletions: 2
+            - path: internal/cli/root.go
+              insertions: 191
+              deletions: 1
+            - path: internal/gitx/git.go
+              insertions: 70
+              deletions: 9
+            - path: internal/gitx/git_index_lock_test.go
+              insertions: 98
+              deletions: 0
+            - path: internal/service/service_common.go
+              insertions: 10
+              deletions: 1
+            - path: internal/service/service_cr.go
+              insertions: 142
+              deletions: 134
+            - path: internal/service/service_evidence.go
+              insertions: 74
+              deletions: 60
+            - path: internal/service/service_evidence_test.go
+              insertions: 24
+              deletions: 0
+            - path: internal/service/service_mutation_lock_test.go
+              insertions: 219
+              deletions: 0
+            - path: internal/service/service_review_merge.go
+              insertions: 36
+              deletions: 0
+            - path: internal/service/service_tasks.go
+              insertions: 113
+              deletions: 86
+            - path: internal/store/store.go
+              insertions: 10
+              deletions: 2
+            - path: internal/store/store_test.go
+              insertions: 64
+              deletions: 0

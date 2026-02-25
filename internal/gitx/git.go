@@ -15,8 +15,45 @@ import (
 
 const sophiaManagedHookMarker = "SOPHIA_MANAGED_PRE_COMMIT"
 
+var (
+	ErrIndexLock = errors.New("git index lock busy")
+
+	indexLockRetryBackoff = []time.Duration{
+		50 * time.Millisecond,
+		100 * time.Millisecond,
+		200 * time.Millisecond,
+	}
+	sleepForIndexLockRetry = time.Sleep
+)
+
 type Client struct {
 	WorkDir string
+}
+
+type IndexLockError struct {
+	Command     string
+	Attempts    int
+	LastMessage string
+}
+
+func (e IndexLockError) Error() string {
+	command := strings.TrimSpace(e.Command)
+	if command == "" {
+		command = "git <command>"
+	}
+	attempts := e.Attempts
+	if attempts < 1 {
+		attempts = 1
+	}
+	base := fmt.Sprintf("git index.lock blocked command `%s`; retried %d time(s) and still failed", command, attempts)
+	if strings.TrimSpace(e.LastMessage) == "" {
+		return base + "; wait for other git processes (or clear stale index.lock) and retry"
+	}
+	return fmt.Sprintf("%s: %s; wait for other git processes (or clear stale index.lock) and retry", base, strings.TrimSpace(e.LastMessage))
+}
+
+func (e IndexLockError) Is(target error) bool {
+	return target == ErrIndexLock
 }
 
 type FileChange struct {
@@ -1235,17 +1272,41 @@ func (c *Client) HeadShortSHA() (string, error) {
 }
 
 func (c *Client) run(args ...string) (string, error) {
-	cmd := exec.Command("git", args...)
-	cmd.Dir = c.WorkDir
-	out, err := cmd.CombinedOutput()
-	trimmed := strings.TrimSpace(string(out))
-	if err != nil {
-		if trimmed == "" {
-			return "", fmt.Errorf("git %s: %w", strings.Join(args, " "), err)
+	command := strings.Join(args, " ")
+	attempts := 0
+	for {
+		attempts++
+		cmd := exec.Command("git", args...)
+		cmd.Dir = c.WorkDir
+		out, err := cmd.CombinedOutput()
+		trimmed := strings.TrimSpace(string(out))
+		if err == nil {
+			return trimmed, nil
 		}
-		return "", fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, trimmed)
+
+		combinedFailure := strings.ToLower(strings.TrimSpace(trimmed + " " + err.Error()))
+		if !containsIndexLockFailure(combinedFailure) {
+			if trimmed == "" {
+				return "", fmt.Errorf("git %s: %w", command, err)
+			}
+			return "", fmt.Errorf("git %s: %w: %s", command, err, trimmed)
+		}
+
+		retryIdx := attempts - 1
+		if retryIdx >= len(indexLockRetryBackoff) {
+			return "", IndexLockError{
+				Command:     "git " + command,
+				Attempts:    attempts,
+				LastMessage: trimmed,
+			}
+		}
+		sleepForIndexLockRetry(indexLockRetryBackoff[retryIdx])
 	}
-	return trimmed, nil
+}
+
+func containsIndexLockFailure(lowerMessage string) bool {
+	lowerMessage = strings.ToLower(strings.TrimSpace(lowerMessage))
+	return strings.Contains(lowerMessage, "index.lock")
 }
 
 func (c *Client) identityFlags() []string {

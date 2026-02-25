@@ -408,11 +408,12 @@ func (s *Store) writeYAMLAtomic(path string, v any) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("create directory for %s: %w", path, err)
 	}
-	tmp := path + ".tmp"
+	tmp := fmt.Sprintf("%s.%d.%d.tmp", path, os.Getpid(), time.Now().UnixNano())
 	if err := os.WriteFile(tmp, data, 0o644); err != nil {
 		return fmt.Errorf("write temp file for %s: %w", path, err)
 	}
 	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
 		return fmt.Errorf("rename temp file for %s: %w", path, err)
 	}
 	return nil
@@ -423,13 +424,20 @@ func (s *Store) mutationLockPath() string {
 }
 
 func (s *Store) WithMutationLock(timeout time.Duration, fn func() error) error {
+	return s.WithMutationLockPath(s.mutationLockPath(), timeout, fn)
+}
+
+func (s *Store) WithMutationLockPath(lockPath string, timeout time.Duration, fn func() error) error {
 	if fn == nil {
 		return InvalidArgumentError{Argument: "mutation callback", Message: "cannot be nil"}
+	}
+	lockPath = strings.TrimSpace(lockPath)
+	if lockPath == "" {
+		return InvalidArgumentError{Argument: "mutation lock path", Message: "cannot be empty"}
 	}
 	if timeout <= 0 {
 		timeout = 10 * time.Second
 	}
-	lockPath := s.mutationLockPath()
 	if err := os.MkdirAll(filepath.Dir(lockPath), 0o755); err != nil {
 		return fmt.Errorf("create mutation lock directory for %s: %w", lockPath, err)
 	}

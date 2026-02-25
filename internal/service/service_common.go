@@ -16,7 +16,16 @@ import (
 const defaultMutationLockWait = 10 * time.Second
 
 func (s *Service) withMutationLock(fn func() error) error {
-	return s.store.WithMutationLock(defaultMutationLockWait, fn)
+	return s.store.WithMutationLockPath(s.mutationLockPath(), defaultMutationLockWait, fn)
+}
+
+func (s *Service) mutationLockPath() string {
+	if s.git != nil && s.git.InRepo() {
+		if commonDir, err := s.git.GitCommonDirAbs(); err == nil && strings.TrimSpace(commonDir) != "" {
+			return filepath.Join(commonDir, "sophia-mutation.lock")
+		}
+	}
+	return filepath.Join(s.store.SophiaDir(), "mutation.lock")
 }
 
 func (s *Service) normalizeContractScopePrefixes(prefixes []string) ([]string, error) {
