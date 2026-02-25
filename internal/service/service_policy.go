@@ -6,11 +6,10 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"sophia/internal/model"
+	servicepolicy "sophia/internal/service/policy"
 	"sort"
 	"strings"
 
@@ -18,11 +17,6 @@ import (
 )
 
 const repoPolicyFileName = "SOPHIA.yaml"
-
-var (
-	policyUnknownFieldLinePattern    = regexp.MustCompile(`^line\s+\d+:\s+field\s+(.+)\s+not found in type`)
-	policyUnknownFieldCompactPattern = regexp.MustCompile(`^field\s+(.+)\s+not found in type`)
-)
 
 var (
 	defaultCRRequiredContractFields = []string{
@@ -241,50 +235,15 @@ func decodeRepoPolicy(content []byte, knownFields bool) (model.RepoPolicy, error
 }
 
 func parseUnknownPolicyFields(err error) ([]string, bool) {
-	if err == nil {
-		return nil, false
-	}
-	lines := strings.Split(strings.TrimSpace(err.Error()), "\n")
-	fields := []string{}
-	for _, raw := range lines {
-		line := strings.TrimSpace(raw)
-		if line == "" || strings.EqualFold(line, "yaml: unmarshal errors:") {
-			continue
-		}
-		field, ok := parseUnknownPolicyFieldLine(line)
-		if !ok {
-			return nil, false
-		}
-		fields = append(fields, field)
-	}
-	if len(fields) == 0 {
-		return nil, false
-	}
-	sort.Strings(fields)
-	return slices.Compact(fields), true
+	return servicepolicy.ParseUnknownFields(err)
 }
 
 func parseUnknownPolicyFieldLine(line string) (string, bool) {
-	for _, pattern := range []*regexp.Regexp{policyUnknownFieldLinePattern, policyUnknownFieldCompactPattern} {
-		matches := pattern.FindStringSubmatch(line)
-		if len(matches) != 2 {
-			continue
-		}
-		field := strings.Trim(strings.TrimSpace(matches[1]), `"'`)
-		if field == "" {
-			return "", false
-		}
-		return field, true
-	}
-	return "", false
+	return servicepolicy.ParseUnknownFieldLine(line)
 }
 
 func policyUnknownFieldWarnings(fields []string) []string {
-	warnings := make([]string, 0, len(fields))
-	for _, field := range fields {
-		warnings = append(warnings, fmt.Sprintf("SOPHIA.yaml contains unknown field %q; field is ignored for forward compatibility", field))
-	}
-	return warnings
+	return servicepolicy.UnknownFieldWarnings(fields)
 }
 
 func (s *Service) normalizeRepoPolicy(input *model.RepoPolicy) (*model.RepoPolicy, error) {
@@ -393,25 +352,11 @@ func normalizePolicyArchive(input model.PolicyArchive) (model.PolicyArchive, err
 }
 
 func normalizePolicyArchivePath(raw string) (string, error) {
-	trimmed := strings.TrimSpace(raw)
-	slashPath := strings.ReplaceAll(trimmed, "\\", "/")
-	if slashPath == "" {
-		return "", fmt.Errorf("%w: archive.path cannot be empty", ErrPolicyInvalid)
+	normalized, err := servicepolicy.NormalizeArchivePath(raw)
+	if err != nil {
+		return "", fmt.Errorf("%w: %v", ErrPolicyInvalid, err)
 	}
-	if filepath.IsAbs(trimmed) || strings.HasPrefix(slashPath, "/") {
-		return "", fmt.Errorf("%w: archive.path %q must be repo-relative", ErrPolicyInvalid, raw)
-	}
-	if strings.ContainsAny(slashPath, "*?[]{}") {
-		return "", fmt.Errorf("%w: archive.path %q must be an exact path (no glob patterns)", ErrPolicyInvalid, raw)
-	}
-	cleaned := path.Clean(slashPath)
-	if cleaned == ".." || strings.HasPrefix(cleaned, "../") {
-		return "", fmt.Errorf("%w: archive.path %q escapes repository root", ErrPolicyInvalid, raw)
-	}
-	if cleaned != slashPath {
-		return "", fmt.Errorf("%w: archive.path %q must be normalized", ErrPolicyInvalid, raw)
-	}
-	return cleaned, nil
+	return normalized, nil
 }
 
 func normalizePolicyRequiredFields(values []string, allowed map[string]struct{}, label string) ([]string, error) {
@@ -436,24 +381,7 @@ func normalizePolicyRequiredFields(values []string, allowed map[string]struct{},
 }
 
 func normalizePolicyStringList(values []string, lower bool) []string {
-	normalized := []string{}
-	seen := map[string]struct{}{}
-	for _, raw := range values {
-		candidate := strings.TrimSpace(raw)
-		if lower {
-			candidate = strings.ToLower(candidate)
-		}
-		if candidate == "" {
-			continue
-		}
-		if _, ok := seen[candidate]; ok {
-			continue
-		}
-		seen[candidate] = struct{}{}
-		normalized = append(normalized, candidate)
-	}
-	sort.Strings(normalized)
-	return normalized
+	return servicepolicy.NormalizeStringList(values, lower)
 }
 
 func normalizePolicyTrust(input model.PolicyTrust) (model.PolicyTrust, error) {
@@ -654,20 +582,7 @@ func validatePolicyTrustThreshold(value float64, label string) error {
 }
 
 func normalizeIntList(values []int) []int {
-	if len(values) == 0 {
-		return []int{}
-	}
-	seen := map[int]struct{}{}
-	normalized := make([]int, 0, len(values))
-	for _, value := range values {
-		if _, ok := seen[value]; ok {
-			continue
-		}
-		seen[value] = struct{}{}
-		normalized = append(normalized, value)
-	}
-	sort.Ints(normalized)
-	return normalized
+	return servicepolicy.NormalizeIntList(values)
 }
 
 func enforceScopeAllowlist(scopeValues, allowedPrefixes []string, fieldLabel string) error {
