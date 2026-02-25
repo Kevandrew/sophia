@@ -88,6 +88,22 @@ Archive semantics:
 
 When checks are not configured, machine-readable check endpoints may report guidance rather than pass/fail evidence.
 
+Example Go infra check definitions:
+```yaml
+trust:
+  checks:
+    freshness_hours: 24
+    definitions:
+      - key: unit_tests
+        command: go test ./...
+        tiers: [low, medium, high]
+        allow_exit_codes: [0]
+      - key: go_vet
+        command: go vet ./...
+        tiers: [low, medium, high]
+        allow_exit_codes: [0]
+```
+
 ## Contributor Expectations
 
 Before requesting merge:
