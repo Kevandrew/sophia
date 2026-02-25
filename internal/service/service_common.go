@@ -13,6 +13,12 @@ import (
 	"time"
 )
 
+const defaultMutationLockWait = 10 * time.Second
+
+func (s *Service) withMutationLock(fn func() error) error {
+	return s.store.WithMutationLock(defaultMutationLockWait, fn)
+}
+
 func (s *Service) normalizeContractScopePrefixes(prefixes []string) ([]string, error) {
 	normalized := make([]string, 0, len(prefixes))
 	seen := map[string]struct{}{}

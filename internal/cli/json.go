@@ -150,6 +150,8 @@ func jsonErrorCode(err error) string {
 		return "not_found"
 	case errors.Is(err, store.ErrInvalidArgument):
 		return "invalid_argument"
+	case errors.Is(err, store.ErrMutationLockTimeout):
+		return "resource_busy"
 	}
 	lower := strings.ToLower(strings.TrimSpace(err.Error()))
 	switch {

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 
@@ -16,6 +17,7 @@ import (
 var ErrNotInitialized = errors.New("sophia is not initialized in this repository")
 var ErrNotFound = errors.New("resource not found")
 var ErrInvalidArgument = errors.New("invalid argument")
+var ErrMutationLockTimeout = errors.New("timed out acquiring mutation lock")
 
 type NotFoundError struct {
 	Resource string
@@ -61,6 +63,27 @@ func (e InvalidArgumentError) Error() string {
 
 func (e InvalidArgumentError) Is(target error) bool {
 	return target == ErrInvalidArgument
+}
+
+type MutationLockTimeoutError struct {
+	Path    string
+	Timeout time.Duration
+}
+
+func (e MutationLockTimeoutError) Error() string {
+	lockPath := strings.TrimSpace(e.Path)
+	if lockPath == "" {
+		lockPath = "mutation.lock"
+	}
+	timeout := e.Timeout
+	if timeout <= 0 {
+		timeout = 0
+	}
+	return fmt.Sprintf("unable to acquire Sophia mutation lock %q within %s; another mutation is likely in progress, retry shortly", lockPath, timeout)
+}
+
+func (e MutationLockTimeoutError) Is(target error) bool {
+	return target == ErrMutationLockTimeout
 }
 
 type Store struct {
@@ -393,4 +416,43 @@ func (s *Store) writeYAMLAtomic(path string, v any) error {
 		return fmt.Errorf("rename temp file for %s: %w", path, err)
 	}
 	return nil
+}
+
+func (s *Store) mutationLockPath() string {
+	return filepath.Join(s.SophiaDir(), "mutation.lock")
+}
+
+func (s *Store) WithMutationLock(timeout time.Duration, fn func() error) error {
+	if fn == nil {
+		return InvalidArgumentError{Argument: "mutation callback", Message: "cannot be nil"}
+	}
+	if timeout <= 0 {
+		timeout = 10 * time.Second
+	}
+	lockPath := s.mutationLockPath()
+	if err := os.MkdirAll(filepath.Dir(lockPath), 0o755); err != nil {
+		return fmt.Errorf("create mutation lock directory for %s: %w", lockPath, err)
+	}
+	deadline := time.Now().Add(timeout)
+	for {
+		lockFile, err := os.OpenFile(lockPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+		if err == nil {
+			_, _ = fmt.Fprintf(lockFile, "pid=%d\nacquired_at=%s\n", os.Getpid(), time.Now().UTC().Format(time.RFC3339Nano))
+			_ = lockFile.Close()
+			defer func() {
+				_ = os.Remove(lockPath)
+			}()
+			return fn()
+		}
+		if !errors.Is(err, os.ErrExist) {
+			return fmt.Errorf("acquire mutation lock %q: %w", lockPath, err)
+		}
+		if time.Now().After(deadline) {
+			return MutationLockTimeoutError{
+				Path:    lockPath,
+				Timeout: timeout,
+			}
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
 }
