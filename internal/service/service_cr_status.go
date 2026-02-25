@@ -12,11 +12,12 @@ import (
 
 func (s *Service) WhyCR(id int) (*WhyView, error) {
 	statusStore := s.activeStatusStoreProvider()
+	statusGit := s.activeStatusGitProvider()
 	cr, err := statusStore.LoadCR(id)
 	if err != nil {
 		return nil, err
 	}
-	cr, err = s.ensureCRBaseFieldsPersisted(cr)
+	cr, err = s.ensureCRBaseFieldsPersistedWithProviders(cr, statusStore, statusGit)
 	if err != nil {
 		return nil, err
 	}
@@ -56,7 +57,7 @@ func (s *Service) StatusCR(id int) (*CRStatusView, error) {
 	if err != nil {
 		return nil, err
 	}
-	cr, err = s.ensureCRBaseFieldsPersisted(cr)
+	cr, err = s.ensureCRBaseFieldsPersistedWithProviders(cr, statusStore, statusGit)
 	if err != nil {
 		return nil, err
 	}
