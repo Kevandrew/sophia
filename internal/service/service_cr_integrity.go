@@ -172,7 +172,7 @@ func (s *Service) ReconcileCR(id int, opts ReconcileCROptions) (*ReconcileCRRepo
 	cr.Events = append(cr.Events, model.Event{
 		TS:      now,
 		Actor:   actor,
-		Type:    "cr_reconciled",
+		Type:    model.EventTypeCRReconciled,
 		Summary: fmt.Sprintf("Reconciled CR %d checkpoint integrity (relinked=%d orphaned=%d cleared=%d parent_relinked=%t)", cr.ID, report.Relinked, report.Orphaned, report.ClearedOrphans, report.ParentRelinked),
 		Ref:     fmt.Sprintf("cr:%d", cr.ID),
 		Meta: map[string]string{

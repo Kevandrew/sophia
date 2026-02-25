@@ -299,7 +299,7 @@ func (s *Service) RecordCRValidation(id int, report *ValidationReport) error {
 	cr.Events = append(cr.Events, model.Event{
 		TS:      now,
 		Actor:   actor,
-		Type:    "cr_validated",
+		Type:    model.EventTypeCRValidated,
 		Summary: fmt.Sprintf("Validation %s with %d error(s) and %d warning(s)", status, len(report.Errors), len(report.Warnings)),
 		Ref:     fmt.Sprintf("cr:%d", id),
 		Meta:    meta,

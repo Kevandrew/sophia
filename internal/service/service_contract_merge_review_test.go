@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sophia/internal/model"
 	"strings"
 	"testing"
 )
@@ -312,7 +313,7 @@ func TestMergeCROverridePersistsAuditEvent(t *testing.T) {
 	}
 	found := false
 	for _, event := range loaded.Events {
-		if event.Type == "cr_merge_overridden" {
+		if event.Type == model.EventTypeCRMergeOverridden {
 			found = true
 			if event.Meta["override_reason"] != "emergency hotfix" {
 				t.Fatalf("unexpected override reason meta: %#v", event.Meta)

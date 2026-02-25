@@ -14,6 +14,7 @@ type Service struct {
 	git                  *gitx.Client
 	taskStore            taskLifecycleStoreProvider
 	taskGit              taskLifecycleGitProvider
+	taskMergeGuard       func(*model.CR) error
 	now                  func() time.Time
 	repoRoot             string
 	legacySophiaDir      string

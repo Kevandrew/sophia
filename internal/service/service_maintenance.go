@@ -278,7 +278,7 @@ func (s *Service) RepairFromGit(baseBranch string, refresh bool) (*RepairReport,
 		cr.Events = append(cr.Events, model.Event{
 			TS:      s.timestamp(),
 			Actor:   s.git.Actor(),
-			Type:    "cr_repaired",
+			Type:    model.EventTypeCRRepaired,
 			Summary: fmt.Sprintf("Repaired CR %d from git commit %s", id, shortHash(commit.Hash)),
 			Ref:     fmt.Sprintf("cr:%d", id),
 		})

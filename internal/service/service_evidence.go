@@ -134,7 +134,7 @@ func (s *Service) AddEvidence(id int, opts AddEvidenceOptions) (*model.EvidenceE
 		cr.Events = append(cr.Events, model.Event{
 			TS:      now,
 			Actor:   actor,
-			Type:    "evidence_added",
+			Type:    model.EventTypeEvidenceAdded,
 			Summary: fmt.Sprintf("Added %s evidence: %s", evidenceType, truncateSummary(summary, 90)),
 			Ref:     fmt.Sprintf("cr:%d", id),
 			Meta:    meta,

@@ -408,7 +408,7 @@ func (s *Service) ApplyCRPatch(selector string, patchBytes []byte, force bool, p
 	working.Events = append(working.Events, model.Event{
 		TS:      now,
 		Actor:   actor,
-		Type:    "patch_applied",
+		Type:    model.EventTypePatchApplied,
 		Summary: fmt.Sprintf("Applied collaboration patch (%d op(s))", len(out.AppliedOps)),
 		Ref:     fmt.Sprintf("cr:%d", working.ID),
 		Meta: map[string]string{

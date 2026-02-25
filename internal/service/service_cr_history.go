@@ -35,7 +35,7 @@ func (s *Service) RedactCRNote(id, noteIndex int, reason string) error {
 	cr.Events = append(cr.Events, model.Event{
 		TS:              now,
 		Actor:           actor,
-		Type:            "cr_redacted",
+		Type:            model.EventTypeCRRedacted,
 		Summary:         fmt.Sprintf("Redacted note #%d", noteIndex),
 		Ref:             fmt.Sprintf("note:%d", noteIndex),
 		RedactionReason: reason,
@@ -81,7 +81,7 @@ func (s *Service) RedactCREvent(id, eventIndex int, reason string) error {
 	cr.Events = append(cr.Events, model.Event{
 		TS:              now,
 		Actor:           actor,
-		Type:            "cr_redacted",
+		Type:            model.EventTypeCRRedacted,
 		Summary:         fmt.Sprintf("Redacted event #%d", eventIndex),
 		Ref:             fmt.Sprintf("event:%d", eventIndex),
 		RedactionReason: reason,

@@ -241,7 +241,7 @@ func (s *Service) backfillChildrenAfterParentMerge(parent *model.CR) error {
 		child.Events = append(child.Events, model.Event{
 			TS:      now,
 			Actor:   s.git.Actor(),
-			Type:    "cr_parent_merged",
+			Type:    model.EventTypeCRParentMerged,
 			Summary: fmt.Sprintf("Updated base anchor from merged parent CR %d", parent.ID),
 			Ref:     fmt.Sprintf("cr:%d", child.ID),
 			Meta: map[string]string{

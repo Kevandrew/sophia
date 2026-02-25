@@ -301,7 +301,7 @@ func (s *Service) abortMergeCRUnlocked(id int) error {
 	return s.appendCRMutationEventAndSave(cr, model.Event{
 		TS:      now,
 		Actor:   actor,
-		Type:    "cr_merge_aborted",
+		Type:    model.EventTypeCRMergeAborted,
 		Summary: fmt.Sprintf("Aborted in-progress merge for CR %d", cr.ID),
 		Ref:     fmt.Sprintf("cr:%d", cr.ID),
 		Meta: map[string]string{
@@ -536,7 +536,7 @@ func (s *Service) finalizeCRMergedState(cr *model.CR, validation *ValidationRepo
 		cr.Events = append(cr.Events, model.Event{
 			TS:      mergedAt,
 			Actor:   actor,
-			Type:    "cr_merge_resumed",
+			Type:    model.EventTypeCRMergeResumed,
 			Summary: fmt.Sprintf("Resumed in-progress merge for CR %d", cr.ID),
 			Ref:     fmt.Sprintf("cr:%d", cr.ID),
 		})
@@ -556,7 +556,7 @@ func (s *Service) finalizeCRMergedState(cr *model.CR, validation *ValidationRepo
 		cr.Events = append(cr.Events, model.Event{
 			TS:      mergedAt,
 			Actor:   actor,
-			Type:    "cr_merge_overridden",
+			Type:    model.EventTypeCRMergeOverridden,
 			Summary: fmt.Sprintf("Merged with validation override: %s", overrideReason),
 			Ref:     fmt.Sprintf("cr:%d", cr.ID),
 			Meta:    servicemerge.BuildOverrideEventMeta(overrideReason, evidence),
@@ -565,7 +565,7 @@ func (s *Service) finalizeCRMergedState(cr *model.CR, validation *ValidationRepo
 	cr.Events = append(cr.Events, model.Event{
 		TS:      mergedAt,
 		Actor:   actor,
-		Type:    "cr_merged",
+		Type:    model.EventTypeCRMerged,
 		Summary: fmt.Sprintf("Merged CR %d", cr.ID),
 		Ref:     fmt.Sprintf("cr:%d", cr.ID),
 	})
@@ -590,7 +590,7 @@ func (s *Service) recordMergeConflictEvent(cr *model.CR, actor, worktreePath str
 	return s.appendCRMutationEventAndSave(cr, model.Event{
 		TS:      now,
 		Actor:   actor,
-		Type:    "cr_merge_conflict",
+		Type:    model.EventTypeCRMergeConflict,
 		Summary: fmt.Sprintf("Merge conflict while merging CR %d", cr.ID),
 		Ref:     fmt.Sprintf("cr:%d", cr.ID),
 		Meta:    meta,
@@ -865,7 +865,7 @@ func (s *Service) ReopenCR(id int) (*model.CR, error) {
 	cr.Events = append(cr.Events, model.Event{
 		TS:      now,
 		Actor:   actor,
-		Type:    "cr_reopened",
+		Type:    model.EventTypeCRReopened,
 		Summary: fmt.Sprintf("Reopened CR %d", cr.ID),
 		Ref:     fmt.Sprintf("cr:%d", cr.ID),
 	})

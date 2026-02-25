@@ -2,6 +2,7 @@ package service
 
 import (
 	"fmt"
+	"sophia/internal/model"
 	"sync"
 	"testing"
 )
@@ -105,7 +106,7 @@ func TestConcurrentSetTaskContractMutationsRecordEveryUpdateEvent(t *testing.T) 
 	}
 	updates := 0
 	for _, event := range stored.Events {
-		if event.Type == "task_contract_updated" {
+		if event.Type == model.EventTypeTaskContractUpdated {
 			updates++
 		}
 	}
