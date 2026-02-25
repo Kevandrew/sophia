@@ -2,6 +2,7 @@ package service
 
 import (
 	"sophia/internal/model"
+	servicetasks "sophia/internal/service/tasks"
 	"strings"
 )
 
@@ -122,7 +123,7 @@ func (s *Service) applyTaskContractPatch(taskID int, contract *model.TaskContrac
 		}
 	}
 	if patch.AcceptanceChecks != nil {
-		normalized := normalizeAcceptanceCheckKeys(*patch.AcceptanceChecks)
+		normalized := servicetasks.NormalizeAcceptanceCheckKeys(*patch.AcceptanceChecks)
 		if err := validateTaskAcceptanceCheckKeys(taskID, normalized, policy); err != nil {
 			return nil, err
 		}

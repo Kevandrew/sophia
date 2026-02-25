@@ -3,7 +3,9 @@ package service
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
+	"path/filepath"
 	"sophia/internal/model"
 	servicetasks "sophia/internal/service/tasks"
 	"sort"
@@ -50,36 +52,8 @@ func (s *Service) AddTask(crID int, title string) (*model.Subtask, error) {
 	return &added, nil
 }
 
-func cloneTaskContract(contract model.TaskContract) model.TaskContract {
-	return servicetasks.CloneTaskContract(contract)
-}
-
-func normalizeAcceptanceCheckKeys(values []string) []string {
-	return servicetasks.NormalizeAcceptanceCheckKeys(values)
-}
-
-func taskContractBaselineIsEmpty(baseline model.TaskContractBaseline) bool {
-	return servicetasks.TaskContractBaselineIsEmpty(baseline)
-}
-
-func taskContractBaselineFromContract(contract model.TaskContract, capturedAt, capturedBy string) model.TaskContractBaseline {
-	return servicetasks.TaskContractBaselineFromContract(contract, capturedAt, capturedBy)
-}
-
-func nextTaskContractDriftID(drifts []model.TaskContractDrift) int {
-	return servicetasks.NextTaskContractDriftID(drifts)
-}
-
-func scopeWidened(beforeScope, afterScope []string) bool {
-	return servicetasks.ScopeWidened(beforeScope, afterScope, pathMatchesScopePrefix)
-}
-
-func taskAcceptanceCheckPolicyMap(policy *model.RepoPolicy) map[string]struct{} {
-	return servicetasks.TaskAcceptanceCheckPolicyMap(policy)
-}
-
 func validateTaskAcceptanceCheckKeys(taskID int, checks []string, policy *model.RepoPolicy) error {
-	allowed := taskAcceptanceCheckPolicyMap(policy)
+	allowed := servicetasks.TaskAcceptanceCheckPolicyMap(policy)
 	if len(allowed) == 0 && len(checks) > 0 {
 		return fmt.Errorf("%w: task %d acceptance_checks configured but trust.checks.definitions is empty", ErrPolicyViolation, taskID)
 	}
@@ -125,7 +99,7 @@ func (s *Service) setTaskContractUnlocked(crID, taskID int, patch TaskContractPa
 		return nil, fmt.Errorf("task %d not found in cr %d", taskID, crID)
 	}
 	task := &cr.Subtasks[taskIndex]
-	beforeContract := cloneTaskContract(task.Contract)
+	beforeContract := servicetasks.CloneTaskContract(task.Contract)
 
 	changed, err := s.applyTaskContractPatch(taskID, &task.Contract, patch, policy)
 	if err != nil {
@@ -142,49 +116,7 @@ func (s *Service) setTaskContractUnlocked(crID, taskID int, patch TaskContractPa
 		changeReason = strings.TrimSpace(*patch.ChangeReason)
 	}
 
-	taskHasCheckpoint := strings.TrimSpace(task.CheckpointCommit) != ""
-	if taskHasCheckpoint && taskContractBaselineIsEmpty(task.ContractBaseline) {
-		task.ContractBaseline = taskContractBaselineFromContract(beforeContract, now, actor)
-	}
-
-	var drift *model.TaskContractDrift
-	if taskHasCheckpoint {
-		driftFields := []string{}
-		scopeChanged := !equalStringSlices(beforeContract.Scope, task.Contract.Scope)
-		if scopeChanged && scopeWidened(beforeContract.Scope, task.Contract.Scope) {
-			driftFields = append(driftFields, "scope_widened")
-		}
-		checksChanged := !equalStringSlices(beforeContract.AcceptanceChecks, task.Contract.AcceptanceChecks)
-		if checksChanged {
-			driftFields = append(driftFields, "acceptance_checks_changed")
-		}
-		if len(driftFields) > 0 {
-			record := model.TaskContractDrift{
-				ID:                     nextTaskContractDriftID(task.ContractDrifts),
-				TS:                     now,
-				Actor:                  actor,
-				Fields:                 append([]string(nil), driftFields...),
-				BeforeScope:            append([]string(nil), beforeContract.Scope...),
-				AfterScope:             append([]string(nil), task.Contract.Scope...),
-				BeforeAcceptanceChecks: append([]string(nil), beforeContract.AcceptanceChecks...),
-				AfterAcceptanceChecks:  append([]string(nil), task.Contract.AcceptanceChecks...),
-				CheckpointCommit:       strings.TrimSpace(task.CheckpointCommit),
-				Reason:                 changeReason,
-			}
-			if changeReason != "" {
-				record.Acknowledged = true
-				record.AcknowledgedAt = now
-				record.AcknowledgedBy = actor
-				record.AckReason = changeReason
-			}
-			task.ContractDrifts = append(task.ContractDrifts, record)
-			drift = &record
-		}
-	}
-
-	task.Contract.UpdatedAt = now
-	task.Contract.UpdatedBy = actor
-	task.UpdatedAt = now
+	drift := servicetasks.ApplyTaskContractTransition(task, beforeContract, now, actor, changeReason, pathMatchesScopePrefix)
 	cr.UpdatedAt = now
 	meta := map[string]string{
 		"fields": strings.Join(changed, ","),
@@ -682,8 +614,8 @@ func (s *Service) applyTaskCheckpointForDone(gitProvider taskLifecycleGitProvide
 	}
 
 	servicetasks.ApplyCheckpointState(task, now, sha, commitMessage, checkpointScope, checkpointChunks)
-	if taskContractBaselineIsEmpty(task.ContractBaseline) {
-		task.ContractBaseline = taskContractBaselineFromContract(task.Contract, now, actor)
+	if servicetasks.TaskContractBaselineIsEmpty(task.ContractBaseline) {
+		task.ContractBaseline = servicetasks.TaskContractBaselineFromContract(task.Contract, now, actor)
 	}
 
 	meta := map[string]string{
@@ -745,16 +677,16 @@ func (s *Service) stageTaskCheckpointForDone(gitProvider taskLifecycleGitProvide
 		if pathErr != nil {
 			return nil, nil, "", pathErr
 		}
-		patchContent, readErr := os.ReadFile(patchPath)
+		patchContent, readErr := readPatchManifestContent(patchPath)
 		if readErr != nil {
-			return nil, nil, "", fmt.Errorf("read patch file %q: %w", opts.PatchFile, readErr)
+			return nil, nil, "", fmt.Errorf("read patch file %q: %w", patchFileDisplayName(opts.PatchFile), readErr)
 		}
-		parsedChunks, parseErr := parsePatchChunks(string(patchContent))
+		parsedChunks, parseErr := parsePatchChunks(patchContent)
 		if parseErr != nil {
 			return nil, nil, "", fmt.Errorf("%w: parse patch file: %v", ErrInvalidTaskScope, parseErr)
 		}
 		if len(parsedChunks) == 0 {
-			return nil, nil, "", fmt.Errorf("%w: patch file %q contains no hunks", ErrNoTaskChanges, opts.PatchFile)
+			return nil, nil, "", fmt.Errorf("%w: patch file %q contains no hunks", ErrNoTaskChanges, patchFileDisplayName(opts.PatchFile))
 		}
 		if err := gitProvider.ApplyPatchToIndex(patchPath); err != nil {
 			return nil, nil, "", err
@@ -810,4 +742,31 @@ func (s *Service) hasTaskWorkingTreeChanges(gitProvider taskLifecycleGitProvider
 		return true, nil
 	}
 	return false, nil
+}
+
+const maxPatchManifestBytes = 8 * 1024 * 1024
+
+func readPatchManifestContent(path string) (string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+
+	data, err := io.ReadAll(io.LimitReader(file, maxPatchManifestBytes+1))
+	if err != nil {
+		return "", err
+	}
+	if len(data) > maxPatchManifestBytes {
+		return "", fmt.Errorf("patch manifest exceeds %d bytes", maxPatchManifestBytes)
+	}
+	return string(data), nil
+}
+
+func patchFileDisplayName(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return "(patch-file)"
+	}
+	return filepath.Base(trimmed)
 }
