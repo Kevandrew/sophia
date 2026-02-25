@@ -93,11 +93,9 @@ func TestAddCRAlignsNextIDWithHistory(t *testing.T) {
 	if _, err := svc.Init("main", ""); err != nil {
 		t.Fatalf("Init() error = %v", err)
 	}
-	runGit(t, dir, "config", "user.name", "Test User")
-	runGit(t, dir, "config", "user.email", "test@example.com")
 
 	// Simulate existing merged CR history in Git while local index is stale.
-	runGit(t, dir, "commit", "--allow-empty", "-m", "[CR-4] Existing merged intent", "-m", "Sophia-CR: 4\nSophia-Intent: Existing merged intent\nSophia-Tasks: 0 completed")
+	runGit(t, dir, "-c", "user.name=Test User", "-c", "user.email=test@example.com", "commit", "--allow-empty", "-m", "[CR-4] Existing merged intent", "-m", "Sophia-CR: 4\nSophia-Intent: Existing merged intent\nSophia-Tasks: 0 completed")
 	if err := svc.store.SaveIndex(model.Index{NextID: 1}); err != nil {
 		t.Fatalf("SaveIndex() error = %v", err)
 	}
@@ -194,14 +192,12 @@ func TestAddCRWithExplicitBaseRef(t *testing.T) {
 	if _, err := svc.Init("main", ""); err != nil {
 		t.Fatalf("Init() error = %v", err)
 	}
-	runGit(t, dir, "config", "user.name", "Test User")
-	runGit(t, dir, "config", "user.email", "test@example.com")
 	runGit(t, dir, "checkout", "-b", "release")
 	if err := os.WriteFile(filepath.Join(dir, "release_base.txt"), []byte("release\n"), 0o644); err != nil {
 		t.Fatalf("write release base file: %v", err)
 	}
 	runGit(t, dir, "add", "release_base.txt")
-	runGit(t, dir, "commit", "-m", "feat: release base")
+	runGit(t, dir, "-c", "user.name=Test User", "-c", "user.email=test@example.com", "commit", "-m", "feat: release base")
 	runGit(t, dir, "checkout", "-B", "main")
 
 	cr, _, err := svc.AddCRWithOptionsWithWarnings("Release-based", "base ref", AddCROptions{BaseRef: "release"})
@@ -229,8 +225,6 @@ func TestAddChildCRUsesParentAnchor(t *testing.T) {
 	if _, err := svc.Init("main", ""); err != nil {
 		t.Fatalf("Init() error = %v", err)
 	}
-	runGit(t, dir, "config", "user.name", "Test User")
-	runGit(t, dir, "config", "user.email", "test@example.com")
 
 	parent, err := svc.AddCR("Parent", "base for child")
 	if err != nil {
@@ -240,7 +234,7 @@ func TestAddChildCRUsesParentAnchor(t *testing.T) {
 		t.Fatalf("write parent file: %v", err)
 	}
 	runGit(t, dir, "add", "parent.txt")
-	runGit(t, dir, "commit", "-m", "feat: parent work")
+	runGit(t, dir, "-c", "user.name=Test User", "-c", "user.email=test@example.com", "commit", "-m", "feat: parent work")
 	parentHead, err := svc.git.ResolveRef(parent.Branch)
 	if err != nil {
 		t.Fatalf("ResolveRef(parent branch) error = %v", err)
@@ -267,8 +261,6 @@ func TestMergeChildBlockedUntilParentMergedAndParentMergeBackfillsChildBase(t *t
 	if _, err := svc.Init("main", ""); err != nil {
 		t.Fatalf("Init() error = %v", err)
 	}
-	runGit(t, dir, "config", "user.name", "Test User")
-	runGit(t, dir, "config", "user.email", "test@example.com")
 
 	parent, err := svc.AddCR("Parent merge", "must merge first")
 	if err != nil {
@@ -278,7 +270,7 @@ func TestMergeChildBlockedUntilParentMergedAndParentMergeBackfillsChildBase(t *t
 		t.Fatalf("write parent file: %v", err)
 	}
 	runGit(t, dir, "add", "parent_merge.txt")
-	runGit(t, dir, "commit", "-m", "feat: parent merge")
+	runGit(t, dir, "-c", "user.name=Test User", "-c", "user.email=test@example.com", "commit", "-m", "feat: parent merge")
 	setValidContract(t, svc, parent.ID)
 
 	child, _, err := svc.AddCRWithOptionsWithWarnings("Child merge", "depends on parent", AddCROptions{ParentCRID: parent.ID})
@@ -289,7 +281,7 @@ func TestMergeChildBlockedUntilParentMergedAndParentMergeBackfillsChildBase(t *t
 		t.Fatalf("write child file: %v", err)
 	}
 	runGit(t, dir, "add", "child_merge.txt")
-	runGit(t, dir, "commit", "-m", "feat: child merge")
+	runGit(t, dir, "-c", "user.name=Test User", "-c", "user.email=test@example.com", "commit", "-m", "feat: child merge")
 	setValidContract(t, svc, child.ID)
 
 	if _, err := svc.MergeCR(child.ID, false, ""); !errors.Is(err, ErrParentCRNotMerged) {
@@ -321,15 +313,13 @@ func TestSetCRBaseAndRestack(t *testing.T) {
 	if _, err := svc.Init("main", ""); err != nil {
 		t.Fatalf("Init() error = %v", err)
 	}
-	runGit(t, dir, "config", "user.name", "Test User")
-	runGit(t, dir, "config", "user.email", "test@example.com")
 
 	runGit(t, dir, "checkout", "-b", "release")
 	if err := os.WriteFile(filepath.Join(dir, "release_stack.txt"), []byte("release\n"), 0o644); err != nil {
 		t.Fatalf("write release stack file: %v", err)
 	}
 	runGit(t, dir, "add", "release_stack.txt")
-	runGit(t, dir, "commit", "-m", "feat: release stack")
+	runGit(t, dir, "-c", "user.name=Test User", "-c", "user.email=test@example.com", "commit", "-m", "feat: release stack")
 	runGit(t, dir, "checkout", "-B", "main")
 
 	cr, err := svc.AddCR("Base set", "retarget base")
@@ -352,7 +342,7 @@ func TestSetCRBaseAndRestack(t *testing.T) {
 		t.Fatalf("write restack parent file: %v", err)
 	}
 	runGit(t, dir, "add", "restack_parent.txt")
-	runGit(t, dir, "commit", "-m", "feat: restack parent 1")
+	runGit(t, dir, "-c", "user.name=Test User", "-c", "user.email=test@example.com", "commit", "-m", "feat: restack parent 1")
 
 	child, _, err := svc.AddCRWithOptionsWithWarnings("Restack child", "child", AddCROptions{ParentCRID: parent.ID})
 	if err != nil {
@@ -365,7 +355,7 @@ func TestSetCRBaseAndRestack(t *testing.T) {
 		t.Fatalf("write restack parent second file: %v", err)
 	}
 	runGit(t, dir, "add", "restack_parent_2.txt")
-	runGit(t, dir, "commit", "-m", "feat: restack parent 2")
+	runGit(t, dir, "-c", "user.name=Test User", "-c", "user.email=test@example.com", "commit", "-m", "feat: restack parent 2")
 
 	if _, err := svc.RestackCR(child.ID); err != nil {
 		t.Fatalf("RestackCR() error = %v", err)
