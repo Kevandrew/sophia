@@ -122,7 +122,7 @@ func buildTaskCheckpointMessage(cr *model.CR, task *model.Subtask, scopeMode str
 	if strings.TrimSpace(scopeMode) != "" {
 		fmt.Fprintf(&b, "Sophia-Task-Scope-Mode: %s\n", strings.TrimSpace(scopeMode))
 	}
-	if strings.TrimSpace(scopeMode) == "patch_manifest" {
+	if strings.TrimSpace(scopeMode) == model.TaskScopeModePatchManifest {
 		fmt.Fprintf(&b, "Sophia-Task-Chunk-Count: %d\n", chunkCount)
 	}
 	fmt.Fprintf(&b, "Sophia-Task: %d\n", task.ID)
@@ -137,7 +137,7 @@ func taskCheckpointAttempt(cr *model.CR, taskID int) int {
 	}
 	taskRef := fmt.Sprintf("task:%d", taskID)
 	for _, event := range cr.Events {
-		if event.Type == "task_reopened" && event.Ref == taskRef {
+		if event.Type == model.EventTypeTaskReopened && event.Ref == taskRef {
 			attempt++
 		}
 	}
