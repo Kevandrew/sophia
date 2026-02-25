@@ -8,6 +8,16 @@ const (
 	TaskStatusDone      = "done"
 	TaskStatusDelegated = "delegated"
 
+	TaskCheckpointSourceTaskCheckpoint   = "task_checkpoint"
+	TaskCheckpointSourceTaskNoCheckpoint = "task_no_checkpoint"
+
+	TaskScopeModeAll           = "all"
+	TaskScopeModeTaskContract  = "task_contract"
+	TaskScopeModePatchManifest = "patch_manifest"
+	TaskScopeModePath          = "path"
+
+	EventTypeTaskReopened = "task_reopened"
+
 	MetadataModeLocal   = "local"
 	MetadataModeTracked = "tracked"
 )

@@ -518,21 +518,7 @@ func (s *Service) ReopenTask(crID, taskID int, opts ReopenTaskOptions) (*model.S
 		actor := s.git.Actor()
 		previousCheckpoint := strings.TrimSpace(task.CheckpointCommit)
 
-		task.Status = model.TaskStatusOpen
-		task.UpdatedAt = now
-		task.CompletedAt = ""
-		task.CompletedBy = ""
-		if opts.ClearCheckpoint {
-			task.CheckpointCommit = ""
-			task.CheckpointAt = ""
-			task.CheckpointMessage = ""
-			task.CheckpointScope = nil
-			task.CheckpointChunks = nil
-			task.CheckpointOrphan = false
-			task.CheckpointReason = ""
-			task.CheckpointSource = ""
-			task.CheckpointSyncAt = ""
-		}
+		servicetasks.MarkTaskReopened(task, now, opts.ClearCheckpoint)
 
 		meta := map[string]string{
 			"checkpoint_cleared": strconv.FormatBool(opts.ClearCheckpoint),
@@ -543,7 +529,7 @@ func (s *Service) ReopenTask(crID, taskID int, opts ReopenTaskOptions) (*model.S
 		if err := s.appendCRMutationEventAndSave(cr, model.Event{
 			TS:      now,
 			Actor:   actor,
-			Type:    "task_reopened",
+			Type:    model.EventTypeTaskReopened,
 			Summary: task.Title,
 			Ref:     fmt.Sprintf("task:%d", taskID),
 			Meta:    meta,
@@ -575,7 +561,10 @@ func (s *Service) DoneTaskWithCheckpoint(crID, taskID int, opts DoneTaskOptions)
 }
 
 func (s *Service) doneTaskWithCheckpointUnlocked(crID, taskID int, opts DoneTaskOptions) (string, error) {
-	cr, err := s.store.LoadCR(crID)
+	taskStore := s.activeTaskStoreProvider()
+	taskGit := s.activeTaskGitProvider()
+
+	cr, err := taskStore.LoadCR(crID)
 	if err != nil {
 		return "", err
 	}
@@ -600,224 +589,234 @@ func (s *Service) doneTaskWithCheckpointUnlocked(crID, taskID int, opts DoneTask
 	}
 
 	now := s.timestamp()
-	actor := s.git.Actor()
-	found := false
-	title := ""
-	taskIndex := -1
-	for i := range cr.Subtasks {
-		if cr.Subtasks[i].ID == taskID {
-			found = true
-			title = cr.Subtasks[i].Title
-			taskIndex = i
-			break
-		}
-	}
-	if !found {
+	actor := taskGit.Actor()
+	taskIndex := indexOfTask(cr.Subtasks, taskID)
+	if taskIndex < 0 {
 		return "", fmt.Errorf("task %d not found in cr %d", taskID, crID)
 	}
-	if cr.Subtasks[taskIndex].Status == model.TaskStatusDelegated {
-		return "", fmt.Errorf("%w: task %d in cr %d is delegated to child CRs", ErrTaskDelegated, taskID, crID)
-	}
-	missingContractFields := missingTaskContractFields(cr.Subtasks[taskIndex].Contract, policy.TaskContract.RequiredFields)
-	if len(missingContractFields) > 0 {
-		return "", fmt.Errorf("%w: task %d missing %s", ErrTaskContractIncomplete, taskID, strings.Join(missingContractFields, ","))
+	task := &cr.Subtasks[taskIndex]
+	if err := ensureTaskReadyForDone(task, taskID, crID, policy); err != nil {
+		return "", err
 	}
 
-	commitSHA := ""
-	if opts.Checkpoint {
-		currentBranch, branchErr := s.git.CurrentBranch()
-		if branchErr != nil {
-			return "", branchErr
-		}
-		if currentBranch != cr.Branch {
-			return "", fmt.Errorf("checkpoint requires active CR branch %q, current branch is %q; run `sophia cr switch %d`", cr.Branch, currentBranch, cr.ID)
-		}
-
-		preStaged, stagedErr := s.git.HasStagedChanges()
-		if stagedErr != nil {
-			return "", stagedErr
-		}
-		if preStaged {
-			return "", fmt.Errorf("%w: unstage changes before running task checkpoint", ErrPreStagedChanges)
-		}
-
-		checkpointScope := []string{}
-		checkpointChunks := []model.CheckpointChunk{}
-		scopeMode := ""
-		if opts.StageAll {
-			dirty, _, dirtyErr := s.workingTreeDirtySummary()
-			if dirtyErr != nil {
-				return "", dirtyErr
-			}
-			if !dirty {
-				return "", fmt.Errorf("%w: task %d has no working tree changes", ErrNoTaskChanges, taskID)
-			}
-			if err := s.git.StageAll(); err != nil {
-				return "", err
-			}
-			checkpointScope = []string{"*"}
-			scopeMode = "all"
-		} else if opts.FromContract {
-			normalizedScope, normalizeErr := s.normalizeContractScopePrefixes(cr.Subtasks[taskIndex].Contract.Scope)
-			if normalizeErr != nil {
-				return "", normalizeErr
-			}
-			paths, resolveErr := s.resolveTaskCheckpointPathsFromContract(normalizedScope)
-			if resolveErr != nil {
-				return "", resolveErr
-			}
-			if err := s.git.StagePaths(paths); err != nil {
-				return "", err
-			}
-			checkpointScope = paths
-			scopeMode = "task_contract"
-		} else if strings.TrimSpace(opts.PatchFile) != "" {
-			patchPath, pathErr := s.normalizePatchFilePath(opts.PatchFile)
-			if pathErr != nil {
-				return "", pathErr
-			}
-			patchContent, readErr := os.ReadFile(patchPath)
-			if readErr != nil {
-				return "", fmt.Errorf("read patch file %q: %w", opts.PatchFile, readErr)
-			}
-			parsedChunks, parseErr := parsePatchChunks(string(patchContent))
-			if parseErr != nil {
-				return "", fmt.Errorf("%w: parse patch file: %v", ErrInvalidTaskScope, parseErr)
-			}
-			if len(parsedChunks) == 0 {
-				return "", fmt.Errorf("%w: patch file %q contains no hunks", ErrNoTaskChanges, opts.PatchFile)
-			}
-			if err := s.git.ApplyPatchToIndex(patchPath); err != nil {
-				return "", err
-			}
-			checkpointScope = checkpointChunkPaths(parsedChunks)
-			checkpointChunks = make([]model.CheckpointChunk, 0, len(parsedChunks))
-			for _, chunk := range parsedChunks {
-				checkpointChunks = append(checkpointChunks, model.CheckpointChunk{
-					ID:       chunk.ID,
-					Path:     chunk.Path,
-					OldStart: chunk.OldStart,
-					OldLines: chunk.OldLines,
-					NewStart: chunk.NewStart,
-					NewLines: chunk.NewLines,
-				})
-			}
-			scopeMode = "patch_manifest"
-		} else {
-			normalizedPaths, normalizeErr := s.normalizeTaskScopePaths(opts.Paths)
-			if normalizeErr != nil {
-				return "", normalizeErr
-			}
-
-			changedPathFound := false
-			for _, scopePath := range normalizedPaths {
-				hasChanges, hasErr := s.git.PathHasChanges(scopePath)
-				if hasErr != nil {
-					return "", hasErr
-				}
-				if hasChanges {
-					changedPathFound = true
-					break
-				}
-			}
-			if !changedPathFound {
-				return "", fmt.Errorf("%w: none of the scoped paths have changes", ErrNoTaskChanges)
-			}
-			if err := s.git.StagePaths(normalizedPaths); err != nil {
-				return "", err
-			}
-			checkpointScope = normalizedPaths
-			scopeMode = "path"
-		}
-
-		hasStaged, stagedErr := s.git.HasStagedChanges()
-		if stagedErr != nil {
-			return "", stagedErr
-		}
-		if !hasStaged {
-			return "", fmt.Errorf("%w: no staged changes after applying scope", ErrNoTaskChanges)
-		}
-
-		commitMessage := buildTaskCheckpointMessage(cr, &cr.Subtasks[taskIndex], scopeMode, len(checkpointChunks))
-		if err := s.git.Commit(commitMessage); err != nil {
-			return "", err
-		}
-		sha, shaErr := s.git.HeadShortSHA()
-		if shaErr != nil {
-			return "", shaErr
-		}
-		commitSHA = sha
-		cr.Subtasks[taskIndex].CheckpointCommit = sha
-		cr.Subtasks[taskIndex].CheckpointAt = now
-		cr.Subtasks[taskIndex].CheckpointMessage = commitMessage
-		cr.Subtasks[taskIndex].CheckpointScope = append([]string(nil), checkpointScope...)
-		cr.Subtasks[taskIndex].CheckpointChunks = append([]model.CheckpointChunk(nil), checkpointChunks...)
-		cr.Subtasks[taskIndex].CheckpointOrphan = false
-		cr.Subtasks[taskIndex].CheckpointReason = ""
-		cr.Subtasks[taskIndex].CheckpointSource = "task_checkpoint"
-		cr.Subtasks[taskIndex].CheckpointSyncAt = now
-		if taskContractBaselineIsEmpty(cr.Subtasks[taskIndex].ContractBaseline) {
-			cr.Subtasks[taskIndex].ContractBaseline = taskContractBaselineFromContract(cr.Subtasks[taskIndex].Contract, now, actor)
-		}
-		cr.Events = append(cr.Events, model.Event{
-			TS:      now,
-			Actor:   actor,
-			Type:    "task_checkpointed",
-			Summary: fmt.Sprintf("Checkpointed task %d as %s", taskID, sha),
-			Ref:     fmt.Sprintf("task:%d", taskID),
-			Meta: map[string]string{
-				"commit":  sha,
-				"message": strings.SplitN(commitMessage, "\n", 2)[0],
-				"scope":   strings.Join(checkpointScope, ","),
-			},
-		})
-		if opts.FromContract {
-			cr.Events[len(cr.Events)-1].Meta["scope_source"] = "task_contract"
-		}
-		if strings.TrimSpace(opts.PatchFile) != "" {
-			cr.Events[len(cr.Events)-1].Meta["scope_source"] = "patch_manifest"
-			cr.Events[len(cr.Events)-1].Meta["chunk_count"] = strconv.Itoa(len(checkpointChunks))
-		}
-	} else {
-		reason := strings.TrimSpace(opts.NoCheckpointReason)
-		cr.Subtasks[taskIndex].CheckpointCommit = ""
-		cr.Subtasks[taskIndex].CheckpointAt = now
-		cr.Subtasks[taskIndex].CheckpointMessage = ""
-		cr.Subtasks[taskIndex].CheckpointScope = []string{}
-		cr.Subtasks[taskIndex].CheckpointChunks = []model.CheckpointChunk{}
-		cr.Subtasks[taskIndex].CheckpointOrphan = false
-		cr.Subtasks[taskIndex].CheckpointReason = reason
-		cr.Subtasks[taskIndex].CheckpointSource = "task_no_checkpoint"
-		cr.Subtasks[taskIndex].CheckpointSyncAt = now
+	commitSHA, err := s.applyTaskCheckpointForDone(taskGit, cr, task, taskIndex, taskID, now, actor, opts)
+	if err != nil {
+		return "", err
 	}
 
-	cr.Subtasks[taskIndex].Status = model.TaskStatusDone
-	cr.Subtasks[taskIndex].UpdatedAt = now
-	cr.Subtasks[taskIndex].CompletedAt = now
-	cr.Subtasks[taskIndex].CompletedBy = actor
+	servicetasks.MarkTaskDone(task, now, actor)
 
 	taskDoneMeta := map[string]string{
 		"checkpoint": strconv.FormatBool(opts.Checkpoint),
 	}
 	if opts.Checkpoint {
 		taskDoneMeta["checkpoint_commit"] = commitSHA
-		taskDoneMeta["checkpoint_source"] = "task_checkpoint"
+		taskDoneMeta["checkpoint_source"] = model.TaskCheckpointSourceTaskCheckpoint
 	} else {
-		taskDoneMeta["checkpoint_source"] = "task_no_checkpoint"
+		taskDoneMeta["checkpoint_source"] = model.TaskCheckpointSourceTaskNoCheckpoint
 		taskDoneMeta["no_checkpoint_reason"] = strings.TrimSpace(opts.NoCheckpointReason)
 	}
 	cr.Events = append(cr.Events, model.Event{
 		TS:      now,
 		Actor:   actor,
 		Type:    "task_done",
-		Summary: title,
+		Summary: task.Title,
 		Ref:     fmt.Sprintf("task:%d", taskID),
 		Meta:    taskDoneMeta,
 	})
 	cr.UpdatedAt = now
 
-	if err := s.store.SaveCR(cr); err != nil {
+	if err := taskStore.SaveCR(cr); err != nil {
 		return "", err
 	}
 	return commitSHA, nil
+}
+
+func ensureTaskReadyForDone(task *model.Subtask, taskID, crID int, policy *model.RepoPolicy) error {
+	if task == nil {
+		return fmt.Errorf("task %d not found in cr %d", taskID, crID)
+	}
+	if task.Status == model.TaskStatusDelegated {
+		return fmt.Errorf("%w: task %d in cr %d is delegated to child CRs", ErrTaskDelegated, taskID, crID)
+	}
+	missingContractFields := missingTaskContractFields(task.Contract, policy.TaskContract.RequiredFields)
+	if len(missingContractFields) > 0 {
+		return fmt.Errorf("%w: task %d missing %s", ErrTaskContractIncomplete, taskID, strings.Join(missingContractFields, ","))
+	}
+	return nil
+}
+
+func (s *Service) applyTaskCheckpointForDone(gitProvider taskLifecycleGitProvider, cr *model.CR, task *model.Subtask, taskIndex, taskID int, now, actor string, opts DoneTaskOptions) (string, error) {
+	if !opts.Checkpoint {
+		servicetasks.ApplyNoCheckpointState(task, now, strings.TrimSpace(opts.NoCheckpointReason))
+		return "", nil
+	}
+
+	currentBranch, branchErr := gitProvider.CurrentBranch()
+	if branchErr != nil {
+		return "", branchErr
+	}
+	if currentBranch != cr.Branch {
+		return "", fmt.Errorf("checkpoint requires active CR branch %q, current branch is %q; run `sophia cr switch %d`", cr.Branch, currentBranch, cr.ID)
+	}
+
+	preStaged, stagedErr := gitProvider.HasStagedChanges()
+	if stagedErr != nil {
+		return "", stagedErr
+	}
+	if preStaged {
+		return "", fmt.Errorf("%w: unstage changes before running task checkpoint", ErrPreStagedChanges)
+	}
+
+	checkpointScope, checkpointChunks, scopeMode, stageErr := s.stageTaskCheckpointForDone(gitProvider, cr, taskIndex, taskID, opts)
+	if stageErr != nil {
+		return "", stageErr
+	}
+
+	hasStaged, stagedErr := gitProvider.HasStagedChanges()
+	if stagedErr != nil {
+		return "", stagedErr
+	}
+	if !hasStaged {
+		return "", fmt.Errorf("%w: no staged changes after applying scope", ErrNoTaskChanges)
+	}
+
+	commitMessage := buildTaskCheckpointMessage(cr, task, scopeMode, len(checkpointChunks))
+	if err := gitProvider.Commit(commitMessage); err != nil {
+		return "", err
+	}
+	sha, shaErr := gitProvider.HeadShortSHA()
+	if shaErr != nil {
+		return "", shaErr
+	}
+
+	servicetasks.ApplyCheckpointState(task, now, sha, commitMessage, checkpointScope, checkpointChunks)
+	if taskContractBaselineIsEmpty(task.ContractBaseline) {
+		task.ContractBaseline = taskContractBaselineFromContract(task.Contract, now, actor)
+	}
+
+	meta := map[string]string{
+		"commit":  sha,
+		"message": strings.SplitN(commitMessage, "\n", 2)[0],
+		"scope":   strings.Join(checkpointScope, ","),
+	}
+	if scopeMode == model.TaskScopeModeTaskContract {
+		meta["scope_source"] = model.TaskScopeModeTaskContract
+	}
+	if scopeMode == model.TaskScopeModePatchManifest {
+		meta["scope_source"] = model.TaskScopeModePatchManifest
+		meta["chunk_count"] = strconv.Itoa(len(checkpointChunks))
+	}
+	cr.Events = append(cr.Events, model.Event{
+		TS:      now,
+		Actor:   actor,
+		Type:    "task_checkpointed",
+		Summary: fmt.Sprintf("Checkpointed task %d as %s", taskID, sha),
+		Ref:     fmt.Sprintf("task:%d", taskID),
+		Meta:    meta,
+	})
+
+	return sha, nil
+}
+
+func (s *Service) stageTaskCheckpointForDone(gitProvider taskLifecycleGitProvider, cr *model.CR, taskIndex, taskID int, opts DoneTaskOptions) ([]string, []model.CheckpointChunk, string, error) {
+	if opts.StageAll {
+		dirty, dirtyErr := s.hasTaskWorkingTreeChanges(gitProvider)
+		if dirtyErr != nil {
+			return nil, nil, "", dirtyErr
+		}
+		if !dirty {
+			return nil, nil, "", fmt.Errorf("%w: task %d has no working tree changes", ErrNoTaskChanges, taskID)
+		}
+		if err := gitProvider.StageAll(); err != nil {
+			return nil, nil, "", err
+		}
+		return []string{"*"}, nil, model.TaskScopeModeAll, nil
+	}
+
+	if opts.FromContract {
+		normalizedScope, normalizeErr := s.normalizeContractScopePrefixes(cr.Subtasks[taskIndex].Contract.Scope)
+		if normalizeErr != nil {
+			return nil, nil, "", normalizeErr
+		}
+		paths, resolveErr := s.resolveTaskCheckpointPathsFromContract(normalizedScope)
+		if resolveErr != nil {
+			return nil, nil, "", resolveErr
+		}
+		if err := gitProvider.StagePaths(paths); err != nil {
+			return nil, nil, "", err
+		}
+		return paths, nil, model.TaskScopeModeTaskContract, nil
+	}
+
+	if strings.TrimSpace(opts.PatchFile) != "" {
+		patchPath, pathErr := s.normalizePatchFilePath(opts.PatchFile)
+		if pathErr != nil {
+			return nil, nil, "", pathErr
+		}
+		patchContent, readErr := os.ReadFile(patchPath)
+		if readErr != nil {
+			return nil, nil, "", fmt.Errorf("read patch file %q: %w", opts.PatchFile, readErr)
+		}
+		parsedChunks, parseErr := parsePatchChunks(string(patchContent))
+		if parseErr != nil {
+			return nil, nil, "", fmt.Errorf("%w: parse patch file: %v", ErrInvalidTaskScope, parseErr)
+		}
+		if len(parsedChunks) == 0 {
+			return nil, nil, "", fmt.Errorf("%w: patch file %q contains no hunks", ErrNoTaskChanges, opts.PatchFile)
+		}
+		if err := gitProvider.ApplyPatchToIndex(patchPath); err != nil {
+			return nil, nil, "", err
+		}
+		checkpointChunks := make([]model.CheckpointChunk, 0, len(parsedChunks))
+		for _, chunk := range parsedChunks {
+			checkpointChunks = append(checkpointChunks, model.CheckpointChunk{
+				ID:       chunk.ID,
+				Path:     chunk.Path,
+				OldStart: chunk.OldStart,
+				OldLines: chunk.OldLines,
+				NewStart: chunk.NewStart,
+				NewLines: chunk.NewLines,
+			})
+		}
+		return checkpointChunkPaths(parsedChunks), checkpointChunks, model.TaskScopeModePatchManifest, nil
+	}
+
+	normalizedPaths, normalizeErr := s.normalizeTaskScopePaths(opts.Paths)
+	if normalizeErr != nil {
+		return nil, nil, "", normalizeErr
+	}
+
+	changedPathFound := false
+	for _, scopePath := range normalizedPaths {
+		hasChanges, hasErr := gitProvider.PathHasChanges(scopePath)
+		if hasErr != nil {
+			return nil, nil, "", hasErr
+		}
+		if hasChanges {
+			changedPathFound = true
+			break
+		}
+	}
+	if !changedPathFound {
+		return nil, nil, "", fmt.Errorf("%w: none of the scoped paths have changes", ErrNoTaskChanges)
+	}
+	if err := gitProvider.StagePaths(normalizedPaths); err != nil {
+		return nil, nil, "", err
+	}
+	return normalizedPaths, nil, model.TaskScopeModePath, nil
+}
+
+func (s *Service) hasTaskWorkingTreeChanges(gitProvider taskLifecycleGitProvider) (bool, error) {
+	entries, err := gitProvider.WorkingTreeStatus()
+	if err != nil {
+		return false, err
+	}
+	for _, entry := range entries {
+		if s.isIgnorableWorktreeEntry(entry) {
+			continue
+		}
+		return true, nil
+	}
+	return false, nil
 }
