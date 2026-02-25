@@ -423,13 +423,20 @@ func (s *Store) mutationLockPath() string {
 }
 
 func (s *Store) WithMutationLock(timeout time.Duration, fn func() error) error {
+	return s.WithMutationLockPath(s.mutationLockPath(), timeout, fn)
+}
+
+func (s *Store) WithMutationLockPath(lockPath string, timeout time.Duration, fn func() error) error {
 	if fn == nil {
 		return InvalidArgumentError{Argument: "mutation callback", Message: "cannot be nil"}
+	}
+	lockPath = strings.TrimSpace(lockPath)
+	if lockPath == "" {
+		return InvalidArgumentError{Argument: "mutation lock path", Message: "cannot be empty"}
 	}
 	if timeout <= 0 {
 		timeout = 10 * time.Second
 	}
-	lockPath := s.mutationLockPath()
 	if err := os.MkdirAll(filepath.Dir(lockPath), 0o755); err != nil {
 		return fmt.Errorf("create mutation lock directory for %s: %w", lockPath, err)
 	}

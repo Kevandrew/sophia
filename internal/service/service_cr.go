@@ -242,19 +242,21 @@ func (s *Service) AddNote(id int, note string) error {
 	if strings.TrimSpace(note) == "" {
 		return errors.New("note cannot be empty")
 	}
-	cr, err := s.loadCRForMutation(id)
-	if err != nil {
-		return err
-	}
-	now := s.timestamp()
-	actor := s.git.Actor()
-	cr.Notes = append(cr.Notes, note)
-	return s.appendCRMutationEventAndSave(cr, model.Event{
-		TS:      now,
-		Actor:   actor,
-		Type:    "note_added",
-		Summary: note,
-		Ref:     fmt.Sprintf("cr:%d", id),
+	return s.withMutationLock(func() error {
+		cr, err := s.loadCRForMutation(id)
+		if err != nil {
+			return err
+		}
+		now := s.timestamp()
+		actor := s.git.Actor()
+		cr.Notes = append(cr.Notes, note)
+		return s.appendCRMutationEventAndSave(cr, model.Event{
+			TS:      now,
+			Actor:   actor,
+			Type:    "note_added",
+			Summary: note,
+			Ref:     fmt.Sprintf("cr:%d", id),
+		})
 	})
 }
 
@@ -295,113 +297,116 @@ func (s *Service) EditCR(id int, newTitle, newDescription *string) ([]string, er
 }
 
 func (s *Service) SetCRContract(id int, patch ContractPatch) ([]string, error) {
-	cr, err := s.loadCRForMutation(id)
-	if err != nil {
-		return nil, err
-	}
-	policy, err := s.repoPolicy()
-	if err != nil {
-		return nil, err
-	}
 	changed := []string{}
-	if patch.Why != nil {
-		if cr.Contract.Why != strings.TrimSpace(*patch.Why) {
-			cr.Contract.Why = strings.TrimSpace(*patch.Why)
-			changed = append(changed, "why")
+	if err := s.withMutationLock(func() error {
+		cr, err := s.loadCRForMutation(id)
+		if err != nil {
+			return err
 		}
-	}
-	if patch.Scope != nil {
-		scope, scopeErr := s.normalizeContractScopePrefixes(*patch.Scope)
-		if scopeErr != nil {
-			return nil, scopeErr
+		policy, err := s.repoPolicy()
+		if err != nil {
+			return err
 		}
-		if scopeErr := enforceScopeAllowlist(scope, policy.Scope.AllowedPrefixes, "cr contract scope"); scopeErr != nil {
-			return nil, scopeErr
+		changed = []string{}
+		if patch.Why != nil {
+			if cr.Contract.Why != strings.TrimSpace(*patch.Why) {
+				cr.Contract.Why = strings.TrimSpace(*patch.Why)
+				changed = append(changed, "why")
+			}
 		}
-		if !equalStringSlices(cr.Contract.Scope, scope) {
-			cr.Contract.Scope = scope
-			changed = append(changed, "scope")
+		if patch.Scope != nil {
+			scope, scopeErr := s.normalizeContractScopePrefixes(*patch.Scope)
+			if scopeErr != nil {
+				return scopeErr
+			}
+			if scopeErr := enforceScopeAllowlist(scope, policy.Scope.AllowedPrefixes, "cr contract scope"); scopeErr != nil {
+				return scopeErr
+			}
+			if !equalStringSlices(cr.Contract.Scope, scope) {
+				cr.Contract.Scope = scope
+				changed = append(changed, "scope")
+			}
 		}
-	}
-	if patch.NonGoals != nil {
-		normalized := normalizeNonEmptyStringList(*patch.NonGoals)
-		if !equalStringSlices(cr.Contract.NonGoals, normalized) {
-			cr.Contract.NonGoals = normalized
-			changed = append(changed, "non_goals")
+		if patch.NonGoals != nil {
+			normalized := normalizeNonEmptyStringList(*patch.NonGoals)
+			if !equalStringSlices(cr.Contract.NonGoals, normalized) {
+				cr.Contract.NonGoals = normalized
+				changed = append(changed, "non_goals")
+			}
 		}
-	}
-	if patch.Invariants != nil {
-		normalized := normalizeNonEmptyStringList(*patch.Invariants)
-		if !equalStringSlices(cr.Contract.Invariants, normalized) {
-			cr.Contract.Invariants = normalized
-			changed = append(changed, "invariants")
+		if patch.Invariants != nil {
+			normalized := normalizeNonEmptyStringList(*patch.Invariants)
+			if !equalStringSlices(cr.Contract.Invariants, normalized) {
+				cr.Contract.Invariants = normalized
+				changed = append(changed, "invariants")
+			}
 		}
-	}
-	if patch.BlastRadius != nil {
-		normalized := strings.TrimSpace(*patch.BlastRadius)
-		if cr.Contract.BlastRadius != normalized {
-			cr.Contract.BlastRadius = normalized
-			changed = append(changed, "blast_radius")
+		if patch.BlastRadius != nil {
+			normalized := strings.TrimSpace(*patch.BlastRadius)
+			if cr.Contract.BlastRadius != normalized {
+				cr.Contract.BlastRadius = normalized
+				changed = append(changed, "blast_radius")
+			}
 		}
-	}
-	if patch.RiskCriticalScopes != nil {
-		scopes, scopeErr := s.normalizeContractScopePrefixes(*patch.RiskCriticalScopes)
-		if scopeErr != nil {
-			return nil, scopeErr
+		if patch.RiskCriticalScopes != nil {
+			scopes, scopeErr := s.normalizeContractScopePrefixes(*patch.RiskCriticalScopes)
+			if scopeErr != nil {
+				return scopeErr
+			}
+			if !equalStringSlices(cr.Contract.RiskCriticalScopes, scopes) {
+				cr.Contract.RiskCriticalScopes = scopes
+				changed = append(changed, "risk_critical_scopes")
+			}
 		}
-		if !equalStringSlices(cr.Contract.RiskCriticalScopes, scopes) {
-			cr.Contract.RiskCriticalScopes = scopes
-			changed = append(changed, "risk_critical_scopes")
+		if patch.RiskTierHint != nil {
+			tierHint, hintErr := normalizeRiskTierHint(*patch.RiskTierHint)
+			if hintErr != nil {
+				return hintErr
+			}
+			if strings.TrimSpace(cr.Contract.RiskTierHint) != tierHint {
+				cr.Contract.RiskTierHint = tierHint
+				changed = append(changed, "risk_tier_hint")
+			}
 		}
-	}
-	if patch.RiskTierHint != nil {
-		tierHint, hintErr := normalizeRiskTierHint(*patch.RiskTierHint)
-		if hintErr != nil {
-			return nil, hintErr
+		if patch.RiskRationale != nil {
+			normalized := strings.TrimSpace(*patch.RiskRationale)
+			if cr.Contract.RiskRationale != normalized {
+				cr.Contract.RiskRationale = normalized
+				changed = append(changed, "risk_rationale")
+			}
 		}
-		if strings.TrimSpace(cr.Contract.RiskTierHint) != tierHint {
-			cr.Contract.RiskTierHint = tierHint
-			changed = append(changed, "risk_tier_hint")
+		if patch.TestPlan != nil {
+			normalized := strings.TrimSpace(*patch.TestPlan)
+			if cr.Contract.TestPlan != normalized {
+				cr.Contract.TestPlan = normalized
+				changed = append(changed, "test_plan")
+			}
 		}
-	}
-	if patch.RiskRationale != nil {
-		normalized := strings.TrimSpace(*patch.RiskRationale)
-		if cr.Contract.RiskRationale != normalized {
-			cr.Contract.RiskRationale = normalized
-			changed = append(changed, "risk_rationale")
+		if patch.RollbackPlan != nil {
+			normalized := strings.TrimSpace(*patch.RollbackPlan)
+			if cr.Contract.RollbackPlan != normalized {
+				cr.Contract.RollbackPlan = normalized
+				changed = append(changed, "rollback_plan")
+			}
 		}
-	}
-	if patch.TestPlan != nil {
-		normalized := strings.TrimSpace(*patch.TestPlan)
-		if cr.Contract.TestPlan != normalized {
-			cr.Contract.TestPlan = normalized
-			changed = append(changed, "test_plan")
+		if len(changed) == 0 {
+			return ErrNoCRChanges
 		}
-	}
-	if patch.RollbackPlan != nil {
-		normalized := strings.TrimSpace(*patch.RollbackPlan)
-		if cr.Contract.RollbackPlan != normalized {
-			cr.Contract.RollbackPlan = normalized
-			changed = append(changed, "rollback_plan")
-		}
-	}
-	if len(changed) == 0 {
-		return nil, ErrNoCRChanges
-	}
 
-	now := s.timestamp()
-	actor := s.git.Actor()
-	cr.Contract.UpdatedAt = now
-	cr.Contract.UpdatedBy = actor
-	if err := s.appendCRMutationEventAndSave(cr, model.Event{
-		TS:      now,
-		Actor:   actor,
-		Type:    "contract_updated",
-		Summary: fmt.Sprintf("Updated contract fields: %s", strings.Join(changed, ",")),
-		Ref:     fmt.Sprintf("cr:%d", id),
-		Meta: map[string]string{
-			"fields": strings.Join(changed, ","),
-		},
+		now := s.timestamp()
+		actor := s.git.Actor()
+		cr.Contract.UpdatedAt = now
+		cr.Contract.UpdatedBy = actor
+		return s.appendCRMutationEventAndSave(cr, model.Event{
+			TS:      now,
+			Actor:   actor,
+			Type:    "contract_updated",
+			Summary: fmt.Sprintf("Updated contract fields: %s", strings.Join(changed, ",")),
+			Ref:     fmt.Sprintf("cr:%d", id),
+			Meta: map[string]string{
+				"fields": strings.Join(changed, ","),
+			},
+		})
 	}); err != nil {
 		return nil, err
 	}

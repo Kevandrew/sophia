@@ -62,6 +62,21 @@ func (s *Service) MergeCR(id int, keepBranch bool, overrideReason string) (strin
 }
 
 func (s *Service) MergeCRWithWarnings(id int, keepBranch bool, overrideReason string) (string, []string, error) {
+	var (
+		sha      string
+		warnings []string
+	)
+	if err := s.withMutationLock(func() error {
+		var mergeErr error
+		sha, warnings, mergeErr = s.mergeCRWithWarningsUnlocked(id, keepBranch, overrideReason)
+		return mergeErr
+	}); err != nil {
+		return "", nil, err
+	}
+	return sha, warnings, nil
+}
+
+func (s *Service) mergeCRWithWarningsUnlocked(id int, keepBranch bool, overrideReason string) (string, []string, error) {
 	warnings := []string{}
 	cr, err := s.store.LoadCR(id)
 	if err != nil {
@@ -255,6 +270,12 @@ func (s *Service) MergeStatusCR(id int) (*MergeStatusView, error) {
 }
 
 func (s *Service) AbortMergeCR(id int) error {
+	return s.withMutationLock(func() error {
+		return s.abortMergeCRUnlocked(id)
+	})
+}
+
+func (s *Service) abortMergeCRUnlocked(id int) error {
 	status, err := s.MergeStatusCR(id)
 	if err != nil {
 		return err
@@ -299,6 +320,21 @@ func (s *Service) AbortMergeCR(id int) error {
 }
 
 func (s *Service) ResumeMergeCR(id int, keepBranch bool, overrideReason string) (string, []string, error) {
+	var (
+		sha      string
+		warnings []string
+	)
+	if err := s.withMutationLock(func() error {
+		var resumeErr error
+		sha, warnings, resumeErr = s.resumeMergeCRUnlocked(id, keepBranch, overrideReason)
+		return resumeErr
+	}); err != nil {
+		return "", nil, err
+	}
+	return sha, warnings, nil
+}
+
+func (s *Service) resumeMergeCRUnlocked(id int, keepBranch bool, overrideReason string) (string, []string, error) {
 	status, err := s.MergeStatusCR(id)
 	if err != nil {
 		return "", nil, err

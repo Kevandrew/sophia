@@ -612,6 +612,21 @@ func (s *Service) ReopenTask(crID, taskID int, opts ReopenTaskOptions) (*model.S
 }
 
 func (s *Service) DoneTaskWithCheckpoint(crID, taskID int, opts DoneTaskOptions) (string, error) {
+	commitSHA := ""
+	if err := s.withMutationLock(func() error {
+		sha, doneErr := s.doneTaskWithCheckpointUnlocked(crID, taskID, opts)
+		if doneErr != nil {
+			return doneErr
+		}
+		commitSHA = sha
+		return nil
+	}); err != nil {
+		return "", err
+	}
+	return commitSHA, nil
+}
+
+func (s *Service) doneTaskWithCheckpointUnlocked(crID, taskID int, opts DoneTaskOptions) (string, error) {
 	cr, err := s.store.LoadCR(crID)
 	if err != nil {
 		return "", err
