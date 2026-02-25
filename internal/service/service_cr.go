@@ -220,7 +220,7 @@ func (s *Service) AddNote(id int, note string) error {
 		return s.appendCRMutationEventAndSave(cr, model.Event{
 			TS:      now,
 			Actor:   actor,
-			Type:    "note_added",
+			Type:    model.EventTypeNoteAdded,
 			Summary: note,
 			Ref:     fmt.Sprintf("cr:%d", id),
 		})
@@ -253,7 +253,7 @@ func (s *Service) EditCR(id int, newTitle, newDescription *string) ([]string, er
 		return s.appendCRMutationEventAndSave(cr, model.Event{
 			TS:      now,
 			Actor:   actor,
-			Type:    "cr_amended",
+			Type:    model.EventTypeCRAmended,
 			Summary: fmt.Sprintf("Amended CR fields: %s", strings.Join(changedFields, ",")),
 			Ref:     fmt.Sprintf("cr:%d", id),
 			Meta: map[string]string{
@@ -277,87 +277,9 @@ func (s *Service) SetCRContract(id int, patch ContractPatch) ([]string, error) {
 		if err != nil {
 			return err
 		}
-		changed = []string{}
-		if patch.Why != nil {
-			if cr.Contract.Why != strings.TrimSpace(*patch.Why) {
-				cr.Contract.Why = strings.TrimSpace(*patch.Why)
-				changed = append(changed, "why")
-			}
-		}
-		if patch.Scope != nil {
-			scope, scopeErr := s.normalizeContractScopePrefixes(*patch.Scope)
-			if scopeErr != nil {
-				return scopeErr
-			}
-			if scopeErr := enforceScopeAllowlist(scope, policy.Scope.AllowedPrefixes, "cr contract scope"); scopeErr != nil {
-				return scopeErr
-			}
-			if !equalStringSlices(cr.Contract.Scope, scope) {
-				cr.Contract.Scope = scope
-				changed = append(changed, "scope")
-			}
-		}
-		if patch.NonGoals != nil {
-			normalized := normalizeNonEmptyStringList(*patch.NonGoals)
-			if !equalStringSlices(cr.Contract.NonGoals, normalized) {
-				cr.Contract.NonGoals = normalized
-				changed = append(changed, "non_goals")
-			}
-		}
-		if patch.Invariants != nil {
-			normalized := normalizeNonEmptyStringList(*patch.Invariants)
-			if !equalStringSlices(cr.Contract.Invariants, normalized) {
-				cr.Contract.Invariants = normalized
-				changed = append(changed, "invariants")
-			}
-		}
-		if patch.BlastRadius != nil {
-			normalized := strings.TrimSpace(*patch.BlastRadius)
-			if cr.Contract.BlastRadius != normalized {
-				cr.Contract.BlastRadius = normalized
-				changed = append(changed, "blast_radius")
-			}
-		}
-		if patch.RiskCriticalScopes != nil {
-			scopes, scopeErr := s.normalizeContractScopePrefixes(*patch.RiskCriticalScopes)
-			if scopeErr != nil {
-				return scopeErr
-			}
-			if !equalStringSlices(cr.Contract.RiskCriticalScopes, scopes) {
-				cr.Contract.RiskCriticalScopes = scopes
-				changed = append(changed, "risk_critical_scopes")
-			}
-		}
-		if patch.RiskTierHint != nil {
-			tierHint, hintErr := normalizeRiskTierHint(*patch.RiskTierHint)
-			if hintErr != nil {
-				return hintErr
-			}
-			if strings.TrimSpace(cr.Contract.RiskTierHint) != tierHint {
-				cr.Contract.RiskTierHint = tierHint
-				changed = append(changed, "risk_tier_hint")
-			}
-		}
-		if patch.RiskRationale != nil {
-			normalized := strings.TrimSpace(*patch.RiskRationale)
-			if cr.Contract.RiskRationale != normalized {
-				cr.Contract.RiskRationale = normalized
-				changed = append(changed, "risk_rationale")
-			}
-		}
-		if patch.TestPlan != nil {
-			normalized := strings.TrimSpace(*patch.TestPlan)
-			if cr.Contract.TestPlan != normalized {
-				cr.Contract.TestPlan = normalized
-				changed = append(changed, "test_plan")
-			}
-		}
-		if patch.RollbackPlan != nil {
-			normalized := strings.TrimSpace(*patch.RollbackPlan)
-			if cr.Contract.RollbackPlan != normalized {
-				cr.Contract.RollbackPlan = normalized
-				changed = append(changed, "rollback_plan")
-			}
+		changed, err = s.applyCRContractPatch(&cr.Contract, patch, policy)
+		if err != nil {
+			return err
 		}
 		if len(changed) == 0 {
 			return ErrNoCRChanges
@@ -370,7 +292,7 @@ func (s *Service) SetCRContract(id int, patch ContractPatch) ([]string, error) {
 		return s.appendCRMutationEventAndSave(cr, model.Event{
 			TS:      now,
 			Actor:   actor,
-			Type:    "contract_updated",
+			Type:    model.EventTypeContractUpdated,
 			Summary: fmt.Sprintf("Updated contract fields: %s", strings.Join(changed, ",")),
 			Ref:     fmt.Sprintf("cr:%d", id),
 			Meta: map[string]string{
@@ -433,7 +355,7 @@ func (s *Service) SetCRBase(id int, ref string, rebase bool) (*model.CR, error) 
 	cr.Events = append(cr.Events, model.Event{
 		TS:      now,
 		Actor:   actor,
-		Type:    "cr_base_updated",
+		Type:    model.EventTypeCRBaseUpdated,
 		Summary: fmt.Sprintf("Updated CR base to %s", ref),
 		Ref:     fmt.Sprintf("cr:%d", cr.ID),
 		Meta: map[string]string{
@@ -499,7 +421,7 @@ func (s *Service) RestackCR(id int) (*model.CR, error) {
 	cr.Events = append(cr.Events, model.Event{
 		TS:      now,
 		Actor:   s.git.Actor(),
-		Type:    "cr_restacked",
+		Type:    model.EventTypeCRRestacked,
 		Summary: fmt.Sprintf("Restacked CR %d onto parent CR %d", cr.ID, parent.ID),
 		Ref:     fmt.Sprintf("cr:%d", cr.ID),
 		Meta: map[string]string{
