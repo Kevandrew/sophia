@@ -25,7 +25,7 @@ func newHookInstallCmd() *cobra.Command {
 		Short:   "Install Sophia pre-commit guard hook",
 		Example: "  sophia hook install\n  sophia hook install --force-overwrite\n  sophia hook install --json",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			svc, err := newService()
+			svc, err := newServiceForCmd(cmd)
 			if err != nil {
 				if asJSON {
 					return writeJSONError(cmd, err)

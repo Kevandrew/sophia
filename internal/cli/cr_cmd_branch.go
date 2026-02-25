@@ -35,7 +35,7 @@ func newCRBranchShowCmd() *cobra.Command {
 				}
 				return err
 			}
-			svc, err := newService()
+			svc, err := newServiceForCmd(cmd)
 			if err != nil {
 				if asJSON {
 					return writeJSONError(cmd, err)
@@ -95,7 +95,7 @@ func newCRBranchResolveCmd() *cobra.Command {
 		Short: "Resolve a branch to its CR context",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			svc, err := newService()
+			svc, err := newServiceForCmd(cmd)
 			if err != nil {
 				if asJSON {
 					return writeJSONError(cmd, err)
@@ -146,7 +146,7 @@ func newCRBranchFormatCmd() *cobra.Command {
 				}
 				return err
 			}
-			svc, err := newService()
+			svc, err := newServiceForCmd(cmd)
 			if err != nil {
 				if asJSON {
 					return writeJSONError(cmd, err)
@@ -191,7 +191,7 @@ func newCRBranchMigrateCmd() *cobra.Command {
 		Short: "Migrate existing CR branch aliases to the current format",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			svc, err := newService()
+			svc, err := newServiceForCmd(cmd)
 			if err != nil {
 				if asJSON {
 					return writeJSONError(cmd, err)

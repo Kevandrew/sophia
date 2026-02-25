@@ -24,13 +24,13 @@ func TestRootCommandsSupportJSON(t *testing.T) {
 	if _, ok := env.Data["base_branch"]; !ok {
 		t.Fatalf("expected base_branch in init payload, got %#v", env.Data)
 	}
-	runGit(t, dir, "config", "user.name", "Test User")
-	runGit(t, dir, "config", "user.email", "test@example.com")
+	svc := service.New(dir)
+	if _, _, err := svc.AddCRWithOptionsWithWarnings("Doctor fixture", "seed command history", service.AddCROptions{NoSwitch: true}); err != nil {
+		t.Fatalf("AddCRWithOptionsWithWarnings() error = %v", err)
+	}
 	if err := os.WriteFile(filepath.Join(dir, "doctor_fixture.txt"), []byte("fixture\n"), 0o644); err != nil {
 		t.Fatalf("write doctor fixture: %v", err)
 	}
-	runGit(t, dir, "add", "doctor_fixture.txt")
-	runGit(t, dir, "commit", "-m", "chore: doctor fixture")
 
 	out, _, runErr = runCLI(t, dir, "hook", "install", "--json")
 	if runErr != nil {
@@ -256,8 +256,6 @@ func TestCRMutationCommandsSupportJSON(t *testing.T) {
 	if _, err := svc.Init("main", ""); err != nil {
 		t.Fatalf("Init() error = %v", err)
 	}
-	runGit(t, dir, "config", "user.name", "Test User")
-	runGit(t, dir, "config", "user.email", "test@example.com")
 
 	if _, err := svc.AddCR("Mutation JSON", "json coverage"); err != nil {
 		t.Fatalf("AddCR() error = %v", err)

@@ -6,6 +6,7 @@ import (
 )
 
 func TestRootHelpStartPath(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	out, _, err := runCLI(t, dir, "--help")
 	if err != nil {
@@ -22,6 +23,7 @@ func TestRootHelpStartPath(t *testing.T) {
 }
 
 func TestCRHelpNavigationMap(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	out, _, err := runCLI(t, dir, "cr", "--help")
 	if err != nil {
@@ -40,6 +42,7 @@ func TestCRHelpNavigationMap(t *testing.T) {
 }
 
 func TestMergeAndTaskDoneHelpExamples(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	mergeOut, _, mergeErr := runCLI(t, dir, "cr", "merge", "--help")
 	if mergeErr != nil {

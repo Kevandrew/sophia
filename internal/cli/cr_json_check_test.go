@@ -14,8 +14,6 @@ func TestCRCheckRunAndStatusJSON(t *testing.T) {
 	if _, err := svc.Init("main", ""); err != nil {
 		t.Fatalf("Init() error = %v", err)
 	}
-	runGit(t, dir, "config", "user.name", "Test User")
-	runGit(t, dir, "config", "user.email", "test@example.com")
 	if err := os.WriteFile(filepath.Join(dir, "SOPHIA.yaml"), []byte(`version: v1
 trust:
   mode: advisory

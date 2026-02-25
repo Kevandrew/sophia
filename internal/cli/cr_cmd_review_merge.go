@@ -24,7 +24,7 @@ func newCRReviewCmd() *cobra.Command {
 				}
 				return err
 			}
-			svc, err := newService()
+			svc, err := newServiceForCmd(cmd)
 			if err != nil {
 				if asJSON {
 					return writeJSONError(cmd, err)
@@ -157,7 +157,7 @@ func newCRMergeCmd() *cobra.Command {
 				}
 				return err
 			}
-			svc, err := newService()
+			svc, err := newServiceForCmd(cmd)
 			if err != nil {
 				if asJSON {
 					return writeJSONError(cmd, err)
@@ -217,7 +217,7 @@ func newCRMergeStatusCmd() *cobra.Command {
 				}
 				return err
 			}
-			svc, err := newService()
+			svc, err := newServiceForCmd(cmd)
 			if err != nil {
 				if asJSON {
 					return writeJSONError(cmd, err)
@@ -268,7 +268,7 @@ func newCRMergeAbortCmd() *cobra.Command {
 				}
 				return err
 			}
-			svc, err := newService()
+			svc, err := newServiceForCmd(cmd)
 			if err != nil {
 				if asJSON {
 					return writeJSONError(cmd, err)
@@ -315,7 +315,7 @@ func newCRMergeResumeCmd() *cobra.Command {
 				}
 				return err
 			}
-			svc, err := newService()
+			svc, err := newServiceForCmd(cmd)
 			if err != nil {
 				if asJSON {
 					return writeJSONError(cmd, err)

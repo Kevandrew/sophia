@@ -8,6 +8,7 @@ import (
 )
 
 func TestCRCommandsAcceptUIDSelectorArgument(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := service.New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -32,6 +33,7 @@ func TestCRCommandsAcceptUIDSelectorArgument(t *testing.T) {
 }
 
 func TestCRCommandUIDSelectorNotFoundReturnsError(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := service.New(dir)
 	if _, err := svc.Init("main", ""); err != nil {

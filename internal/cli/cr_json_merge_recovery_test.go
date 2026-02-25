@@ -108,8 +108,6 @@ func TestCRMergeAbortJSONReturnsNoMergeInProgressCode(t *testing.T) {
 	if _, err := svc.Init("main", ""); err != nil {
 		t.Fatalf("Init() error = %v", err)
 	}
-	runGit(t, dir, "config", "user.name", "Test User")
-	runGit(t, dir, "config", "user.email", "test@example.com")
 	if _, err := svc.AddCR("No merge in progress", "json error path"); err != nil {
 		t.Fatalf("AddCR() error = %v", err)
 	}
@@ -136,8 +134,6 @@ func setupCLIMergeConflictRepo(t *testing.T) string {
 	if _, err := svc.Init("main", ""); err != nil {
 		t.Fatalf("Init() error = %v", err)
 	}
-	runGit(t, dir, "config", "user.name", "Test User")
-	runGit(t, dir, "config", "user.email", "test@example.com")
 
 	if err := os.WriteFile(filepath.Join(dir, "conflict.txt"), []byte("base\n"), 0o644); err != nil {
 		t.Fatalf("write base file: %v", err)

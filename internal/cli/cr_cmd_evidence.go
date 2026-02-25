@@ -44,7 +44,7 @@ func newCREvidenceAddCmd() *cobra.Command {
 				}
 				return err
 			}
-			svc, err := newService()
+			svc, err := newServiceForCmd(cmd)
 			if err != nil {
 				if asJSON {
 					return writeJSONError(cmd, err)
@@ -115,7 +115,7 @@ func newCREvidenceShowCmd() *cobra.Command {
 				}
 				return err
 			}
-			svc, err := newService()
+			svc, err := newServiceForCmd(cmd)
 			if err != nil {
 				if asJSON {
 					return writeJSONError(cmd, err)
@@ -231,7 +231,7 @@ func newCREvidenceSampleAddCmd() *cobra.Command {
 				}
 				return err
 			}
-			svc, err := newService()
+			svc, err := newServiceForCmd(cmd)
 			if err != nil {
 				if asJSON {
 					return writeJSONError(cmd, err)
@@ -281,7 +281,7 @@ func newCREvidenceSampleListCmd() *cobra.Command {
 				}
 				return err
 			}
-			svc, err := newService()
+			svc, err := newServiceForCmd(cmd)
 			if err != nil {
 				if asJSON {
 					return writeJSONError(cmd, err)

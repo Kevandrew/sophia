@@ -18,12 +18,13 @@ func newCRImportCmd() *cobra.Command {
 		Use:   "import",
 		Short: "Import a CR bundle artifact into local Sophia metadata",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			svc, err := newService()
+			svc, err := newServiceForCmd(cmd)
 			if err != nil {
 				return commandError(cmd, asJSON, err)
 			}
+			bundlePath := resolvePathForCmd(cmd, filePath)
 			result, err := svc.ImportCRBundle(service.ImportCRBundleOptions{
-				FilePath: filePath,
+				FilePath: bundlePath,
 				Mode:     mode,
 			})
 			if err != nil {
@@ -87,11 +88,12 @@ func newCRPatchApplyCmd(preview bool) *cobra.Command {
 			if filePath == "" {
 				return commandError(cmd, asJSON, fmt.Errorf("--file is required"))
 			}
+			filePath = resolvePathForCmd(cmd, filePath)
 			payload, readErr := os.ReadFile(filePath)
 			if readErr != nil {
 				return commandError(cmd, asJSON, fmt.Errorf("read patch file %q: %w", filePath, readErr))
 			}
-			svc, err := newService()
+			svc, err := newServiceForCmd(cmd)
 			if err != nil {
 				return commandError(cmd, asJSON, err)
 			}

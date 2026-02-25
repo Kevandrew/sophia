@@ -14,7 +14,7 @@ func newLogCmd() *cobra.Command {
 		Short:   "Show intent-first CR history",
 		Example: "  sophia log\n  sophia log --json",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			svc, err := newService()
+			svc, err := newServiceForCmd(cmd)
 			if err != nil {
 				if asJSON {
 					return writeJSONError(cmd, err)

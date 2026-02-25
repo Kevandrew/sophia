@@ -30,7 +30,7 @@ func newCRExportCmd() *cobra.Command {
 				}
 				return err
 			}
-			svc, err := newService()
+			svc, err := newServiceForCmd(cmd)
 			if err != nil {
 				if asJSON {
 					return writeJSONError(cmd, err)
@@ -50,6 +50,7 @@ func newCRExportCmd() *cobra.Command {
 
 			outPath = strings.TrimSpace(outPath)
 			if outPath != "" {
+				outPath = resolvePathForCmd(cmd, outPath)
 				if err := os.MkdirAll(filepath.Dir(outPath), 0o755); err != nil {
 					if asJSON {
 						return writeJSONError(cmd, fmt.Errorf("create export directory: %w", err))

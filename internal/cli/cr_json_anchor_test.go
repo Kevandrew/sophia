@@ -1,8 +1,6 @@
 package cli
 
 import (
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -15,18 +13,11 @@ func TestCRRangeAndRevParseJSONCommands(t *testing.T) {
 	if _, err := svc.Init("main", ""); err != nil {
 		t.Fatalf("Init() error = %v", err)
 	}
-	runGit(t, dir, "config", "user.name", "Test User")
-	runGit(t, dir, "config", "user.email", "test@example.com")
 
 	_, err := svc.AddCR("Anchor JSON", "json range/rev-parse commands")
 	if err != nil {
 		t.Fatalf("AddCR() error = %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "anchor.txt"), []byte("one\n"), 0o644); err != nil {
-		t.Fatalf("write anchor.txt: %v", err)
-	}
-	runGit(t, dir, "add", "anchor.txt")
-	runGit(t, dir, "commit", "-m", "feat: anchor fixture")
 
 	rangeOut, _, rangeErr := runCLI(t, dir, "cr", "range", "1", "--json")
 	if rangeErr != nil {

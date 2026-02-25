@@ -66,8 +66,6 @@ func TestTaskDonePatchFileSuccess(t *testing.T) {
 	if _, err := svc.Init("main", ""); err != nil {
 		t.Fatalf("Init() error = %v", err)
 	}
-	runGit(t, dir, "config", "user.name", "Test User")
-	runGit(t, dir, "config", "user.email", "test@example.com")
 
 	if err := os.WriteFile(filepath.Join(dir, "chunked.txt"), []byte("l1\nl2\nl3\nl4\nl5\nl6\nl7\nl8\n"), 0o644); err != nil {
 		t.Fatalf("write seed file: %v", err)

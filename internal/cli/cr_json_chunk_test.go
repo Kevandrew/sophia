@@ -15,8 +15,6 @@ func TestTaskChunkListCommandSupportsTextJSONAndPathFilter(t *testing.T) {
 	if _, err := svc.Init("main", ""); err != nil {
 		t.Fatalf("Init() error = %v", err)
 	}
-	runGit(t, dir, "config", "user.name", "Test User")
-	runGit(t, dir, "config", "user.email", "test@example.com")
 
 	if err := os.WriteFile(filepath.Join(dir, "alpha.txt"), []byte("a1\na2\na3\na4\na5\na6\na7\na8\n"), 0o644); err != nil {
 		t.Fatalf("write alpha file: %v", err)
@@ -98,8 +96,6 @@ func TestTaskChunkShowAndExportCommandsJSON(t *testing.T) {
 	if _, err := svc.Init("main", ""); err != nil {
 		t.Fatalf("Init() error = %v", err)
 	}
-	runGit(t, dir, "config", "user.name", "Test User")
-	runGit(t, dir, "config", "user.email", "test@example.com")
 
 	if err := os.WriteFile(filepath.Join(dir, "alpha.txt"), []byte("a1\na2\na3\na4\na5\na6\na7\na8\n"), 0o644); err != nil {
 		t.Fatalf("write alpha file: %v", err)
@@ -201,8 +197,6 @@ func TestTaskChunkListJSONReturnsPreStagedError(t *testing.T) {
 	if _, err := svc.Init("main", ""); err != nil {
 		t.Fatalf("Init() error = %v", err)
 	}
-	runGit(t, dir, "config", "user.name", "Test User")
-	runGit(t, dir, "config", "user.email", "test@example.com")
 
 	if err := os.WriteFile(filepath.Join(dir, "alpha.txt"), []byte("a1\na2\n"), 0o644); err != nil {
 		t.Fatalf("write alpha file: %v", err)

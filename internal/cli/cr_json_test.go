@@ -1,8 +1,6 @@
 package cli
 
 import (
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -15,8 +13,6 @@ func TestCRJSONCommandsReturnEnvelope(t *testing.T) {
 	if _, err := svc.Init("main", ""); err != nil {
 		t.Fatalf("Init() error = %v", err)
 	}
-	runGit(t, dir, "config", "user.name", "Test User")
-	runGit(t, dir, "config", "user.email", "test@example.com")
 
 	cr, err := svc.AddCR("JSON CR", "json rationale")
 	if err != nil {
@@ -54,12 +50,6 @@ func TestCRJSONCommandsReturnEnvelope(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("SetTaskContract() error = %v", err)
 	}
-
-	if err := os.WriteFile(filepath.Join(dir, "feature.txt"), []byte("json\n"), 0o644); err != nil {
-		t.Fatalf("write feature file: %v", err)
-	}
-	runGit(t, dir, "add", "feature.txt")
-	runGit(t, dir, "commit", "-m", "feat: json fixture")
 
 	cases := []struct {
 		args []string

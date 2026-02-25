@@ -13,7 +13,7 @@ func withParsedIDAndService(
 	argName string,
 	run func(id int, svc *service.Service) error,
 ) error {
-	id, svc, err := parseIDAndService(rawID, argName)
+	id, svc, err := parseIDAndService(cmd, rawID, argName)
 	if err != nil {
 		return commandError(cmd, asJSON, err)
 	}
@@ -27,7 +27,7 @@ func withParsedCRTaskIDsAndService(
 	rawTaskID string,
 	run func(crID, taskID int, svc *service.Service) error,
 ) error {
-	crID, taskID, svc, err := parseCRTaskIDsAndService(rawCRID, rawTaskID)
+	crID, taskID, svc, err := parseCRTaskIDsAndService(cmd, rawCRID, rawTaskID)
 	if err != nil {
 		return commandError(cmd, asJSON, err)
 	}

@@ -12,6 +12,7 @@ import (
 )
 
 func TestJSONErrorCodePolicyErrors(t *testing.T) {
+	t.Parallel()
 	if got := jsonErrorCode(service.ErrPolicyInvalid); got != "policy_invalid" {
 		t.Fatalf("jsonErrorCode(ErrPolicyInvalid) = %q, want policy_invalid", got)
 	}
@@ -27,6 +28,7 @@ func TestJSONErrorCodePolicyErrors(t *testing.T) {
 }
 
 func TestJSONErrorCodeStoreTypedErrors(t *testing.T) {
+	t.Parallel()
 	if got := jsonErrorCode(store.NotFoundError{Resource: "cr", Value: "123"}); got != "not_found" {
 		t.Fatalf("jsonErrorCode(store.NotFoundError) = %q, want not_found", got)
 	}
@@ -42,6 +44,7 @@ func TestJSONErrorCodeStoreTypedErrors(t *testing.T) {
 }
 
 func TestValidateAndDoctorJSONSurfacePolicyUnknownFieldWarnings(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := service.New(dir)
 	if _, err := svc.Init("main", ""); err != nil {

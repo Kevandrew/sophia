@@ -15,7 +15,7 @@ func newDoctorCmd() *cobra.Command {
 		Short:   "Run Sophia workflow integrity checks",
 		Example: "  sophia doctor\n  sophia doctor --limit 200\n  sophia doctor --json",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			svc, err := newService()
+			svc, err := newServiceForCmd(cmd)
 			if err != nil {
 				if asJSON {
 					return writeJSONError(cmd, err)

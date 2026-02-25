@@ -53,7 +53,7 @@ func newCRTaskChunkListCmd() *cobra.Command {
 		Short: "List chunk candidates for task checkpointing",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			crID, taskID, svc, err := parseCRTaskIDsAndService(args[0], args[1])
+			crID, taskID, svc, err := parseCRTaskIDsAndService(cmd, args[0], args[1])
 			if err != nil {
 				return commandError(cmd, asJSON, err)
 			}
@@ -144,6 +144,7 @@ func newCRTaskChunkExportCmd() *cobra.Command {
 			if out == "" {
 				return commandError(cmd, asJSON, fmt.Errorf("--out is required"))
 			}
+			out = resolvePathForCmd(cmd, out)
 			return withParsedCRTaskIDsAndService(cmd, asJSON, args[0], args[1], func(crID, taskID int, svc *service.Service) error {
 				chunks, patch, err := svc.ExportTaskChunkWorkingTreePatch(crID, taskID, append([]string(nil), chunkIDs...), append([]string(nil), scopePaths...))
 				if err != nil {
@@ -265,7 +266,7 @@ func newCRTaskContractShowCmd() *cobra.Command {
 		Short: "Show task contract fields",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			crID, taskID, svc, err := parseCRTaskIDsAndService(args[0], args[1])
+			crID, taskID, svc, err := parseCRTaskIDsAndService(cmd, args[0], args[1])
 			if err != nil {
 				return commandError(cmd, asJSON, err)
 			}
@@ -320,7 +321,7 @@ func newCRTaskContractDriftListCmd() *cobra.Command {
 		Short: "List drift records for a task contract",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			crID, taskID, svc, err := parseCRTaskIDsAndService(args[0], args[1])
+			crID, taskID, svc, err := parseCRTaskIDsAndService(cmd, args[0], args[1])
 			if err != nil {
 				return commandError(cmd, asJSON, err)
 			}
@@ -376,7 +377,7 @@ func newCRTaskContractDriftAckCmd() *cobra.Command {
 				err := fmt.Errorf("--reason is required")
 				return commandError(cmd, asJSON, err)
 			}
-			svc, err := newService()
+			svc, err := newServiceForCmd(cmd)
 			if err != nil {
 				return commandError(cmd, asJSON, err)
 			}
@@ -544,7 +545,7 @@ func newCRTaskAddCmd() *cobra.Command {
 		Short: "Add a subtask to a CR",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			crID, svc, err := parseIDAndService(args[0], "cr-id")
+			crID, svc, err := parseIDAndService(cmd, args[0], "cr-id")
 			if err != nil {
 				return commandError(cmd, asJSON, err)
 			}
@@ -574,7 +575,7 @@ func newCRTaskListCmd() *cobra.Command {
 		Short: "List subtasks for a CR",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			crID, svc, err := parseIDAndService(args[0], "cr-id")
+			crID, svc, err := parseIDAndService(cmd, args[0], "cr-id")
 			if err != nil {
 				return commandError(cmd, asJSON, err)
 			}
@@ -697,7 +698,7 @@ func newCRTaskDoneCmd() *cobra.Command {
 		Example: "  sophia cr task done 25 1 --from-contract\n  sophia cr task done 25 1 --path internal/service/service.go --path internal/service/service_test.go\n  sophia cr task done 25 1 --patch-file /tmp/task1.patch\n  sophia cr task done 25 1 --all\n  sophia cr task done 25 1 --no-checkpoint --no-checkpoint-reason \"metadata-only task\"",
 		Args:    cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			crID, taskID, svc, err := parseCRTaskIDsAndService(args[0], args[1])
+			crID, taskID, svc, err := parseCRTaskIDsAndService(cmd, args[0], args[1])
 			if err != nil {
 				return commandError(cmd, asJSON, err)
 			}
@@ -707,7 +708,7 @@ func newCRTaskDoneCmd() *cobra.Command {
 				stageAll:           stageAll,
 				fromContract:       fromContract,
 				scopePaths:         append([]string(nil), scopePaths...),
-				patchFile:          patchFile,
+				patchFile:          resolvePathForCmd(cmd, patchFile),
 			}
 			if err := validateTaskDoneFlags(flags); err != nil {
 				return commandError(cmd, asJSON, err)
@@ -741,7 +742,7 @@ func newCRTaskReopenCmd() *cobra.Command {
 		Example: "  sophia cr task reopen 25 1\n  sophia cr task reopen 25 1 --clear-checkpoint\n  sophia cr task reopen 25 1 --json",
 		Args:    cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			crID, taskID, svc, err := parseCRTaskIDsAndService(args[0], args[1])
+			crID, taskID, svc, err := parseCRTaskIDsAndService(cmd, args[0], args[1])
 			if err != nil {
 				return commandError(cmd, asJSON, err)
 			}

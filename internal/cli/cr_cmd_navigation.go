@@ -16,7 +16,7 @@ func newCRCurrentCmd() *cobra.Command {
 		Use:   "current",
 		Short: "Show the active CR context for the current branch",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			svc, err := newService()
+			svc, err := newServiceForCmd(cmd)
 			if err != nil {
 				return commandError(cmd, asJSON, err)
 			}

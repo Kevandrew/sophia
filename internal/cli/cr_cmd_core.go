@@ -87,7 +87,7 @@ func newCRAddCmd() *cobra.Command {
 		Short: "Create a new change request",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			svc, err := newService()
+			svc, err := newServiceForCmd(cmd)
 			if err != nil {
 				return commandError(cmd, asJSON, err)
 			}
@@ -127,12 +127,12 @@ func newCRApplyCmd() *cobra.Command {
 				err := fmt.Errorf("--file is required")
 				return commandError(cmd, asJSON, err)
 			}
-			svc, err := newService()
+			svc, err := newServiceForCmd(cmd)
 			if err != nil {
 				return commandError(cmd, asJSON, err)
 			}
 			result, err := svc.ApplyCRPlan(service.ApplyCRPlanOptions{
-				FilePath: filePath,
+				FilePath: resolvePathForCmd(cmd, filePath),
 				DryRun:   dryRun,
 				KeepFile: keepFile,
 			})
@@ -221,7 +221,7 @@ func newCRChildAddCmd() *cobra.Command {
 		Short: "Create a child CR from the current CR",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			svc, err := newService()
+			svc, err := newServiceForCmd(cmd)
 			if err != nil {
 				return commandError(cmd, asJSON, err)
 			}
@@ -294,8 +294,8 @@ func resolveCRSearchQuery(filters crSearchCommandFilters) (model.CRSearchQuery, 
 	}, nil
 }
 
-func runCRSearchQuery(query model.CRSearchQuery) ([]model.CRSearchResult, error) {
-	svc, err := newService()
+func runCRSearchQuery(cmd *cobra.Command, query model.CRSearchQuery) ([]model.CRSearchResult, error) {
+	svc, err := newServiceForCmd(cmd)
 	if err != nil {
 		return nil, err
 	}
@@ -349,7 +349,7 @@ func newCRListCmd() *cobra.Command {
 			if err != nil {
 				return commandError(cmd, asJSON, err)
 			}
-			results, err := runCRSearchQuery(query)
+			results, err := runCRSearchQuery(cmd, query)
 			if err != nil {
 				return commandError(cmd, asJSON, err)
 			}
@@ -394,7 +394,7 @@ func newCRSearchCmd() *cobra.Command {
 			if err != nil {
 				return commandError(cmd, asJSON, err)
 			}
-			results, err := runCRSearchQuery(query)
+			results, err := runCRSearchQuery(cmd, query)
 			if err != nil {
 				return commandError(cmd, asJSON, err)
 			}
@@ -419,7 +419,7 @@ func newCRStackCmd() *cobra.Command {
 		Short: "Show stack topology and merge blockers for related CRs",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			svc, err := newService()
+			svc, err := newServiceForCmd(cmd)
 			if err != nil {
 				return commandError(cmd, asJSON, err)
 			}
@@ -493,7 +493,7 @@ func newCRWhyCmd() *cobra.Command {
 		Short: "Show the rationale for why a CR exists",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			id, svc, err := parseIDAndService(args[0], "id")
+			id, svc, err := parseIDAndService(cmd, args[0], "id")
 			if err != nil {
 				return commandError(cmd, asJSON, err)
 			}
@@ -544,7 +544,7 @@ func newCRStatusCmd() *cobra.Command {
 		Short: "Show CR merge-readiness and workspace status",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			id, svc, err := parseIDAndService(args[0], "id")
+			id, svc, err := parseIDAndService(cmd, args[0], "id")
 			if err != nil {
 				return commandError(cmd, asJSON, err)
 			}
@@ -783,7 +783,7 @@ func newCRContractShowCmd() *cobra.Command {
 		Example: "  sophia cr contract show 25",
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			id, svc, err := parseIDAndService(args[0], "id")
+			id, svc, err := parseIDAndService(cmd, args[0], "id")
 			if err != nil {
 				return commandError(cmd, asJSON, err)
 			}
@@ -825,7 +825,7 @@ func newCRImpactCmd() *cobra.Command {
 		Short: "Show deterministic impact and risk summary for a CR",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			id, svc, err := parseIDAndService(args[0], "id")
+			id, svc, err := parseIDAndService(cmd, args[0], "id")
 			if err != nil {
 				return commandError(cmd, asJSON, err)
 			}
@@ -854,7 +854,7 @@ func newCRValidateCmd() *cobra.Command {
 		Short: "Validate CR contract completeness, scope drift, and risk signals",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			id, svc, err := parseIDAndService(args[0], "id")
+			id, svc, err := parseIDAndService(cmd, args[0], "id")
 			if err != nil {
 				return commandError(cmd, asJSON, err)
 			}

@@ -26,7 +26,7 @@ func newCRDiffCmd() *cobra.Command {
 				}
 				return err
 			}
-			svc, err := newService()
+			svc, err := newServiceForCmd(cmd)
 			if err != nil {
 				if asJSON {
 					return writeJSONError(cmd, err)
@@ -80,7 +80,7 @@ func newCRTaskDiffCmd() *cobra.Command {
 				}
 				return err
 			}
-			svc, err := newService()
+			svc, err := newServiceForCmd(cmd)
 			if err != nil {
 				if asJSON {
 					return writeJSONError(cmd, err)
@@ -137,7 +137,7 @@ func newCRTaskChunkDiffCmd() *cobra.Command {
 				}
 				return err
 			}
-			svc, err := newService()
+			svc, err := newServiceForCmd(cmd)
 			if err != nil {
 				if asJSON {
 					return writeJSONError(cmd, err)
@@ -243,7 +243,7 @@ func newCRRangeDiffCmd() *cobra.Command {
 				}
 				return err
 			}
-			svc, err := newService()
+			svc, err := newServiceForCmd(cmd)
 			if err != nil {
 				if asJSON {
 					return writeJSONError(cmd, err)
@@ -315,7 +315,7 @@ func newCRTaskRangeDiffCmd() *cobra.Command {
 				}
 				return err
 			}
-			svc, err := newService()
+			svc, err := newServiceForCmd(cmd)
 			if err != nil {
 				if asJSON {
 					return writeJSONError(cmd, err)
