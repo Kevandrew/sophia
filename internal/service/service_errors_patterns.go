@@ -1,0 +1,58 @@
+package service
+
+import (
+	"errors"
+	"regexp"
+)
+
+var (
+	ErrCRAlreadyMerged           = errors.New("cr is already merged")
+	ErrNoActiveCRContext         = errors.New("current branch is not a CR branch")
+	ErrBranchInOtherWorktree     = errors.New("branch is checked out in another worktree")
+	ErrWorkingTreeDirty          = errors.New("working tree is dirty")
+	ErrNoCRChanges               = errors.New("no CR changes provided")
+	ErrCRValidationFailed        = errors.New("cr validation failed")
+	ErrMergeConflict             = errors.New("merge conflict")
+	ErrMergeInProgress           = errors.New("merge in progress")
+	ErrNoMergeInProgress         = errors.New("no merge in progress")
+	ErrParentCRNotMerged         = errors.New("parent cr is not merged")
+	ErrParentCRRequired          = errors.New("cr has no parent")
+	ErrAlreadyRedacted           = errors.New("target is already redacted")
+	ErrNoTaskChanges             = errors.New("no task checkpoint changes found")
+	ErrTaskScopeRequired         = errors.New("checkpoint scope is required (use --patch-file, --path, --from-contract, or --all)")
+	ErrInvalidTaskScope          = errors.New("invalid task checkpoint scope")
+	ErrPreStagedChanges          = errors.New("staged changes already exist before checkpoint")
+	ErrTaskContractIncomplete    = errors.New("task contract is incomplete")
+	ErrNoTaskScopeMatches        = errors.New("no changed files match task contract scope")
+	ErrTaskDelegated             = errors.New("task is delegated")
+	ErrTaskNotDone               = errors.New("task is not done")
+	ErrInvalidEvidenceType       = errors.New("invalid evidence type")
+	ErrPolicyInvalid             = errors.New("repository policy is invalid")
+	ErrPolicyViolation           = errors.New("repository policy violation")
+	ErrHQNotConfigured           = errors.New("hq remote is not configured")
+	ErrHQRepoIDRequired          = errors.New("hq repo identity is required")
+	ErrHQTrackedModeBlocked      = errors.New("hq write/sync commands are blocked when metadata_mode=tracked")
+	ErrHQRemoteMalformedResponse = errors.New("hq remote response is invalid")
+	ErrHQIntentDiverged          = errors.New("hq intent diverged")
+	ErrHQUpstreamMoved           = errors.New("hq upstream moved")
+	ErrHQPatchConflict           = errors.New("hq patch conflict")
+	ErrHQTaskSyncUnsupported     = errors.New("hq task sync unsupported")
+)
+
+var (
+	crSubjectPattern          = regexp.MustCompile(`^\[CR-(\d+)\]\s*(.*)$`)
+	crFooterPattern           = regexp.MustCompile(`(?m)^Sophia-CR:\s*\d+\s*$`)
+	legacyPersistPattern      = regexp.MustCompile(`^chore:\s*persist CR-\d+\s+merged metadata$`)
+	footerCRIDPattern         = regexp.MustCompile(`(?m)^Sophia-CR:\s*(\d+)\s*$`)
+	footerCRUIDPattern        = regexp.MustCompile(`(?m)^Sophia-CR-UID:\s*(\S+)\s*$`)
+	footerBaseRefPattern      = regexp.MustCompile(`(?m)^Sophia-Base-Ref:\s*(.+)\s*$`)
+	footerBaseSHApattern      = regexp.MustCompile(`(?m)^Sophia-Base-Commit:\s*(\S+)\s*$`)
+	footerParentPattern       = regexp.MustCompile(`(?m)^Sophia-Parent-CR:\s*(\d+)\s*$`)
+	footerTaskPattern         = regexp.MustCompile(`(?m)^Sophia-Task:\s*(\d+)\s*$`)
+	hunkHeaderPattern         = regexp.MustCompile(`^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@`)
+	footerIntentPattern       = regexp.MustCompile(`(?m)^Sophia-Intent:\s*(.+)\s*$`)
+	footerBranchPattern       = regexp.MustCompile(`(?m)^Sophia-Branch:\s*(.+)\s*$`)
+	footerBranchSchemePattern = regexp.MustCompile(`(?m)^Sophia-Branch-Scheme:\s*(\S+)\s*$`)
+)
+
+const redactedPlaceholder = "[REDACTED]"
