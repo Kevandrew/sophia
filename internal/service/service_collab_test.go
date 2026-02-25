@@ -18,8 +18,6 @@ func TestExportIncludesFingerprintDeterministic(t *testing.T) {
 	if _, err := svc.Init("main", ""); err != nil {
 		t.Fatalf("Init() error = %v", err)
 	}
-	runGit(t, dir, "config", "user.name", "Test User")
-	runGit(t, dir, "config", "user.email", "test@example.com")
 
 	cr, err := svc.AddCR("Collab export", "fingerprint test")
 	if err != nil {
@@ -55,8 +53,6 @@ func TestPatchApplyNonOverlappingChangesAutoMerge(t *testing.T) {
 	if _, err := svc.Init("main", ""); err != nil {
 		t.Fatalf("Init() error = %v", err)
 	}
-	runGit(t, dir, "config", "user.name", "Test User")
-	runGit(t, dir, "config", "user.email", "test@example.com")
 
 	cr, err := svc.AddCR("Patch merge", "non-overlap")
 	if err != nil {
@@ -123,8 +119,6 @@ func TestPatchApplyConflictsOnStaleBefore(t *testing.T) {
 	if _, err := svc.Init("main", ""); err != nil {
 		t.Fatalf("Init() error = %v", err)
 	}
-	runGit(t, dir, "config", "user.name", "Test User")
-	runGit(t, dir, "config", "user.email", "test@example.com")
 
 	cr, err := svc.AddCR("Patch conflict", "stale before")
 	if err != nil {
@@ -187,8 +181,6 @@ func TestPatchApplyDedupNotes(t *testing.T) {
 	if _, err := svc.Init("main", ""); err != nil {
 		t.Fatalf("Init() error = %v", err)
 	}
-	runGit(t, dir, "config", "user.name", "Test User")
-	runGit(t, dir, "config", "user.email", "test@example.com")
 
 	cr, err := svc.AddCR("Patch notes", "dedupe")
 	if err != nil {
@@ -251,8 +243,6 @@ func TestImportCreateAndReplaceByUID(t *testing.T) {
 	if _, err := sourceSvc.Init("main", ""); err != nil {
 		t.Fatalf("source Init() error = %v", err)
 	}
-	runGit(t, sourceDir, "config", "user.name", "Test User")
-	runGit(t, sourceDir, "config", "user.email", "test@example.com")
 
 	sourceCR, err := sourceSvc.AddCR("Import source", "bundle source")
 	if err != nil {
@@ -269,8 +259,6 @@ func TestImportCreateAndReplaceByUID(t *testing.T) {
 	if _, err := targetSvc.Init("main", ""); err != nil {
 		t.Fatalf("target Init() error = %v", err)
 	}
-	runGit(t, targetDir, "config", "user.name", "Test User")
-	runGit(t, targetDir, "config", "user.email", "test@example.com")
 
 	bundlePath := filepath.Join(targetDir, "import.bundle.json")
 	if err := os.WriteFile(bundlePath, payload, 0o644); err != nil {
@@ -314,8 +302,6 @@ func TestStatusCRImportedMetadataOnlyDoesNotFail(t *testing.T) {
 	if _, err := sourceSvc.Init("main", ""); err != nil {
 		t.Fatalf("source Init() error = %v", err)
 	}
-	runGit(t, sourceDir, "config", "user.name", "Test User")
-	runGit(t, sourceDir, "config", "user.email", "test@example.com")
 	sourceCR, err := sourceSvc.AddCR("Imported status fallback", "status should not hard-fail")
 	if err != nil {
 		t.Fatalf("source AddCR() error = %v", err)
@@ -331,8 +317,6 @@ func TestStatusCRImportedMetadataOnlyDoesNotFail(t *testing.T) {
 	if _, err := targetSvc.Init("main", ""); err != nil {
 		t.Fatalf("target Init() error = %v", err)
 	}
-	runGit(t, targetDir, "config", "user.name", "Test User")
-	runGit(t, targetDir, "config", "user.email", "test@example.com")
 
 	bundlePath := filepath.Join(targetDir, "import.bundle.json")
 	if err := os.WriteFile(bundlePath, payload, 0o644); err != nil {
@@ -374,8 +358,6 @@ func TestValidateCRImportedMetadataOnlyReturnsStructuredReport(t *testing.T) {
 	if _, err := sourceSvc.Init("main", ""); err != nil {
 		t.Fatalf("source Init() error = %v", err)
 	}
-	runGit(t, sourceDir, "config", "user.name", "Test User")
-	runGit(t, sourceDir, "config", "user.email", "test@example.com")
 	sourceCR, err := sourceSvc.AddCR("Imported validate fallback", "validate should not hard-fail")
 	if err != nil {
 		t.Fatalf("source AddCR() error = %v", err)
@@ -391,8 +373,6 @@ func TestValidateCRImportedMetadataOnlyReturnsStructuredReport(t *testing.T) {
 	if _, err := targetSvc.Init("main", ""); err != nil {
 		t.Fatalf("target Init() error = %v", err)
 	}
-	runGit(t, targetDir, "config", "user.name", "Test User")
-	runGit(t, targetDir, "config", "user.email", "test@example.com")
 	bundlePath := filepath.Join(targetDir, "import.bundle.json")
 	if err := os.WriteFile(bundlePath, payload, 0o644); err != nil {
 		t.Fatalf("write bundle file: %v", err)
@@ -430,8 +410,6 @@ func TestImpactCRImportedMetadataOnlyReturnsStructuredReport(t *testing.T) {
 	if _, err := sourceSvc.Init("main", ""); err != nil {
 		t.Fatalf("source Init() error = %v", err)
 	}
-	runGit(t, sourceDir, "config", "user.name", "Test User")
-	runGit(t, sourceDir, "config", "user.email", "test@example.com")
 	sourceCR, err := sourceSvc.AddCR("Imported impact fallback", "impact should not hard-fail")
 	if err != nil {
 		t.Fatalf("source AddCR() error = %v", err)
@@ -447,8 +425,6 @@ func TestImpactCRImportedMetadataOnlyReturnsStructuredReport(t *testing.T) {
 	if _, err := targetSvc.Init("main", ""); err != nil {
 		t.Fatalf("target Init() error = %v", err)
 	}
-	runGit(t, targetDir, "config", "user.name", "Test User")
-	runGit(t, targetDir, "config", "user.email", "test@example.com")
 	bundlePath := filepath.Join(targetDir, "import.bundle.json")
 	if err := os.WriteFile(bundlePath, payload, 0o644); err != nil {
 		t.Fatalf("write bundle file: %v", err)
@@ -483,8 +459,6 @@ func TestImpactCRImportedMetadataOnlyDerivesChangesFromTaskCheckpointScope(t *te
 	if _, err := sourceSvc.Init("main", ""); err != nil {
 		t.Fatalf("source Init() error = %v", err)
 	}
-	runGit(t, sourceDir, "config", "user.name", "Test User")
-	runGit(t, sourceDir, "config", "user.email", "test@example.com")
 	sourceCR, err := sourceSvc.AddCR("Imported impact derived scope", "impact should use checkpoint scope fallback")
 	if err != nil {
 		t.Fatalf("source AddCR() error = %v", err)
@@ -530,8 +504,6 @@ func TestImpactCRImportedMetadataOnlyDerivesChangesFromTaskCheckpointScope(t *te
 	if _, err := targetSvc.Init("main", ""); err != nil {
 		t.Fatalf("target Init() error = %v", err)
 	}
-	runGit(t, targetDir, "config", "user.name", "Test User")
-	runGit(t, targetDir, "config", "user.email", "test@example.com")
 	bundlePath := filepath.Join(targetDir, "import.bundle.json")
 	if err := os.WriteFile(bundlePath, payload, 0o644); err != nil {
 		t.Fatalf("write bundle file: %v", err)
@@ -562,8 +534,6 @@ func TestReviewCRImportedMetadataOnlyDoesNotFail(t *testing.T) {
 	if _, err := sourceSvc.Init("main", ""); err != nil {
 		t.Fatalf("source Init() error = %v", err)
 	}
-	runGit(t, sourceDir, "config", "user.name", "Test User")
-	runGit(t, sourceDir, "config", "user.email", "test@example.com")
 	sourceCR, err := sourceSvc.AddCR("Imported review fallback", "review should not hard-fail")
 	if err != nil {
 		t.Fatalf("source AddCR() error = %v", err)
@@ -579,8 +549,6 @@ func TestReviewCRImportedMetadataOnlyDoesNotFail(t *testing.T) {
 	if _, err := targetSvc.Init("main", ""); err != nil {
 		t.Fatalf("target Init() error = %v", err)
 	}
-	runGit(t, targetDir, "config", "user.name", "Test User")
-	runGit(t, targetDir, "config", "user.email", "test@example.com")
 	bundlePath := filepath.Join(targetDir, "import.bundle.json")
 	if err := os.WriteFile(bundlePath, payload, 0o644); err != nil {
 		t.Fatalf("write bundle file: %v", err)
@@ -618,8 +586,6 @@ func TestSwitchCRImportedMetadataOnlyFallsBackToLocalBase(t *testing.T) {
 	if _, err := sourceSvc.Init("main", ""); err != nil {
 		t.Fatalf("source Init() error = %v", err)
 	}
-	runGit(t, sourceDir, "config", "user.name", "Test User")
-	runGit(t, sourceDir, "config", "user.email", "test@example.com")
 	sourceCR, err := sourceSvc.AddCR("Imported switch fallback", "switch should use local base anchor")
 	if err != nil {
 		t.Fatalf("source AddCR() error = %v", err)
@@ -635,9 +601,7 @@ func TestSwitchCRImportedMetadataOnlyFallsBackToLocalBase(t *testing.T) {
 	if _, err := targetSvc.Init("main", ""); err != nil {
 		t.Fatalf("target Init() error = %v", err)
 	}
-	runGit(t, targetDir, "config", "user.name", "Test User")
-	runGit(t, targetDir, "config", "user.email", "test@example.com")
-	runGit(t, targetDir, "commit", "--allow-empty", "-m", "target base commit")
+	runGit(t, targetDir, "-c", "user.name=Test User", "-c", "user.email=test@example.com", "commit", "--allow-empty", "-m", "target base commit")
 
 	bundlePath := filepath.Join(targetDir, "import.bundle.json")
 	if err := os.WriteFile(bundlePath, payload, 0o644); err != nil {
@@ -693,8 +657,6 @@ func TestSwitchCRImportedMetadataOnlyWithoutLocalAnchorReturnsActionableError(t 
 	if _, err := sourceSvc.Init("main", ""); err != nil {
 		t.Fatalf("source Init() error = %v", err)
 	}
-	runGit(t, sourceDir, "config", "user.name", "Test User")
-	runGit(t, sourceDir, "config", "user.email", "test@example.com")
 	sourceCR, err := sourceSvc.AddCR("Imported switch failure", "no local base anchor")
 	if err != nil {
 		t.Fatalf("source AddCR() error = %v", err)
@@ -710,8 +672,6 @@ func TestSwitchCRImportedMetadataOnlyWithoutLocalAnchorReturnsActionableError(t 
 	if _, err := targetSvc.Init("main", ""); err != nil {
 		t.Fatalf("target Init() error = %v", err)
 	}
-	runGit(t, targetDir, "config", "user.name", "Test User")
-	runGit(t, targetDir, "config", "user.email", "test@example.com")
 
 	bundlePath := filepath.Join(targetDir, "import.bundle.json")
 	if err := os.WriteFile(bundlePath, payload, 0o644); err != nil {
