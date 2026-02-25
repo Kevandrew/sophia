@@ -1,0 +1,79 @@
+schema_version: sophia.cr_archive.v1
+notice: Historical archive snapshot. Corrections are append-only revisions.
+archived_at: "2026-02-25T00:33:01Z"
+revision: 1
+cr:
+    id: 64
+    uid: cr_0813fc72-9b53-4fb7-a1c8-c8390fb51b38
+    title: 'Policy: enable Go trust checks'
+    description: Make SOPHIA.yaml enforce baseline Go checks (go test/vet) and tighten scope allowlist for infra repo guardrails.
+    status: merged
+    base_branch: main
+    base_ref: main
+    base_commit: 74cf534c09082f0f31090912637665e7155024c3
+    branch: cr-policy-enable-go-trust-checks-0813
+    merged_at: "2026-02-25T00:33:01Z"
+    merged_by: Kevandrew <143258544+Kevandrew@users.noreply.github.com>
+contract:
+    why: Ensure repo policy actually enforces baseline quality gates for infra-heavy Go changes, and prevent accidental contract scopes outside intended repo roots.
+    scope:
+        - SOPHIA.yaml
+        - docs/repository-policy.md
+        - internal/model
+        - internal/service
+    non_goals:
+        - No behavior changes to CR/task commands beyond policy-driven validation/check gating.
+    invariants:
+        - Policy remains backwards compatible in schema (v1).
+    blast_radius: Repo policy parsing, validation, and trust check run/status behavior.
+    risk_tier_hint: medium
+    risk_rationale: Policy changes affect every CR workflow.
+    test_plan: go test ./... && go vet ./...
+    rollback_plan: Revert the merge commit.
+tasks:
+    - id: 1
+      title: 'Update docs: repository policy examples for Go infra'
+      status: done
+      contract:
+        intent: Document recommended SOPHIA.yaml settings for infra-heavy Go repos.
+        acceptance_criteria:
+            - docs/repository-policy.md includes an example trust.checks.definitions section for Go.
+        scope:
+            - docs/repository-policy.md
+      checkpoint:
+        commit: 8ac39c5e
+        at: "2026-02-25T00:33:01Z"
+        source: task_checkpoint
+        scope:
+            - docs/repository-policy.md
+    - id: 2
+      title: 'Update SOPHIA.yaml: require Go trust checks'
+      status: done
+      contract:
+        intent: Require baseline Go checks via trust.checks.definitions so check run/status is deterministic.
+        acceptance_criteria:
+            - SOPHIA.yaml defines trust.checks.definitions for go test ./... and go vet ./... across all tiers.
+            - sophia cr check status <id> reports check_mode=required when definitions exist.
+        scope:
+            - SOPHIA.yaml
+      checkpoint:
+        commit: 75e02057
+        at: "2026-02-25T00:33:00Z"
+        source: task_checkpoint
+        scope:
+            - SOPHIA.yaml
+git_summary:
+    base_parent: 74cf534c09082f0f31090912637665e7155024c3
+    cr_parent: 8ac39c5e53c7a06d7ebdbae19b9a639765b50e90
+    files_changed:
+        - SOPHIA.yaml
+        - docs/repository-policy.md
+    diffstat:
+        summary: 2 files changed, 24 insertions(+), 7 deletions(-)
+        files:
+            - path: SOPHIA.yaml
+              insertions: 8
+              deletions: 7
+            - path: docs/repository-policy.md
+              insertions: 16
+              deletions: 0
