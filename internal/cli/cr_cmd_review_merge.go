@@ -7,122 +7,111 @@ import (
 	"github.com/spf13/cobra"
 
 	"sophia/internal/model"
+	"sophia/internal/service"
 )
 
 func newCRReviewCmd() *cobra.Command {
 	var asJSON bool
 
 	cmd := &cobra.Command{
-		Use:   "review <id>",
+		Use:   "review [id]",
 		Short: "Show intent-first CR review context",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			id, err := parsePositiveIntArg(args[0], "id")
-			if err != nil {
+			return withOptionalCRIDAndService(cmd, asJSON, args, "id", func(id int, svc *service.Service) error {
+				review, err := svc.ReviewCR(id)
+				if err != nil {
+					if asJSON {
+						return writeJSONError(cmd, err)
+					}
+					return err
+				}
 				if asJSON {
-					return writeJSONError(cmd, err)
+					return writeJSONSuccess(cmd, reviewToJSONMap(review))
 				}
-				return err
-			}
-			svc, err := newServiceForCmd(cmd)
-			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
-			}
-			review, err := svc.ReviewCR(id)
-			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
-			}
-			if asJSON {
-				return writeJSONSuccess(cmd, reviewToJSONMap(review))
-			}
 
-			fmt.Fprintf(cmd.OutOrStdout(), "CR %d: %s\n", review.CR.ID, review.CR.Title)
-			fmt.Fprintf(cmd.OutOrStdout(), "Status: %s\n", review.CR.Status)
-			fmt.Fprintf(cmd.OutOrStdout(), "Base: %s\n", review.CR.BaseBranch)
-			fmt.Fprintf(cmd.OutOrStdout(), "Base Ref: %s\n", nonEmpty(review.CR.BaseRef, "(missing)"))
-			fmt.Fprintf(cmd.OutOrStdout(), "Base Commit: %s\n", nonEmpty(review.CR.BaseCommit, "(missing)"))
-			fmt.Fprintf(cmd.OutOrStdout(), "Parent CR: %d\n", review.CR.ParentCRID)
-			fmt.Fprintf(cmd.OutOrStdout(), "Branch: %s\n", review.CR.Branch)
-			fmt.Fprintf(cmd.OutOrStdout(), "\nIntent:\n%s\n", nonEmpty(review.CR.Description, "(none)"))
-			fmt.Fprintf(cmd.OutOrStdout(), "\nContract:\n")
-			fmt.Fprintf(cmd.OutOrStdout(), "- why: %s\n", nonEmpty(strings.TrimSpace(review.Contract.Why), "(missing)"))
-			printInlineList(cmd, "scope", review.Contract.Scope)
-			printInlineList(cmd, "non_goals", review.Contract.NonGoals)
-			printInlineList(cmd, "invariants", review.Contract.Invariants)
-			fmt.Fprintf(cmd.OutOrStdout(), "- blast_radius: %s\n", nonEmpty(strings.TrimSpace(review.Contract.BlastRadius), "(missing)"))
-			printInlineList(cmd, "risk_critical_scopes", review.Contract.RiskCriticalScopes)
-			fmt.Fprintf(cmd.OutOrStdout(), "- risk_tier_hint: %s\n", nonEmpty(strings.TrimSpace(review.Contract.RiskTierHint), "(none)"))
-			fmt.Fprintf(cmd.OutOrStdout(), "- risk_rationale: %s\n", nonEmpty(strings.TrimSpace(review.Contract.RiskRationale), "(none)"))
-			fmt.Fprintf(cmd.OutOrStdout(), "- test_plan: %s\n", nonEmpty(strings.TrimSpace(review.Contract.TestPlan), "(missing)"))
-			fmt.Fprintf(cmd.OutOrStdout(), "- rollback_plan: %s\n", nonEmpty(strings.TrimSpace(review.Contract.RollbackPlan), "(missing)"))
+				fmt.Fprintf(cmd.OutOrStdout(), "CR %d: %s\n", review.CR.ID, review.CR.Title)
+				fmt.Fprintf(cmd.OutOrStdout(), "Status: %s\n", review.CR.Status)
+				fmt.Fprintf(cmd.OutOrStdout(), "Base: %s\n", review.CR.BaseBranch)
+				fmt.Fprintf(cmd.OutOrStdout(), "Base Ref: %s\n", nonEmpty(review.CR.BaseRef, "(missing)"))
+				fmt.Fprintf(cmd.OutOrStdout(), "Base Commit: %s\n", nonEmpty(review.CR.BaseCommit, "(missing)"))
+				fmt.Fprintf(cmd.OutOrStdout(), "Parent CR: %d\n", review.CR.ParentCRID)
+				fmt.Fprintf(cmd.OutOrStdout(), "Branch: %s\n", review.CR.Branch)
+				fmt.Fprintf(cmd.OutOrStdout(), "\nIntent:\n%s\n", nonEmpty(review.CR.Description, "(none)"))
+				fmt.Fprintf(cmd.OutOrStdout(), "\nContract:\n")
+				fmt.Fprintf(cmd.OutOrStdout(), "- why: %s\n", nonEmpty(strings.TrimSpace(review.Contract.Why), "(missing)"))
+				printInlineList(cmd, "scope", review.Contract.Scope)
+				printInlineList(cmd, "non_goals", review.Contract.NonGoals)
+				printInlineList(cmd, "invariants", review.Contract.Invariants)
+				fmt.Fprintf(cmd.OutOrStdout(), "- blast_radius: %s\n", nonEmpty(strings.TrimSpace(review.Contract.BlastRadius), "(missing)"))
+				printInlineList(cmd, "risk_critical_scopes", review.Contract.RiskCriticalScopes)
+				fmt.Fprintf(cmd.OutOrStdout(), "- risk_tier_hint: %s\n", nonEmpty(strings.TrimSpace(review.Contract.RiskTierHint), "(none)"))
+				fmt.Fprintf(cmd.OutOrStdout(), "- risk_rationale: %s\n", nonEmpty(strings.TrimSpace(review.Contract.RiskRationale), "(none)"))
+				fmt.Fprintf(cmd.OutOrStdout(), "- test_plan: %s\n", nonEmpty(strings.TrimSpace(review.Contract.TestPlan), "(missing)"))
+				fmt.Fprintf(cmd.OutOrStdout(), "- rollback_plan: %s\n", nonEmpty(strings.TrimSpace(review.Contract.RollbackPlan), "(missing)"))
 
-			fmt.Fprintf(cmd.OutOrStdout(), "\nSubtasks:\n")
-			if len(review.CR.Subtasks) == 0 {
-				fmt.Fprintln(cmd.OutOrStdout(), "- (none)")
-			} else {
-				for _, task := range review.CR.Subtasks {
-					marker := "[ ]"
-					switch task.Status {
-					case model.TaskStatusDone:
-						marker = "[x]"
-					case model.TaskStatusDelegated:
-						marker = "[~]"
-					}
-					fmt.Fprintf(cmd.OutOrStdout(), "- %s #%d %s\n", marker, task.ID, task.Title)
-				}
-			}
-
-			fmt.Fprintf(cmd.OutOrStdout(), "\nNotes:\n")
-			if len(review.CR.Notes) == 0 {
-				fmt.Fprintln(cmd.OutOrStdout(), "- (none)")
-			} else {
-				for _, note := range review.CR.Notes {
-					fmt.Fprintf(cmd.OutOrStdout(), "- %s\n", note)
-				}
-			}
-
-			fmt.Fprintf(cmd.OutOrStdout(), "\nEvidence:\n")
-			if len(review.CR.Evidence) == 0 {
-				fmt.Fprintln(cmd.OutOrStdout(), "- (none)")
-			} else {
-				for i, entry := range review.CR.Evidence {
-					fmt.Fprintf(cmd.OutOrStdout(), "- #%d %s %s: %s\n", i+1, nonEmpty(strings.TrimSpace(entry.TS), "-"), nonEmpty(strings.TrimSpace(entry.Type), "-"), nonEmpty(strings.TrimSpace(entry.Summary), "-"))
-					if strings.TrimSpace(entry.Scope) != "" {
-						fmt.Fprintf(cmd.OutOrStdout(), "  scope: %s\n", entry.Scope)
-					}
-					if strings.TrimSpace(entry.Command) != "" {
-						fmt.Fprintf(cmd.OutOrStdout(), "  command: %s\n", entry.Command)
-					}
-					if entry.ExitCode != nil {
-						fmt.Fprintf(cmd.OutOrStdout(), "  exit_code: %d\n", *entry.ExitCode)
-					}
-					if strings.TrimSpace(entry.OutputHash) != "" {
-						fmt.Fprintf(cmd.OutOrStdout(), "  output_hash: %s\n", entry.OutputHash)
-					}
-					if len(entry.Attachments) > 0 {
-						fmt.Fprintf(cmd.OutOrStdout(), "  attachments: %s\n", strings.Join(entry.Attachments, ", "))
+				fmt.Fprintf(cmd.OutOrStdout(), "\nSubtasks:\n")
+				if len(review.CR.Subtasks) == 0 {
+					fmt.Fprintln(cmd.OutOrStdout(), "- (none)")
+				} else {
+					for _, task := range review.CR.Subtasks {
+						marker := "[ ]"
+						switch task.Status {
+						case model.TaskStatusDone:
+							marker = "[x]"
+						case model.TaskStatusDelegated:
+							marker = "[~]"
+						}
+						fmt.Fprintf(cmd.OutOrStdout(), "- %s #%d %s\n", marker, task.ID, task.Title)
 					}
 				}
-			}
 
-			printListSection(cmd, "New Files", review.NewFiles)
-			printListSection(cmd, "Modified Files", review.ModifiedFiles)
-			printListSection(cmd, "Deleted Files", review.DeletedFiles)
-			printListSection(cmd, "Test Files Touched", review.TestFiles)
-			printListSection(cmd, "Dependency Files Touched", review.DependencyFiles)
-			printListSection(cmd, "Files Changed", review.Files)
-			fmt.Fprintf(cmd.OutOrStdout(), "\nDiff Stat:\n%s\n", review.ShortStat)
-			printImpactSection(cmd, review.Impact)
-			printTrustSection(cmd, review.Trust)
-			printStringSection(cmd, "Errors", review.ValidationErrors)
-			printStringSection(cmd, "Warnings", review.ValidationWarnings)
-			return nil
+				fmt.Fprintf(cmd.OutOrStdout(), "\nNotes:\n")
+				if len(review.CR.Notes) == 0 {
+					fmt.Fprintln(cmd.OutOrStdout(), "- (none)")
+				} else {
+					for _, note := range review.CR.Notes {
+						fmt.Fprintf(cmd.OutOrStdout(), "- %s\n", note)
+					}
+				}
+
+				fmt.Fprintf(cmd.OutOrStdout(), "\nEvidence:\n")
+				if len(review.CR.Evidence) == 0 {
+					fmt.Fprintln(cmd.OutOrStdout(), "- (none)")
+				} else {
+					for i, entry := range review.CR.Evidence {
+						fmt.Fprintf(cmd.OutOrStdout(), "- #%d %s %s: %s\n", i+1, nonEmpty(strings.TrimSpace(entry.TS), "-"), nonEmpty(strings.TrimSpace(entry.Type), "-"), nonEmpty(strings.TrimSpace(entry.Summary), "-"))
+						if strings.TrimSpace(entry.Scope) != "" {
+							fmt.Fprintf(cmd.OutOrStdout(), "  scope: %s\n", entry.Scope)
+						}
+						if strings.TrimSpace(entry.Command) != "" {
+							fmt.Fprintf(cmd.OutOrStdout(), "  command: %s\n", entry.Command)
+						}
+						if entry.ExitCode != nil {
+							fmt.Fprintf(cmd.OutOrStdout(), "  exit_code: %d\n", *entry.ExitCode)
+						}
+						if strings.TrimSpace(entry.OutputHash) != "" {
+							fmt.Fprintf(cmd.OutOrStdout(), "  output_hash: %s\n", entry.OutputHash)
+						}
+						if len(entry.Attachments) > 0 {
+							fmt.Fprintf(cmd.OutOrStdout(), "  attachments: %s\n", strings.Join(entry.Attachments, ", "))
+						}
+					}
+				}
+
+				printListSection(cmd, "New Files", review.NewFiles)
+				printListSection(cmd, "Modified Files", review.ModifiedFiles)
+				printListSection(cmd, "Deleted Files", review.DeletedFiles)
+				printListSection(cmd, "Test Files Touched", review.TestFiles)
+				printListSection(cmd, "Dependency Files Touched", review.DependencyFiles)
+				printListSection(cmd, "Files Changed", review.Files)
+				fmt.Fprintf(cmd.OutOrStdout(), "\nDiff Stat:\n%s\n", review.ShortStat)
+				printImpactSection(cmd, review.Impact)
+				printTrustSection(cmd, review.Trust)
+				printStringSection(cmd, "Errors", review.ValidationErrors)
+				printStringSection(cmd, "Warnings", review.ValidationWarnings)
+				return nil
+			})
 		},
 	}
 

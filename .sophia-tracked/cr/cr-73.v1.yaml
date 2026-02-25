@@ -1,0 +1,176 @@
+schema_version: sophia.cr_archive.v1
+notice: Historical archive snapshot. Corrections are append-only revisions.
+archived_at: "2026-02-25T19:08:52Z"
+revision: 1
+cr:
+    id: 73
+    uid: cr_91aac07d-6cab-4062-97a3-067f5ef31b5c
+    title: Active-CR fallback for read-only commands
+    description: Allow core read-only CR commands to infer CR id from active branch when selector is omitted, and return actionable no_active_cr_context errors instead of raw arity messages.
+    status: merged
+    base_branch: main
+    base_ref: main
+    base_commit: c0d0a61e4ddfb45d0920b3f262c4a6a53f3a26d6
+    branch: cr-active-cr-fallback-for-read-only-commands-91aa
+    merged_at: "2026-02-25T19:08:52Z"
+    merged_by: Kevandrew <143258544+Kevandrew@users.noreply.github.com>
+contract:
+    why: |-
+        Core read-only CR commands currently fail with a raw arity error when no selector is passed, even when the user is already on an active CR branch. This creates friction for interactive usage and harms machine-driven workflows that expect context-aware, actionable failure modes.
+
+        This change makes selected read-only commands selector-optional: explicit id/uid/branch selectors keep existing behavior, while omitted selectors resolve to the active CR from current branch context. When no active CR context exists, the command should fail with structured no_active_cr_context semantics and guidance rather than Cobra arity output.
+    scope:
+        - docs
+        - internal/cli
+    non_goals:
+        - Do not add fallback to latest/open CR when branch context is missing.
+        - Do not change mutating command selector requirements.
+    invariants:
+        - Explicit selector resolution remains unchanged and backward compatible.
+        - JSON error envelopes remain stable and machine-readable.
+    blast_radius: Affects core read-only command arg contracts and no-arg resolution flow for status/why/impact/validate/review/doctor/check status, plus related help/docs and CLI tests.
+    test_plan: go test ./internal/cli/... && go test ./... && go vet ./...
+    rollback_plan: Revert the merge commit for [CR-73] if optional-selector behavior regresses CLI workflows.
+tasks:
+    - id: 1
+      title: Add optional-selector resolver for core read-only CR commands
+      status: done
+      contract:
+        intent: Provide a shared CLI resolver that accepts optional CR selector input and falls back to active branch context
+        acceptance_criteria:
+            - Missing active branch context maps to actionable no_active_cr_context behavior
+            - Resolver returns explicit selector id when provided and active branch CR id when omitted
+        scope:
+            - internal/cli/cr_cmd_helpers.go
+            - internal/cli/cr_helpers.go
+      checkpoint:
+        commit: 53bba393
+        at: "2026-02-25T19:00:05Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/cr_cmd_helpers.go
+            - internal/cli/cr_helpers.go
+    - id: 2
+      title: Wire no-arg active-CR fallback into selected read-only commands
+      status: done
+      contract:
+        intent: Apply optional-selector behavior to the selected read-only commands
+        acceptance_criteria:
+            - Existing explicit selector behavior remains unchanged
+            - status why impact validate review doctor and check status accept zero or one selector argument
+        scope:
+            - internal/cli/cr_cmd_check.go
+            - internal/cli/cr_cmd_core.go
+            - internal/cli/cr_cmd_integrity.go
+            - internal/cli/cr_cmd_review_merge.go
+      checkpoint:
+        commit: 61419d56
+        at: "2026-02-25T19:00:09Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/cr_cmd_check.go
+            - internal/cli/cr_cmd_core.go
+            - internal/cli/cr_cmd_integrity.go
+            - internal/cli/cr_cmd_review_merge.go
+    - id: 3
+      title: Expand CLI tests for no-arg success/failure behavior
+      status: done
+      contract:
+        intent: Cover no-arg happy path and no-active-context failures in CLI tests
+        acceptance_criteria:
+            - Commands resolve active CR when invoked without selector on active CR branch
+            - Commands return structured no_active_cr_context when no selector and no active CR context
+        scope:
+            - internal/cli/cr_json_check_test.go
+            - internal/cli/cr_optional_selector_test.go
+      checkpoint:
+        commit: 04f1478b
+        at: "2026-02-25T19:00:14Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/cr_optional_selector_test.go
+    - id: 4
+      title: Update command help/docs to reflect optional selector usage
+      status: done
+      contract:
+        intent: Document optional selector usage for updated read-only commands
+        acceptance_criteria:
+            - Examples remain actionable for explicit id usage
+            - Help text and documentation use [id] form for updated commands
+        scope:
+            - docs/cli-reference.md
+            - docs/collaboration.md
+            - docs/getting-started.md
+            - docs/reviewer-workflow.md
+            - docs/troubleshooting.md
+            - docs/workflow.md
+      checkpoint:
+        commit: 180c17c6
+        at: "2026-02-25T19:00:25Z"
+        source: task_checkpoint
+        scope:
+            - docs/cli-reference.md
+            - docs/collaboration.md
+            - docs/getting-started.md
+            - docs/reviewer-workflow.md
+            - docs/troubleshooting.md
+            - docs/workflow.md
+git_summary:
+    base_parent: c0d0a61e4ddfb45d0920b3f262c4a6a53f3a26d6
+    cr_parent: 180c17c67e85277490c6e2b924a16f89abbdae46
+    files_changed:
+        - docs/cli-reference.md
+        - docs/collaboration.md
+        - docs/getting-started.md
+        - docs/reviewer-workflow.md
+        - docs/troubleshooting.md
+        - docs/workflow.md
+        - internal/cli/cr_cmd_check.go
+        - internal/cli/cr_cmd_core.go
+        - internal/cli/cr_cmd_helpers.go
+        - internal/cli/cr_cmd_integrity.go
+        - internal/cli/cr_cmd_review_merge.go
+        - internal/cli/cr_helpers.go
+        - internal/cli/cr_optional_selector_test.go
+    diffstat:
+        summary: 13 files changed, 569 insertions(+), 367 deletions(-)
+        files:
+            - path: docs/cli-reference.md
+              insertions: 7
+              deletions: 7
+            - path: docs/collaboration.md
+              insertions: 1
+              deletions: 1
+            - path: docs/getting-started.md
+              insertions: 3
+              deletions: 3
+            - path: docs/reviewer-workflow.md
+              insertions: 6
+              deletions: 6
+            - path: docs/troubleshooting.md
+              insertions: 6
+              deletions: 6
+            - path: docs/workflow.md
+              insertions: 3
+              deletions: 3
+            - path: internal/cli/cr_cmd_check.go
+              insertions: 22
+              deletions: 32
+            - path: internal/cli/cr_cmd_core.go
+              insertions: 160
+              deletions: 168
+            - path: internal/cli/cr_cmd_helpers.go
+              insertions: 14
+              deletions: 0
+            - path: internal/cli/cr_cmd_integrity.go
+              insertions: 34
+              deletions: 46
+            - path: internal/cli/cr_cmd_review_merge.go
+              insertions: 84
+              deletions: 95
+            - path: internal/cli/cr_helpers.go
+              insertions: 25
+              deletions: 0
+            - path: internal/cli/cr_optional_selector_test.go
+              insertions: 204
+              deletions: 0

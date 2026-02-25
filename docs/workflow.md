@@ -72,9 +72,9 @@ Chunk commands inspect unstaged working-tree changes and require a clean index.
 ## Evidence and readiness
 
 ```bash
-sophia cr validate <cr-id>
-sophia cr review <cr-id>
-sophia cr status <cr-id>
+sophia cr validate [<cr-id>|<cr-uid>]
+sophia cr review [<cr-id>|<cr-uid>]
+sophia cr status [<cr-id>|<cr-uid>]
 ```
 
 If contracts name specific checks, attach logs:

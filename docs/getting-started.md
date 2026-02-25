@@ -101,9 +101,9 @@ Expected outcome:
 ## 7) Validate, review, and merge
 
 ```bash
-sophia cr validate <cr-id>
-sophia cr review <cr-id>
-sophia cr status <cr-id>
+sophia cr validate [<cr-id>|<cr-uid>]
+sophia cr review [<cr-id>|<cr-uid>]
+sophia cr status [<cr-id>|<cr-uid>]
 sophia cr merge <cr-id>
 ```
 

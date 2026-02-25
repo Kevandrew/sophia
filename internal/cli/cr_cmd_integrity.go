@@ -13,60 +13,48 @@ func newCRDoctorCmd() *cobra.Command {
 	var asJSON bool
 
 	cmd := &cobra.Command{
-		Use:   "doctor <id>",
+		Use:   "doctor [id]",
 		Short: "Run CR-scoped integrity checks for checkpoint/base metadata",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			id, err := parsePositiveIntArg(args[0], "id")
-			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
+			return withOptionalCRIDAndService(cmd, asJSON, args, "id", func(id int, svc *service.Service) error {
+				report, err := svc.DoctorCR(id)
+				if err != nil {
+					if asJSON {
+						return writeJSONError(cmd, err)
+					}
+					return err
 				}
-				return err
-			}
-			svc, err := newServiceForCmd(cmd)
-			if err != nil {
 				if asJSON {
-					return writeJSONError(cmd, err)
+					return writeJSONSuccess(cmd, crDoctorToJSONMap(report))
 				}
-				return err
-			}
-			report, err := svc.DoctorCR(id)
-			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
-				}
-				return err
-			}
-			if asJSON {
-				return writeJSONSuccess(cmd, crDoctorToJSONMap(report))
-			}
 
-			fmt.Fprintf(cmd.OutOrStdout(), "CR %d doctor\n", report.CRID)
-			fmt.Fprintf(cmd.OutOrStdout(), "CR UID: %s\n", nonEmpty(strings.TrimSpace(report.CRUID), "-"))
-			fmt.Fprintf(cmd.OutOrStdout(), "Branch: %s (exists=%t)\n", report.Branch, report.BranchExists)
-			fmt.Fprintf(cmd.OutOrStdout(), "Branch Head: %s\n", nonEmpty(strings.TrimSpace(report.BranchHead), "-"))
-			fmt.Fprintf(cmd.OutOrStdout(), "Base Ref: %s\n", nonEmpty(strings.TrimSpace(report.BaseRef), "-"))
-			fmt.Fprintf(cmd.OutOrStdout(), "Base Commit: %s\n", nonEmpty(strings.TrimSpace(report.BaseCommit), "-"))
-			fmt.Fprintf(cmd.OutOrStdout(), "Resolved Base Ref: %s\n", nonEmpty(strings.TrimSpace(report.ResolvedBaseRef), "-"))
-			fmt.Fprintf(cmd.OutOrStdout(), "Parent CR: %d (expected from base_ref=%d)\n", report.ParentCRID, report.ExpectedParentID)
-			if len(report.Findings) == 0 {
-				fmt.Fprintln(cmd.OutOrStdout(), "\nCR doctor status: OK")
-				return nil
-			}
-			fmt.Fprintln(cmd.OutOrStdout(), "\nFindings:")
-			for _, finding := range report.Findings {
-				taskSuffix := ""
-				if finding.TaskID > 0 {
-					taskSuffix = fmt.Sprintf(" task=%d", finding.TaskID)
+				fmt.Fprintf(cmd.OutOrStdout(), "CR %d doctor\n", report.CRID)
+				fmt.Fprintf(cmd.OutOrStdout(), "CR UID: %s\n", nonEmpty(strings.TrimSpace(report.CRUID), "-"))
+				fmt.Fprintf(cmd.OutOrStdout(), "Branch: %s (exists=%t)\n", report.Branch, report.BranchExists)
+				fmt.Fprintf(cmd.OutOrStdout(), "Branch Head: %s\n", nonEmpty(strings.TrimSpace(report.BranchHead), "-"))
+				fmt.Fprintf(cmd.OutOrStdout(), "Base Ref: %s\n", nonEmpty(strings.TrimSpace(report.BaseRef), "-"))
+				fmt.Fprintf(cmd.OutOrStdout(), "Base Commit: %s\n", nonEmpty(strings.TrimSpace(report.BaseCommit), "-"))
+				fmt.Fprintf(cmd.OutOrStdout(), "Resolved Base Ref: %s\n", nonEmpty(strings.TrimSpace(report.ResolvedBaseRef), "-"))
+				fmt.Fprintf(cmd.OutOrStdout(), "Parent CR: %d (expected from base_ref=%d)\n", report.ParentCRID, report.ExpectedParentID)
+				if len(report.Findings) == 0 {
+					fmt.Fprintln(cmd.OutOrStdout(), "\nCR doctor status: OK")
+					return nil
 				}
-				commitSuffix := ""
-				if strings.TrimSpace(finding.Commit) != "" {
-					commitSuffix = fmt.Sprintf(" commit=%s", finding.Commit)
+				fmt.Fprintln(cmd.OutOrStdout(), "\nFindings:")
+				for _, finding := range report.Findings {
+					taskSuffix := ""
+					if finding.TaskID > 0 {
+						taskSuffix = fmt.Sprintf(" task=%d", finding.TaskID)
+					}
+					commitSuffix := ""
+					if strings.TrimSpace(finding.Commit) != "" {
+						commitSuffix = fmt.Sprintf(" commit=%s", finding.Commit)
+					}
+					fmt.Fprintf(cmd.OutOrStdout(), "- [%s]%s%s %s\n", finding.Code, taskSuffix, commitSuffix, finding.Message)
 				}
-				fmt.Fprintf(cmd.OutOrStdout(), "- [%s]%s%s %s\n", finding.Code, taskSuffix, commitSuffix, finding.Message)
-			}
-			return fmt.Errorf("cr doctor found %d issue(s)", len(report.Findings))
+				return fmt.Errorf("cr doctor found %d issue(s)", len(report.Findings))
+			})
 		},
 	}
 

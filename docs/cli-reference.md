@@ -33,8 +33,8 @@ sophia cr current
 sophia cr switch <cr-id>
 sophia cr list
 sophia cr search "<query>"
-sophia cr status <cr-id>
-sophia cr status <cr-id> --hq --json
+sophia cr status [<cr-id>|<cr-uid>]
+sophia cr status [<cr-id>|<cr-uid>] --hq --json
 ```
 
 Planning:
@@ -58,8 +58,8 @@ sophia cr task done <cr-id> <task-id> --patch-file task.patch
 Validation/review/merge:
 
 ```bash
-sophia cr validate <cr-id>
-sophia cr review <cr-id>
+sophia cr validate [<cr-id>|<cr-uid>]
+sophia cr review [<cr-id>|<cr-uid>]
 sophia cr merge <cr-id>
 ```
 
@@ -101,8 +101,8 @@ sophia cr sync [<id|uid>] [--force]
 ## JSON surfaces
 
 ```bash
-sophia cr status <cr-id> --json
-sophia cr validate <cr-id> --json
-sophia cr review <cr-id> --json
+sophia cr status [<cr-id>|<cr-uid>] --json
+sophia cr validate [<cr-id>|<cr-uid>] --json
+sophia cr review [<cr-id>|<cr-uid>] --json
 sophia doctor --json
 ```

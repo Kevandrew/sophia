@@ -30,7 +30,7 @@ printf '%s' "$SOPHIAHQ_TOKEN" | sophia hq login --token-stdin
 1) Ask for a deterministic sync snapshot:
 
 ```bash
-sophia cr status <id|uid> --hq --json
+sophia cr status [<id|uid>] --hq --json
 ```
 
 2) Act based on `hq_sync.state`:
