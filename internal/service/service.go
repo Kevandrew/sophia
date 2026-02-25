@@ -557,6 +557,7 @@ type ImpactReport struct {
 	TestFiles                 []string
 	DependencyFiles           []string
 	ScopeDrift                []string
+	Warnings                  []string
 	TaskScopeWarnings         []string
 	TaskContractWarnings      []string
 	TaskChunkWarnings         []string

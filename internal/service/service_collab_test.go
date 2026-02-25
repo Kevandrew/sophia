@@ -424,6 +424,138 @@ func TestValidateCRImportedMetadataOnlyReturnsStructuredReport(t *testing.T) {
 	}
 }
 
+func TestImpactCRImportedMetadataOnlyReturnsStructuredReport(t *testing.T) {
+	sourceDir := t.TempDir()
+	sourceSvc := New(sourceDir)
+	if _, err := sourceSvc.Init("main", ""); err != nil {
+		t.Fatalf("source Init() error = %v", err)
+	}
+	runGit(t, sourceDir, "config", "user.name", "Test User")
+	runGit(t, sourceDir, "config", "user.email", "test@example.com")
+	sourceCR, err := sourceSvc.AddCR("Imported impact fallback", "impact should not hard-fail")
+	if err != nil {
+		t.Fatalf("source AddCR() error = %v", err)
+	}
+	setValidContract(t, sourceSvc, sourceCR.ID)
+	_, payload, err := sourceSvc.ExportCRBundle(sourceCR.ID, ExportCROptions{Format: "json"})
+	if err != nil {
+		t.Fatalf("source ExportCRBundle() error = %v", err)
+	}
+
+	targetDir := t.TempDir()
+	targetSvc := New(targetDir)
+	if _, err := targetSvc.Init("main", ""); err != nil {
+		t.Fatalf("target Init() error = %v", err)
+	}
+	runGit(t, targetDir, "config", "user.name", "Test User")
+	runGit(t, targetDir, "config", "user.email", "test@example.com")
+	bundlePath := filepath.Join(targetDir, "import.bundle.json")
+	if err := os.WriteFile(bundlePath, payload, 0o644); err != nil {
+		t.Fatalf("write bundle file: %v", err)
+	}
+	createResult, err := targetSvc.ImportCRBundle(ImportCRBundleOptions{FilePath: bundlePath, Mode: "create"})
+	if err != nil {
+		t.Fatalf("ImportCRBundle(create) error = %v", err)
+	}
+
+	report, err := targetSvc.ImpactCR(createResult.LocalCRID)
+	if err != nil {
+		t.Fatalf("ImpactCR(imported) error = %v", err)
+	}
+	if report == nil {
+		t.Fatalf("expected impact report payload")
+	}
+	foundWarning := false
+	for _, warning := range report.Warnings {
+		if strings.Contains(strings.ToLower(warning), "branch context unavailable") {
+			foundWarning = true
+			break
+		}
+	}
+	if !foundWarning {
+		t.Fatalf("expected branch context warning, got %#v", report.Warnings)
+	}
+}
+
+func TestImpactCRImportedMetadataOnlyDerivesChangesFromTaskCheckpointScope(t *testing.T) {
+	sourceDir := t.TempDir()
+	sourceSvc := New(sourceDir)
+	if _, err := sourceSvc.Init("main", ""); err != nil {
+		t.Fatalf("source Init() error = %v", err)
+	}
+	runGit(t, sourceDir, "config", "user.name", "Test User")
+	runGit(t, sourceDir, "config", "user.email", "test@example.com")
+	sourceCR, err := sourceSvc.AddCR("Imported impact derived scope", "impact should use checkpoint scope fallback")
+	if err != nil {
+		t.Fatalf("source AddCR() error = %v", err)
+	}
+	setValidContract(t, sourceSvc, sourceCR.ID)
+
+	loadedSourceCR, err := sourceSvc.store.LoadCR(sourceCR.ID)
+	if err != nil {
+		t.Fatalf("source LoadCR() error = %v", err)
+	}
+	now := sourceSvc.timestamp()
+	actor := sourceSvc.git.Actor()
+	loadedSourceCR.Subtasks = append(loadedSourceCR.Subtasks, model.Subtask{
+		ID:          1,
+		Title:       "done task with checkpoint scope",
+		Status:      model.TaskStatusDone,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+		CompletedAt: now,
+		CreatedBy:   actor,
+		CompletedBy: actor,
+		CheckpointScope: []string{
+			"docs/spec.md",
+		},
+		Contract: model.TaskContract{
+			Intent:             "record fallback scope",
+			AcceptanceCriteria: []string{"impact derives changed paths"},
+			Scope:              []string{"docs/"},
+		},
+	})
+	loadedSourceCR.UpdatedAt = now
+	if err := sourceSvc.store.SaveCR(loadedSourceCR); err != nil {
+		t.Fatalf("source SaveCR() error = %v", err)
+	}
+
+	_, payload, err := sourceSvc.ExportCRBundle(sourceCR.ID, ExportCROptions{Format: "json"})
+	if err != nil {
+		t.Fatalf("source ExportCRBundle() error = %v", err)
+	}
+
+	targetDir := t.TempDir()
+	targetSvc := New(targetDir)
+	if _, err := targetSvc.Init("main", ""); err != nil {
+		t.Fatalf("target Init() error = %v", err)
+	}
+	runGit(t, targetDir, "config", "user.name", "Test User")
+	runGit(t, targetDir, "config", "user.email", "test@example.com")
+	bundlePath := filepath.Join(targetDir, "import.bundle.json")
+	if err := os.WriteFile(bundlePath, payload, 0o644); err != nil {
+		t.Fatalf("write bundle file: %v", err)
+	}
+	createResult, err := targetSvc.ImportCRBundle(ImportCRBundleOptions{FilePath: bundlePath, Mode: "create"})
+	if err != nil {
+		t.Fatalf("ImportCRBundle(create) error = %v", err)
+	}
+
+	report, err := targetSvc.ImpactCR(createResult.LocalCRID)
+	if err != nil {
+		t.Fatalf("ImpactCR(imported) error = %v", err)
+	}
+	if report == nil {
+		t.Fatalf("expected impact report payload")
+	}
+	if report.FilesChanged != 1 {
+		t.Fatalf("expected fallback files_changed=1 from checkpoint scope, got %d (%#v)", report.FilesChanged, report)
+	}
+	if len(report.ModifiedFiles) != 1 || report.ModifiedFiles[0] != "docs/spec.md" {
+		t.Fatalf("expected fallback modified_files [docs/spec.md], got %#v", report.ModifiedFiles)
+	}
+}
+
 func TestReviewCRImportedMetadataOnlyDoesNotFail(t *testing.T) {
 	sourceDir := t.TempDir()
 	sourceSvc := New(sourceDir)

@@ -708,6 +708,12 @@ func (s *Service) ImpactCR(id int) (*ImpactReport, error) {
 	}
 	diff, err := s.summarizeCRDiff(cr)
 	if err != nil {
+		if errors.Is(err, ErrCRBranchContextUnavailable) {
+			diff = s.summarizeCRDiffFromTaskCheckpoints(cr, policy)
+			impact := buildImpactReport(cr, diff, policy)
+			impact.Warnings = []string{"branch context unavailable; impact derived from CR metadata only"}
+			return impact, nil
+		}
 		return nil, err
 	}
 	impact := buildImpactReport(cr, diff, policy)

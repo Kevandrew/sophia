@@ -44,6 +44,19 @@ func (s *Service) summarizeCRDiff(cr *model.CR) (*diffSummary, error) {
 		return nil, fmt.Errorf("%w: unable to summarize CR %d diff: missing branch context (%q, %q)", ErrCRBranchContextUnavailable, cr.ID, cr.BaseBranch, cr.Branch)
 	}
 
+	return buildDiffSummaryFromChanges(changes, shortStat, policy), nil
+}
+
+func (s *Service) summarizeCRDiffFromTaskCheckpoints(cr *model.CR, policy *model.RepoPolicy) *diffSummary {
+	derivedChanges := deriveChangesFromTaskCheckpointScopes(cr.Subtasks)
+	if len(derivedChanges) == 0 {
+		return &diffSummary{}
+	}
+	shortStat := fmt.Sprintf("%d file(s) changed (derived from task checkpoint scope)", len(derivedChanges))
+	return buildDiffSummaryFromChanges(derivedChanges, shortStat, policy)
+}
+
+func buildDiffSummaryFromChanges(changes []gitx.FileChange, shortStat string, policy *model.RepoPolicy) *diffSummary {
 	files := make([]string, 0, len(changes))
 	newFiles := []string{}
 	modifiedFiles := []string{}
@@ -96,7 +109,7 @@ func (s *Service) summarizeCRDiff(cr *model.CR) (*diffSummary, error) {
 		DeletedFiles:    deletedFiles,
 		TestFiles:       testFiles,
 		DependencyFiles: depFiles,
-	}, nil
+	}
 }
 
 func (s *Service) summarizeMergedCRDiff(cr *model.CR) ([]gitx.FileChange, string, error) {

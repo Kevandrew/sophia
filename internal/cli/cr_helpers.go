@@ -59,6 +59,7 @@ func printImpactSection(cmd *cobra.Command, impact *service.ImpactReport) {
 	fmt.Fprintf(cmd.OutOrStdout(), "Risk Tier: %s\n", nonEmpty(strings.TrimSpace(impact.RiskTier), "-"))
 	fmt.Fprintf(cmd.OutOrStdout(), "Risk Score: %d\n", impact.RiskScore)
 	fmt.Fprintf(cmd.OutOrStdout(), "Files Changed: %d\n", impact.FilesChanged)
+	printListSection(cmd, "Warnings", impact.Warnings)
 	printListSection(cmd, "Scope Drift", impact.ScopeDrift)
 	printListSection(cmd, "Task Scope Warnings", impact.TaskScopeWarnings)
 	printListSection(cmd, "Task Contract Warnings", impact.TaskContractWarnings)
