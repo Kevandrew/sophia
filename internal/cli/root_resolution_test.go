@@ -3,6 +3,7 @@ package cli
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"sophia/internal/model"
@@ -12,10 +13,10 @@ import (
 
 func TestCRStatusFromSubdirectoryUsesSharedMetadataFallback(t *testing.T) {
 	dir := t.TempDir()
-	runGit(t, dir, "init", "-b", "main")
-	runGit(t, dir, "config", "user.name", "Test User")
-	runGit(t, dir, "config", "user.email", "test@example.com")
-	runGit(t, dir, "commit", "--allow-empty", "-m", "seed")
+	svc := service.New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
 
 	shared := localMetadataDirForCLI(t, dir)
 	sharedStore := store.NewWithSophiaRoot(dir, shared)
@@ -23,7 +24,6 @@ func TestCRStatusFromSubdirectoryUsesSharedMetadataFallback(t *testing.T) {
 		t.Fatalf("sharedStore.Init() error = %v", err)
 	}
 
-	svc := service.New(dir)
 	cr, err := svc.AddCR("Shared metadata CR", "regression fixture")
 	if err != nil {
 		t.Fatalf("AddCR() error = %v", err)
@@ -50,9 +50,24 @@ func TestCRStatusFromSubdirectoryUsesSharedMetadataFallback(t *testing.T) {
 
 func localMetadataDirForCLI(t *testing.T, dir string) string {
 	t.Helper()
-	commonDir := runGit(t, dir, "rev-parse", "--git-common-dir")
-	if !filepath.IsAbs(commonDir) {
-		commonDir = filepath.Join(dir, commonDir)
+	commonDir := filepath.Join(dir, ".git")
+	info, err := os.Stat(commonDir)
+	if err != nil {
+		t.Fatalf("stat .git: %v", err)
+	}
+	if !info.IsDir() {
+		content, readErr := os.ReadFile(commonDir)
+		if readErr != nil {
+			t.Fatalf("read .git file: %v", readErr)
+		}
+		line := strings.TrimSpace(string(content))
+		if !strings.HasPrefix(line, "gitdir:") {
+			t.Fatalf("unexpected .git file format: %q", line)
+		}
+		commonDir = strings.TrimSpace(strings.TrimPrefix(line, "gitdir:"))
+		if !filepath.IsAbs(commonDir) {
+			commonDir = filepath.Join(dir, commonDir)
+		}
 	}
 	return filepath.Join(commonDir, "sophia-local")
 }

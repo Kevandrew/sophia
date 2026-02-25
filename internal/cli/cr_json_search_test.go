@@ -7,6 +7,7 @@ import (
 )
 
 func TestCRList_JSONOutput(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := service.New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -34,6 +35,7 @@ func TestCRList_JSONOutput(t *testing.T) {
 }
 
 func TestCRList_FilterByStatus(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := service.New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -70,6 +72,7 @@ func TestCRList_FilterByStatus(t *testing.T) {
 }
 
 func TestCRSearch_Positive(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := service.New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -96,6 +99,7 @@ func TestCRSearch_Positive(t *testing.T) {
 }
 
 func TestCRSearch_NoResults(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := service.New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -122,6 +126,7 @@ func TestCRSearch_NoResults(t *testing.T) {
 }
 
 func TestCRSearch_FilterCombination(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := service.New(dir)
 	if _, err := svc.Init("main", ""); err != nil {

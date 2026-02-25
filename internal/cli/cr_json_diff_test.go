@@ -15,8 +15,6 @@ func TestCRDiffJSONCommands(t *testing.T) {
 	if _, err := svc.Init("main", ""); err != nil {
 		t.Fatalf("Init() error = %v", err)
 	}
-	runGit(t, dir, "config", "user.name", "Test User")
-	runGit(t, dir, "config", "user.email", "test@example.com")
 
 	cr, err := svc.AddCR("Diff JSON", "json diff commands")
 	if err != nil {

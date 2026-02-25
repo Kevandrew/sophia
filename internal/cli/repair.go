@@ -17,7 +17,7 @@ func newRepairCmd() *cobra.Command {
 		Short:   "Rebuild local Sophia CR metadata from Git commit history",
 		Example: "  sophia repair\n  sophia repair --base-branch main\n  sophia repair --base-branch release/2026-q1 --refresh\n  sophia repair --json",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			svc, err := newService()
+			svc, err := newServiceForCmd(cmd)
 			if err != nil {
 				if asJSON {
 					return writeJSONError(cmd, err)

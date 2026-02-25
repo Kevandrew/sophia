@@ -1,8 +1,6 @@
 package cli
 
 import (
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -15,19 +13,11 @@ func TestReadCommandsResolveByExplicitCRIDOffBranch(t *testing.T) {
 	if _, err := svc.Init("main", ""); err != nil {
 		t.Fatalf("Init() error = %v", err)
 	}
-	runGit(t, dir, "config", "user.name", "Test User")
-	runGit(t, dir, "config", "user.email", "test@example.com")
 
-	_, err := svc.AddCR("Read context", "read by id off branch")
+	_, _, err := svc.AddCRWithOptionsWithWarnings("Read context", "read by id off branch", service.AddCROptions{NoSwitch: true})
 	if err != nil {
 		t.Fatalf("AddCR() error = %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "read.txt"), []byte("one\n"), 0o644); err != nil {
-		t.Fatalf("write read.txt: %v", err)
-	}
-	runGit(t, dir, "add", "read.txt")
-	runGit(t, dir, "commit", "-m", "feat: read fixture")
-	runGit(t, dir, "checkout", "main")
 
 	cases := [][]string{
 		{"cr", "status", "1", "--json"},

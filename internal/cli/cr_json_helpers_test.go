@@ -2,15 +2,12 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
-	"os"
 	"os/exec"
 	"strings"
-	"sync"
 	"testing"
 )
-
-var cliCWDMu sync.Mutex
 
 func firstHunkPatchFromDiff(t *testing.T, diff string) string {
 	t.Helper()
@@ -37,27 +34,27 @@ func firstHunkPatchFromDiff(t *testing.T, diff string) string {
 }
 
 func runCLI(t *testing.T, dir string, args ...string) (string, string, error) {
-	t.Helper()
-	cliCWDMu.Lock()
-	defer cliCWDMu.Unlock()
+	return runCLIWithOptions(t, dir, cliRunOptions{}, args...)
+}
 
-	orig, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("Getwd() error = %v", err)
-	}
-	if err := os.Chdir(dir); err != nil {
-		t.Fatalf("Chdir(%s) error = %v", dir, err)
-	}
-	defer func() {
-		_ = os.Chdir(orig)
-	}()
+type cliRunOptions struct {
+	factory serviceFactory
+}
+
+func runCLIWithOptions(t *testing.T, dir string, opts cliRunOptions, args ...string) (string, string, error) {
+	t.Helper()
 
 	root := newRootCmd()
+	ctx := withServiceRepoRootContext(context.Background(), dir)
+	if opts.factory != nil {
+		ctx = withServiceFactoryContext(ctx, opts.factory)
+	}
+	root.SetContext(ctx)
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	root.SetOut(&stdout)
 	root.SetErr(&stderr)
-	err = executeRootCmd(root, args)
+	err := executeRootCmd(root, args)
 	return stdout.String(), stderr.String(), err
 }
 

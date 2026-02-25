@@ -16,8 +16,6 @@ func TestCRImportAndPatchJSONCommands(t *testing.T) {
 	if _, err := sourceSvc.Init("main", ""); err != nil {
 		t.Fatalf("Init(source) error = %v", err)
 	}
-	runGit(t, sourceDir, "config", "user.name", "Test User")
-	runGit(t, sourceDir, "config", "user.email", "test@example.com")
 
 	sourceCR, err := sourceSvc.AddCR("CLI collab", "source")
 	if err != nil {
@@ -34,8 +32,6 @@ func TestCRImportAndPatchJSONCommands(t *testing.T) {
 	if _, err := targetSvc.Init("main", ""); err != nil {
 		t.Fatalf("Init(target) error = %v", err)
 	}
-	runGit(t, targetDir, "config", "user.name", "Test User")
-	runGit(t, targetDir, "config", "user.email", "test@example.com")
 
 	bundlePath := filepath.Join(targetDir, "bundle.json")
 	if err := os.WriteFile(bundlePath, payload, 0o644); err != nil {

@@ -1,8 +1,10 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -11,6 +13,15 @@ import (
 	"sophia/internal/service"
 	"sophia/internal/store"
 )
+
+type serviceContextKey string
+
+const (
+	serviceRepoRootContextKey serviceContextKey = "service_repo_root"
+	serviceFactoryContextKey  serviceContextKey = "service_factory"
+)
+
+type serviceFactory func(repoRoot string) *service.Service
 
 func Execute() error {
 	root := newRootCmd()
@@ -68,7 +79,7 @@ func newInitCmd() *cobra.Command {
 		Short:   "Initialize Sophia metadata in the current repository",
 		Example: "  sophia init\n  sophia init --base-branch main\n  sophia init --metadata-mode tracked\n  sophia init --json",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			svc, err := newService()
+			svc, err := newServiceForCmd(cmd)
 			if err != nil {
 				if asJSON {
 					return writeJSONError(cmd, err)
@@ -108,12 +119,82 @@ func newInitCmd() *cobra.Command {
 	return cmd
 }
 
+func withServiceRepoRootContext(ctx context.Context, repoRoot string) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, serviceRepoRootContextKey, strings.TrimSpace(repoRoot))
+}
+
+func withServiceFactoryContext(ctx context.Context, factory serviceFactory) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, serviceFactoryContextKey, factory)
+}
+
+func newServiceForCmd(cmd *cobra.Command) (*service.Service, error) {
+	if cmd != nil {
+		if repoRoot, ok := repoRootFromCommandContext(cmd); ok && strings.TrimSpace(repoRoot) != "" {
+			if factory, hasFactory := serviceFactoryFromCommandContext(cmd); hasFactory {
+				return factory(strings.TrimSpace(repoRoot)), nil
+			}
+			return service.New(strings.TrimSpace(repoRoot)), nil
+		}
+	}
+	return newService()
+}
+
 func newService() (*service.Service, error) {
 	cwd, err := os.Getwd()
 	if err != nil {
 		return nil, fmt.Errorf("resolve working directory: %w", err)
 	}
 	return service.New(cwd), nil
+}
+
+func repoRootFromCommandContext(cmd *cobra.Command) (string, bool) {
+	if cmd == nil {
+		return "", false
+	}
+	ctx := cmd.Context()
+	if ctx == nil {
+		return "", false
+	}
+	value := ctx.Value(serviceRepoRootContextKey)
+	if value == nil {
+		return "", false
+	}
+	root, ok := value.(string)
+	return root, ok
+}
+
+func serviceFactoryFromCommandContext(cmd *cobra.Command) (serviceFactory, bool) {
+	if cmd == nil {
+		return nil, false
+	}
+	ctx := cmd.Context()
+	if ctx == nil {
+		return nil, false
+	}
+	value := ctx.Value(serviceFactoryContextKey)
+	if value == nil {
+		return nil, false
+	}
+	factory, ok := value.(serviceFactory)
+	return factory, ok && factory != nil
+}
+
+func resolvePathForCmd(cmd *cobra.Command, rawPath string) string {
+	trimmed := strings.TrimSpace(rawPath)
+	if trimmed == "" || filepath.IsAbs(trimmed) {
+		return trimmed
+	}
+	root, ok := repoRootFromCommandContext(cmd)
+	if !ok || strings.TrimSpace(root) == "" {
+		return trimmed
+	}
+	return filepath.Join(strings.TrimSpace(root), trimmed)
 }
 
 type usageArgumentError struct {

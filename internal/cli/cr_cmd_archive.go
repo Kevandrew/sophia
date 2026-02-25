@@ -33,12 +33,12 @@ func newCRArchiveWriteCmd() *cobra.Command {
 			if err != nil {
 				return commandError(cmd, asJSON, err)
 			}
-			svc, err := newService()
+			svc, err := newServiceForCmd(cmd)
 			if err != nil {
 				return commandError(cmd, asJSON, err)
 			}
 			view, err := svc.WriteCRArchive(id, service.CRArchiveWriteOptions{
-				OutPath: outPath,
+				OutPath: resolvePathForCmd(cmd, outPath),
 			})
 			if err != nil {
 				return commandError(cmd, asJSON, err)
@@ -72,12 +72,12 @@ func newCRArchiveAppendCmd() *cobra.Command {
 			if reason == "" {
 				return commandError(cmd, asJSON, fmt.Errorf("--reason is required"))
 			}
-			svc, err := newService()
+			svc, err := newServiceForCmd(cmd)
 			if err != nil {
 				return commandError(cmd, asJSON, err)
 			}
 			view, err := svc.WriteCRArchive(id, service.CRArchiveWriteOptions{
-				OutPath: outPath,
+				OutPath: resolvePathForCmd(cmd, outPath),
 				Reason:  reason,
 			})
 			if err != nil {
@@ -105,7 +105,7 @@ func newCRArchiveBackfillCmd() *cobra.Command {
 		Short: "Create missing v1 archive artifacts for merged CRs",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			svc, err := newService()
+			svc, err := newServiceForCmd(cmd)
 			if err != nil {
 				return commandError(cmd, asJSON, err)
 			}

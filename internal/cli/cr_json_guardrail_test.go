@@ -14,10 +14,8 @@ func TestMutationGuardrailJSONIncludesSuggestedAction(t *testing.T) {
 	if _, err := svc.Init("main", ""); err != nil {
 		t.Fatalf("Init() error = %v", err)
 	}
-	runGit(t, dir, "config", "user.name", "Test User")
-	runGit(t, dir, "config", "user.email", "test@example.com")
 
-	cr, err := svc.AddCR("Guardrail", "checkpoint branch guardrail")
+	cr, _, err := svc.AddCRWithOptionsWithWarnings("Guardrail", "checkpoint branch guardrail", service.AddCROptions{NoSwitch: true})
 	if err != nil {
 		t.Fatalf("AddCR() error = %v", err)
 	}
@@ -38,7 +36,6 @@ func TestMutationGuardrailJSONIncludesSuggestedAction(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "guardrail.txt"), []byte("content\n"), 0o644); err != nil {
 		t.Fatalf("write guardrail.txt: %v", err)
 	}
-	runGit(t, dir, "checkout", "main")
 
 	out, _, runErr := runCLI(t, dir, "cr", "task", "chunk", "list", "1", "1", "--json")
 	if runErr == nil {

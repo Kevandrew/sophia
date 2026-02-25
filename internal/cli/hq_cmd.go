@@ -28,7 +28,7 @@ func newHQConfigShowCmd() *cobra.Command {
 		Use:   "show",
 		Short: "Show resolved HQ config (repo overrides + global defaults)",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			svc, err := newService()
+			svc, err := newServiceForCmd(cmd)
 			if err != nil {
 				return commandError(cmd, asJSON, err)
 			}
@@ -105,7 +105,7 @@ func newHQConfigSetCmd() *cobra.Command {
 			if opts.RemoteAlias == nil && opts.RepoID == nil && opts.BaseURL == nil {
 				return commandError(cmd, asJSON, fmt.Errorf("provide at least one of --remote, --repo-id, or --base-url"))
 			}
-			svc, err := newService()
+			svc, err := newServiceForCmd(cmd)
 			if err != nil {
 				return commandError(cmd, asJSON, err)
 			}
@@ -158,7 +158,7 @@ func newHQLoginCmd() *cobra.Command {
 			if strings.TrimSpace(token) == "" {
 				return commandError(cmd, asJSON, fmt.Errorf("provide --token or --token-stdin"))
 			}
-			svc, err := newService()
+			svc, err := newServiceForCmd(cmd)
 			if err != nil {
 				return commandError(cmd, asJSON, err)
 			}
@@ -190,7 +190,7 @@ func newHQLogoutCmd() *cobra.Command {
 		Use:   "logout",
 		Short: "Remove stored token for an HQ remote",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			svc, err := newService()
+			svc, err := newServiceForCmd(cmd)
 			if err != nil {
 				return commandError(cmd, asJSON, err)
 			}
@@ -231,7 +231,7 @@ func newHQCRListCmd() *cobra.Command {
 		Use:   "list",
 		Short: "List CR summaries from HQ for the configured repo identity",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			svc, err := newService()
+			svc, err := newServiceForCmd(cmd)
 			if err != nil {
 				return commandError(cmd, asJSON, err)
 			}
@@ -287,7 +287,7 @@ func newHQCRShowCmd() *cobra.Command {
 			if uid == "" {
 				return commandError(cmd, asJSON, fmt.Errorf("cr uid is required"))
 			}
-			svc, err := newService()
+			svc, err := newServiceForCmd(cmd)
 			if err != nil {
 				return commandError(cmd, asJSON, err)
 			}
@@ -333,7 +333,7 @@ func newHQCRNoteAddCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			uid := strings.TrimSpace(args[0])
 			note := strings.TrimSpace(args[1])
-			svc, err := newService()
+			svc, err := newServiceForCmd(cmd)
 			if err != nil {
 				return commandError(cmd, asJSON, err)
 			}
@@ -427,7 +427,7 @@ func newHQCRContractSetCmd() *cobra.Command {
 			if patch.Why == nil && patch.Scope == nil && patch.NonGoals == nil && patch.Invariants == nil && patch.BlastRadius == nil && patch.RiskCriticalScopes == nil && patch.RiskTierHint == nil && patch.RiskRationale == nil && patch.TestPlan == nil && patch.RollbackPlan == nil {
 				return commandError(cmd, asJSON, fmt.Errorf("provide at least one contract field flag"))
 			}
-			svc, err := newService()
+			svc, err := newServiceForCmd(cmd)
 			if err != nil {
 				return commandError(cmd, asJSON, err)
 			}

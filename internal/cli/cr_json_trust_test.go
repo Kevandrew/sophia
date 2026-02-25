@@ -15,8 +15,6 @@ func TestCRReviewJSONIncludesTrustEnvelope(t *testing.T) {
 	if _, err := svc.Init("main", ""); err != nil {
 		t.Fatalf("Init() error = %v", err)
 	}
-	runGit(t, dir, "config", "user.name", "Test User")
-	runGit(t, dir, "config", "user.email", "test@example.com")
 
 	cr, err := svc.AddCR("Trust JSON", "trust envelope json output")
 	if err != nil {
@@ -116,8 +114,6 @@ func TestCRReviewJSONHighRiskMissingSpecializedEvidenceUsesAdvisories(t *testing
 	if _, err := svc.Init("main", ""); err != nil {
 		t.Fatalf("Init() error = %v", err)
 	}
-	runGit(t, dir, "config", "user.name", "Test User")
-	runGit(t, dir, "config", "user.email", "test@example.com")
 
 	cr, err := svc.AddCR("Trust advisory high risk", "high-risk advisory semantics")
 	if err != nil {
@@ -245,8 +241,6 @@ func TestCRReviewTextIncludesTrustSection(t *testing.T) {
 	if _, err := svc.Init("main", ""); err != nil {
 		t.Fatalf("Init() error = %v", err)
 	}
-	runGit(t, dir, "config", "user.name", "Test User")
-	runGit(t, dir, "config", "user.email", "test@example.com")
 
 	cr, err := svc.AddCR("Trust Text", "trust envelope text output")
 	if err != nil {

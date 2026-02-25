@@ -1,0 +1,448 @@
+schema_version: sophia.cr_archive.v1
+notice: Historical archive snapshot. Corrections are append-only revisions.
+archived_at: "2026-02-25T18:03:19Z"
+revision: 1
+cr:
+    id: 72
+    uid: cr_82566bb6-c99e-4c41-88d8-4d22d198d3ee
+    title: 'Test infra: decouple CLI tests from global CWD and subprocess git'
+    description: Replace global working-directory mutation and subprocess git setup in CLI tests with an injectable command harness and fake service dependencies for behavior-only command coverage.
+    status: merged
+    base_branch: main
+    base_ref: main
+    base_commit: deb1cb3466281ba5a996e9fa769c5258e7b22585
+    branch: cr-test-infra-decouple-cli-tests-from-global-cwd-an-8256
+    merged_at: "2026-02-25T18:03:19Z"
+    merged_by: Kevandrew <143258544+Kevandrew@users.noreply.github.com>
+contract:
+    why: CLI tests currently rely on global cwd mutation, mutex serialization, and repeated git subprocess setup. This reduces parallelism and increases brittleness. This CR introduces explicit CLI test seams so behavior tests can execute against fake services while preserving a thin integration layer for end-to-end wiring.
+    scope:
+        - internal/cli
+    non_goals:
+        - No deletion of all integration CLI tests.
+        - No service-domain production refactors in this CR.
+        - No user-facing CLI command semantics changes.
+    invariants:
+        - Integration command smoke coverage remains present.
+        - JSON envelope and text output contracts remain unchanged.
+        - Selector parsing and error code mappings remain unchanged.
+    blast_radius: CLI test harness and command dependency construction paths, especially root command execution, service creation injection, and JSON command tests. Main risks are accidental output drift and reduced coverage of real command wiring.
+    risk_critical_scopes:
+        - internal/cli
+    risk_tier_hint: medium
+    risk_rationale: Broad CLI test harness migration with command execution dependency rewiring.
+    test_plan: go test ./internal/cli/... -count=1 && go test ./... -count=1 && go vet ./...
+    rollback_plan: Revert the CR merge commit.
+tasks:
+    - id: 1
+      title: Introduce injectable CLI dependency factory for service/root execution
+      status: done
+      contract:
+        intent: Allow CLI commands to execute against test-provided dependencies without global process mutation.
+        acceptance_criteria:
+            - CLI root/command construction supports test-time dependency injection.
+            - Default production wiring remains unchanged.
+        scope:
+            - internal/cli
+      checkpoint:
+        commit: cad9aeaa
+        at: "2026-02-25T17:58:53Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/arg_error_ux_test.go
+            - internal/cli/blame.go
+            - internal/cli/blame_test.go
+            - internal/cli/cr_archive_test.go
+            - internal/cli/cr_cmd_anchor.go
+            - internal/cli/cr_cmd_archive.go
+            - internal/cli/cr_cmd_branch.go
+            - internal/cli/cr_cmd_check.go
+            - internal/cli/cr_cmd_core.go
+            - internal/cli/cr_cmd_diff.go
+            - internal/cli/cr_cmd_evidence.go
+            - internal/cli/cr_cmd_export.go
+            - internal/cli/cr_cmd_helpers.go
+            - internal/cli/cr_cmd_import_patch.go
+            - internal/cli/cr_cmd_integrity.go
+            - internal/cli/cr_cmd_navigation.go
+            - internal/cli/cr_cmd_pack.go
+            - internal/cli/cr_cmd_push_pull.go
+            - internal/cli/cr_cmd_review_merge.go
+            - internal/cli/cr_cmd_sync.go
+            - internal/cli/cr_cmd_task.go
+            - internal/cli/cr_export_test.go
+            - internal/cli/cr_helpers.go
+            - internal/cli/cr_json_anchor_test.go
+            - internal/cli/cr_json_branch_identity_test.go
+            - internal/cli/cr_json_branch_ops_test.go
+            - internal/cli/cr_json_check_test.go
+            - internal/cli/cr_json_chunk_test.go
+            - internal/cli/cr_json_collab_test.go
+            - internal/cli/cr_json_core_keys_test.go
+            - internal/cli/cr_json_diff_test.go
+            - internal/cli/cr_json_guardrail_test.go
+            - internal/cli/cr_json_helpers_test.go
+            - internal/cli/cr_json_integrity_test.go
+            - internal/cli/cr_json_merge_recovery_test.go
+            - internal/cli/cr_json_pack_test.go
+            - internal/cli/cr_json_rangediff_test.go
+            - internal/cli/cr_json_read_context_test.go
+            - internal/cli/cr_json_risk_hint_test.go
+            - internal/cli/cr_json_search_test.go
+            - internal/cli/cr_json_task_done_test.go
+            - internal/cli/cr_json_task_reopen_test.go
+            - internal/cli/cr_json_test.go
+            - internal/cli/cr_json_trust_test.go
+            - internal/cli/cr_task_reopen_test.go
+            - internal/cli/cr_uid_selector_test.go
+            - internal/cli/doctor.go
+            - internal/cli/help_output_test.go
+            - internal/cli/hook.go
+            - internal/cli/hq_cmd.go
+            - internal/cli/json.go
+            - internal/cli/json_policy_test.go
+            - internal/cli/json_surface_expansion_test.go
+            - internal/cli/log.go
+            - internal/cli/repair.go
+            - internal/cli/root.go
+            - internal/cli/root_resolution_test.go
+            - internal/cli/testmain_test.go
+            - internal/cli/worktree_resolution_test.go
+    - id: 2
+      title: Replace Chdir+mutex CLI test helper with isolated execution harness
+      status: done
+      contract:
+        intent: Remove global cwd mutation and mutex serialization from CLI tests.
+        acceptance_criteria:
+            - CLI tests no longer require global cwd mutex for command execution.
+            - Harness supports per-test isolated context execution.
+        scope:
+            - internal/cli
+            - internal/cli/cr_json_helpers_test.go
+      checkpoint:
+        at: "2026-02-25T17:59:02Z"
+        source: task_no_checkpoint
+    - id: 3
+      title: Provide fake service implementations for CLI behavior tests
+      status: done
+      contract:
+        intent: Back JSON/text behavior tests with deterministic fake service responses.
+        acceptance_criteria:
+            - Behavior-only CLI tests run without subprocess git setup.
+            - Fake service covers required command surfaces used by migrated tests.
+        scope:
+            - internal/cli
+      checkpoint:
+        at: "2026-02-25T17:59:03Z"
+        source: task_no_checkpoint
+    - id: 4
+      title: Migrate high-volume JSON CLI command suites to fake harness
+      status: done
+      contract:
+        intent: Move JSON surface tests away from repo setup and subprocess git dependencies.
+        acceptance_criteria:
+            - JSON key/value and error-code assertions remain equivalent.
+            - Major JSON command suites execute via fake service harness.
+        scope:
+            - internal/cli
+            - internal/cli/json_surface_expansion_test.go
+      checkpoint:
+        at: "2026-02-25T17:59:03Z"
+        source: task_no_checkpoint
+    - id: 5
+      title: Migrate CLI error UX tests to harnessed command execution
+      status: done
+      contract:
+        intent: Keep UX/error behavior assertions while removing incidental integration setup.
+        acceptance_criteria:
+            - Error UX tests no longer depend on subprocess git setup unless semantically required.
+            - Error message/code expectations remain equivalent.
+        scope:
+            - internal/cli/arg_error_ux_test.go
+            - internal/cli/help_output_test.go
+            - internal/cli/version_test.go
+      checkpoint:
+        at: "2026-02-25T17:59:03Z"
+        source: task_no_checkpoint
+    - id: 6
+      title: Retain explicit CLI integration tests for real end-to-end wiring
+      status: done
+      contract:
+        intent: Keep a bounded integration layer that validates command wiring against real service/runtime setup.
+        acceptance_criteria:
+            - Behavior-only suites no longer rely on real git repos.
+            - Integration-only CLI tests are explicitly identified and scoped.
+        scope:
+            - internal/cli
+      checkpoint:
+        at: "2026-02-25T17:59:03Z"
+        source: task_no_checkpoint
+    - id: 7
+      title: Enable parallel-safe CLI tests after global state removal
+      status: done
+      contract:
+        intent: Increase CLI suite concurrency once global execution state is removed.
+        acceptance_criteria:
+            - Eligible CLI tests use t.Parallel safely.
+            - No shared global test state causes race or nondeterminism.
+        scope:
+            - internal/cli
+      checkpoint:
+        at: "2026-02-25T17:59:03Z"
+        source: task_no_checkpoint
+    - id: 8
+      title: Run uncached CLI regression and verify output contract stability
+      status: done
+      contract:
+        intent: Ensure harness migration preserved CLI behavior and improved stability.
+        acceptance_criteria:
+            - go test ./... -count=1 and go vet ./... pass.
+            - go test ./internal/cli/... -count=1 passes.
+        scope:
+            - internal/cli
+      checkpoint:
+        at: "2026-02-25T17:59:03Z"
+        source: task_no_checkpoint
+git_summary:
+    base_parent: deb1cb3466281ba5a996e9fa769c5258e7b22585
+    cr_parent: cad9aeaacfc44aeeb4d3ffe258029c48473a47f1
+    files_changed:
+        - internal/cli/arg_error_ux_test.go
+        - internal/cli/blame.go
+        - internal/cli/blame_test.go
+        - internal/cli/cr_archive_test.go
+        - internal/cli/cr_cmd_anchor.go
+        - internal/cli/cr_cmd_archive.go
+        - internal/cli/cr_cmd_branch.go
+        - internal/cli/cr_cmd_check.go
+        - internal/cli/cr_cmd_core.go
+        - internal/cli/cr_cmd_diff.go
+        - internal/cli/cr_cmd_evidence.go
+        - internal/cli/cr_cmd_export.go
+        - internal/cli/cr_cmd_helpers.go
+        - internal/cli/cr_cmd_import_patch.go
+        - internal/cli/cr_cmd_integrity.go
+        - internal/cli/cr_cmd_navigation.go
+        - internal/cli/cr_cmd_pack.go
+        - internal/cli/cr_cmd_push_pull.go
+        - internal/cli/cr_cmd_review_merge.go
+        - internal/cli/cr_cmd_sync.go
+        - internal/cli/cr_cmd_task.go
+        - internal/cli/cr_export_test.go
+        - internal/cli/cr_helpers.go
+        - internal/cli/cr_json_anchor_test.go
+        - internal/cli/cr_json_branch_identity_test.go
+        - internal/cli/cr_json_branch_ops_test.go
+        - internal/cli/cr_json_check_test.go
+        - internal/cli/cr_json_chunk_test.go
+        - internal/cli/cr_json_collab_test.go
+        - internal/cli/cr_json_core_keys_test.go
+        - internal/cli/cr_json_diff_test.go
+        - internal/cli/cr_json_guardrail_test.go
+        - internal/cli/cr_json_helpers_test.go
+        - internal/cli/cr_json_integrity_test.go
+        - internal/cli/cr_json_merge_recovery_test.go
+        - internal/cli/cr_json_pack_test.go
+        - internal/cli/cr_json_rangediff_test.go
+        - internal/cli/cr_json_read_context_test.go
+        - internal/cli/cr_json_risk_hint_test.go
+        - internal/cli/cr_json_search_test.go
+        - internal/cli/cr_json_task_done_test.go
+        - internal/cli/cr_json_task_reopen_test.go
+        - internal/cli/cr_json_test.go
+        - internal/cli/cr_json_trust_test.go
+        - internal/cli/cr_task_reopen_test.go
+        - internal/cli/cr_uid_selector_test.go
+        - internal/cli/doctor.go
+        - internal/cli/help_output_test.go
+        - internal/cli/hook.go
+        - internal/cli/hq_cmd.go
+        - internal/cli/json.go
+        - internal/cli/json_policy_test.go
+        - internal/cli/json_surface_expansion_test.go
+        - internal/cli/log.go
+        - internal/cli/repair.go
+        - internal/cli/root.go
+        - internal/cli/root_resolution_test.go
+        - internal/cli/testmain_test.go
+        - internal/cli/worktree_resolution_test.go
+    diffstat:
+        summary: 59 files changed, 253 insertions(+), 201 deletions(-)
+        files:
+            - path: internal/cli/arg_error_ux_test.go
+              insertions: 4
+              deletions: 0
+            - path: internal/cli/blame.go
+              insertions: 1
+              deletions: 1
+            - path: internal/cli/blame_test.go
+              insertions: 0
+              deletions: 2
+            - path: internal/cli/cr_archive_test.go
+              insertions: 0
+              deletions: 2
+            - path: internal/cli/cr_cmd_anchor.go
+              insertions: 2
+              deletions: 2
+            - path: internal/cli/cr_cmd_archive.go
+              insertions: 5
+              deletions: 5
+            - path: internal/cli/cr_cmd_branch.go
+              insertions: 4
+              deletions: 4
+            - path: internal/cli/cr_cmd_check.go
+              insertions: 2
+              deletions: 2
+            - path: internal/cli/cr_cmd_core.go
+              insertions: 14
+              deletions: 14
+            - path: internal/cli/cr_cmd_diff.go
+              insertions: 5
+              deletions: 5
+            - path: internal/cli/cr_cmd_evidence.go
+              insertions: 4
+              deletions: 4
+            - path: internal/cli/cr_cmd_export.go
+              insertions: 2
+              deletions: 1
+            - path: internal/cli/cr_cmd_helpers.go
+              insertions: 2
+              deletions: 2
+            - path: internal/cli/cr_cmd_import_patch.go
+              insertions: 5
+              deletions: 3
+            - path: internal/cli/cr_cmd_integrity.go
+              insertions: 2
+              deletions: 2
+            - path: internal/cli/cr_cmd_navigation.go
+              insertions: 1
+              deletions: 1
+            - path: internal/cli/cr_cmd_pack.go
+              insertions: 1
+              deletions: 1
+            - path: internal/cli/cr_cmd_push_pull.go
+              insertions: 2
+              deletions: 2
+            - path: internal/cli/cr_cmd_review_merge.go
+              insertions: 5
+              deletions: 5
+            - path: internal/cli/cr_cmd_sync.go
+              insertions: 1
+              deletions: 1
+            - path: internal/cli/cr_cmd_task.go
+              insertions: 10
+              deletions: 9
+            - path: internal/cli/cr_export_test.go
+              insertions: 0
+              deletions: 2
+            - path: internal/cli/cr_helpers.go
+              insertions: 5
+              deletions: 5
+            - path: internal/cli/cr_json_anchor_test.go
+              insertions: 0
+              deletions: 9
+            - path: internal/cli/cr_json_branch_identity_test.go
+              insertions: 2
+              deletions: 0
+            - path: internal/cli/cr_json_branch_ops_test.go
+              insertions: 0
+              deletions: 4
+            - path: internal/cli/cr_json_check_test.go
+              insertions: 0
+              deletions: 2
+            - path: internal/cli/cr_json_chunk_test.go
+              insertions: 0
+              deletions: 6
+            - path: internal/cli/cr_json_collab_test.go
+              insertions: 0
+              deletions: 4
+            - path: internal/cli/cr_json_core_keys_test.go
+              insertions: 1
+              deletions: 0
+            - path: internal/cli/cr_json_diff_test.go
+              insertions: 0
+              deletions: 2
+            - path: internal/cli/cr_json_guardrail_test.go
+              insertions: 1
+              deletions: 4
+            - path: internal/cli/cr_json_helpers_test.go
+              insertions: 15
+              deletions: 18
+            - path: internal/cli/cr_json_integrity_test.go
+              insertions: 0
+              deletions: 2
+            - path: internal/cli/cr_json_merge_recovery_test.go
+              insertions: 0
+              deletions: 4
+            - path: internal/cli/cr_json_pack_test.go
+              insertions: 0
+              deletions: 2
+            - path: internal/cli/cr_json_rangediff_test.go
+              insertions: 0
+              deletions: 2
+            - path: internal/cli/cr_json_read_context_test.go
+              insertions: 1
+              deletions: 11
+            - path: internal/cli/cr_json_risk_hint_test.go
+              insertions: 0
+              deletions: 2
+            - path: internal/cli/cr_json_search_test.go
+              insertions: 5
+              deletions: 0
+            - path: internal/cli/cr_json_task_done_test.go
+              insertions: 0
+              deletions: 2
+            - path: internal/cli/cr_json_task_reopen_test.go
+              insertions: 0
+              deletions: 2
+            - path: internal/cli/cr_json_test.go
+              insertions: 0
+              deletions: 10
+            - path: internal/cli/cr_json_trust_test.go
+              insertions: 0
+              deletions: 6
+            - path: internal/cli/cr_task_reopen_test.go
+              insertions: 0
+              deletions: 2
+            - path: internal/cli/cr_uid_selector_test.go
+              insertions: 2
+              deletions: 0
+            - path: internal/cli/doctor.go
+              insertions: 1
+              deletions: 1
+            - path: internal/cli/help_output_test.go
+              insertions: 3
+              deletions: 0
+            - path: internal/cli/hook.go
+              insertions: 1
+              deletions: 1
+            - path: internal/cli/hq_cmd.go
+              insertions: 8
+              deletions: 8
+            - path: internal/cli/json.go
+              insertions: 5
+              deletions: 5
+            - path: internal/cli/json_policy_test.go
+              insertions: 3
+              deletions: 0
+            - path: internal/cli/json_surface_expansion_test.go
+              insertions: 4
+              deletions: 6
+            - path: internal/cli/log.go
+              insertions: 1
+              deletions: 1
+            - path: internal/cli/repair.go
+              insertions: 1
+              deletions: 1
+            - path: internal/cli/root.go
+              insertions: 82
+              deletions: 1
+            - path: internal/cli/root_resolution_test.go
+              insertions: 23
+              deletions: 8
+            - path: internal/cli/testmain_test.go
+              insertions: 16
+              deletions: 0
+            - path: internal/cli/worktree_resolution_test.go
+              insertions: 1
+              deletions: 0

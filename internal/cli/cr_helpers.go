@@ -199,19 +199,19 @@ func parsePositiveIntArg(raw string, name string) (int, error) {
 	return id, nil
 }
 
-func parseIDAndService(rawID string, argName string) (int, *service.Service, error) {
+func parseIDAndService(cmd *cobra.Command, rawID string, argName string) (int, *service.Service, error) {
 	id, err := parsePositiveIntArg(rawID, argName)
 	if err != nil {
 		return 0, nil, err
 	}
-	svc, err := newService()
+	svc, err := newServiceForCmd(cmd)
 	if err != nil {
 		return 0, nil, err
 	}
 	return id, svc, nil
 }
 
-func parseCRTaskIDsAndService(rawCRID, rawTaskID string) (int, int, *service.Service, error) {
+func parseCRTaskIDsAndService(cmd *cobra.Command, rawCRID, rawTaskID string) (int, int, *service.Service, error) {
 	crID, err := parsePositiveIntArg(rawCRID, "cr-id")
 	if err != nil {
 		return 0, 0, nil, err
@@ -220,7 +220,7 @@ func parseCRTaskIDsAndService(rawCRID, rawTaskID string) (int, int, *service.Ser
 	if err != nil {
 		return 0, 0, nil, err
 	}
-	svc, err := newService()
+	svc, err := newServiceForCmd(cmd)
 	if err != nil {
 		return 0, 0, nil, err
 	}
@@ -294,7 +294,7 @@ func rewriteCRSelectorArg(cmd *cobra.Command, args []string) error {
 	if parsed, err := strconv.Atoi(raw); err == nil && parsed > 0 {
 		return nil
 	}
-	svc, err := newService()
+	svc, err := newServiceForCmd(cmd)
 	if err != nil {
 		return err
 	}

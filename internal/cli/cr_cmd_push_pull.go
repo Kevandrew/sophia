@@ -20,7 +20,7 @@ func newCRPushCmd() *cobra.Command {
 			if len(args) == 1 {
 				selector = strings.TrimSpace(args[0])
 			}
-			svc, err := newService()
+			svc, err := newServiceForCmd(cmd)
 			if err != nil {
 				return commandError(cmd, asJSON, err)
 			}
@@ -74,7 +74,7 @@ func newCRPullCmd() *cobra.Command {
 			if len(args) == 1 {
 				selector = strings.TrimSpace(args[0])
 			}
-			svc, err := newService()
+			svc, err := newServiceForCmd(cmd)
 			if err != nil {
 				return commandError(cmd, asJSON, err)
 			}

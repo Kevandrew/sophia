@@ -55,7 +55,7 @@ func writeJSONError(cmd *cobra.Command, err error) error {
 		Error: &jsonError{
 			Code:    jsonErrorCode(err),
 			Message: err.Error(),
-			Details: jsonErrorDetails(err),
+			Details: jsonErrorDetails(cmd, err),
 		},
 	})
 	return markHandled(err)
@@ -146,7 +146,7 @@ func jsonErrorCode(err error) string {
 	return "internal_error"
 }
 
-func jsonErrorDetails(err error) any {
+func jsonErrorDetails(cmd *cobra.Command, err error) any {
 	type detailer interface {
 		Details() map[string]any
 	}
@@ -157,7 +157,7 @@ func jsonErrorDetails(err error) any {
 			return details
 		}
 	}
-	if action := suggestedActionForError(err); strings.TrimSpace(action) != "" {
+	if action := suggestedActionForError(cmd, err); strings.TrimSpace(action) != "" {
 		return map[string]any{
 			"suggested_action": action,
 		}
@@ -165,7 +165,7 @@ func jsonErrorDetails(err error) any {
 	return nil
 }
 
-func suggestedActionForError(err error) string {
+func suggestedActionForError(cmd *cobra.Command, err error) string {
 	if err == nil {
 		return ""
 	}
@@ -179,7 +179,7 @@ func suggestedActionForError(err error) string {
 	matches := requiredActiveBranchPattern.FindStringSubmatch(msg)
 	if len(matches) == 2 {
 		branch := strings.TrimSpace(matches[1])
-		if svc, svcErr := newService(); svcErr == nil {
+		if svc, svcErr := newServiceForCmd(cmd); svcErr == nil {
 			if id, resolveErr := svc.ResolveCRID(branch); resolveErr == nil && id > 0 {
 				return fmt.Sprintf("sophia cr switch %d", id)
 			}

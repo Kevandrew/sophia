@@ -6,6 +6,7 @@ import (
 )
 
 func TestMissingArgTextErrorShowsUsageAndExample(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 
 	_, stderr, runErr := runCLI(t, dir, "cr", "task", "done", "1")
@@ -24,6 +25,7 @@ func TestMissingArgTextErrorShowsUsageAndExample(t *testing.T) {
 }
 
 func TestMissingArgJSONErrorIsStructuredAndActionable(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 
 	out, _, runErr := runCLI(t, dir, "cr", "task", "done", "1", "--json")
@@ -44,6 +46,7 @@ func TestMissingArgJSONErrorIsStructuredAndActionable(t *testing.T) {
 }
 
 func TestMissingArgJSONErrorWithEqualsFlagIsStructured(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 
 	out, _, runErr := runCLI(t, dir, "cr", "task", "done", "1", "--json=true")
@@ -60,6 +63,7 @@ func TestMissingArgJSONErrorWithEqualsFlagIsStructured(t *testing.T) {
 }
 
 func TestRuntimeTextErrorsDoNotDumpUsageNoise(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 
 	_, stderr, runErr := runCLI(t, dir, "cr", "status", "1")
