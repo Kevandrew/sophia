@@ -36,12 +36,14 @@ type lifecycleRuntimeGit interface {
 
 type statusRuntimeStore interface {
 	LoadCR(id int) (*model.CR, error)
+	LoadConfig() (model.Config, error)
 	SaveCR(cr *model.CR) error
 }
 
 type statusRuntimeGit interface {
 	Actor() string
 	CurrentBranch() (string, error)
+	ResolveRef(ref string) (string, error)
 	WorkingTreeStatus() ([]gitx.StatusEntry, error)
 }
 
@@ -100,6 +102,8 @@ func (s *Service) activeLifecycleGitProvider() lifecycleRuntimeGit {
 func (s *Service) overrideLifecycleRuntimeProvidersForTests(git lifecycleRuntimeGit, store lifecycleRuntimeStore) {
 	s.lifecycleGit = git
 	s.lifecycleStore = store
+	s.lifecycleGitCustom = git != nil
+	s.lifecycleStoreCustom = store != nil
 }
 
 func (s *Service) activeStatusStoreProvider() statusRuntimeStore {
@@ -119,6 +123,8 @@ func (s *Service) activeStatusGitProvider() statusRuntimeGit {
 func (s *Service) overrideStatusRuntimeProvidersForTests(git statusRuntimeGit, store statusRuntimeStore) {
 	s.statusGit = git
 	s.statusStore = store
+	s.statusGitCustom = git != nil
+	s.statusStoreCustom = store != nil
 }
 
 func (s *Service) activeMergeStoreProvider() mergeRuntimeStore {
@@ -148,4 +154,7 @@ func (s *Service) overrideMergeRuntimeProvidersForTests(git mergeRuntimeGit, sto
 	s.mergeGit = git
 	s.mergeStore = store
 	s.mergeGitFactory = factory
+	s.mergeGitCustom = git != nil
+	s.mergeStoreCustom = store != nil
+	s.mergeFactoryCustom = factory != nil
 }
