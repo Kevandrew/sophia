@@ -4,9 +4,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"regexp"
 	clijson "sophia/internal/cli/json"
 	"sophia/internal/store"
+	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -37,6 +39,100 @@ type jsonError struct {
 var (
 	requiredActiveBranchPattern = regexp.MustCompile(`active CR branch "([^"]+)"`)
 )
+
+const sophiaOutputModeEnv = "SOPHIA_OUTPUT"
+
+type outputMode string
+
+const (
+	outputModeAuto outputMode = "auto"
+	outputModeJSON outputMode = "json"
+	outputModeText outputMode = "text"
+)
+
+func applyAutomaticJSONFlag(cmd *cobra.Command) error {
+	if cmd == nil {
+		return nil
+	}
+	jsonFlag := cmd.Flag("json")
+	if jsonFlag == nil || jsonFlag.Changed {
+		return nil
+	}
+	enabled, shouldSet := implicitJSONModeSelection(cmd)
+	if !shouldSet {
+		return nil
+	}
+	return cmd.Flags().Set("json", strconv.FormatBool(enabled))
+}
+
+func implicitJSONModeEnabled(cmd *cobra.Command) bool {
+	enabled, shouldSet := implicitJSONModeSelection(cmd)
+	return shouldSet && enabled
+}
+
+func implicitJSONModeSelection(cmd *cobra.Command) (enabled bool, shouldSet bool) {
+	if cmd == nil || cmd.Flag("json") == nil {
+		return false, false
+	}
+	mode, modeSet := outputModeFromEnvVar()
+	if modeSet {
+		switch mode {
+		case outputModeJSON:
+			return true, true
+		case outputModeText:
+			return false, true
+		}
+	}
+	if !commandStdoutIsTTY(cmd) {
+		return true, true
+	}
+	return false, false
+}
+
+func outputModeFromEnvVar() (outputMode, bool) {
+	raw, ok := os.LookupEnv(sophiaOutputModeEnv)
+	if !ok {
+		return outputModeAuto, false
+	}
+	mode := parseOutputMode(raw)
+	switch mode {
+	case outputModeJSON, outputModeText:
+		return mode, true
+	case outputModeAuto:
+		return outputModeAuto, true
+	default:
+		return outputModeAuto, false
+	}
+}
+
+func parseOutputMode(raw string) outputMode {
+	normalized := strings.ToLower(strings.TrimSpace(raw))
+	switch normalized {
+	case "", "auto":
+		return outputModeAuto
+	case "json":
+		return outputModeJSON
+	case "text":
+		return outputModeText
+	default:
+		return outputMode("")
+	}
+}
+
+func commandStdoutIsTTY(cmd *cobra.Command) bool {
+	if cmd == nil {
+		return true
+	}
+	file, ok := cmd.OutOrStdout().(*os.File)
+	if !ok {
+		return true
+	}
+	info, err := file.Stat()
+	if err != nil {
+		return true
+	}
+	return info.Mode()&os.ModeCharDevice != 0
+}
 
 func writeJSONSuccess(cmd *cobra.Command, payload any) error {
 	enc := json.NewEncoder(cmd.OutOrStdout())
