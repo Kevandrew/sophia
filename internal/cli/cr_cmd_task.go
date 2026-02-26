@@ -202,7 +202,7 @@ func newCRTaskContractSetCmd() *cobra.Command {
 	var asJSON bool
 
 	cmd := &cobra.Command{
-		Use:   "set <task-id>",
+		Use:   "set [<cr-id>] <task-id>",
 		Short: "Set/update task contract fields",
 		Args:  cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -541,7 +541,7 @@ func newCRTaskAddCmd() *cobra.Command {
 	var asJSON bool
 
 	cmd := &cobra.Command{
-		Use:   "add <title>",
+		Use:   "add [<cr-id>] <title>",
 		Short: "Add a subtask to a CR",
 		Args:  cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -704,7 +704,7 @@ func newCRTaskDoneCmd() *cobra.Command {
 	var asJSON bool
 
 	cmd := &cobra.Command{
-		Use:     "done <task-id>",
+		Use:     "done [<cr-id>] <task-id>",
 		Short:   "Mark a subtask as done",
 		Long:    "Complete a task with one explicit checkpoint scope mode. Prefer --from-contract once task contract scope is defined.",
 		Example: "  sophia cr task done 25 1 --from-contract\n  sophia cr task done 25 1 --path internal/service/service.go --path internal/service/service_test.go\n  sophia cr task done 25 1 --patch-file /tmp/task1.patch\n  sophia cr task done 25 1 --all\n  sophia cr task done 25 1 --no-checkpoint --no-checkpoint-reason \"metadata-only task\"",
@@ -747,7 +747,7 @@ func newCRTaskReopenCmd() *cobra.Command {
 	var asJSON bool
 
 	cmd := &cobra.Command{
-		Use:     "reopen <task-id>",
+		Use:     "reopen [<cr-id>] <task-id>",
 		Short:   "Reopen a completed subtask",
 		Example: "  sophia cr task reopen 25 1\n  sophia cr task reopen 25 1 --clear-checkpoint\n  sophia cr task reopen 25 1 --json",
 		Args:    cobra.RangeArgs(1, 2),
