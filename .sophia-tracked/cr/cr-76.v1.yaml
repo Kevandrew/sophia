@@ -1,0 +1,105 @@
+schema_version: sophia.cr_archive.v1
+notice: Historical archive snapshot. Corrections are append-only revisions.
+archived_at: "2026-02-26T23:25:58Z"
+revision: 1
+cr:
+    id: 76
+    uid: cr_9028a146-2daf-4d57-a345-ecadd2eca3de
+    title: Positional arg documentation and CR selector consistency across commands
+    description: 'Two friction points for agent callers: (1) the Use line for commands like cr task done omits the cr-id positional arg, causing order confusion; (2) some commands require an explicit CR ID while others infer from branch context with no consistent pattern agents can rely on. This CR fixes the Use lines and standardises selector behaviour so agents can always pass an explicit CR ID safely.'
+    status: merged
+    base_branch: main
+    base_ref: main
+    base_commit: cef28635f155ee4b04ace8f94b40eb7c29fdc49e
+    branch: cr-positional-arg-documentation-and-cr-selector-con-9028
+    merged_at: "2026-02-26T23:25:58Z"
+    merged_by: Kevandrew <143258544+Kevandrew@users.noreply.github.com>
+contract:
+    why: |-
+        Agents frequently get positional argument order wrong when help text is incomplete. The cr task done Use line shows only <task-id> but the actual call needs <cr-id> <task-id>. Similarly, some commands accept [id] optionally while others require it, and neither pattern is documented consistently. This CR makes every positional argument visible in the Use line and ensures that over-qualifying with an explicit CR ID is always a safe no-op.
+        Decision boundary: Use-line documentation fixes and selector consistency only. No new flags, no JSON shape changes, no semantic changes to branch-context inference.
+        Success: an agent can construct any sophia command by reading its Use line and trusting that passing <cr-id> explicitly always works.
+    scope:
+        - internal/cli
+    non_goals:
+        - No changes to JSON envelope shape.
+        - No changes to branch-context inference logic beyond accepting an explicit ID as override.
+        - No new flags or aliases.
+    invariants:
+        - All existing command invocations without explicit CR IDs continue to work.
+        - JSON output is unchanged.
+    blast_radius: 'CLI surfaces: Use lines on cr task done, cr task contract set, cr task list, cr task diff, cr task rangediff, cr task chunk list/diff, cr task reopen, and other cr task subcommands that omit cr-id. No JSON field changes. No behavioral changes for correct callers.'
+    risk_tier_hint: low
+    test_plan: go test ./internal/cli/... && go vet ./...
+    rollback_plan: Revert the CR merge commit.
+tasks:
+    - id: 1
+      title: Audit and fix all Use lines that omit the cr-id positional argument
+      status: done
+      contract:
+        intent: Every subcommand under cr task that accepts a CR ID as a positional arg must show it in the Use line so --help is self-documenting for agents.
+        acceptance_criteria:
+            - All other cr task subcommands that take both IDs are updated consistently.
+            - cr task contract set Use line shows both cr-id and task-id positional args.
+            - 'cr task done Use line reads: sophia cr task done <cr-id> <task-id> [flags]'
+        scope:
+            - internal/cli/cr_cmd_task.go
+      checkpoint:
+        commit: 938ab0c0
+        at: "2026-02-26T23:25:00Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/cr_cmd_task.go
+    - id: 2
+      title: Ensure explicit CR ID is always accepted on commands that infer from context
+      status: done
+      contract:
+        intent: Commands that infer CR from branch context should also accept an explicit CR ID positional arg so agents can always be explicit without triggering an error.
+        acceptance_criteria:
+            - Passing an explicit ID matching current context is a no-op (no error, same output).
+            - sophia cr review <id> and sophia cr merge <id> behave identically.
+            - sophia cr validate <id> accepts an explicit CR ID even when already on the CR branch.
+        scope:
+            - internal/cli/cr_cmd_core.go
+            - internal/cli/cr_cmd_review_merge.go
+      checkpoint:
+        commit: 9a897b4a
+        at: "2026-02-26T23:25:04Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/cr_cmd_review_merge.go
+    - id: 3
+      title: Add help output snapshot tests for corrected Use lines
+      status: done
+      contract:
+        intent: Prevent Use line regressions by asserting on help text output in the existing help output test suite.
+        acceptance_criteria:
+            - Tests fail if Use line reverts to omitting cr-id.
+            - help_output_test.go includes assertions for cr task done and cr task contract set Use lines.
+        scope:
+            - internal/cli/help_output_test.go
+      checkpoint:
+        commit: 67a6b099
+        at: "2026-02-26T23:25:08Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/help_output_test.go
+git_summary:
+    base_parent: cef28635f155ee4b04ace8f94b40eb7c29fdc49e
+    cr_parent: 67a6b099df51609017e999b21fdc5ee860b0de14
+    files_changed:
+        - internal/cli/cr_cmd_review_merge.go
+        - internal/cli/cr_cmd_task.go
+        - internal/cli/help_output_test.go
+    diffstat:
+        summary: 3 files changed, 37 insertions(+), 47 deletions(-)
+        files:
+            - path: internal/cli/cr_cmd_review_merge.go
+              insertions: 23
+              deletions: 42
+            - path: internal/cli/cr_cmd_task.go
+              insertions: 4
+              deletions: 4
+            - path: internal/cli/help_output_test.go
+              insertions: 10
+              deletions: 1

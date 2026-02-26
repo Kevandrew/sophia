@@ -126,57 +126,38 @@ func newCRMergeCmd() *cobra.Command {
 	var asJSON bool
 
 	cmd := &cobra.Command{
-		Use:     "merge <id>",
+		Use:     "merge [id]",
 		Short:   "Merge a CR and recover from merge conflicts",
-		Long:    "Merge a CR by id. If conflicts occur, use the merge subcommands to inspect status, resume after resolution, or abort cleanly.",
+		Long:    "Merge a CR selected by id/uid or active branch context. If conflicts occur, use the merge subcommands to inspect status, resume after resolution, or abort cleanly.",
 		Example: "  sophia cr merge 25\n  sophia cr merge 25 --keep-branch\n  sophia cr merge 25 --override-reason \"Emergency prod fix\"\n  sophia cr merge status 25\n  sophia cr merge resume 25\n  sophia cr merge abort 25",
 		Args:    cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if len(args) != 1 {
-				err := fmt.Errorf("merge requires exactly one CR id")
-				if asJSON {
-					return writeJSONError(cmd, err)
+			return withOptionalCRIDAndService(cmd, asJSON, args, "id", func(id int, svc *service.Service) error {
+				if deleteBranch {
+					keepBranch = false
 				}
-				return err
-			}
-			id, err := parsePositiveIntArg(args[0], "id")
-			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
+				sha, warnings, err := svc.MergeCRWithWarnings(id, keepBranch, overrideReason)
+				if err != nil {
+					if asJSON {
+						return writeJSONError(cmd, err)
+					}
+					return err
 				}
-				return err
-			}
-			svc, err := newServiceForCmd(cmd)
-			if err != nil {
 				if asJSON {
-					return writeJSONError(cmd, err)
+					return writeJSONSuccess(cmd, map[string]any{
+						"cr_id":           id,
+						"merged_commit":   sha,
+						"warnings":        warnings,
+						"keep_branch":     keepBranch,
+						"override_reason": strings.TrimSpace(overrideReason),
+					})
 				}
-				return err
-			}
-			if deleteBranch {
-				keepBranch = false
-			}
-			sha, warnings, err := svc.MergeCRWithWarnings(id, keepBranch, overrideReason)
-			if err != nil {
-				if asJSON {
-					return writeJSONError(cmd, err)
+				fmt.Fprintf(cmd.OutOrStdout(), "Merged CR %d as commit %s\n", id, sha)
+				for _, warning := range warnings {
+					fmt.Fprintf(cmd.OutOrStdout(), "Warning: %s\n", warning)
 				}
-				return err
-			}
-			if asJSON {
-				return writeJSONSuccess(cmd, map[string]any{
-					"cr_id":           id,
-					"merged_commit":   sha,
-					"warnings":        warnings,
-					"keep_branch":     keepBranch,
-					"override_reason": strings.TrimSpace(overrideReason),
-				})
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Merged CR %d as commit %s\n", id, sha)
-			for _, warning := range warnings {
-				fmt.Fprintf(cmd.OutOrStdout(), "Warning: %s\n", warning)
-			}
-			return nil
+				return nil
+			})
 		},
 	}
 
