@@ -515,3 +515,4 @@ sophia cr merge abort <cr-id> [--json]
 - In delegated workflows, use `cr task delegate`/`undelegate` to represent cross-CR task ownership; delegated tasks are not normal checkpoint targets until delegation is resolved.
 - When branch context is ambiguous, prefer explicit CR IDs for reads and `cr switch <id>` before writes.
 - For agent workflows, prefer machine output (`--json`) where available and treat text mode as operator-facing.
+- For agent workflows, prefer setting `SOPHIA_OUTPUT=json` so `--json`-capable commands emit JSON by default; use explicit `--json=false` only when text output is required.

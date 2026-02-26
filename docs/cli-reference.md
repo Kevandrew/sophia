@@ -15,6 +15,30 @@ sophia cr --help
 sophia cr <command> --help
 ```
 
+## Output mode (`--json` and `SOPHIA_OUTPUT`)
+
+For commands that support `--json`, output mode follows this precedence:
+
+1. Explicit CLI flag: `--json` / `--json=true` / `--json=false`
+2. `SOPHIA_OUTPUT` environment variable
+3. Stdout mode detection:
+   - non-TTY (pipe/redirect): JSON output
+   - TTY: text output
+
+Valid `SOPHIA_OUTPUT` values:
+
+- `json`: force JSON output for `--json`-capable commands
+- `text`: force human-readable text output
+- `auto` or unset: use stdout mode detection
+
+Examples:
+
+```bash
+SOPHIA_OUTPUT=json sophia cr status 12
+SOPHIA_OUTPUT=text sophia cr status 12
+sophia cr status 12 --json=false
+```
+
 ## Root command map
 
 - `sophia init` initialize repository metadata.

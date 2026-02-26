@@ -1,0 +1,137 @@
+schema_version: sophia.cr_archive.v1
+notice: Historical archive snapshot. Corrections are append-only revisions.
+archived_at: "2026-02-26T23:20:38Z"
+revision: 1
+cr:
+    id: 75
+    uid: cr_8d135074-ffb7-4555-900e-36703ff89e44
+    title: 'Agent-native output mode: SOPHIA_OUTPUT env var and TTY detection'
+    description: LLM agents invoking sophia must append --json to every call today. A missing --json on any single invocation degrades silently to human-formatted text the agent cannot parse reliably. This CR introduces SOPHIA_OUTPUT=json as a process-level default and adds TTY detection so non-interactive callers get JSON automatically, matching the "agent-native first" product posture stated in the README.
+    status: merged
+    base_branch: main
+    base_ref: main
+    base_commit: 2687210a42ebfee2ff86b47792b84eb8447da1f9
+    branch: cr-agent-native-output-mode-sophia-output-env-var-a-8d13
+    merged_at: "2026-02-26T23:20:38Z"
+    merged_by: Kevandrew <143258544+Kevandrew@users.noreply.github.com>
+contract:
+    why: |-
+        The primary consumers of sophia are LLM agents, not humans at a terminal. Requiring --json on every command forces agents to include it in every tool call and silently produce unparseable output when they forget. The outcome of this CR is that agents can set SOPHIA_OUTPUT=json once in their environment and receive machine- readable output on all commands without per-call flags.
+        Decision boundary: env var and TTY detection only. We are NOT adding a persistent per-repo config setting; we are NOT changing existing --json flag semantics or JSON shapes; we are NOT touching HQ or collaboration surfaces.
+        Success: an agent that never passes --json still gets valid JSON envelopes when SOPHIA_OUTPUT=json is set or when stdout is not a TTY.
+    scope:
+        - cmd
+        - docs
+        - internal/cli
+        - skills
+    non_goals:
+        - No changes to HQ, collaboration, or repair commands.
+        - No changes to JSON envelope shape or error code taxonomy.
+        - No changes to human-facing text output when TTY is detected and SOPHIA_OUTPUT is unset.
+        - No persistent per-repo or global config for output mode.
+    invariants:
+        - Existing --json flag behavior is unchanged when flag is explicitly passed.
+        - JSON envelope shape (ok/data/error) is identical regardless of how JSON mode is activated.
+        - Text output remains default when stdout is a TTY and SOPHIA_OUTPUT is unset.
+    blast_radius: 'CLI surfaces: all commands that accept --json today also respect SOPHIA_OUTPUT=json. Root command gains env-var inspection and TTY detection logic. No JSON field changes. Failure mode: TTY detection false-positive in CI - mitigated by SOPHIA_OUTPUT=text override.'
+    risk_tier_hint: low
+    test_plan: go test ./internal/cli/... && go test ./... && go vet ./...
+    rollback_plan: Revert the CR merge commit.
+tasks:
+    - id: 1
+      title: Read SOPHIA_OUTPUT env var in root command and propagate to all subcommands
+      status: done
+      contract:
+        intent: When SOPHIA_OUTPUT=json is set, every command that has a --json flag activates JSON mode without the flag being explicitly passed.
+        acceptance_criteria:
+            - Explicit --json flag still works and takes precedence over env var.
+            - SOPHIA_OUTPUT=json causes all --json-capable commands to emit the JSON envelope.
+            - SOPHIA_OUTPUT=text (or unset with TTY) produces human text output.
+        scope:
+            - internal/cli/cr_cmd_core.go
+            - internal/cli/root.go
+      checkpoint:
+        commit: 89f0f86b
+        at: "2026-02-26T23:18:49Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/root.go
+    - id: 2
+      title: Activate JSON mode automatically when stdout is not a TTY
+      status: done
+      contract:
+        intent: When sophia stdout is a pipe or redirect (not a TTY), default to JSON output so agents that omit SOPHIA_OUTPUT still get machine-readable output.
+        acceptance_criteria:
+            - No-TTY stdout produces JSON envelope output by default.
+            - SOPHIA_OUTPUT=text overrides TTY detection and forces text mode.
+            - TTY stdout produces text output by default (existing behavior preserved).
+        scope:
+            - internal/cli/json.go
+            - internal/cli/root.go
+      checkpoint:
+        commit: 072950d3
+        at: "2026-02-26T23:18:52Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/json.go
+    - id: 3
+      title: Unit tests for env-var and TTY-detection output mode selection
+      status: done
+      contract:
+        intent: Verify output mode selection under all combinations of env var and TTY state so regressions are caught before merge.
+        acceptance_criteria:
+            - All tests pass under go test ./internal/cli/...
+            - Tests cover SOPHIA_OUTPUT=json, SOPHIA_OUTPUT=text, SOPHIA_OUTPUT unset+TTY, SOPHIA_OUTPUT unset+no-TTY.
+        scope:
+            - internal/cli
+      checkpoint:
+        commit: 95142b1e
+        at: "2026-02-26T23:18:57Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/output_mode_test.go
+    - id: 4
+      title: Update SKILL.md and CLI reference to document SOPHIA_OUTPUT
+      status: done
+      contract:
+        intent: Document the new env var so agents with the skill file know to set SOPHIA_OUTPUT=json rather than appending --json to every call.
+        acceptance_criteria:
+            - SKILL.md guardrails section mentions SOPHIA_OUTPUT=json as the preferred agent environment setup.
+            - docs/cli-reference.md documents SOPHIA_OUTPUT with all valid values and precedence rules.
+        scope:
+            - docs/cli-reference.md
+            - skills/sophia/SKILL.md
+      checkpoint:
+        commit: 80c2f722
+        at: "2026-02-26T23:19:01Z"
+        source: task_checkpoint
+        scope:
+            - docs/cli-reference.md
+            - skills/sophia/SKILL.md
+git_summary:
+    base_parent: 2687210a42ebfee2ff86b47792b84eb8447da1f9
+    cr_parent: 80c2f722215eb330ca0c51d91695fb30c1a56666
+    files_changed:
+        - docs/cli-reference.md
+        - internal/cli/json.go
+        - internal/cli/output_mode_test.go
+        - internal/cli/root.go
+        - skills/sophia/SKILL.md
+    diffstat:
+        summary: 5 files changed, 260 insertions(+), 5 deletions(-)
+        files:
+            - path: docs/cli-reference.md
+              insertions: 24
+              deletions: 0
+            - path: internal/cli/json.go
+              insertions: 96
+              deletions: 0
+            - path: internal/cli/output_mode_test.go
+              insertions: 121
+              deletions: 0
+            - path: internal/cli/root.go
+              insertions: 18
+              deletions: 5
+            - path: skills/sophia/SKILL.md
+              insertions: 1
+              deletions: 0
