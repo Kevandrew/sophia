@@ -130,6 +130,55 @@ func TestSetCRContractPartialUpdateOnlyMutatesTargetFields(t *testing.T) {
 	}
 }
 
+func TestSetCRContractWithOptionsDryRunAndAlreadyApplied(t *testing.T) {
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	cr, err := svc.AddCR("Contract dry-run", "preview updates")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+
+	why := "Dry-run why update"
+	preview, err := svc.SetCRContractWithOptions(cr.ID, ContractPatch{Why: &why}, SetCRContractOptions{DryRun: true})
+	if err != nil {
+		t.Fatalf("SetCRContractWithOptions(dry-run) error = %v", err)
+	}
+	if !preview.DryRun {
+		t.Fatalf("expected dry_run=true in preview result")
+	}
+	if preview.AlreadyApplied {
+		t.Fatalf("expected preview already_applied=false, got %#v", preview)
+	}
+	if len(preview.ChangedFields) != 1 || preview.ChangedFields[0] != "why" {
+		t.Fatalf("expected changed_fields=[why], got %#v", preview.ChangedFields)
+	}
+	gotAfterDryRun, err := svc.GetCRContract(cr.ID)
+	if err != nil {
+		t.Fatalf("GetCRContract(after dry-run) error = %v", err)
+	}
+	if strings.TrimSpace(gotAfterDryRun.Why) != "" {
+		t.Fatalf("expected dry-run to avoid mutation, got why=%q", gotAfterDryRun.Why)
+	}
+
+	applied, err := svc.SetCRContractWithOptions(cr.ID, ContractPatch{Why: &why}, SetCRContractOptions{})
+	if err != nil {
+		t.Fatalf("SetCRContractWithOptions(apply) error = %v", err)
+	}
+	if applied.AlreadyApplied {
+		t.Fatalf("expected first apply already_applied=false, got %#v", applied)
+	}
+	second, err := svc.SetCRContractWithOptions(cr.ID, ContractPatch{Why: &why}, SetCRContractOptions{})
+	if err != nil {
+		t.Fatalf("SetCRContractWithOptions(second apply) error = %v", err)
+	}
+	if !second.AlreadyApplied {
+		t.Fatalf("expected second apply already_applied=true, got %#v", second)
+	}
+}
+
 func TestWhyCRUsesContractThenDescriptionThenMissing(t *testing.T) {
 	dir := t.TempDir()
 	svc := New(dir)

@@ -1,0 +1,178 @@
+schema_version: sophia.cr_archive.v1
+notice: Historical archive snapshot. Corrections are append-only revisions.
+archived_at: "2026-02-26T23:39:45Z"
+revision: 1
+cr:
+    id: 77
+    uid: cr_05910e49-2590-448c-95e2-fb82a4b43cf7
+    title: 'Agent batch ergonomics: cr apply stdin, uniform dry-run, idempotent mutation signals'
+    description: 'Three related agent ergonomic gaps: (1) cr apply requires writing a temp file before calling the command; (2) mutation commands like cr contract set and cr task done lack --dry-run, preventing agents from pre-validating before committing; (3) idempotent mutations return errors instead of a stable already_applied signal, making agent retry loops unnecessarily complex.'
+    status: merged
+    base_branch: main
+    base_ref: main
+    base_commit: 92a0247e3fc9fd35ba3f383652d19877c4f2b31b
+    branch: cr-agent-batch-ergonomics-cr-apply-stdin-uniform-dr-0591
+    merged_at: "2026-02-26T23:39:45Z"
+    merged_by: Kevandrew <143258544+Kevandrew@users.noreply.github.com>
+contract:
+    why: |-
+        Agents operate in loops. Each extra file I/O step, each inability to dry-run a mutation, and each non-idempotent error code adds latency and error-handling surface to every agent implementation. The outcome of this CR is: (1) agents can batch-create a CR plan from an inline YAML string without creating a temp file; (2) agents can dry-run key mutations to validate pre-conditions; (3) agents can retry mutations safely knowing already-applied state returns ok:true.
+        Decision boundary: cr apply --stdin, --dry-run on contract set and task done, and already_applied signal on idempotent mutations. We are NOT redesigning the apply format, NOT adding batch task completion, NOT touching merge or validation semantics.
+        Success: an agent can pipe a YAML plan to sophia without touching the filesystem, pre-validate a contract mutation with --dry-run, and retry cr contract set safely.
+    scope:
+        - internal/cli
+        - internal/service
+    non_goals:
+        - No batch task completion command.
+        - No changes to JSON envelope shape beyond adding already_applied field on relevant responses.
+        - No changes to YAML plan format or schema.
+        - No changes to merge, validate, or review dry-run semantics.
+    invariants:
+        - Dry-run never writes to .sophia/ YAML files or creates commits.
+        - already_applied responses return ok:true so agent checks on ok field still pass.
+        - cr apply --file behavior is unchanged.
+    blast_radius: 'CLI surfaces: cr apply gains --stdin flag; cr contract set and cr task done gain --dry-run flag. Service layer gains idempotency check paths. JSON output: dry-run responses include dry_run:true field; idempotent responses include already_applied:true in data. Failure modes: stdin stream read errors surface as invalid_argument; dry-run validation errors surface identically to live run errors.'
+    risk_tier_hint: low
+    test_plan: go test ./internal/cli/... && go test ./internal/service/... && go vet ./...
+    rollback_plan: Revert the CR merge commit.
+tasks:
+    - id: 1
+      title: Add --stdin flag to cr apply to read YAML plan from stdin
+      status: done
+      contract:
+        intent: When --stdin is passed, cr apply reads the YAML plan from stdin instead of requiring a --file path, removing the temp-file creation step from agent workflows.
+        acceptance_criteria:
+            - --dry-run and --stdin compose correctly.
+            - --stdin and --file are mutually exclusive; passing both emits invalid_argument.
+            - echo '<yaml>' | sophia cr apply --stdin --json works identically to sophia cr apply --file <path> --json.
+        scope:
+            - internal/cli/cr_cmd_core.go
+            - internal/service/service_plan_apply.go
+      checkpoint:
+        commit: fe0bbaeb
+        at: "2026-02-26T23:38:10Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/cr_cmd_core.go
+            - internal/service/service_plan_apply.go
+    - id: 2
+      title: Add --dry-run to cr contract set
+      status: done
+      contract:
+        intent: Validate that the provided contract fields are well-formed and would be accepted without persisting any changes to .sophia/.
+        acceptance_criteria:
+            - Invalid inputs return the same errors as a live run.
+            - sophia cr contract set <id> --why '...' --scope foo --dry-run --json returns ok:true with dry_run:true and no .sophia/ mutation.
+        scope:
+            - internal/cli/cr_cmd_core.go
+            - internal/service
+      checkpoint:
+        commit: 75e948ac
+        at: "2026-02-26T23:38:22Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service.go
+            - internal/service/service_contract_test.go
+            - internal/service/service_cr.go
+            - internal/service/service_plan_apply_test.go
+            - internal/service/service_task_checkpoint_test.go
+            - internal/service/service_tasks.go
+    - id: 3
+      title: Add --dry-run to cr task done
+      status: done
+      contract:
+        intent: Validate the task checkpoint scope (files exist, contract scope matches, no pre-staged conflicts) without creating a commit.
+        acceptance_criteria:
+            - Scope mismatches and pre-staged change errors surface identically to live run.
+            - sophia cr task done <cr-id> <task-id> --from-contract --dry-run --json returns ok:true with dry_run:true and no commit.
+        scope:
+            - internal/cli/cr_cmd_task.go
+            - internal/service
+      checkpoint:
+        commit: 4fdeae47
+        at: "2026-02-26T23:38:34Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/cr_cmd_task.go
+    - id: 4
+      title: Return already_applied signal when cr contract set is a no-op
+      status: done
+      contract:
+        intent: When cr contract set is called with values identical to what is already stored, return ok:true with already_applied:true instead of silently succeeding with no indication.
+        acceptance_criteria:
+            - 'JSON shape: data object gains already_applied boolean field.'
+            - Running cr contract set twice with identical values returns ok:true, data.already_applied:true on the second call.
+        scope:
+            - internal/cli/cr_cmd_core.go
+            - internal/cli/cr_json_mappers.go
+            - internal/service
+      checkpoint:
+        at: "2026-02-26T23:38:45Z"
+        source: task_no_checkpoint
+    - id: 5
+      title: Integration tests for stdin apply, dry-run mutations, and idempotency signals
+      status: done
+      contract:
+        intent: Prevent regressions in the three new agent ergonomic paths by covering success, no-op, and error cases for each.
+        acceptance_criteria:
+            - All tests pass under go test ./internal/cli/... ./internal/service/...
+            - 'Test: cr apply --stdin succeeds with valid YAML and fails cleanly with invalid YAML.'
+            - 'Test: cr contract set --dry-run does not write to .sophia/.'
+            - 'Test: cr contract set second call with same values returns already_applied:true.'
+            - 'Test: cr task done --dry-run does not create a commit.'
+        scope:
+            - internal/cli
+            - internal/service
+      checkpoint:
+        commit: dc6b9543
+        at: "2026-02-26T23:38:50Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/cr_json_agent_batch_test.go
+git_summary:
+    base_parent: 92a0247e3fc9fd35ba3f383652d19877c4f2b31b
+    cr_parent: dc6b954329b3c86d516dc1e67883cd45b1e4ef0b
+    files_changed:
+        - internal/cli/cr_cmd_core.go
+        - internal/cli/cr_cmd_task.go
+        - internal/cli/cr_json_agent_batch_test.go
+        - internal/service/service.go
+        - internal/service/service_contract_test.go
+        - internal/service/service_cr.go
+        - internal/service/service_plan_apply.go
+        - internal/service/service_plan_apply_test.go
+        - internal/service/service_task_checkpoint_test.go
+        - internal/service/service_tasks.go
+    diffstat:
+        summary: 10 files changed, 577 insertions(+), 25 deletions(-)
+        files:
+            - path: internal/cli/cr_cmd_core.go
+              insertions: 44
+              deletions: 8
+            - path: internal/cli/cr_cmd_task.go
+              insertions: 12
+              deletions: 1
+            - path: internal/cli/cr_json_agent_batch_test.go
+              insertions: 231
+              deletions: 0
+            - path: internal/service/service.go
+              insertions: 11
+              deletions: 0
+            - path: internal/service/service_contract_test.go
+              insertions: 49
+              deletions: 0
+            - path: internal/service/service_cr.go
+              insertions: 30
+              deletions: 6
+            - path: internal/service/service_plan_apply.go
+              insertions: 34
+              deletions: 10
+            - path: internal/service/service_plan_apply_test.go
+              insertions: 33
+              deletions: 0
+            - path: internal/service/service_task_checkpoint_test.go
+              insertions: 44
+              deletions: 0
+            - path: internal/service/service_tasks.go
+              insertions: 89
+              deletions: 0

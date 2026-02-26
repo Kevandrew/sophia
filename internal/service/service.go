@@ -479,6 +479,7 @@ type DoneTaskOptions struct {
 	FromContract       bool
 	PatchFile          string
 	NoCheckpointReason string
+	DryRun             bool
 }
 
 type ReopenTaskOptions struct {
@@ -496,6 +497,16 @@ type ContractPatch struct {
 	RiskRationale      *string
 	TestPlan           *string
 	RollbackPlan       *string
+}
+
+type SetCRContractOptions struct {
+	DryRun bool
+}
+
+type SetCRContractResult struct {
+	ChangedFields  []string
+	AlreadyApplied bool
+	DryRun         bool
 }
 
 type RiskSignal struct {

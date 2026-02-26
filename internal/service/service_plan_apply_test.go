@@ -118,6 +118,39 @@ func TestApplyCRPlanDryRunDoesNotMutate(t *testing.T) {
 	}
 }
 
+func TestApplyCRPlanDryRunFromStdinDoesNotMutate(t *testing.T) {
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	result, err := svc.ApplyCRPlan(ApplyCRPlanOptions{
+		PlanYAML:   validCRPlanYAML,
+		SourceName: "stdin",
+		DryRun:     true,
+	})
+	if err != nil {
+		t.Fatalf("ApplyCRPlan(stdin dry-run) error = %v", err)
+	}
+	if !result.DryRun {
+		t.Fatalf("expected dry_run result")
+	}
+	if result.FilePath != "stdin" {
+		t.Fatalf("expected file path source stdin, got %q", result.FilePath)
+	}
+	if result.Consumed {
+		t.Fatalf("expected consumed=false for stdin dry-run")
+	}
+	crs, err := svc.ListCRs()
+	if err != nil {
+		t.Fatalf("ListCRs() error = %v", err)
+	}
+	if len(crs) != 0 {
+		t.Fatalf("expected no CR mutation on stdin dry-run, got %d", len(crs))
+	}
+}
+
 func TestApplyCRPlanDryRunPredictionsMatchAppliedBranches(t *testing.T) {
 	dir := t.TempDir()
 	svc := New(dir)

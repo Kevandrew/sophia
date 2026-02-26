@@ -632,6 +632,7 @@ type taskDoneFlags struct {
 	fromContract       bool
 	scopePaths         []string
 	patchFile          string
+	dryRun             bool
 }
 
 func validateTaskDoneFlags(flags taskDoneFlags) error {
@@ -646,7 +647,7 @@ func validateTaskDoneFlags(flags taskDoneFlags) error {
 }
 
 func buildTaskDoneOptions(flags taskDoneFlags) service.DoneTaskOptions {
-	return clicr.BuildTaskDoneOptions(clicr.TaskDoneFlags{
+	opts := clicr.BuildTaskDoneOptions(clicr.TaskDoneFlags{
 		NoCheckpoint:       flags.noCheckpoint,
 		NoCheckpointReason: flags.noCheckpointReason,
 		StageAll:           flags.stageAll,
@@ -654,6 +655,8 @@ func buildTaskDoneOptions(flags taskDoneFlags) service.DoneTaskOptions {
 		ScopePaths:         append([]string(nil), flags.scopePaths...),
 		PatchFile:          flags.patchFile,
 	})
+	opts.DryRun = flags.dryRun
+	return opts
 }
 
 func taskDoneScopeMode(flags taskDoneFlags) string {
@@ -684,7 +687,12 @@ func writeTaskDoneResult(cmd *cobra.Command, asJSON bool, crID, taskID int, sha 
 			"patch_file":           strings.TrimSpace(flags.patchFile),
 			"no_checkpoint_reason": strings.TrimSpace(flags.noCheckpointReason),
 			"checkpoint_source":    taskDoneCheckpointSource(flags),
+			"dry_run":              flags.dryRun,
 		})
+	}
+	if flags.dryRun {
+		fmt.Fprintf(cmd.OutOrStdout(), "Dry-run passed for task %d in CR %d (no checkpoint created)\n", taskID, crID)
+		return nil
 	}
 	if flags.noCheckpoint {
 		fmt.Fprintf(cmd.OutOrStdout(), "Marked task %d done in CR %d (no checkpoint): %s\n", taskID, crID, strings.TrimSpace(flags.noCheckpointReason))
@@ -701,6 +709,7 @@ func newCRTaskDoneCmd() *cobra.Command {
 	var fromContract bool
 	var scopePaths []string
 	var patchFile string
+	var dryRun bool
 	var asJSON bool
 
 	cmd := &cobra.Command{
@@ -718,6 +727,7 @@ func newCRTaskDoneCmd() *cobra.Command {
 					fromContract:       fromContract,
 					scopePaths:         append([]string(nil), scopePaths...),
 					patchFile:          resolvePathForCmd(cmd, patchFile),
+					dryRun:             dryRun,
 				}
 				if err := validateTaskDoneFlags(flags); err != nil {
 					return commandError(cmd, asJSON, err)
@@ -738,6 +748,7 @@ func newCRTaskDoneCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&fromContract, "from-contract", false, "Checkpoint by staging changed files that match task contract scope")
 	cmd.Flags().StringArrayVar(&scopePaths, "path", nil, "Checkpoint scope path (repo-relative file, repeatable)")
 	cmd.Flags().StringVar(&patchFile, "patch-file", "", "Checkpoint scope patch manifest file")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Validate task checkpoint scope without creating a commit or mutating CR metadata")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "Output in JSON format")
 	return cmd
 }
