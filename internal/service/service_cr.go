@@ -290,7 +290,22 @@ func (s *Service) EditCR(id int, newTitle, newDescription *string) ([]string, er
 }
 
 func (s *Service) SetCRContract(id int, patch ContractPatch) ([]string, error) {
-	changed := []string{}
+	result, err := s.SetCRContractWithOptions(id, patch, SetCRContractOptions{})
+	if err != nil {
+		return nil, err
+	}
+	if result.AlreadyApplied {
+		return nil, ErrNoCRChanges
+	}
+	return append([]string(nil), result.ChangedFields...), nil
+}
+
+func (s *Service) SetCRContractWithOptions(id int, patch ContractPatch, opts SetCRContractOptions) (*SetCRContractResult, error) {
+	result := &SetCRContractResult{
+		ChangedFields:  []string{},
+		AlreadyApplied: false,
+		DryRun:         opts.DryRun,
+	}
 	if err := s.withMutationLock(func() error {
 		cr, err := s.loadCRForMutation(id)
 		if err != nil {
@@ -300,18 +315,27 @@ func (s *Service) SetCRContract(id int, patch ContractPatch) ([]string, error) {
 		if err != nil {
 			return err
 		}
-		changed, err = s.applyCRContractPatch(&cr.Contract, patch, policy)
+
+		nextContract := cr.Contract
+		changed, err := s.applyCRContractPatch(&nextContract, patch, policy)
 		if err != nil {
 			return err
 		}
 		if len(changed) == 0 {
-			return ErrNoCRChanges
+			result.AlreadyApplied = true
+			result.ChangedFields = []string{}
+			return nil
+		}
+		result.ChangedFields = append([]string(nil), changed...)
+		if opts.DryRun {
+			return nil
 		}
 
 		now := s.timestamp()
 		actor := s.activeLifecycleGitProvider().Actor()
-		cr.Contract.UpdatedAt = now
-		cr.Contract.UpdatedBy = actor
+		nextContract.UpdatedAt = now
+		nextContract.UpdatedBy = actor
+		cr.Contract = nextContract
 		return s.appendCRMutationEventAndSave(cr, model.Event{
 			TS:      now,
 			Actor:   actor,
@@ -325,7 +349,7 @@ func (s *Service) SetCRContract(id int, patch ContractPatch) ([]string, error) {
 	}); err != nil {
 		return nil, err
 	}
-	return changed, nil
+	return result, nil
 }
 
 func (s *Service) GetCRContract(id int) (*model.Contract, error) {

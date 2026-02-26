@@ -522,6 +522,12 @@ func (s *Service) doneTaskWithCheckpointUnlocked(crID, taskID int, opts DoneTask
 	if err := ensureTaskReadyForDone(task, taskID, crID, policy); err != nil {
 		return "", err
 	}
+	if opts.DryRun {
+		if err := s.previewTaskCheckpointForDone(taskGit, cr, taskIndex, taskID, opts); err != nil {
+			return "", err
+		}
+		return "", nil
+	}
 
 	commitSHA, err := s.applyTaskCheckpointForDone(taskGit, cr, task, taskIndex, taskID, now, actor, opts)
 	if err != nil {
@@ -566,6 +572,89 @@ func ensureTaskReadyForDone(task *model.Subtask, taskID, crID int, policy *model
 	missingContractFields := missingTaskContractFields(task.Contract, policy.TaskContract.RequiredFields)
 	if len(missingContractFields) > 0 {
 		return fmt.Errorf("%w: task %d missing %s", ErrTaskContractIncomplete, taskID, strings.Join(missingContractFields, ","))
+	}
+	return nil
+}
+
+func (s *Service) previewTaskCheckpointForDone(gitProvider taskLifecycleGitProvider, cr *model.CR, taskIndex, taskID int, opts DoneTaskOptions) error {
+	if !opts.Checkpoint {
+		return nil
+	}
+
+	currentBranch, branchErr := gitProvider.CurrentBranch()
+	if branchErr != nil {
+		return branchErr
+	}
+	if currentBranch != cr.Branch {
+		return fmt.Errorf("checkpoint requires active CR branch %q, current branch is %q; run `sophia cr switch %d`", cr.Branch, currentBranch, cr.ID)
+	}
+
+	preStaged, stagedErr := gitProvider.HasStagedChanges()
+	if stagedErr != nil {
+		return stagedErr
+	}
+	if preStaged {
+		return fmt.Errorf("%w: unstage changes before running task checkpoint", ErrPreStagedChanges)
+	}
+
+	if opts.StageAll {
+		dirty, dirtyErr := s.hasTaskWorkingTreeChanges(gitProvider)
+		if dirtyErr != nil {
+			return dirtyErr
+		}
+		if !dirty {
+			return fmt.Errorf("%w: task %d has no working tree changes", ErrNoTaskChanges, taskID)
+		}
+		return nil
+	}
+
+	if opts.FromContract {
+		normalizedScope, normalizeErr := s.normalizeContractScopePrefixes(cr.Subtasks[taskIndex].Contract.Scope)
+		if normalizeErr != nil {
+			return normalizeErr
+		}
+		if _, resolveErr := s.resolveTaskCheckpointPathsFromContract(gitProvider, normalizedScope); resolveErr != nil {
+			return resolveErr
+		}
+		return nil
+	}
+
+	if strings.TrimSpace(opts.PatchFile) != "" {
+		patchPath, pathErr := s.normalizePatchFilePath(opts.PatchFile)
+		if pathErr != nil {
+			return pathErr
+		}
+		patchContent, readErr := readPatchManifestContent(patchPath)
+		if readErr != nil {
+			return fmt.Errorf("read patch file %q: %w", patchFileDisplayName(opts.PatchFile), readErr)
+		}
+		parsedChunks, parseErr := parsePatchChunks(patchContent)
+		if parseErr != nil {
+			return fmt.Errorf("%w: parse patch file: %v", ErrInvalidTaskScope, parseErr)
+		}
+		if len(parsedChunks) == 0 {
+			return fmt.Errorf("%w: patch file %q contains no hunks", ErrNoTaskChanges, patchFileDisplayName(opts.PatchFile))
+		}
+		return nil
+	}
+
+	normalizedPaths, normalizeErr := s.normalizeTaskScopePaths(opts.Paths)
+	if normalizeErr != nil {
+		return normalizeErr
+	}
+	changedPathFound := false
+	for _, scopePath := range normalizedPaths {
+		hasChanges, hasErr := gitProvider.PathHasChanges(scopePath)
+		if hasErr != nil {
+			return hasErr
+		}
+		if hasChanges {
+			changedPathFound = true
+			break
+		}
+	}
+	if !changedPathFound {
+		return fmt.Errorf("%w: none of the scoped paths have changes", ErrNoTaskChanges)
 	}
 	return nil
 }

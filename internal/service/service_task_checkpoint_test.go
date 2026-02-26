@@ -132,6 +132,50 @@ func TestDoneTaskWithCheckpointCreatesCommit(t *testing.T) {
 	}
 }
 
+func TestDoneTaskWithCheckpointDryRunDoesNotCreateCommit(t *testing.T) {
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	runGit(t, dir, "config", "user.name", "Test User")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+
+	cr, err := svc.AddCR("Checkpoint dry-run", "checkpoint preview")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	task, err := svc.AddTask(cr.ID, "feat: preview checkpoint")
+	if err != nil {
+		t.Fatalf("AddTask() error = %v", err)
+	}
+	setValidTaskContract(t, svc, cr.ID, task.ID)
+	if err := os.WriteFile(filepath.Join(dir, "checkpoint-dry-run.txt"), []byte("preview\n"), 0o644); err != nil {
+		t.Fatalf("write checkpoint file: %v", err)
+	}
+	headBefore := runGit(t, dir, "rev-parse", "HEAD")
+
+	sha, err := svc.DoneTaskWithCheckpoint(cr.ID, task.ID, DoneTaskOptions{Checkpoint: true, StageAll: true, DryRun: true})
+	if err != nil {
+		t.Fatalf("DoneTaskWithCheckpoint(dry-run) error = %v", err)
+	}
+	if strings.TrimSpace(sha) != "" {
+		t.Fatalf("expected empty sha for dry-run, got %q", sha)
+	}
+
+	headAfter := runGit(t, dir, "rev-parse", "HEAD")
+	if headAfter != headBefore {
+		t.Fatalf("expected no commit on dry-run, before=%s after=%s", headBefore, headAfter)
+	}
+	loaded, err := svc.store.LoadCR(cr.ID)
+	if err != nil {
+		t.Fatalf("LoadCR() error = %v", err)
+	}
+	if loaded.Subtasks[0].Status != model.TaskStatusOpen {
+		t.Fatalf("expected task to remain open on dry-run, got %q", loaded.Subtasks[0].Status)
+	}
+}
+
 func TestDoneTaskWithCheckpointAfterReopenUsesV2Suffix(t *testing.T) {
 	dir := t.TempDir()
 	svc := New(dir)
