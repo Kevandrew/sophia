@@ -53,6 +53,9 @@ func newRootCmd() *cobra.Command {
 		Example:       "  sophia init\n  sophia cr add \"Add billing retries\" --description \"Reduce transient failure loops\"\n  sophia cr switch 12\n  sophia cr contract set 12 --why \"Retry policy drift\" --scope internal/service\n  sophia cr task add 12 \"Add jittered backoff\"\n  sophia cr task done 12 1 --from-contract\n  sophia cr review 12\n  sophia cr merge 12",
 		SilenceUsage:  true,
 		SilenceErrors: true,
+		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			return applyAutomaticJSONFlag(cmd)
+		},
 	}
 
 	rootCmd.AddCommand(newInitCmd())
@@ -252,7 +255,7 @@ func maybeHandleArgumentUsageError(root *cobra.Command, err error, argv []string
 		cmd = root
 	}
 	usageErr := buildUsageArgumentError(cmd, err)
-	if argsContainJSONFlag(argv) {
+	if jsonModeRequestedForArgs(cmd, argv) {
 		return writeJSONError(cmd, usageErr)
 	}
 	renderActionableUsageError(cmd, err, usageErr)
@@ -271,21 +274,31 @@ func isArgumentArityError(err error) bool {
 		(strings.Contains(lower, "accepts") || strings.Contains(lower, "requires"))
 }
 
-func argsContainJSONFlag(argv []string) bool {
+func jsonFlagValueFromArgs(argv []string) (bool, bool) {
 	for _, arg := range argv {
 		trimmed := strings.TrimSpace(arg)
 		if trimmed == "--json" {
-			return true
+			return true, true
 		}
 		if !strings.HasPrefix(trimmed, "--json=") {
 			continue
 		}
 		raw := strings.TrimSpace(strings.TrimPrefix(trimmed, "--json="))
 		if enabled, err := strconv.ParseBool(raw); err == nil && enabled {
-			return true
+			return true, true
+		}
+		if disabled, err := strconv.ParseBool(raw); err == nil && !disabled {
+			return false, true
 		}
 	}
-	return false
+	return false, false
+}
+
+func jsonModeRequestedForArgs(cmd *cobra.Command, argv []string) bool {
+	if value, set := jsonFlagValueFromArgs(argv); set {
+		return value
+	}
+	return implicitJSONModeEnabled(cmd)
 }
 
 func resolveCommandForArgError(root *cobra.Command, argv []string) *cobra.Command {
