@@ -49,7 +49,7 @@ func TestMergeAndTaskDoneHelpExamples(t *testing.T) {
 		t.Fatalf("cr merge --help error = %v\noutput=%s", mergeErr, mergeOut)
 	}
 	assertHelpContains(t, mergeOut,
-		"sophia cr merge <id>",
+		"sophia cr merge [id]",
 		"sophia cr merge status 25",
 		"sophia cr merge resume 25",
 		"sophia cr merge abort 25",
@@ -60,9 +60,18 @@ func TestMergeAndTaskDoneHelpExamples(t *testing.T) {
 		t.Fatalf("cr task done --help error = %v\noutput=%s", doneErr, doneOut)
 	}
 	assertHelpContains(t, doneOut,
+		"sophia cr task done [<cr-id>] <task-id>",
 		"sophia cr task done 25 1 --from-contract",
 		"sophia cr task done 25 1 --patch-file /tmp/task1.patch",
 		"sophia cr task done 25 1 --no-checkpoint --no-checkpoint-reason \"metadata-only task\"",
+	)
+
+	contractSetOut, _, contractSetErr := runCLI(t, dir, "cr", "task", "contract", "set", "--help")
+	if contractSetErr != nil {
+		t.Fatalf("cr task contract set --help error = %v\noutput=%s", contractSetErr, contractSetOut)
+	}
+	assertHelpContains(t, contractSetOut,
+		"sophia cr task contract set [<cr-id>] <task-id>",
 	)
 }
 
