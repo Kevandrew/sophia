@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"io"
 	clicr "sophia/internal/cli/cr"
 	"strings"
 
@@ -114,6 +115,7 @@ func newCRAddCmd() *cobra.Command {
 
 func newCRApplyCmd() *cobra.Command {
 	var filePath string
+	var stdin bool
 	var dryRun bool
 	var keepFile bool
 	var asJSON bool
@@ -123,19 +125,34 @@ func newCRApplyCmd() *cobra.Command {
 		Short: "Apply a strict YAML CR plan",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if strings.TrimSpace(filePath) == "" {
-				err := fmt.Errorf("--file is required")
+			if stdin && strings.TrimSpace(filePath) != "" {
+				err := fmt.Errorf("invalid arguments: --stdin and --file are mutually exclusive")
+				return commandError(cmd, asJSON, err)
+			}
+			if !stdin && strings.TrimSpace(filePath) == "" {
+				err := fmt.Errorf("invalid arguments: one of --file or --stdin is required")
 				return commandError(cmd, asJSON, err)
 			}
 			svc, err := newServiceForCmd(cmd)
 			if err != nil {
 				return commandError(cmd, asJSON, err)
 			}
-			result, err := svc.ApplyCRPlan(service.ApplyCRPlanOptions{
+			applyOpts := service.ApplyCRPlanOptions{
 				FilePath: resolvePathForCmd(cmd, filePath),
 				DryRun:   dryRun,
 				KeepFile: keepFile,
-			})
+			}
+			if stdin {
+				input, readErr := io.ReadAll(cmd.InOrStdin())
+				if readErr != nil {
+					return commandError(cmd, asJSON, fmt.Errorf("read stdin plan: %w", readErr))
+				}
+				applyOpts.FilePath = ""
+				applyOpts.PlanYAML = string(input)
+				applyOpts.SourceName = "stdin"
+				applyOpts.KeepFile = true
+			}
+			result, err := svc.ApplyCRPlan(applyOpts)
 			if err != nil {
 				return commandError(cmd, asJSON, err)
 			}
@@ -194,6 +211,7 @@ func newCRApplyCmd() *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&filePath, "file", "", "Path to YAML plan file")
+	cmd.Flags().BoolVar(&stdin, "stdin", false, "Read YAML plan from stdin")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Validate and preview plan without mutating repository state")
 	cmd.Flags().BoolVar(&keepFile, "keep-file", false, "Keep source plan file after successful apply")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "Output in JSON format")
@@ -686,6 +704,7 @@ func newCRContractSetCmd() *cobra.Command {
 	var riskRationale string
 	var testPlan string
 	var rollbackPlan string
+	var dryRun bool
 	var asJSON bool
 
 	cmd := &cobra.Command{
@@ -740,17 +759,33 @@ func newCRContractSetCmd() *cobra.Command {
 				return commandError(cmd, asJSON, err)
 			}
 			return withOptionalCRIDAndService(cmd, asJSON, args, "id", func(id int, svc *service.Service) error {
-				changed, err := svc.SetCRContract(id, patch)
+				result, err := svc.SetCRContractWithOptions(id, patch, service.SetCRContractOptions{
+					DryRun: dryRun,
+				})
 				if err != nil {
 					return commandError(cmd, asJSON, err)
 				}
 				if asJSON {
 					return writeJSONSuccess(cmd, map[string]any{
-						"cr_id":          id,
-						"changed_fields": stringSliceOrEmpty(changed),
+						"cr_id":           id,
+						"changed_fields":  stringSliceOrEmpty(result.ChangedFields),
+						"already_applied": result.AlreadyApplied,
+						"dry_run":         dryRun,
 					})
 				}
-				fmt.Fprintf(cmd.OutOrStdout(), "Updated CR %d contract fields: %s\n", id, strings.Join(changed, ", "))
+				if result.AlreadyApplied {
+					if dryRun {
+						fmt.Fprintf(cmd.OutOrStdout(), "Dry-run: CR %d contract already matches requested values\n", id)
+						return nil
+					}
+					fmt.Fprintf(cmd.OutOrStdout(), "CR %d contract already matches requested values\n", id)
+					return nil
+				}
+				if dryRun {
+					fmt.Fprintf(cmd.OutOrStdout(), "Dry-run: CR %d contract update valid; fields would change: %s\n", id, strings.Join(result.ChangedFields, ", "))
+					return nil
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "Updated CR %d contract fields: %s\n", id, strings.Join(result.ChangedFields, ", "))
 				return nil
 			})
 		},
@@ -766,6 +801,7 @@ func newCRContractSetCmd() *cobra.Command {
 	cmd.Flags().StringVar(&riskRationale, "risk-rationale", "", "Optional rationale for risk hint choices")
 	cmd.Flags().StringVar(&testPlan, "test-plan", "", "Planned validation/testing approach")
 	cmd.Flags().StringVar(&rollbackPlan, "rollback-plan", "", "Rollback strategy")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Validate contract changes without mutating CR metadata")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "Output in JSON format")
 	return cmd
 }

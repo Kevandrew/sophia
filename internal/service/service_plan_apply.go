@@ -13,9 +13,11 @@ import (
 )
 
 type ApplyCRPlanOptions struct {
-	FilePath string
-	DryRun   bool
-	KeepFile bool
+	FilePath   string
+	PlanYAML   string
+	SourceName string
+	DryRun     bool
+	KeepFile   bool
 }
 
 type ApplyCRPlanCreatedCR struct {
@@ -115,7 +117,12 @@ type planCRPrediction struct {
 
 func (s *Service) ApplyCRPlan(opts ApplyCRPlanOptions) (*ApplyCRPlanResult, error) {
 	planPath := strings.TrimSpace(opts.FilePath)
-	if planPath == "" {
+	planYAML := opts.PlanYAML
+	planFromStdin := strings.TrimSpace(planYAML) != ""
+	if planFromStdin && planPath != "" {
+		return nil, fmt.Errorf("--file and --stdin are mutually exclusive")
+	}
+	if !planFromStdin && planPath == "" {
 		return nil, fmt.Errorf("--file is required")
 	}
 	if err := s.store.EnsureInitialized(); err != nil {
@@ -125,7 +132,21 @@ func (s *Service) ApplyCRPlan(opts ApplyCRPlanOptions) (*ApplyCRPlanResult, erro
 		return nil, err
 	}
 
-	plan, err := readCRPlanFile(planPath)
+	planSource := planPath
+	if planFromStdin {
+		planSource = strings.TrimSpace(opts.SourceName)
+		if planSource == "" {
+			planSource = "stdin"
+		}
+	}
+
+	var plan *crPlanSpec
+	var err error
+	if planFromStdin {
+		plan, err = readCRPlanYAML(planSource, []byte(planYAML))
+	} else {
+		plan, err = readCRPlanFile(planPath)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -135,7 +156,7 @@ func (s *Service) ApplyCRPlan(opts ApplyCRPlanOptions) (*ApplyCRPlanResult, erro
 	}
 
 	result := &ApplyCRPlanResult{
-		FilePath:          planPath,
+		FilePath:          planSource,
 		DryRun:            opts.DryRun,
 		Consumed:          false,
 		PlannedOperations: s.planOperations(order),
@@ -185,7 +206,7 @@ func (s *Service) ApplyCRPlan(opts ApplyCRPlanOptions) (*ApplyCRPlanResult, erro
 	result.Delegations = applied.Delegations
 	result.Warnings = append(result.Warnings, applied.Warnings...)
 
-	if !opts.KeepFile {
+	if !planFromStdin && !opts.KeepFile {
 		if removeErr := os.Remove(planPath); removeErr != nil {
 			result.Warnings = append(result.Warnings, fmt.Sprintf("apply succeeded but failed to consume plan file %q: %v", planPath, removeErr))
 		} else {
@@ -205,18 +226,21 @@ func readCRPlanFile(path string) (*crPlanSpec, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read plan file %q: %w", cleanPath, err)
 	}
+	return readCRPlanYAML(cleanPath, data)
+}
 
+func readCRPlanYAML(source string, data []byte) (*crPlanSpec, error) {
 	var plan crPlanSpec
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
 	if err := dec.Decode(&plan); err != nil {
-		return nil, fmt.Errorf("parse plan file %q: %w", cleanPath, err)
+		return nil, fmt.Errorf("parse plan input %q: %w", source, err)
 	}
 	var extra any
 	if err := dec.Decode(&extra); err == nil {
-		return nil, fmt.Errorf("parse plan file %q: multiple YAML documents are not supported", cleanPath)
+		return nil, fmt.Errorf("parse plan input %q: multiple YAML documents are not supported", source)
 	} else if err != io.EOF {
-		return nil, fmt.Errorf("parse plan file %q: %w", cleanPath, err)
+		return nil, fmt.Errorf("parse plan input %q: %w", source, err)
 	}
 	return &plan, nil
 }
