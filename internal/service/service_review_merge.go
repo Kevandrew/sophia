@@ -38,7 +38,7 @@ func (s *Service) ReviewCR(id int) (*Review, error) {
 			return nil, err
 		}
 	}
-	trust := buildTrustReportWithPolicy(cr, validation, diff, policy.Contract.RequiredFields, policy)
+	trust := s.trustDomainService().buildReportWithPolicy(cr, validation, diff, policy.Contract.RequiredFields, policy)
 
 	return &Review{
 		CR:                 cr,
@@ -497,7 +497,7 @@ func (s *Service) prepareMergePreflight(id int, cr *model.CR, overrideReason str
 	if err != nil {
 		return nil, err
 	}
-	trust := buildTrustReportWithPolicy(cr, validation, diff, policy.Contract.RequiredFields, policy)
+	trust := s.trustDomainService().buildReportWithPolicy(cr, validation, diff, policy.Contract.RequiredFields, policy)
 	trimmedOverride := strings.TrimSpace(overrideReason)
 	if trimmedOverride != "" && !policyAllowsMergeOverride(policy) {
 		return nil, fmt.Errorf("%w: merge override is disabled by repository policy", ErrPolicyViolation)

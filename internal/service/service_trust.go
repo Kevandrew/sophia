@@ -36,6 +36,10 @@ func buildTrustReport(cr *model.CR, validation *ValidationReport, diff *diffSumm
 }
 
 func buildTrustReportWithPolicy(cr *model.CR, validation *ValidationReport, diff *diffSummary, requiredCRFields []string, policy *model.RepoPolicy) *TrustReport {
+	return buildTrustReportWithPolicyAt(cr, validation, diff, requiredCRFields, policy, time.Now().UTC())
+}
+
+func buildTrustReportWithPolicyAt(cr *model.CR, validation *ValidationReport, diff *diffSummary, requiredCRFields []string, policy *model.RepoPolicy, now time.Time) *TrustReport {
 	if cr == nil {
 		return &TrustReport{
 			Verdict:      trustVerdictUntrusted,
@@ -60,12 +64,17 @@ func buildTrustReportWithPolicy(cr *model.CR, validation *ValidationReport, diff
 	if policy == nil {
 		policy = defaultRepoPolicy()
 	}
+	if now.IsZero() {
+		now = time.Now().UTC()
+	} else {
+		now = now.UTC()
+	}
 	validation, diff, impact, shortStat := normalizeTrustInputs(validation, diff)
 	hardFailures, requirements := buildInitialTrustRequirements(cr, validation, requiredCRFields)
 	dimensions, score, max, dimensionActions, advisories := evaluateTrustDimensions(cr, validation, impact, diff, shortStat)
 	riskTier := normalizedRiskTier(impact.RiskTier)
 	reviewDepth := evaluateTrustReviewDepth(cr, policy.Trust, riskTier)
-	checkRequirements, checkResults := buildTrustCheckRequirements(cr, policy.Trust, riskTier, time.Now().UTC())
+	checkRequirements, checkResults := buildTrustCheckRequirements(cr, policy.Trust, riskTier, now)
 	requirements = append(requirements, checkRequirements...)
 	requirements = append(requirements, buildReviewDepthRequirement(reviewDepth))
 	contractDrift := summarizeTaskContractDrift(cr.Subtasks)
