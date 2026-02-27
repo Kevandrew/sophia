@@ -23,14 +23,6 @@ func buildTrustReport(cr *model.CR, validation *ValidationReport, diff *diffSumm
 	return newTrustDomain(nil).buildReport(cr, validation, diff, requiredCRFields)
 }
 
-func buildTrustReportWithPolicy(cr *model.CR, validation *ValidationReport, diff *diffSummary, requiredCRFields []string, policy *model.RepoPolicy) *TrustReport {
-	return newTrustDomain(nil).buildReportWithPolicy(cr, validation, diff, requiredCRFields, policy)
-}
-
-func buildTrustReportWithPolicyAt(cr *model.CR, validation *ValidationReport, diff *diffSummary, requiredCRFields []string, policy *model.RepoPolicy, now time.Time) *TrustReport {
-	return newTrustDomain(nil).buildReportWithPolicyAt(cr, validation, diff, requiredCRFields, policy, now)
-}
-
 func normalizeTrustInputs(validation *ValidationReport, diff *diffSummary) (*ValidationReport, *diffSummary, *ImpactReport, shortStatMetrics) {
 	if validation == nil {
 		validation = &ValidationReport{}
@@ -572,10 +564,6 @@ func boolValueOrDefault(value *bool, fallback bool) bool {
 
 func intValueOrDefault(value *int, fallback int) int {
 	return servicetrust.IntValueOrDefault(value, fallback)
-}
-
-func floatValueOrDefault(value *float64, fallback float64) float64 {
-	return servicetrust.FloatValueOrDefault(value, fallback)
 }
 
 func containsInt(values []int, target int) bool {

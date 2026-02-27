@@ -112,30 +112,6 @@ func (s *Service) resumeMergeCRUnlocked(id int, keepBranch bool, overrideReason 
 	return s.mergeDomainService().resumeMergeCRUnlocked(id, keepBranch, overrideReason)
 }
 
-func (s *Service) resolveMergeArchiveConfig() (model.PolicyArchive, bool, error) {
-	return s.mergeDomainService().resolveMergeArchiveConfig()
-}
-
-func (s *Service) maybeDeleteMergedCRBranch(branch string, keepBranch bool) ([]string, error) {
-	return s.mergeDomainService().maybeDeleteMergedCRBranch(branch, keepBranch)
-}
-
-func (s *Service) writeAutomaticCRArchiveForMerge(mergeGit mergeRuntimeGit, worktreePath string, cr *model.CR, archiveConfig model.PolicyArchive, actor, mergedAt, baseParent, crParent string, reuseExisting bool) error {
-	return s.mergeDomainService().writeAutomaticCRArchiveForMerge(mergeGit, worktreePath, cr, archiveConfig, actor, mergedAt, baseParent, crParent, reuseExisting)
-}
-
-func (s *Service) prepareMergePreflight(id int, cr *model.CR, overrideReason string, enforceParentState bool) (*mergePreflightView, error) {
-	return s.mergeDomainService().prepareMergePreflight(id, cr, overrideReason, enforceParentState)
-}
-
-func (s *Service) finalizeCRMergedState(cr *model.CR, validation *ValidationReport, trust *TrustReport, overrideReason, actor, mergedAt, sha string, resumed bool) error {
-	return s.mergeDomainService().finalizeCRMergedState(cr, validation, trust, overrideReason, actor, mergedAt, sha, resumed)
-}
-
-func (s *Service) recordMergeConflictEvent(cr *model.CR, actor, worktreePath string, conflictFiles []string, cause error) error {
-	return s.mergeDomainService().recordMergeConflictEvent(cr, actor, worktreePath, conflictFiles, cause)
-}
-
 func (s *Service) Doctor(limit int) (*DoctorReport, error) {
 	if err := s.store.EnsureInitialized(); err != nil {
 		return nil, err

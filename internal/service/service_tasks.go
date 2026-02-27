@@ -195,10 +195,6 @@ func (s *Service) ExportTaskChunkWorkingTreePatch(crID, taskID int, chunkIDs, pa
 	return s.taskLifecycleDomainService().exportTaskChunkWorkingTreePatch(crID, taskID, chunkIDs, paths)
 }
 
-func (s *Service) loadWorkingTreeTaskChunks(crID, taskID int, paths []string) ([]parsedPatchFile, []TaskChunk, string, error) {
-	return s.taskLifecycleDomainService().loadWorkingTreeTaskChunks(crID, taskID, paths)
-}
-
 func (s *Service) DoneTask(crID, taskID int) error {
 	_, err := s.DoneTaskWithCheckpoint(crID, taskID, DoneTaskOptions{
 		Checkpoint:         false,
@@ -258,22 +254,6 @@ func ensureTaskReadyForDone(task *model.Subtask, taskID, crID int, policy *model
 		return fmt.Errorf("%w: task %d missing %s", ErrTaskContractIncomplete, taskID, strings.Join(missingContractFields, ","))
 	}
 	return nil
-}
-
-func (s *Service) previewTaskCheckpointForDone(gitProvider taskLifecycleGitProvider, cr *model.CR, taskIndex, taskID int, opts DoneTaskOptions) error {
-	return s.taskLifecycleDomainService().previewTaskCheckpointForDone(gitProvider, cr, taskIndex, taskID, opts)
-}
-
-func (s *Service) applyTaskCheckpointForDone(gitProvider taskLifecycleGitProvider, cr *model.CR, task *model.Subtask, taskIndex, taskID int, now, actor string, opts DoneTaskOptions) (string, error) {
-	return s.taskLifecycleDomainService().applyTaskCheckpointForDone(gitProvider, cr, task, taskIndex, taskID, now, actor, opts)
-}
-
-func (s *Service) stageTaskCheckpointForDone(gitProvider taskLifecycleGitProvider, cr *model.CR, taskIndex, taskID int, opts DoneTaskOptions) ([]string, []model.CheckpointChunk, string, error) {
-	return s.taskLifecycleDomainService().stageTaskCheckpointForDone(gitProvider, cr, taskIndex, taskID, opts)
-}
-
-func (s *Service) hasTaskWorkingTreeChanges(gitProvider taskLifecycleGitProvider) (bool, error) {
-	return s.taskLifecycleDomainService().hasTaskWorkingTreeChanges(gitProvider)
 }
 
 const maxPatchManifestBytes = 8 * 1024 * 1024

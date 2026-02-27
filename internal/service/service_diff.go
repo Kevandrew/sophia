@@ -245,10 +245,6 @@ func (s *Service) diffNamesForCR(cr *model.CR) ([]string, error) {
 	return s.git.DiffNames(baseRef, cr.Branch)
 }
 
-func (s *Service) parentBaseAnchor(parent *model.CR) (string, string, error) {
-	return s.parentBaseAnchorWithProviders(parent, s.store, s.git)
-}
-
 func (s *Service) parentBaseAnchorWithProviders(parent *model.CR, crStore crBaseFieldsStore, gitClient crBaseAnchorGit) (string, string, error) {
 	if parent == nil {
 		return "", "", errors.New("parent cr is required")
