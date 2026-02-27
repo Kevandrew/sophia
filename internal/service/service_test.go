@@ -200,9 +200,13 @@ func TestAddCRWithExplicitBaseRef(t *testing.T) {
 	runGit(t, dir, "-c", "user.name=Test User", "-c", "user.email=test@example.com", "commit", "-m", "feat: release base")
 	runGit(t, dir, "checkout", "-B", "main")
 
-	cr, _, err := svc.AddCRWithOptionsWithWarnings("Release-based", "base ref", AddCROptions{BaseRef: "release"})
+	result, err := svc.AddCRWithOptions("Release-based", "base ref", AddCROptions{BaseRef: "release"})
 	if err != nil {
-		t.Fatalf("AddCRWithOptionsWithWarnings() error = %v", err)
+		t.Fatalf("AddCRWithOptions() error = %v", err)
+	}
+	cr := result.CR
+	if result.Warnings == nil {
+		t.Fatalf("expected warnings slice to be non-nil")
 	}
 	if cr.BaseRef != "release" {
 		t.Fatalf("expected base ref release, got %q", cr.BaseRef)
@@ -240,10 +244,11 @@ func TestAddChildCRUsesParentAnchor(t *testing.T) {
 		t.Fatalf("ResolveRef(parent branch) error = %v", err)
 	}
 
-	child, _, err := svc.AddCRWithOptionsWithWarnings("Child", "stacked", AddCROptions{ParentCRID: parent.ID})
+	childResult, err := svc.AddCRWithOptions("Child", "stacked", AddCROptions{ParentCRID: parent.ID})
 	if err != nil {
-		t.Fatalf("AddCRWithOptionsWithWarnings(child) error = %v", err)
+		t.Fatalf("AddCRWithOptions(child) error = %v", err)
 	}
+	child := childResult.CR
 	if child.ParentCRID != parent.ID {
 		t.Fatalf("expected parent id %d, got %d", parent.ID, child.ParentCRID)
 	}

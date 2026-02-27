@@ -89,3 +89,16 @@ func decodeEnvelope(t *testing.T, raw string) envelope {
 	}
 	return env
 }
+
+func requireJSONArrayField(t *testing.T, payload map[string]any, key string) []any {
+	t.Helper()
+	value, ok := payload[key]
+	if !ok {
+		t.Fatalf("expected key %q in payload %#v", key, payload)
+	}
+	items, ok := value.([]any)
+	if !ok {
+		t.Fatalf("expected %q to be array, got %#v", key, value)
+	}
+	return items
+}
