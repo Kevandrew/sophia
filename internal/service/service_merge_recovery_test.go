@@ -109,10 +109,12 @@ func TestResumeMergeFinalizesAfterManualResolution(t *testing.T) {
 	}
 	runGit(t, dir, "add", "conflict.txt")
 
-	sha, warnings, err := svc.ResumeMergeCR(cr.ID, false, "")
+	result, err := svc.ResumeMergeCRWithOptions(cr.ID, MergeCROptions{KeepBranch: false})
 	if err != nil {
-		t.Fatalf("ResumeMergeCR() error = %v", err)
+		t.Fatalf("ResumeMergeCRWithOptions() error = %v", err)
 	}
+	sha := result.MergedCommit
+	warnings := result.Warnings
 	if sha == "" {
 		t.Fatalf("expected resumed merge sha")
 	}
