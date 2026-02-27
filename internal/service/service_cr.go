@@ -11,12 +11,19 @@ import (
 )
 
 func (s *Service) AddCR(title, description string) (*model.CR, error) {
-	cr, _, err := s.AddCRWithOptionsWithWarnings(title, description, AddCROptions{Switch: true})
-	return cr, err
+	result, err := s.AddCRWithOptions(title, description, AddCROptions{Switch: true})
+	if err != nil {
+		return nil, err
+	}
+	return result.CR, nil
 }
 
 func (s *Service) AddCRWithWarnings(title, description string) (*model.CR, []string, error) {
-	return s.AddCRWithOptionsWithWarnings(title, description, AddCROptions{Switch: true})
+	result, err := s.AddCRWithOptions(title, description, AddCROptions{Switch: true})
+	if err != nil {
+		return nil, nil, err
+	}
+	return result.CR, append([]string(nil), result.Warnings...), nil
 }
 
 type addCRBaseContext struct {
@@ -25,37 +32,47 @@ type addCRBaseContext struct {
 	parentID   int
 }
 
-func (s *Service) AddCRWithOptionsWithWarnings(title, description string, opts AddCROptions) (*model.CR, []string, error) {
-	var (
-		cr       *model.CR
-		warnings []string
-	)
-	if err := s.withMutationLock(func() error {
-		var err error
-		cr, warnings, err = s.addCRWithOptionsWithWarningsUnlocked(title, description, opts)
-		return err
-	}); err != nil {
-		return nil, nil, err
-	}
-	return cr, warnings, nil
+type AddCRResult struct {
+	CR       *model.CR
+	Warnings []string
 }
 
-func (s *Service) addCRWithOptionsWithWarningsUnlocked(title, description string, opts AddCROptions) (*model.CR, []string, error) {
+func (s *Service) AddCRWithOptionsWithWarnings(title, description string, opts AddCROptions) (*model.CR, []string, error) {
+	result, err := s.AddCRWithOptions(title, description, opts)
+	if err != nil {
+		return nil, nil, err
+	}
+	return result.CR, append([]string(nil), result.Warnings...), nil
+}
+
+func (s *Service) AddCRWithOptions(title, description string, opts AddCROptions) (*AddCRResult, error) {
+	var result *AddCRResult
+	if err := s.withMutationLock(func() error {
+		var err error
+		result, err = s.addCRWithOptionsUnlocked(title, description, opts)
+		return err
+	}); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func (s *Service) addCRWithOptionsUnlocked(title, description string, opts AddCROptions) (*AddCRResult, error) {
 	lifecycleStore := s.activeLifecycleStoreProvider()
 	lifecycleGit := s.activeLifecycleGitProvider()
 	if err := servicecr.ValidateAddRequest(title, opts.BaseRef, opts.ParentCRID, opts.BranchAlias, opts.OwnerPrefixSet); err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	if err := lifecycleStore.EnsureInitialized(); err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	if err := s.ensureNoMergeInProgressInCurrentWorktree(); err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	cfg, err := lifecycleStore.LoadConfig()
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	currentBranch, _ := lifecycleGit.CurrentBranch()
@@ -68,45 +85,45 @@ func (s *Service) addCRWithOptionsWithWarningsUnlocked(title, description string
 	}
 
 	if err := lifecycleGit.EnsureBranchExists(cfg.BaseBranch); err != nil {
-		return nil, nil, fmt.Errorf("ensure base branch: %w", err)
+		return nil, fmt.Errorf("ensure base branch: %w", err)
 	}
 	if err := lifecycleGit.EnsureBootstrapCommit("chore: bootstrap base branch for Sophia"); err != nil {
-		return nil, nil, fmt.Errorf("ensure bootstrap commit: %w", err)
+		return nil, fmt.Errorf("ensure bootstrap commit: %w", err)
 	}
 	if err := s.ensureNextCRIDFloor(cfg.BaseBranch); err != nil {
-		return nil, nil, fmt.Errorf("align cr id sequence: %w", err)
+		return nil, fmt.Errorf("align cr id sequence: %w", err)
 	}
 
 	baseContext, err := s.resolveAddCRBaseContext(cfg, opts)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	id, err := lifecycleStore.NextCRID()
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	uid, err := resolveAddCRUID(opts)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	branch, err := s.resolveAddCRBranch(cfg, opts, id, uid, title)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	if strings.TrimSpace(opts.BranchAlias) != "" && lifecycleGit.BranchExists(branch) {
-		return nil, nil, fmt.Errorf("branch %q already exists", branch)
+		return nil, fmt.Errorf("branch %q already exists", branch)
 	}
 	switchBranch := servicecr.ShouldSwitch(opts.NoSwitch, opts.Switch)
 
 	if switchBranch {
 		if err := lifecycleGit.CreateBranchFrom(branch, baseContext.baseCommit); err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 	} else {
 		if err := lifecycleGit.CreateBranchAt(branch, baseContext.baseCommit); err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 	}
 
@@ -127,14 +144,17 @@ func (s *Service) addCRWithOptionsWithWarningsUnlocked(title, description string
 	})
 
 	if err := lifecycleStore.SaveCR(cr); err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	if err := s.syncCRRef(cr); err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	warnings := s.computeOverlapWarnings(referenceDirs, cr.ID)
-	return cr, warnings, nil
+	return &AddCRResult{
+		CR:       cr,
+		Warnings: append([]string{}, warnings...),
+	}, nil
 }
 
 func (s *Service) resolveAddCRBaseContext(cfg model.Config, opts AddCROptions) (addCRBaseContext, error) {
