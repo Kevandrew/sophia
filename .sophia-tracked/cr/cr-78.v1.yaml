@@ -1,0 +1,68 @@
+schema_version: sophia.cr_archive.v1
+notice: Historical archive snapshot. Corrections are append-only revisions.
+archived_at: "2026-02-27T01:21:47Z"
+revision: 1
+cr:
+    id: 78
+    uid: cr_701b6214-e30c-4238-9293-dca145a5b3a8
+    title: Fix SOPHIA_OUTPUT=json for cr subcommands
+    description: Ensure automatic JSON mode applies under cr PersistentPreRunE and add regression coverage
+    status: merged
+    base_branch: main
+    base_ref: main
+    base_commit: 9fc814da13a98451bba4e0289a8d8fb0d2b31442
+    branch: cr-fix-sophia-output-json-for-cr-subcommands-701b
+    merged_at: "2026-02-27T01:21:47Z"
+    merged_by: Kevandrew <143258544+Kevandrew@users.noreply.github.com>
+contract:
+    why: CR-75 introduced SOPHIA_OUTPUT-based automatic JSON mode in the root pre-run. The CR command has its own PersistentPreRunE and did not chain that auto-JSON hook, so `SOPHIA_OUTPUT=json sophia cr list` produced text output in TTY sessions. This change applies automatic JSON selection in the CR pre-run path before selector rewriting, restoring consistent behavior for CR subcommands while preserving existing selector semantics.
+    scope:
+        - internal/cli/cr.go
+        - internal/cli/output_mode_test.go
+    non_goals:
+        - Change JSON envelope schema or command payload fields.
+        - Change default text output when SOPHIA_OUTPUT is unset and stdout is a TTY.
+    invariants:
+        - CR selector rewrite behavior remains unchanged for CR subcommands.
+        - Explicit --json=false must force text output even when SOPHIA_OUTPUT=json is set.
+    blast_radius: Limited to CLI output mode activation for `sophia cr ...` subcommands that already support `--json`; no changes to service logic, persistence, or JSON payload schemas.
+    risk_critical_scopes:
+        - internal/cli
+    risk_tier_hint: low
+    risk_rationale: Small CLI wiring change in pre-run hook plus regression coverage; no data model or merge-flow changes.
+    test_plan: go test ./internal/cli -run TestOutputModeSOPHIAOutputJSONAppliesToCRSubcommands; go test ./...; go vet ./...; SOPHIA_OUTPUT=json sophia cr list (TTY smoke test).
+    rollback_plan: Revert task checkpoint commit 8b444c03 on CR-78 and rebuild the sophia binary.
+tasks:
+    - id: 1
+      title: Fix SOPHIA_OUTPUT JSON propagation for cr subcommands
+      status: done
+      contract:
+        intent: Ensure SOPHIA_OUTPUT=json implicitly enables --json for cr subcommands that define their own PersistentPreRunE
+        acceptance_criteria:
+            - Regression test covers env-var JSON mode for cr list
+            - SOPHIA_OUTPUT=json sophia cr list emits JSON without explicit --json
+        scope:
+            - internal/cli/cr.go
+            - internal/cli/output_mode_test.go
+      checkpoint:
+        commit: 8b444c03
+        at: "2026-02-27T01:01:11Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/cr.go
+            - internal/cli/output_mode_test.go
+git_summary:
+    base_parent: 9fc814da13a98451bba4e0289a8d8fb0d2b31442
+    cr_parent: 8b444c039ff798ea4a105fa4acd00ddcfb630ba9
+    files_changed:
+        - internal/cli/cr.go
+        - internal/cli/output_mode_test.go
+    diffstat:
+        summary: 2 files changed, 28 insertions(+), 0 deletions(-)
+        files:
+            - path: internal/cli/cr.go
+              insertions: 3
+              deletions: 0
+            - path: internal/cli/output_mode_test.go
+              insertions: 25
+              deletions: 0
