@@ -1,6 +1,7 @@
 package service
 
 import (
+	"sophia/internal/model"
 	"strings"
 	"testing"
 )
@@ -115,5 +116,60 @@ trust:
 	}
 	if report.CheckResults[0].Status != policyTrustCheckStatusStale {
 		t.Fatalf("expected stale status, got %#v", report.CheckResults[0])
+	}
+}
+
+func TestTrustCheckStatusCRUsesRuntimeStatusStoreProvider(t *testing.T) {
+	dir := t.TempDir()
+	cr := &model.CR{
+		ID:          1,
+		UID:         "cr_runtime_status_store",
+		Title:       "runtime status provider",
+		Description: "ensure trust status reads from runtime store",
+		Status:      model.StatusMerged,
+		BaseBranch:  "main",
+		BaseRef:     "main",
+		BaseCommit:  "base-sha",
+		Branch:      "cr-runtime-harness",
+		Contract: model.Contract{
+			Why:          "exercise trust status runtime-provider seam",
+			Scope:        []string{"internal/service"},
+			NonGoals:     []string{"no workflow changes"},
+			Invariants:   []string{"trust status remains deterministic"},
+			BlastRadius:  "status-only runtime provider plumbing",
+			TestPlan:     "go test ./internal/service/...",
+			RollbackPlan: "revert runtime-provider seam commit",
+		},
+		Subtasks: []model.Subtask{
+			{
+				ID:               1,
+				Title:            "checkpoint scope seed",
+				Status:           model.TaskStatusDone,
+				CheckpointCommit: "abc1234",
+				CheckpointScope:  []string{"internal/service/service_trust.go"},
+				CheckpointSource: model.TaskCheckpointSourceTaskCheckpoint,
+			},
+		},
+	}
+	h := harnessService(t, runtimeHarnessOptions{
+		RepoRoot: dir,
+		CRs:      []*model.CR{cr},
+	})
+
+	report, err := h.Service.TrustCheckStatusCR(cr.ID)
+	if err != nil {
+		t.Fatalf("TrustCheckStatusCR() error = %v", err)
+	}
+	if h.Store.Calls("LoadCR") == 0 {
+		t.Fatalf("expected runtime status store to service TrustCheckStatusCR")
+	}
+	if report.CRID != cr.ID {
+		t.Fatalf("expected report CRID %d, got %d", cr.ID, report.CRID)
+	}
+	if report.CheckMode != "none" {
+		t.Fatalf("expected check mode none with default policy, got %#v", report.CheckMode)
+	}
+	if len(report.Guidance) == 0 {
+		t.Fatalf("expected non-empty guidance for none check mode, got %#v", report.Guidance)
 	}
 }

@@ -144,7 +144,8 @@ func (d *trustDomain) trustCheckStatusCR(id int) (*TrustCheckStatusReport, error
 	if d == nil || d.svc == nil {
 		return nil, fmt.Errorf("trust domain is not initialized")
 	}
-	cr, err := d.svc.store.LoadCR(id)
+	statusStore := d.svc.activeStatusStoreProvider()
+	cr, err := statusStore.LoadCR(id)
 	if err != nil {
 		return nil, err
 	}
@@ -179,7 +180,8 @@ func (d *trustDomain) runTrustChecksCR(id int) (*TrustCheckRunReport, error) {
 	if d == nil || d.svc == nil {
 		return nil, fmt.Errorf("trust domain is not initialized")
 	}
-	cr, err := d.svc.store.LoadCR(id)
+	statusStore := d.svc.activeStatusStoreProvider()
+	cr, err := statusStore.LoadCR(id)
 	if err != nil {
 		return nil, err
 	}
@@ -238,7 +240,7 @@ func (d *trustDomain) runTrustChecksCR(id int) (*TrustCheckRunReport, error) {
 		}
 	}
 
-	updatedCR, err := d.svc.store.LoadCR(id)
+	updatedCR, err := statusStore.LoadCR(id)
 	if err != nil {
 		return nil, err
 	}
