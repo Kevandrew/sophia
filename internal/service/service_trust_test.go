@@ -3,6 +3,7 @@ package service
 import (
 	"sophia/internal/model"
 	"testing"
+	"time"
 )
 
 func TestTrustReportValidationErrorsHardFail(t *testing.T) {
@@ -468,6 +469,63 @@ func TestTrustDimensionsKeepCodesAndUseUpdatedLabels(t *testing.T) {
 	}
 }
 
+func TestTrustDomainUsesInjectedClockForCheckFreshness(t *testing.T) {
+	now := time.Date(2026, time.January, 10, 12, 0, 0, 0, time.UTC)
+	svc := &Service{
+		now: func() time.Time { return now },
+	}
+	domain := newTrustDomain(svc)
+	exitCode := 0
+	cr := &model.CR{
+		ID:       79,
+		Contract: validTrustContract(),
+		Evidence: []model.EvidenceEntry{
+			{
+				TS:       now.Add(-30 * time.Minute).Format(time.RFC3339),
+				Type:     evidenceTypeCommandRun,
+				Command:  "printf 'ok\\n'",
+				ExitCode: &exitCode,
+				Summary:  "fresh command run",
+			},
+		},
+	}
+	policy := defaultRepoPolicy()
+	oneHour := 1
+	policy.Trust.Checks.FreshnessHours = &oneHour
+	policy.Trust.Checks.Definitions = []model.PolicyTrustCheckDefinition{
+		{
+			Key:            "smoke_check",
+			Command:        "printf 'ok\\n'",
+			Tiers:          []string{"low", "medium", "high"},
+			AllowExitCodes: []int{0},
+		},
+	}
+
+	fresh := domain.buildReportWithPolicy(cr, &ValidationReport{
+		Impact: &ImpactReport{
+			FilesChanged: 1,
+			RiskTier:     "low",
+		},
+	}, &diffSummary{
+		Files: []string{"internal/service/service_trust.go"},
+	}, policy.Contract.RequiredFields, policy)
+	if status := trustCheckResultByKey(t, fresh, "smoke_check").Status; status != policyTrustCheckStatusPass {
+		t.Fatalf("expected fresh smoke_check status=pass, got %q", status)
+	}
+
+	stale := domain.buildReportWithPolicyAt(cr, &ValidationReport{
+		Impact: &ImpactReport{
+			FilesChanged: 1,
+			RiskTier:     "low",
+		},
+	}, &diffSummary{
+		Files: []string{"internal/service/service_trust.go"},
+	}, policy.Contract.RequiredFields, policy, now.Add(2*time.Hour))
+	if status := trustCheckResultByKey(t, stale, "smoke_check").Status; status != policyTrustCheckStatusStale {
+		t.Fatalf("expected stale smoke_check status=stale, got %q", status)
+	}
+}
+
 func validTrustContract() model.Contract {
 	return model.Contract{
 		Why:          "Deliver deterministic trust evidence so review can be metadata-first.",
@@ -500,4 +558,15 @@ func trustRequirementByKey(t *testing.T, report *TrustReport, key string) TrustR
 	}
 	t.Fatalf("requirement %q not found in report: %#v", key, report.Requirements)
 	return TrustRequirement{}
+}
+
+func trustCheckResultByKey(t *testing.T, report *TrustReport, key string) TrustCheckResult {
+	t.Helper()
+	for _, check := range report.CheckResults {
+		if check.Key == key {
+			return check
+		}
+	}
+	t.Fatalf("check result %q not found in report: %#v", key, report.CheckResults)
+	return TrustCheckResult{}
 }
