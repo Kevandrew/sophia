@@ -238,10 +238,6 @@ func parseUnknownPolicyFields(err error) ([]string, bool) {
 	return servicepolicy.ParseUnknownFields(err)
 }
 
-func parseUnknownPolicyFieldLine(line string) (string, bool) {
-	return servicepolicy.ParseUnknownFieldLine(line)
-}
-
 func policyUnknownFieldWarnings(fields []string) []string {
 	return servicepolicy.UnknownFieldWarnings(fields)
 }

@@ -3,6 +3,7 @@ package service
 import (
 	"os"
 	"path/filepath"
+	"sophia/internal/model"
 	"strings"
 	"testing"
 )
@@ -164,5 +165,48 @@ func TestActorFallbackIsUnknownWhenGitIdentityMissing(t *testing.T) {
 	}
 	if cr.Events[0].Actor != "unknown" {
 		t.Fatalf("expected actor unknown, got %q", cr.Events[0].Actor)
+	}
+}
+
+func TestMergeStatusCRUsesRuntimeProviders(t *testing.T) {
+	cr := seedCR(1, "runtime merge status", seedCROptions{Branch: "cr-1-runtime"})
+	h := harnessService(t, runtimeHarnessOptions{Branch: cr.Branch, CRs: []*model.CR{cr}})
+
+	h.MergeGit.mergeInProg = true
+	h.MergeGit.mergeHeadSHA = "cr-head-sha"
+	h.MergeGit.resolve[cr.Branch] = "cr-head-sha"
+	h.MergeGit.mergeFiles = []string{"conflict.txt"}
+
+	status, err := h.Service.MergeStatusCR(cr.ID)
+	if err != nil {
+		t.Fatalf("MergeStatusCR() error = %v", err)
+	}
+	if !status.InProgress {
+		t.Fatalf("expected in-progress merge status")
+	}
+	if !status.TargetMatches {
+		t.Fatalf("expected target branch head to match merge head")
+	}
+	if status.MergeHead != "cr-head-sha" {
+		t.Fatalf("expected merge head cr-head-sha, got %q", status.MergeHead)
+	}
+	if len(status.ConflictFiles) != 1 || status.ConflictFiles[0] != "conflict.txt" {
+		t.Fatalf("unexpected conflict files: %#v", status.ConflictFiles)
+	}
+
+	if got := h.Store.Calls("LoadCR"); got < 1 {
+		t.Fatalf("expected merge status to load CR from runtime store, got %d calls", got)
+	}
+	if got := h.MergeGit.Calls("IsMergeInProgress"); got < 1 {
+		t.Fatalf("expected merge status to query runtime git in-progress state, got %d calls", got)
+	}
+	if got := h.MergeGit.Calls("MergeHeadSHA"); got < 1 {
+		t.Fatalf("expected merge status to query runtime git merge head, got %d calls", got)
+	}
+	if got := h.MergeGit.Calls("MergeConflictFiles"); got < 1 {
+		t.Fatalf("expected merge status to query runtime git conflict files, got %d calls", got)
+	}
+	if got := h.MergeGit.Calls("ResolveRef"); got < 1 {
+		t.Fatalf("expected merge status to resolve CR branch head via runtime git, got %d calls", got)
 	}
 }

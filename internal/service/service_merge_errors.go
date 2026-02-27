@@ -1,7 +1,6 @@
 package service
 
 import (
-	"errors"
 	"fmt"
 	"strings"
 )
@@ -93,12 +92,4 @@ func (e *NoMergeInProgressError) Details() map[string]any {
 	return map[string]any{
 		"worktree_path": strings.TrimSpace(e.WorktreePath),
 	}
-}
-
-func mergeConflictError(err error) *MergeConflictError {
-	var mergeErr *MergeConflictError
-	if errors.As(err, &mergeErr) {
-		return mergeErr
-	}
-	return nil
 }

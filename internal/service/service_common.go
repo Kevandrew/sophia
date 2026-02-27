@@ -19,6 +19,14 @@ func (s *Service) withMutationLock(fn func() error) error {
 	return s.store.WithMutationLockPath(s.mutationLockPath(), defaultMutationLockWait, fn)
 }
 
+func (s *Service) withMergeMutationLock(fn func() error) error {
+	return s.withMutationLock(fn)
+}
+
+func (s *Service) withTaskMutationLock(fn func() error) error {
+	return s.withMutationLock(fn)
+}
+
 func (s *Service) mutationLockPath() string {
 	if s.git != nil && s.git.InRepo() {
 		if commonDir, err := s.git.GitCommonDirAbs(); err == nil && strings.TrimSpace(commonDir) != "" {

@@ -1,0 +1,316 @@
+schema_version: sophia.cr_archive.v1
+notice: Historical archive snapshot. Corrections are append-only revisions.
+archived_at: "2026-02-27T07:16:04Z"
+revision: 1
+cr:
+    id: 80
+    uid: cr_de5e77c5-7f61-4dd4-aed9-cc09a46847d7
+    title: Extract merge and task lifecycle orchestration from root Service
+    description: Split merge lifecycle and task lifecycle orchestration into focused service domains, reducing method bloat and isolating high-risk mutation workflows.
+    status: merged
+    base_branch: main
+    base_ref: main
+    base_commit: d3f1b0d13f7ad5ef37f6b12d4536a2ac0f440e42
+    branch: cr-extract-merge-and-task-lifecycle-orchestration-f-de5e
+    merged_at: "2026-02-27T07:16:04Z"
+    merged_by: Kevandrew <143258544+Kevandrew@users.noreply.github.com>
+contract:
+    why: |-
+        Merge and task lifecycle logic is a major contributor to root Service complexity and currently mixes flow control, validation, and checkpoint semantics across large methods.
+
+        This CR extracts merge and task lifecycle orchestration into dedicated domains with explicit responsibilities so mutation flows are easier to audit, test, and evolve.
+
+        Success means merge and task commands preserve existing behavior, safety checks, and recovery semantics while the root Service becomes thinner.
+    scope:
+        - internal/cli/cr_cmd_review_merge.go
+        - internal/cli/cr_cmd_task.go
+        - internal/service/service.go
+        - internal/service/service_commit_parse.go
+        - internal/service/service_common.go
+        - internal/service/service_diff.go
+        - internal/service/service_errors_patterns.go
+        - internal/service/service_merge_domain.go
+        - internal/service/service_merge_errors.go
+        - internal/service/service_merge_recovery_test.go
+        - internal/service/service_merge_review_test.go
+        - internal/service/service_policy.go
+        - internal/service/service_review_merge.go
+        - internal/service/service_task_checkpoint.go
+        - internal/service/service_task_domain.go
+        - internal/service/service_task_reopen_test.go
+        - internal/service/service_task_runtime.go
+        - internal/service/service_task_runtime_test.go
+        - internal/service/service_tasks.go
+        - internal/service/service_trust.go
+        - internal/service/tasks
+    non_goals:
+        - Do not change merge policy semantics or override gate behavior.
+        - Do not change task contract required fields or checkpoint command UX.
+        - Do not redesign CR/task metadata persistence format.
+    invariants:
+        - CLI error surfaces for merge/task flows remain backward compatible.
+        - Merge recovery, resume, and abort flows remain deterministic and auditable.
+        - Scoped checkpoint behavior and mutation lock guarantees remain unchanged.
+    blast_radius: Affects high-risk mutation orchestration for task completion and merge flow control, including recovery surfaces and command-layer wiring.
+    risk_critical_scopes:
+        - internal/cli
+        - internal/service
+    risk_tier_hint: high
+    risk_rationale: Touches merge execution and task checkpoint correctness paths.
+    test_plan: go test ./internal/service/... ./internal/cli/... -run 'Task|Merge' && go test ./... && go vet ./...
+    rollback_plan: Revert the CR merge commit and run merge/task regression tests to restore prior orchestration behavior.
+tasks:
+    - id: 1
+      title: Map merge/task responsibilities and target domain boundaries
+      status: done
+      contract:
+        intent: Define clear ownership boundaries before relocating orchestration logic.
+        acceptance_criteria:
+            - Boundary map includes shared dependencies and lock coordination points.
+            - Merge and task responsibility map identifies which methods move to each domain service.
+        scope:
+            - internal/service/service_merge_domain.go
+            - internal/service/service_review_merge.go
+            - internal/service/service_task_domain.go
+            - internal/service/service_task_runtime.go
+            - internal/service/service_tasks.go
+            - internal/service/tasks
+      checkpoint:
+        at: "2026-02-27T06:21:24Z"
+        source: task_no_checkpoint
+    - id: 2
+      title: Introduce merge domain service scaffold
+      status: done
+      contract:
+        intent: Create a merge-focused domain type with explicit dependencies.
+        acceptance_criteria:
+            - Merge domain type exists and can be composed by root Service.
+            - No merge behavior changes are introduced by scaffold-only wiring.
+        scope:
+            - internal/service/merge
+            - internal/service/service.go
+            - internal/service/service_merge_domain.go
+            - internal/service/service_review_merge.go
+      checkpoint:
+        commit: ae6a534f
+        at: "2026-02-27T06:22:53Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service.go
+            - internal/service/service_merge_domain.go
+    - id: 3
+      title: Introduce task lifecycle domain service scaffold
+      status: done
+      contract:
+        intent: Create task lifecycle domain ownership for checkpoint and reopen flows.
+        acceptance_criteria:
+            - Root Service composes task lifecycle domain without signature breaks.
+            - Task lifecycle domain type is introduced with explicit dependencies.
+        scope:
+            - internal/service/service.go
+            - internal/service/service_task_domain.go
+            - internal/service/service_task_runtime.go
+            - internal/service/service_tasks.go
+            - internal/service/tasks
+      checkpoint:
+        commit: e8620a31
+        at: "2026-02-27T06:23:47Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service.go
+            - internal/service/service_task_domain.go
+    - id: 4
+      title: Migrate merge preflight/execute/recovery orchestration
+      status: done
+      contract:
+        intent: Move merge flow orchestration into merge domain while preserving semantics.
+        acceptance_criteria:
+            - Existing merge conflict and recovery behavior remains unchanged in tests.
+            - Preflight, execute, resume, and abort paths delegate to merge domain logic.
+        scope:
+            - internal/service/merge
+            - internal/service/service_merge_domain.go
+            - internal/service/service_merge_errors.go
+            - internal/service/service_merge_recovery_test.go
+            - internal/service/service_review_merge.go
+      checkpoint:
+        commit: 2ef9f066
+        at: "2026-02-27T06:38:20Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_merge_domain.go
+            - internal/service/service_review_merge.go
+    - id: 5
+      title: Migrate task completion/reopen/contract-drift orchestration
+      status: done
+      contract:
+        intent: Move task lifecycle workflows into task domain without changing UX.
+        acceptance_criteria:
+            - Contract drift and checkpoint mode guardrails remain behaviorally equivalent.
+            - task done/reopen flows execute through task domain orchestration.
+        scope:
+            - internal/service/service_task_checkpoint.go
+            - internal/service/service_task_contract_drift_test.go
+            - internal/service/service_task_domain.go
+            - internal/service/service_task_runtime.go
+            - internal/service/service_tasks.go
+            - internal/service/tasks
+      checkpoint:
+        commit: "0e631494"
+        at: "2026-02-27T06:38:36Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_task_domain.go
+            - internal/service/service_tasks.go
+    - id: 6
+      title: Centralize lock coordination for merge/task domains
+      status: done
+      contract:
+        intent: Preserve concurrency guarantees while reducing duplicated lock plumbing.
+        acceptance_criteria:
+            - Lock acquisition/release behavior remains consistent across migrated flows.
+            - No new lock ordering deadlocks are introduced in integration tests.
+        scope:
+            - internal/service/service_common.go
+            - internal/service/service_mutation_lock_test.go
+            - internal/service/service_review_merge.go
+            - internal/service/service_task_runtime.go
+            - internal/service/service_tasks.go
+      checkpoint:
+        commit: 1cd1532e
+        at: "2026-02-27T06:40:23Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_common.go
+            - internal/service/service_review_merge.go
+            - internal/service/service_tasks.go
+    - id: 7
+      title: Align CLI merge/task command wiring
+      status: done
+      contract:
+        intent: Keep command handlers stable while switching to extracted domain flows.
+        acceptance_criteria:
+            - CLI command behavior and JSON envelopes remain backward compatible.
+            - Error messages and exit behavior remain stable for merge/task failure modes.
+        scope:
+            - internal/cli/cr_cmd_review_merge.go
+            - internal/cli/cr_cmd_task.go
+            - internal/cli/cr_json_merge_recovery_test.go
+            - internal/cli/cr_json_task_done_test.go
+      checkpoint:
+        at: "2026-02-27T06:53:05Z"
+        source: task_no_checkpoint
+    - id: 8
+      title: Expand regression tests for merge/task extracted domains
+      status: done
+      contract:
+        intent: Validate extracted domain flows with focused unit and integration coverage.
+        acceptance_criteria:
+            - Existing and new tests cover happy-path and recovery-path behavior for merge/task domains.
+            - go test selectors for merge/task areas pass without flake.
+        scope:
+            - internal/service/service_merge_review_test.go
+            - internal/service/service_task_reopen_integration_test.go
+            - internal/service/service_task_runtime_test.go
+            - internal/service/service_worktree_integration_test.go
+      checkpoint:
+        commit: 45e4b266
+        at: "2026-02-27T06:53:13Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_merge_review_test.go
+            - internal/service/service_task_runtime_test.go
+    - id: 9
+      title: Remove remaining internal/service dead code flagged by U1000
+      status: done
+      contract:
+        intent: Remove dead internal service helpers/wrappers flagged by U1000 without behavior changes
+        acceptance_criteria:
+            - All CR80-introduced unused wrappers/helpers are removed.
+            - Service and CLI Task/Merge selectors plus full suite still pass.
+            - U1000 scan for internal/service has no findings for the targeted dead helpers.
+        scope:
+            - internal/service/service_commit_parse.go
+            - internal/service/service_diff.go
+            - internal/service/service_errors_patterns.go
+            - internal/service/service_merge_errors.go
+            - internal/service/service_policy.go
+            - internal/service/service_review_merge.go
+            - internal/service/service_tasks.go
+            - internal/service/service_trust.go
+      checkpoint:
+        commit: 03fd8b41
+        at: "2026-02-27T07:14:14Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_commit_parse.go
+            - internal/service/service_diff.go
+            - internal/service/service_errors_patterns.go
+            - internal/service/service_merge_errors.go
+            - internal/service/service_policy.go
+            - internal/service/service_review_merge.go
+            - internal/service/service_tasks.go
+            - internal/service/service_trust.go
+git_summary:
+    base_parent: d3f1b0d13f7ad5ef37f6b12d4536a2ac0f440e42
+    cr_parent: 03fd8b412683ea87be2b89cf44d46ac1c627ca29
+    files_changed:
+        - internal/service/service.go
+        - internal/service/service_commit_parse.go
+        - internal/service/service_common.go
+        - internal/service/service_diff.go
+        - internal/service/service_errors_patterns.go
+        - internal/service/service_merge_domain.go
+        - internal/service/service_merge_errors.go
+        - internal/service/service_merge_review_test.go
+        - internal/service/service_policy.go
+        - internal/service/service_review_merge.go
+        - internal/service/service_task_domain.go
+        - internal/service/service_task_runtime_test.go
+        - internal/service/service_tasks.go
+        - internal/service/service_trust.go
+    diffstat:
+        summary: 14 files changed, 1382 insertions(+), 1149 deletions(-)
+        files:
+            - path: internal/service/service.go
+              insertions: 2
+              deletions: 0
+            - path: internal/service/service_commit_parse.go
+              insertions: 0
+              deletions: 8
+            - path: internal/service/service_common.go
+              insertions: 8
+              deletions: 0
+            - path: internal/service/service_diff.go
+              insertions: 0
+              deletions: 4
+            - path: internal/service/service_errors_patterns.go
+              insertions: 12
+              deletions: 13
+            - path: internal/service/service_merge_domain.go
+              insertions: 583
+              deletions: 0
+            - path: internal/service/service_merge_errors.go
+              insertions: 0
+              deletions: 9
+            - path: internal/service/service_merge_review_test.go
+              insertions: 44
+              deletions: 0
+            - path: internal/service/service_policy.go
+              insertions: 0
+              deletions: 4
+            - path: internal/service/service_review_merge.go
+              insertions: 7
+              deletions: 510
+            - path: internal/service/service_task_domain.go
+              insertions: 653
+              deletions: 0
+            - path: internal/service/service_task_runtime_test.go
+              insertions: 62
+              deletions: 0
+            - path: internal/service/service_tasks.go
+              insertions: 11
+              deletions: 589
+            - path: internal/service/service_trust.go
+              insertions: 0
+              deletions: 12
