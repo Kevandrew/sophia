@@ -226,8 +226,6 @@ func TestReviewValidateAndCheckFlowWithTrustDomainExtraction(t *testing.T) {
 	if _, err := svc.Init("main", ""); err != nil {
 		t.Fatalf("Init() error = %v", err)
 	}
-	runGit(t, dir, "config", "user.name", "Test User")
-	runGit(t, dir, "config", "user.email", "test@example.com")
 	writePolicyFileForTest(t, dir, `version: v1
 trust:
   mode: advisory
@@ -239,18 +237,11 @@ trust:
         tiers: [low, medium, high]
         allow_exit_codes: [0]
 `)
-
 	cr, err := svc.AddCR("trust integration", "review/validate/check integration")
 	if err != nil {
 		t.Fatalf("AddCR() error = %v", err)
 	}
 	setValidContract(t, svc, cr.ID)
-
-	if err := os.WriteFile(filepath.Join(dir, "trust_integration.go"), []byte("package main\n"), 0o644); err != nil {
-		t.Fatalf("write fixture file: %v", err)
-	}
-	runGit(t, dir, "add", "trust_integration.go")
-	runGit(t, dir, "commit", "-m", "feat: trust integration fixture")
 
 	validation, err := svc.ValidateCR(cr.ID)
 	if err != nil {
