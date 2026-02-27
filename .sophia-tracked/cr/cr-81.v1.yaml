@@ -1,0 +1,178 @@
+schema_version: sophia.cr_archive.v1
+notice: Historical archive snapshot. Corrections are append-only revisions.
+archived_at: "2026-02-27T11:37:16Z"
+revision: 1
+cr:
+    id: 81
+    uid: cr_ea424760-551a-46d6-9672-529dfbe65e0d
+    title: Redistribute domain types out of service.go into ownership-local files
+    description: Break up the 1k+ line service type dump by moving trust/impact/validation/HQ/report types near their usage to improve navigability and ownership.
+    status: merged
+    base_branch: main
+    base_ref: main
+    base_commit: f3d40767a12fa1be8ace7b44dacd6420339eadd2
+    branch: cr-redistribute-domain-types-out-of-service-go-into-ea42
+    merged_at: "2026-02-27T11:37:16Z"
+    merged_by: Kevandrew <143258544+Kevandrew@users.noreply.github.com>
+contract:
+    why: service.go currently centralizes a large set of domain/report/type definitions that are consumed by disparate features, making the file a navigation bottleneck and obscuring ownership.\n\nThis CR moves remaining non-trust type definitions to ownership-local files so each domain (impact, integrity, HQ) owns its own type vocabulary and service.go is limited to core composition concerns.\n\nTrust type relocation is intentionally handled in CR 79 to avoid duplicated refactor work across CR boundaries.\n\nSuccess means no behavior changes, stable serialized output, and a materially smaller service.go with clearer file-level ownership.
+    scope:
+        - internal/cli/cr_json_mappers.go
+        - internal/service/service.go
+        - internal/service/service_cr_integrity.go
+        - internal/service/service_cr_integrity_types.go
+        - internal/service/service_hq.go
+        - internal/service/service_hq_status.go
+        - internal/service/service_impact.go
+        - internal/service/service_impact_types.go
+    non_goals:
+        - Do not alter CLI contract fields or JSON key names.
+        - Do not change trust/impact/validation algorithms in this CR.
+        - Do not duplicate trust type relocation already implemented in CR 79.
+        - Do not introduce package-level API churn unrelated to type ownership moves.
+    invariants:
+        - All exported and serialized type fields remain backward compatible.
+        - Type moves are mechanical ownership changes with no semantic drift.
+        - service.go remains the composition root and does not gain new domain logic.
+    blast_radius: Affects internal service type placement and compile-time imports; key risk is accidental serialization or visibility drift from moved definitions.
+    risk_critical_scopes:
+        - internal/service
+    risk_tier_hint: medium
+    risk_rationale: Primarily structural refactor but touches widely used shared types.
+    test_plan: go test ./internal/service/... ./internal/cli/... && go test ./...
+    rollback_plan: Revert the CR merge commit if any type move causes API or serialization regressions.
+tasks:
+    - id: 1
+      title: Create type ownership map by domain
+      status: done
+      contract:
+        intent: Define exactly where each service type should live before moving code.
+        acceptance_criteria:
+            - Move order minimizes circular import risk and compile churn.
+            - Type inventory maps each moved type to a target owner file/package.
+        scope:
+            - internal/service
+            - internal/service/service.go
+      checkpoint:
+        at: "2026-02-27T11:29:38Z"
+        source: task_no_checkpoint
+    - id: 2
+      title: Move trust-related types to trust ownership files
+      status: done
+      contract:
+        intent: Validate trust-type ownership boundary after CR 79 extraction and keep CR 81 focused on non-trust type relocation.
+        acceptance_criteria:
+            - CR 81 implementation scope excludes trust-type movement and focuses on impact/integrity/HQ type ownership.
+            - Trust type definitions remain absent from service.go because CR 79 owns that relocation.
+        scope:
+            - internal/service/service.go
+            - internal/service/service_cr_integrity.go
+            - internal/service/service_hq.go
+            - internal/service/service_hq_status.go
+            - internal/service/service_impact.go
+      checkpoint:
+        at: "2026-02-27T11:29:39Z"
+        source: task_no_checkpoint
+    - id: 3
+      title: Move impact-related types to impact ownership files
+      status: done
+      contract:
+        intent: Place impact report types with impact orchestration logic.
+        acceptance_criteria:
+            - Impact JSON output remains unchanged for baseline fixtures.
+            - Impact report and related support types are owned by impact-local files.
+        scope:
+            - internal/service/service.go
+            - internal/service/service_impact.go
+            - internal/service/service_impact_test.go
+            - internal/service/service_impact_types.go
+      checkpoint:
+        commit: 978f7639
+        at: "2026-02-27T11:22:58Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service.go
+            - internal/service/service_impact_types.go
+    - id: 4
+      title: Move validation/integrity types to integrity ownership files
+      status: done
+      contract:
+        intent: Place validation report and integrity-specific types with integrity logic.
+        acceptance_criteria:
+            - Integrity/validation type definitions are moved out of service.go.
+            - Validation output structure remains stable in existing tests.
+        scope:
+            - internal/service/service.go
+            - internal/service/service_cr_integrity.go
+            - internal/service/service_cr_integrity_types.go
+            - internal/service/service_integrity_test.go
+      checkpoint:
+        commit: f8553bf9
+        at: "2026-02-27T11:23:49Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service.go
+            - internal/service/service_cr_integrity_types.go
+    - id: 5
+      title: Move HQ-related types to HQ ownership files
+      status: done
+      contract:
+        intent: Place HQ sync/status types near HQ service flows.
+        acceptance_criteria:
+            - HQ JSON mapping tests remain green with no field drift.
+            - HQ-specific types live in HQ-local files and compile cleanly.
+        scope:
+            - internal/cli/cr_json_hq_status_test.go
+            - internal/service/service.go
+            - internal/service/service_hq.go
+            - internal/service/service_hq_status.go
+      checkpoint:
+        at: "2026-02-27T11:29:39Z"
+        source: task_no_checkpoint
+    - id: 6
+      title: Trim service.go to composition and shared primitives
+      status: done
+      contract:
+        intent: Reduce service.go to core constructor/wiring concerns.
+        acceptance_criteria:
+            - No domain-specific report type definitions remain in service.go.
+            - service.go size and responsibility are reduced substantially after type moves.
+        scope:
+            - internal/service/service.go
+      checkpoint:
+        at: "2026-02-27T11:29:39Z"
+        source: task_no_checkpoint
+    - id: 7
+      title: Add mapper and serialization regression guards
+      status: done
+      contract:
+        intent: Protect serialized surfaces from drift during type relocation.
+        acceptance_criteria:
+            - JSON mapper tests assert stable key names and envelope structure.
+            - No serialization regressions are observed in existing command JSON tests.
+        scope:
+            - internal/cli/cr_json_mappers.go
+            - internal/cli/cr_json_test.go
+            - internal/cli/json_surface_expansion_test.go
+      checkpoint:
+        at: "2026-02-27T11:29:40Z"
+        source: task_no_checkpoint
+git_summary:
+    base_parent: f3d40767a12fa1be8ace7b44dacd6420339eadd2
+    cr_parent: f8553bf9cef53d2c7429dc51637e4b696162534c
+    files_changed:
+        - internal/service/service.go
+        - internal/service/service_cr_integrity_types.go
+        - internal/service/service_impact_types.go
+    diffstat:
+        summary: 3 files changed, 99 insertions(+), 97 deletions(-)
+        files:
+            - path: internal/service/service.go
+              insertions: 0
+              deletions: 97
+            - path: internal/service/service_cr_integrity_types.go
+              insertions: 67
+              deletions: 0
+            - path: internal/service/service_impact_types.go
+              insertions: 32
+              deletions: 0

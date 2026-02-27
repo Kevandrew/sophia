@@ -88,27 +88,6 @@ type DoctorReport struct {
 	Findings       []DoctorFinding
 }
 
-type CRDoctorFinding struct {
-	Code    string
-	Message string
-	TaskID  int
-	Commit  string
-}
-
-type CRDoctorReport struct {
-	CRID             int
-	CRUID            string
-	Branch           string
-	BranchExists     bool
-	BranchHead       string
-	BaseRef          string
-	BaseCommit       string
-	ResolvedBaseRef  string
-	ParentCRID       int
-	ExpectedParentID int
-	Findings         []CRDoctorFinding
-}
-
 type CurrentCRContext struct {
 	Branch string
 	CR     *model.CR
@@ -172,44 +151,6 @@ type InitOptions struct {
 	BaseBranch        string
 	MetadataMode      string
 	BranchOwnerPrefix string
-}
-
-type ReconcileCROptions struct {
-	Regenerate bool
-}
-
-type ReconcileTaskResult struct {
-	TaskID           int
-	Title            string
-	Status           string
-	PreviousCommit   string
-	CurrentCommit    string
-	Action           string
-	Reason           string
-	Source           string
-	CheckpointAt     string
-	CheckpointOrphan bool
-}
-
-type ReconcileCRReport struct {
-	CRID             int
-	CRUID            string
-	Branch           string
-	BranchExists     bool
-	PreviousParentID int
-	CurrentParentID  int
-	ParentRelinked   bool
-	ScanRef          string
-	ScannedCommits   int
-	Relinked         int
-	Orphaned         int
-	ClearedOrphans   int
-	Regenerated      bool
-	FilesChanged     int
-	DiffStat         string
-	Warnings         []string
-	Findings         []CRDoctorFinding
-	TaskResults      []ReconcileTaskResult
 }
 
 type ExportCROptions struct {
@@ -510,44 +451,6 @@ type SetCRContractResult struct {
 	ChangedFields  []string
 	AlreadyApplied bool
 	DryRun         bool
-}
-
-type RiskSignal struct {
-	Code    string
-	Summary string
-	Points  int
-}
-
-type ImpactReport struct {
-	CRID                      int
-	CRUID                     string
-	BaseRef                   string
-	BaseCommit                string
-	ParentCRID                int
-	RiskTierHint              string
-	RiskTierFloorApplied      bool
-	MatchedRiskCriticalScopes []string
-	FilesChanged              int
-	NewFiles                  []string
-	ModifiedFiles             []string
-	DeletedFiles              []string
-	TestFiles                 []string
-	DependencyFiles           []string
-	ScopeDrift                []string
-	Warnings                  []string
-	TaskScopeWarnings         []string
-	TaskContractWarnings      []string
-	TaskChunkWarnings         []string
-	Signals                   []RiskSignal
-	RiskScore                 int
-	RiskTier                  string
-}
-
-type ValidationReport struct {
-	Valid    bool
-	Errors   []string
-	Warnings []string
-	Impact   *ImpactReport
 }
 
 type TaskContractDriftSummary struct {
