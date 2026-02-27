@@ -39,10 +39,12 @@ func runCRAddFlow(
 	opts service.AddCROptions,
 	renderOpts crAddRenderOptions,
 ) error {
-	cr, warnings, err := svc.AddCRWithOptionsWithWarnings(title, description, opts)
+	result, err := svc.AddCRWithOptions(title, description, opts)
 	if err != nil {
 		return commandError(cmd, asJSON, err)
 	}
+	cr := result.CR
+	warnings := append([]string(nil), result.Warnings...)
 	if asJSON {
 		payload := map[string]any{
 			"cr":       crToJSONMap(cr),
