@@ -65,7 +65,7 @@ func (s *Service) MergeCRWithWarnings(id int, keepBranch bool, overrideReason st
 		sha      string
 		warnings []string
 	)
-	if err := s.withMutationLock(func() error {
+	if err := s.withMergeMutationLock(func() error {
 		var mergeErr error
 		sha, warnings, mergeErr = s.mergeCRWithWarningsUnlocked(id, keepBranch, overrideReason)
 		return mergeErr
@@ -84,7 +84,7 @@ func (s *Service) MergeStatusCR(id int) (*MergeStatusView, error) {
 }
 
 func (s *Service) AbortMergeCR(id int) error {
-	return s.withMutationLock(func() error {
+	return s.withMergeMutationLock(func() error {
 		return s.abortMergeCRUnlocked(id)
 	})
 }
@@ -98,7 +98,7 @@ func (s *Service) ResumeMergeCR(id int, keepBranch bool, overrideReason string) 
 		sha      string
 		warnings []string
 	)
-	if err := s.withMutationLock(func() error {
+	if err := s.withMergeMutationLock(func() error {
 		var resumeErr error
 		sha, warnings, resumeErr = s.resumeMergeCRUnlocked(id, keepBranch, overrideReason)
 		return resumeErr

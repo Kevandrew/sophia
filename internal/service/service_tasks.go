@@ -18,7 +18,7 @@ func (s *Service) AddTask(crID int, title string) (*model.Subtask, error) {
 		return nil, errors.New("task title cannot be empty")
 	}
 	var added model.Subtask
-	if err := s.withMutationLock(func() error {
+	if err := s.withTaskMutationLock(func() error {
 		cr, err := s.loadCRForMutation(crID)
 		if err != nil {
 			return err
@@ -68,7 +68,7 @@ func validateTaskAcceptanceCheckKeys(taskID int, checks []string, policy *model.
 
 func (s *Service) SetTaskContract(crID, taskID int, patch TaskContractPatch) ([]string, error) {
 	var changed []string
-	if err := s.withMutationLock(func() error {
+	if err := s.withTaskMutationLock(func() error {
 		var err error
 		changed, err = s.setTaskContractUnlocked(crID, taskID, patch)
 		return err
@@ -123,7 +123,7 @@ func (s *Service) AckTaskContractDrift(crID, taskID, driftID int, reason string)
 		return nil, fmt.Errorf("ack reason is required")
 	}
 	var ack model.TaskContractDrift
-	if err := s.withMutationLock(func() error {
+	if err := s.withTaskMutationLock(func() error {
 		cr, err := s.loadCRForMutation(crID)
 		if err != nil {
 			return err
@@ -210,7 +210,7 @@ func (s *Service) DoneTask(crID, taskID int) error {
 // Reopen preserves checkpoint evidence by default unless the caller explicitly clears it.
 func (s *Service) ReopenTask(crID, taskID int, opts ReopenTaskOptions) (*model.Subtask, error) {
 	var reopened model.Subtask
-	if err := s.withMutationLock(func() error {
+	if err := s.withTaskMutationLock(func() error {
 		var err error
 		reopened, err = s.reopenTaskUnlocked(crID, taskID, opts)
 		if err != nil {
@@ -229,7 +229,7 @@ func (s *Service) reopenTaskUnlocked(crID, taskID int, opts ReopenTaskOptions) (
 
 func (s *Service) DoneTaskWithCheckpoint(crID, taskID int, opts DoneTaskOptions) (string, error) {
 	commitSHA := ""
-	if err := s.withMutationLock(func() error {
+	if err := s.withTaskMutationLock(func() error {
 		sha, doneErr := s.doneTaskWithCheckpointUnlocked(crID, taskID, opts)
 		if doneErr != nil {
 			return doneErr
