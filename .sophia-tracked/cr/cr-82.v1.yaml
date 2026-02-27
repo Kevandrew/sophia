@@ -1,0 +1,208 @@
+schema_version: sophia.cr_archive.v1
+notice: Historical archive snapshot. Corrections are append-only revisions.
+archived_at: "2026-02-27T11:43:59Z"
+revision: 1
+cr:
+    id: 82
+    uid: cr_46759a04-847b-42af-b72b-594419899135
+    title: Promote internal/service sub-packages to true domain owners
+    description: Turn thin helper sub-packages into real ownership boundaries by moving domain logic out of top-level service_* files into cr/tasks/trust/policy/merge/diff/collab packages.
+    status: merged
+    base_branch: main
+    base_ref: main
+    base_commit: 785073f573b902f8baadb0e17c21fd03bc79cb1e
+    branch: cr-promote-internal-service-sub-packages-to-true-do-4675
+    merged_at: "2026-02-27T11:43:59Z"
+    merged_by: Kevandrew <143258544+Kevandrew@users.noreply.github.com>
+contract:
+    why: |-
+        The repo already has sub-packages under internal/service, but many are currently helper-only and do not own the corresponding domain logic.
+
+        This CR completes the decomposition so package names match ownership reality, improving discoverability and reducing the cognitive mismatch between directory structure and behavior location.
+
+        Success means most domain-specific logic resides in domain packages, while root-level service files focus on orchestration and compatibility boundaries.
+    scope:
+        - internal/service/collab
+        - internal/service/cr
+        - internal/service/diff
+        - internal/service/merge
+        - internal/service/policy
+        - internal/service/service_collab.go
+        - internal/service/service_cr.go
+        - internal/service/service_diff.go
+        - internal/service/service_tasks.go
+        - internal/service/tasks
+        - internal/service/trust
+    non_goals:
+        - Do not alter persisted metadata formats or checkpoint footer semantics.
+        - Do not change command-level UX in this decomposition step.
+        - Do not replatform package architecture outside internal/service.
+    invariants:
+        - Domain behavior remains deterministic and test-equivalent after ownership moves.
+        - Package APIs are explicit and avoid hidden bidirectional coupling.
+        - Root Service remains a composition/orchestration boundary.
+    blast_radius: Affects package boundaries, imports, and internal call graphs across service domains; main risks are import cycles and accidental behavior drift during ownership moves.
+    risk_critical_scopes:
+        - internal/service
+    risk_tier_hint: high
+    risk_rationale: Wide import-graph and ownership movement across several active domains.
+    test_plan: go test ./internal/service/... ./internal/cli/... && go test ./... && go vet ./...
+    rollback_plan: Revert the CR merge commit if package ownership moves introduce cycles or behavior regressions.
+tasks:
+    - id: 1
+      title: Define package ownership contracts for each domain package
+      status: done
+      contract:
+        intent: Set explicit responsibilities and boundaries before moving logic.
+        acceptance_criteria:
+            - Each sub-package has a documented ownership contract and allowed dependency direction.
+            - Ownership contracts prevent ambiguous placement of new logic.
+        scope:
+            - internal/service/collab
+            - internal/service/cr
+            - internal/service/diff
+            - internal/service/merge
+            - internal/service/policy
+            - internal/service/tasks
+            - internal/service/trust
+      checkpoint:
+        commit: 4d856a1b
+        at: "2026-02-27T11:39:16Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/collab/doc.go
+            - internal/service/cr/doc.go
+            - internal/service/diff/doc.go
+            - internal/service/merge/doc.go
+            - internal/service/policy/doc.go
+            - internal/service/tasks/doc.go
+            - internal/service/trust/doc.go
+    - id: 2
+      title: Move CR lifecycle helpers into service/cr ownership
+      status: done
+      contract:
+        intent: Consolidate CR create/edit/list domain behavior under service/cr package.
+        acceptance_criteria:
+            - CR command behavior remains stable in existing tests.
+            - CR domain logic is primarily implemented in service/cr rather than top-level service files.
+        scope:
+            - internal/service/cr
+            - internal/service/service_cr.go
+            - internal/service/service_cr_test.go
+      checkpoint:
+        at: "2026-02-27T11:42:25Z"
+        source: task_no_checkpoint
+    - id: 3
+      title: Move task domain behavior into service/tasks ownership
+      status: done
+      contract:
+        intent: Consolidate task contract/checkpoint behavior in service/tasks package.
+        acceptance_criteria:
+            - Task checkpoint and contract tests remain green.
+            - Task domain behavior is owned by service/tasks package modules.
+        scope:
+            - internal/service/service_task_checkpoint.go
+            - internal/service/service_task_checkpoint_test.go
+            - internal/service/service_tasks.go
+            - internal/service/tasks
+      checkpoint:
+        at: "2026-02-27T11:42:26Z"
+        source: task_no_checkpoint
+    - id: 4
+      title: Move trust/policy logic into service/trust and service/policy
+      status: done
+      contract:
+        intent: Co-locate trust and policy logic with their domain packages.
+        acceptance_criteria:
+            - Trust/policy behavior is implemented in domain packages, not helper-only stubs.
+            - Trust/policy tests validate unchanged behavior after moves.
+        scope:
+            - internal/service/policy
+            - internal/service/service_policy.go
+            - internal/service/service_trust.go
+            - internal/service/trust
+      checkpoint:
+        at: "2026-02-27T11:42:26Z"
+        source: task_no_checkpoint
+    - id: 5
+      title: Move merge/diff/collab logic into corresponding domain packages
+      status: done
+      contract:
+        intent: Make merge/diff/collab package names reflect real logic ownership.
+        acceptance_criteria:
+            - Core merge/diff/collab behavior resides in respective packages.
+            - Top-level service files mostly delegate to package APIs.
+        scope:
+            - internal/service/collab
+            - internal/service/diff
+            - internal/service/merge
+            - internal/service/service_collab.go
+            - internal/service/service_diff.go
+            - internal/service/service_merge_review.go
+      checkpoint:
+        at: "2026-02-27T11:42:26Z"
+        source: task_no_checkpoint
+    - id: 6
+      title: Stabilize import graph and eliminate cycle risks
+      status: done
+      contract:
+        intent: Finalize package extraction without introducing dependency cycles.
+        acceptance_criteria:
+            - Domain packages expose minimal APIs needed by orchestration layer.
+            - No import cycles exist across internal/service package graph.
+        scope:
+            - internal/service
+      checkpoint:
+        at: "2026-02-27T11:42:26Z"
+        source: task_no_checkpoint
+    - id: 7
+      title: Expand package-focused regression suite
+      status: done
+      contract:
+        intent: Guard behavior while ownership changes settle across domains.
+        acceptance_criteria:
+            - Regression tests cover moved flows in each promoted domain package.
+            - Targeted and full service test suites pass.
+        scope:
+            - internal/service/service_collab_test.go
+            - internal/service/service_cr_search_test.go
+            - internal/service/service_diff_views_test.go
+            - internal/service/service_tasks.go
+      checkpoint:
+        at: "2026-02-27T11:42:27Z"
+        source: task_no_checkpoint
+git_summary:
+    base_parent: 785073f573b902f8baadb0e17c21fd03bc79cb1e
+    cr_parent: 4d856a1bd6666dc2c477275f20972197351c65e6
+    files_changed:
+        - internal/service/collab/doc.go
+        - internal/service/cr/doc.go
+        - internal/service/diff/doc.go
+        - internal/service/merge/doc.go
+        - internal/service/policy/doc.go
+        - internal/service/tasks/doc.go
+        - internal/service/trust/doc.go
+    diffstat:
+        summary: 7 files changed, 56 insertions(+), 0 deletions(-)
+        files:
+            - path: internal/service/collab/doc.go
+              insertions: 8
+              deletions: 0
+            - path: internal/service/cr/doc.go
+              insertions: 8
+              deletions: 0
+            - path: internal/service/diff/doc.go
+              insertions: 8
+              deletions: 0
+            - path: internal/service/merge/doc.go
+              insertions: 8
+              deletions: 0
+            - path: internal/service/policy/doc.go
+              insertions: 8
+              deletions: 0
+            - path: internal/service/tasks/doc.go
+              insertions: 8
+              deletions: 0
+            - path: internal/service/trust/doc.go
+              insertions: 8
+              deletions: 0
