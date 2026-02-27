@@ -5,6 +5,7 @@ import (
 	"context"
 	"io"
 	"os"
+	"sophia/internal/service"
 	"strings"
 	"testing"
 )
@@ -117,5 +118,29 @@ func TestOutputModeExplicitJSONFalseOverridesEnvJSON(t *testing.T) {
 	}
 	if !strings.Contains(out, "version:") {
 		t.Fatalf("expected text version output, got %q", out)
+	}
+}
+
+func TestOutputModeSOPHIAOutputJSONAppliesToCRSubcommands(t *testing.T) {
+	t.Setenv(sophiaOutputModeEnv, "json")
+	dir := t.TempDir()
+	svc := service.New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	if _, err := svc.AddCR("JSON env propagation test", "ensure cr list uses implicit json mode"); err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+
+	out, _, runErr := runCLI(t, dir, "cr", "list")
+	if runErr != nil {
+		t.Fatalf("cr list run error = %v\noutput=%s", runErr, out)
+	}
+	env := decodeEnvelope(t, out)
+	if !env.OK {
+		t.Fatalf("expected ok envelope for cr list output, got %#v", env)
+	}
+	if _, ok := env.Data["results"]; !ok {
+		t.Fatalf("expected results field in cr list envelope")
 	}
 }
