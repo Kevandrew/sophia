@@ -14,6 +14,16 @@ type mergePreflightView struct {
 	overrideReason string
 }
 
+type MergeCROptions struct {
+	KeepBranch     bool
+	OverrideReason string
+}
+
+type MergeCRResult struct {
+	MergedCommit string
+	Warnings     []string
+}
+
 func (s *Service) ReviewCR(id int) (*Review, error) {
 	mergeStore := s.activeMergeStoreProvider()
 	cr, err := mergeStore.LoadCR(id)
@@ -56,27 +66,49 @@ func (s *Service) ReviewCR(id int) (*Review, error) {
 }
 
 func (s *Service) MergeCR(id int, keepBranch bool, overrideReason string) (string, error) {
-	sha, _, err := s.MergeCRWithWarnings(id, keepBranch, overrideReason)
-	return sha, err
+	result, err := s.MergeCRWithOptions(id, MergeCROptions{
+		KeepBranch:     keepBranch,
+		OverrideReason: overrideReason,
+	})
+	if err != nil {
+		return "", err
+	}
+	return result.MergedCommit, nil
 }
 
 func (s *Service) MergeCRWithWarnings(id int, keepBranch bool, overrideReason string) (string, []string, error) {
+	result, err := s.MergeCRWithOptions(id, MergeCROptions{
+		KeepBranch:     keepBranch,
+		OverrideReason: overrideReason,
+	})
+	if err != nil {
+		return "", nil, err
+	}
+	return result.MergedCommit, append([]string(nil), result.Warnings...), nil
+}
+
+func (s *Service) MergeCRWithOptions(id int, opts MergeCROptions) (*MergeCRResult, error) {
+	return s.runMergeOperation(func() (string, []string, error) {
+		return s.mergeDomainService().mergeCRWithWarningsUnlocked(id, opts.KeepBranch, opts.OverrideReason)
+	})
+}
+
+func (s *Service) runMergeOperation(operation func() (string, []string, error)) (*MergeCRResult, error) {
 	var (
 		sha      string
 		warnings []string
 	)
 	if err := s.withMergeMutationLock(func() error {
-		var mergeErr error
-		sha, warnings, mergeErr = s.mergeCRWithWarningsUnlocked(id, keepBranch, overrideReason)
-		return mergeErr
+		var opErr error
+		sha, warnings, opErr = operation()
+		return opErr
 	}); err != nil {
-		return "", nil, err
+		return nil, err
 	}
-	return sha, warnings, nil
-}
-
-func (s *Service) mergeCRWithWarningsUnlocked(id int, keepBranch bool, overrideReason string) (string, []string, error) {
-	return s.mergeDomainService().mergeCRWithWarningsUnlocked(id, keepBranch, overrideReason)
+	return &MergeCRResult{
+		MergedCommit: sha,
+		Warnings:     append([]string{}, warnings...),
+	}, nil
 }
 
 func (s *Service) MergeStatusCR(id int) (*MergeStatusView, error) {
@@ -94,22 +126,20 @@ func (s *Service) abortMergeCRUnlocked(id int) error {
 }
 
 func (s *Service) ResumeMergeCR(id int, keepBranch bool, overrideReason string) (string, []string, error) {
-	var (
-		sha      string
-		warnings []string
-	)
-	if err := s.withMergeMutationLock(func() error {
-		var resumeErr error
-		sha, warnings, resumeErr = s.resumeMergeCRUnlocked(id, keepBranch, overrideReason)
-		return resumeErr
-	}); err != nil {
+	result, err := s.ResumeMergeCRWithOptions(id, MergeCROptions{
+		KeepBranch:     keepBranch,
+		OverrideReason: overrideReason,
+	})
+	if err != nil {
 		return "", nil, err
 	}
-	return sha, warnings, nil
+	return result.MergedCommit, append([]string(nil), result.Warnings...), nil
 }
 
-func (s *Service) resumeMergeCRUnlocked(id int, keepBranch bool, overrideReason string) (string, []string, error) {
-	return s.mergeDomainService().resumeMergeCRUnlocked(id, keepBranch, overrideReason)
+func (s *Service) ResumeMergeCRWithOptions(id int, opts MergeCROptions) (*MergeCRResult, error) {
+	return s.runMergeOperation(func() (string, []string, error) {
+		return s.mergeDomainService().resumeMergeCRUnlocked(id, opts.KeepBranch, opts.OverrideReason)
+	})
 }
 
 func (s *Service) Doctor(limit int) (*DoctorReport, error) {

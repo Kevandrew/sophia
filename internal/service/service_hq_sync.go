@@ -193,6 +193,10 @@ type hqRemoteCRDoc struct {
 	CR          *model.CR
 }
 
+func cloneWarnings(warnings []string) []string {
+	return append([]string{}, warnings...)
+}
+
 func (s *Service) PullCRFromHQ(selector string, force bool) (*HQPullResult, error) {
 	if err := s.ensureHQWritesAllowed(); err != nil {
 		return nil, err
@@ -389,7 +393,7 @@ func (s *Service) PushCRToHQ(selector string, force bool) (*HQPushResult, error)
 			Noop:                true,
 			Forced:              force,
 			UpstreamFingerprint: remoteFingerprint,
-			Warnings:            warnings,
+			Warnings:            cloneWarnings(warnings),
 		}, nil
 	}
 
@@ -451,7 +455,7 @@ func (s *Service) PushCRToHQ(selector string, force bool) (*HQPushResult, error)
 		Noop:                false,
 		Forced:              force,
 		UpstreamFingerprint: nextFingerprint,
-		Warnings:            warnings,
+		Warnings:            cloneWarnings(warnings),
 	}, nil
 }
 

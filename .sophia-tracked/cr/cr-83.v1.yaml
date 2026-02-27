@@ -1,0 +1,236 @@
+schema_version: sophia.cr_archive.v1
+notice: Historical archive snapshot. Corrections are append-only revisions.
+archived_at: "2026-02-27T12:13:11Z"
+revision: 1
+cr:
+    id: 83
+    uid: cr_58243169-0c2c-4c9f-81d1-c20f4fbdf424
+    title: Simplify warning-bearing service APIs and collapse indirection chains
+    description: Remove deep `WithWarnings` call chains in favor of clearer warning-bearing API boundaries while keeping user-visible command behavior stable.
+    status: merged
+    base_branch: main
+    base_ref: main
+    base_commit: cb3e60af1269f661a736b3f59beecc615579726a
+    branch: cr-simplify-warning-bearing-service-apis-and-collap-5824
+    merged_at: "2026-02-27T12:13:11Z"
+    merged_by: Kevandrew <143258544+Kevandrew@users.noreply.github.com>
+contract:
+    why: |-
+        Several service workflows currently pass through multiple thin layers of `WithWarnings` wrappers before reaching real implementation logic.
+
+        This indirection reduces readability and increases maintenance overhead without delivering proportional compatibility value.
+
+        This CR simplifies warning-bearing APIs to one clear boundary per workflow and keeps compatibility where necessary via minimal adapters.
+    scope:
+        - internal/cli/cr_cmd_core.go
+        - internal/cli/cr_cmd_review_merge.go
+        - internal/cli/cr_json_helpers_test.go
+        - internal/cli/cr_json_test.go
+        - internal/service/service_cr.go
+        - internal/service/service_hq_sync.go
+        - internal/service/service_integrity_overlap_hook_test.go
+        - internal/service/service_merge_recovery_test.go
+        - internal/service/service_merge_review_test.go
+        - internal/service/service_public_contract_test.go
+        - internal/service/service_review_merge.go
+        - internal/service/service_test.go
+    non_goals:
+        - Do not alter warning text semantics unless required for correctness fixes.
+        - Do not combine this with unrelated domain extraction changes.
+        - Do not remove warning information from any command surface.
+    invariants:
+        - Callers can still access warnings for all workflows that currently expose them.
+        - JSON output remains deterministic and backward compatible.
+        - Primary command success/failure behavior remains unchanged.
+    blast_radius: Affects service API boundaries and CLI callsites for warning-capable workflows; main risks are dropped warnings or accidental semantic changes in wrapper removal.
+    risk_critical_scopes:
+        - internal/cli
+        - internal/service
+    risk_tier_hint: medium
+    risk_rationale: API simplification across multiple command paths with compatibility expectations.
+    test_plan: go test ./internal/service/... ./internal/cli/... -run 'Warning|AddCR|Merge' && go test ./...
+    rollback_plan: Revert the CR merge commit if warning propagation or caller compatibility regresses.
+tasks:
+    - id: 1
+      title: Inventory existing warning chains and compatibility callers
+      status: done
+      contract:
+        intent: Map all WithWarnings wrappers and their consumers before simplification.
+        acceptance_criteria:
+            - A target API boundary is defined per workflow.
+            - All warning-bearing workflows and wrapper layers are enumerated.
+        scope:
+            - internal/service/service_cr.go
+            - internal/service/service_hq_sync.go
+            - internal/service/service_review_merge.go
+      checkpoint:
+        at: "2026-02-27T12:04:01Z"
+        source: task_no_checkpoint
+    - id: 2
+      title: Define canonical warning-bearing API shape
+      status: done
+      contract:
+        intent: Establish one consistent return pattern for warning-capable service flows.
+        acceptance_criteria:
+            - Canonical API shape is implemented for targeted workflows.
+            - Compatibility adapter strategy is explicit where needed.
+        scope:
+            - internal/service/service_cr.go
+            - internal/service/service_public_contract_test.go
+            - internal/service/service_review_merge.go
+      checkpoint:
+        commit: 06f6a6b4
+        at: "2026-02-27T12:04:20Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_public_contract_test.go
+            - internal/service/service_review_merge.go
+    - id: 3
+      title: Collapse AddCR warning wrapper chain
+      status: done
+      contract:
+        intent: Reduce AddCR path to a single clear implementation boundary.
+        acceptance_criteria:
+            - AddCR wrapper depth is reduced with no behavior regressions.
+            - Warnings continue to propagate to all existing callers.
+        scope:
+            - internal/service/service_cr.go
+            - internal/service/service_integrity_overlap_hook_test.go
+      checkpoint:
+        commit: 2d5ddb8f
+        at: "2026-02-27T12:04:37Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_cr.go
+            - internal/service/service_integrity_overlap_hook_test.go
+    - id: 4
+      title: Collapse MergeCR warning wrapper chain
+      status: done
+      contract:
+        intent: Reduce MergeCR path indirection while preserving recovery semantics.
+        acceptance_criteria:
+            - Merge warning behavior remains stable in success and conflict scenarios.
+            - Merge warning chain is simplified to a clear implementation boundary.
+        scope:
+            - internal/service/service_merge_recovery_test.go
+            - internal/service/service_merge_review_test.go
+            - internal/service/service_review_merge.go
+      checkpoint:
+        commit: 5778b3ad
+        at: "2026-02-27T12:04:47Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_merge_recovery_test.go
+            - internal/service/service_merge_review_test.go
+    - id: 5
+      title: Align HQ warning paths with canonical API shape
+      status: done
+      contract:
+        intent: Bring HQ warning-producing paths into the simplified warning contract model.
+        acceptance_criteria:
+            - HQ warning outputs remain available with simplified internal chains.
+            - No HQ JSON payload regression occurs in tests.
+        scope:
+            - internal/service/service_hq_intent.go
+            - internal/service/service_hq_intent_test.go
+            - internal/service/service_hq_sync.go
+      checkpoint:
+        commit: bd109bda
+        at: "2026-02-27T12:04:57Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_hq_sync.go
+    - id: 6
+      title: Update CLI command and mapper integration for simplified APIs
+      status: done
+      contract:
+        intent: Keep command behavior unchanged after service API simplification.
+        acceptance_criteria:
+            - CLI commands compile and run against simplified warning APIs.
+            - JSON and text output behavior remains stable.
+        scope:
+            - internal/cli/cr_cmd_core.go
+            - internal/cli/cr_cmd_review_merge.go
+            - internal/cli/cr_json_mappers.go
+      checkpoint:
+        commit: c2e42026
+        at: "2026-02-27T12:05:06Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/cr_cmd_core.go
+            - internal/cli/cr_cmd_review_merge.go
+    - id: 7
+      title: Add warning propagation regression tests
+      status: done
+      contract:
+        intent: Ensure warning content and delivery remain intact after chain collapse.
+        acceptance_criteria:
+            - Regression tests verify warning presence and ordering where relevant.
+            - Targeted warning test selectors pass consistently.
+        scope:
+            - internal/cli/cr_json_helpers_test.go
+            - internal/cli/cr_json_test.go
+            - internal/service/service_test.go
+      checkpoint:
+        commit: 1b1db9de
+        at: "2026-02-27T12:05:29Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/cr_json_helpers_test.go
+            - internal/cli/cr_json_test.go
+            - internal/service/service_test.go
+git_summary:
+    base_parent: cb3e60af1269f661a736b3f59beecc615579726a
+    cr_parent: 1b1db9de1b7fdf908e19b760c79604f93940d831
+    files_changed:
+        - internal/cli/cr_cmd_core.go
+        - internal/cli/cr_cmd_review_merge.go
+        - internal/cli/cr_json_helpers_test.go
+        - internal/cli/cr_json_test.go
+        - internal/service/service_cr.go
+        - internal/service/service_hq_sync.go
+        - internal/service/service_integrity_overlap_hook_test.go
+        - internal/service/service_merge_recovery_test.go
+        - internal/service/service_merge_review_test.go
+        - internal/service/service_public_contract_test.go
+        - internal/service/service_review_merge.go
+        - internal/service/service_test.go
+    diffstat:
+        summary: 12 files changed, 211 insertions(+), 68 deletions(-)
+        files:
+            - path: internal/cli/cr_cmd_core.go
+              insertions: 3
+              deletions: 1
+            - path: internal/cli/cr_cmd_review_merge.go
+              insertions: 14
+              deletions: 4
+            - path: internal/cli/cr_json_helpers_test.go
+              insertions: 13
+              deletions: 0
+            - path: internal/cli/cr_json_test.go
+              insertions: 49
+              deletions: 0
+            - path: internal/service/service_cr.go
+              insertions: 48
+              deletions: 28
+            - path: internal/service/service_hq_sync.go
+              insertions: 6
+              deletions: 2
+            - path: internal/service/service_integrity_overlap_hook_test.go
+              insertions: 3
+              deletions: 2
+            - path: internal/service/service_merge_recovery_test.go
+              insertions: 4
+              deletions: 2
+            - path: internal/service/service_merge_review_test.go
+              insertions: 6
+              deletions: 2
+            - path: internal/service/service_public_contract_test.go
+              insertions: 3
+              deletions: 0
+            - path: internal/service/service_review_merge.go
+              insertions: 53
+              deletions: 23
+            - path: internal/service/service_test.go
+              insertions: 9
+              deletions: 4

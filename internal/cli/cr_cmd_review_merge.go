@@ -136,18 +136,23 @@ func newCRMergeCmd() *cobra.Command {
 				if deleteBranch {
 					keepBranch = false
 				}
-				sha, warnings, err := svc.MergeCRWithWarnings(id, keepBranch, overrideReason)
+				result, err := svc.MergeCRWithOptions(id, service.MergeCROptions{
+					KeepBranch:     keepBranch,
+					OverrideReason: overrideReason,
+				})
 				if err != nil {
 					if asJSON {
 						return writeJSONError(cmd, err)
 					}
 					return err
 				}
+				sha := result.MergedCommit
+				warnings := append([]string(nil), result.Warnings...)
 				if asJSON {
 					return writeJSONSuccess(cmd, map[string]any{
 						"cr_id":           id,
 						"merged_commit":   sha,
-						"warnings":        warnings,
+						"warnings":        stringSliceOrEmpty(warnings),
 						"keep_branch":     keepBranch,
 						"override_reason": strings.TrimSpace(overrideReason),
 					})
@@ -295,18 +300,23 @@ func newCRMergeResumeCmd() *cobra.Command {
 			if deleteBranch {
 				keepBranch = false
 			}
-			sha, warnings, err := svc.ResumeMergeCR(id, keepBranch, overrideReason)
+			result, err := svc.ResumeMergeCRWithOptions(id, service.MergeCROptions{
+				KeepBranch:     keepBranch,
+				OverrideReason: overrideReason,
+			})
 			if err != nil {
 				if asJSON {
 					return writeJSONError(cmd, err)
 				}
 				return err
 			}
+			sha := result.MergedCommit
+			warnings := append([]string(nil), result.Warnings...)
 			if asJSON {
 				return writeJSONSuccess(cmd, map[string]any{
 					"cr_id":           id,
 					"merged_commit":   sha,
-					"warnings":        warnings,
+					"warnings":        stringSliceOrEmpty(warnings),
 					"keep_branch":     keepBranch,
 					"override_reason": strings.TrimSpace(overrideReason),
 				})

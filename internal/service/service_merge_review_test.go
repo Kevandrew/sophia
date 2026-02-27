@@ -72,12 +72,16 @@ func TestMergeCreatesIntentCommitAndMarksMerged(t *testing.T) {
 	runGit(t, dir, "commit", "-m", "feat: app")
 	setValidContract(t, svc, cr.ID)
 
-	sha, err := svc.MergeCR(cr.ID, false, "")
+	result, err := svc.MergeCRWithOptions(cr.ID, MergeCROptions{KeepBranch: false})
 	if err != nil {
-		t.Fatalf("MergeCR() error = %v", err)
+		t.Fatalf("MergeCRWithOptions() error = %v", err)
 	}
+	sha := result.MergedCommit
 	if sha == "" {
 		t.Fatalf("expected merge sha to be non-empty")
+	}
+	if result.Warnings == nil {
+		t.Fatalf("expected warnings slice to be non-nil")
 	}
 
 	mergedCR, err := svc.store.LoadCR(cr.ID)

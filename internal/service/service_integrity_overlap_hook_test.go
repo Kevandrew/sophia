@@ -41,10 +41,11 @@ func TestAddCRWithWarningsReportsOverlap(t *testing.T) {
 	runGit(t, dir, "add", "billing/b.txt")
 	runGit(t, dir, "commit", "-m", "feat: exploratory billing")
 
-	_, warnings, err := svc.AddCRWithWarnings("New billing CR", "another billing change")
+	result, err := svc.AddCRWithOptions("New billing CR", "another billing change", AddCROptions{Switch: true})
 	if err != nil {
-		t.Fatalf("AddCRWithWarnings() error = %v", err)
+		t.Fatalf("AddCRWithOptions() error = %v", err)
 	}
+	warnings := result.Warnings
 	if len(warnings) == 0 {
 		t.Fatalf("expected overlap warnings")
 	}

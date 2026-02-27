@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -162,4 +164,51 @@ func TestValidateJSONReturnsStructuredErrorWhenInvalid(t *testing.T) {
 	if env.Error.Code != "validation_failed" {
 		t.Fatalf("expected validation_failed code, got %#v", env.Error)
 	}
+}
+
+func TestWarningBearingJSONCommandsAlwaysReturnWarningsArray(t *testing.T) {
+	dir := t.TempDir()
+	svc := service.New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	addOut, _, addErr := runCLI(t, dir, "cr", "add", "warning arrays", "--switch", "--json")
+	if addErr != nil {
+		t.Fatalf("cr add --json error = %v\noutput=%s", addErr, addOut)
+	}
+	addEnv := decodeEnvelope(t, addOut)
+	requireJSONArrayField(t, addEnv.Data, "warnings")
+
+	if err := os.WriteFile(filepath.Join(dir, "warning-array.txt"), []byte("fixture\n"), 0o644); err != nil {
+		t.Fatalf("write warning-array.txt: %v", err)
+	}
+	runGit(t, dir, "add", "warning-array.txt")
+	runGit(t, dir, "-c", "user.name=Test User", "-c", "user.email=test@example.com", "commit", "-m", "feat: warning-array fixture")
+
+	why := "Merge fixture."
+	scope := []string{"warning-array.txt"}
+	nonGoals := []string{"No unrelated changes"}
+	invariants := []string{"CLI JSON stays stable"}
+	blast := "merge output only"
+	testPlan := "go test ./..."
+	rollback := "revert"
+	if _, err := svc.SetCRContract(1, service.ContractPatch{
+		Why:          &why,
+		Scope:        &scope,
+		NonGoals:     &nonGoals,
+		Invariants:   &invariants,
+		BlastRadius:  &blast,
+		TestPlan:     &testPlan,
+		RollbackPlan: &rollback,
+	}); err != nil {
+		t.Fatalf("SetCRContract() error = %v", err)
+	}
+
+	mergeOut, _, mergeErr := runCLI(t, dir, "cr", "merge", "1", "--json")
+	if mergeErr != nil {
+		t.Fatalf("cr merge --json error = %v\noutput=%s", mergeErr, mergeOut)
+	}
+	mergeEnv := decodeEnvelope(t, mergeOut)
+	requireJSONArrayField(t, mergeEnv.Data, "warnings")
 }
