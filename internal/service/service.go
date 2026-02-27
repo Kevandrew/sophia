@@ -13,6 +13,7 @@ type Service struct {
 	store                *store.Store
 	git                  *gitx.Client
 	trustSvc             *trustDomain
+	mergeSvc             *mergeDomain
 	taskStore            taskLifecycleStoreProvider
 	taskGit              taskLifecycleGitProvider
 	taskMergeGuard       func(*model.CR) error
