@@ -20,84 +20,15 @@ const (
 )
 
 func buildTrustReport(cr *model.CR, validation *ValidationReport, diff *diffSummary, requiredCRFields []string) *TrustReport {
-	policy := defaultRepoPolicy()
-	// Compatibility wrapper for unit tests that exercise dimension scoring in isolation.
-	policy.Trust.Checks.Definitions = []model.PolicyTrustCheckDefinition{}
-	policy.Trust.ReviewDepth.Low.MinSamples = intPtr(0)
-	policy.Trust.ReviewDepth.Low.RequireCriticalScopeCoverage = boolPtr(false)
-	policy.Trust.ReviewDepth.Medium.MinSamples = intPtr(0)
-	policy.Trust.ReviewDepth.Medium.RequireCriticalScopeCoverage = boolPtr(false)
-	policy.Trust.ReviewDepth.High.MinSamples = intPtr(0)
-	policy.Trust.ReviewDepth.High.RequireCriticalScopeCoverage = boolPtr(false)
-	policy.Trust.Thresholds.Low = floatPtr(trustTrustedMinRatio)
-	policy.Trust.Thresholds.Medium = floatPtr(trustTrustedMinRatio)
-	policy.Trust.Thresholds.High = floatPtr(trustTrustedMinRatio)
-	return buildTrustReportWithPolicy(cr, validation, diff, requiredCRFields, policy)
+	return newTrustDomain(nil).buildReport(cr, validation, diff, requiredCRFields)
 }
 
 func buildTrustReportWithPolicy(cr *model.CR, validation *ValidationReport, diff *diffSummary, requiredCRFields []string, policy *model.RepoPolicy) *TrustReport {
-	if cr == nil {
-		return &TrustReport{
-			Verdict:      trustVerdictUntrusted,
-			Score:        0,
-			Max:          100,
-			AdvisoryOnly: true,
-			HardFailures: []string{"CR metadata is missing"},
-			Dimensions:   []TrustDimension{},
-			RequiredActions: []string{
-				"Re-run review on an existing CR.",
-			},
-			Advisories: []string{},
-			Summary:    "Trust evidence unavailable because CR metadata is missing.",
-			Gate: TrustGateSummary{
-				Enabled: false,
-				Applies: false,
-				Blocked: false,
-				Reason:  "CR metadata is missing.",
-			},
-		}
-	}
-	if policy == nil {
-		policy = defaultRepoPolicy()
-	}
-	validation, diff, impact, shortStat := normalizeTrustInputs(validation, diff)
-	hardFailures, requirements := buildInitialTrustRequirements(cr, validation, requiredCRFields)
-	dimensions, score, max, dimensionActions, advisories := evaluateTrustDimensions(cr, validation, impact, diff, shortStat)
-	riskTier := normalizedRiskTier(impact.RiskTier)
-	reviewDepth := evaluateTrustReviewDepth(cr, policy.Trust, riskTier)
-	checkRequirements, checkResults := buildTrustCheckRequirements(cr, policy.Trust, riskTier, time.Now().UTC())
-	requirements = append(requirements, checkRequirements...)
-	requirements = append(requirements, buildReviewDepthRequirement(reviewDepth))
-	contractDrift := summarizeTaskContractDrift(cr.Subtasks)
-	requirements = append(requirements, buildContractDriftRequirement(contractDrift, cr.ID))
-	advisories = appendRiskTierAdvisories(advisories, impact, reviewDepth, cr.Contract, diff)
-	requiredActions := collectRequiredActions(requirements)
+	return newTrustDomain(nil).buildReportWithPolicy(cr, validation, diff, requiredCRFields, policy)
+}
 
-	verdict, summary := selectTrustVerdictForPolicy(score, max, hardFailures, requirements, policy.Trust, riskTier)
-	attentionActions := []string{}
-	if verdict == trustVerdictNeedsAttention && trustRequirementsSatisfied(requirements) {
-		attentionActions = dedupeStrings(dimensionActions)
-	}
-	gate := buildTrustGateSummary(policy.Trust, riskTier, verdict)
-
-	return &TrustReport{
-		Verdict:          verdict,
-		Score:            score,
-		Max:              max,
-		AdvisoryOnly:     !(gate.Enabled && gate.Applies),
-		HardFailures:     dedupeStrings(hardFailures),
-		Dimensions:       dimensions,
-		RequiredActions:  requiredActions,
-		Advisories:       advisories,
-		Summary:          summary,
-		AttentionActions: attentionActions,
-		RiskTier:         riskTier,
-		Requirements:     requirements,
-		CheckResults:     checkResults,
-		ReviewDepth:      reviewDepth,
-		ContractDrift:    contractDrift,
-		Gate:             gate,
-	}
+func buildTrustReportWithPolicyAt(cr *model.CR, validation *ValidationReport, diff *diffSummary, requiredCRFields []string, policy *model.RepoPolicy, now time.Time) *TrustReport {
+	return newTrustDomain(nil).buildReportWithPolicyAt(cr, validation, diff, requiredCRFields, policy, now)
 }
 
 func normalizeTrustInputs(validation *ValidationReport, diff *diffSummary) (*ValidationReport, *diffSummary, *ImpactReport, shortStatMetrics) {

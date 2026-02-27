@@ -1,0 +1,267 @@
+schema_version: sophia.cr_archive.v1
+notice: Historical archive snapshot. Corrections are append-only revisions.
+archived_at: "2026-02-27T06:06:55Z"
+revision: 1
+cr:
+    id: 79
+    uid: cr_17d1bec7-fa41-478d-8c78-fe9e11872270
+    title: Extract trust evaluation into a dedicated domain service
+    description: Break trust evaluation and trust-check orchestration out of the monolithic Service type while preserving existing CLI behavior, JSON shapes, and trust verdict semantics.
+    status: merged
+    base_branch: main
+    base_ref: main
+    base_commit: 497bfb2be4a27285b131a0497cc56bd64376ba54
+    branch: cr-extract-trust-evaluation-into-a-dedicated-domain-17d1
+    merged_at: "2026-02-27T06:06:55Z"
+    merged_by: Kevandrew <143258544+Kevandrew@users.noreply.github.com>
+contract:
+    why: |-
+        Trust logic currently lives across large methods on the root Service type, which makes review and maintenance difficult and keeps critical risk logic coupled to unrelated workflows.
+
+        This CR isolates trust evaluation and trust-check orchestration behind a focused domain service so trust behavior is discoverable, testable, and evolvable without expanding the global Service method set.
+
+        Success means trust status, review, and check flows remain behaviorally equivalent for unchanged repo state while ownership moves to a dedicated domain unit.
+    scope:
+        - internal/cli/cr_cmd_check.go
+        - internal/cli/cr_cmd_review_merge.go
+        - internal/cli/cr_json_mappers.go
+        - internal/cli/cr_json_trust_test.go
+        - internal/service/service.go
+        - internal/service/service_checks.go
+        - internal/service/service_checks_test.go
+        - internal/service/service_hq_status.go
+        - internal/service/service_integrity_test.go
+        - internal/service/service_review_merge.go
+        - internal/service/service_trust.go
+        - internal/service/service_trust_domain.go
+        - internal/service/service_trust_test.go
+        - internal/service/service_trust_types.go
+        - internal/service/trust
+    non_goals:
+        - Do not change CLI command names, flags, or top-level workflows.
+        - Do not change trust thresholds or policy defaults in SOPHIA.yaml.
+        - Do not introduce metadata schema changes for CR/task YAML.
+    invariants:
+        - JSON payload fields and error codes for trust/check surfaces remain backward compatible.
+        - Mutation lock guarantees are preserved for all trust-adjacent workflows.
+        - Trust verdicts and required/attention actions remain deterministic for unchanged repo state.
+    blast_radius: Affects trust-related service orchestration and CLI read surfaces (review/check/status), plus mapper paths that serialize trust output. Primary failure modes are trust verdict drift or JSON contract drift.
+    risk_critical_scopes:
+        - internal/cli
+        - internal/service
+    risk_tier_hint: high
+    risk_rationale: Touches readiness and trust decision surfaces used before merge.
+    test_plan: go test ./internal/service/... ./internal/cli/... && go test ./... && go vet ./...
+    rollback_plan: Revert the CR merge commit and rerun go test ./... to confirm trust outputs return to baseline.
+tasks:
+    - id: 1
+      title: Inventory trust entrypoints and define extraction seams
+      status: done
+      contract:
+        intent: Create a concrete ownership map for trust behavior before moving logic.
+        acceptance_criteria:
+            - A migration sequence is documented so behavior-preserving extraction can proceed incrementally.
+            - All trust-related Service entrypoints and dependencies are enumerated and mapped to target trust domain responsibilities.
+        scope:
+            - internal/service/service_hq_status.go
+            - internal/service/service_trust.go
+            - internal/service/trust
+      checkpoint:
+        at: "2026-02-27T05:38:05Z"
+        source: task_no_checkpoint
+    - id: 2
+      title: Introduce trust domain service scaffold and dependency bundle
+      status: done
+      contract:
+        intent: Create the dedicated trust domain type and constructor wiring needed for extraction.
+        acceptance_criteria:
+            - A focused trust domain type exists with explicit dependencies and no implicit global state.
+            - Root Service composes the trust domain without changing external call signatures yet.
+        scope:
+            - internal/service/service.go
+            - internal/service/service_trust_domain.go
+            - internal/service/service_trust_types.go
+            - internal/service/trust
+      checkpoint:
+        commit: f902dd1c
+        at: "2026-02-27T05:25:17Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service.go
+            - internal/service/service_trust_domain.go
+            - internal/service/service_trust_types.go
+    - id: 3
+      title: Move trust scoring and requirement logic into trust domain
+      status: done
+      contract:
+        intent: Relocate trust score calculations and requirement evaluation from monolithic methods.
+        acceptance_criteria:
+            - Behavioral parity tests demonstrate unchanged verdicts for representative fixtures.
+            - Trust score and requirement computations execute inside the trust domain implementation.
+        scope:
+            - internal/service/service_trust.go
+            - internal/service/service_trust_domain.go
+            - internal/service/service_trust_test.go
+            - internal/service/trust
+      checkpoint:
+        commit: 0c7c7d53
+        at: "2026-02-27T05:37:36Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_trust.go
+            - internal/service/service_trust_domain.go
+            - internal/service/service_trust_test.go
+    - id: 4
+      title: Move trust check status/run orchestration into trust domain
+      status: done
+      contract:
+        intent: Consolidate trust check orchestration flows under the trust domain owner.
+        acceptance_criteria:
+            - Check status/run code paths delegate to trust domain orchestration.
+            - Required actions and attention actions remain structurally identical for unchanged inputs.
+        scope:
+            - internal/service/service_checks.go
+            - internal/service/service_trust.go
+            - internal/service/service_trust_domain.go
+      checkpoint:
+        commit: 26699bbc
+        at: "2026-02-27T05:25:25Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_checks.go
+    - id: 5
+      title: Keep compatibility wrappers on root Service
+      status: done
+      contract:
+        intent: Preserve external Service API stability while delegating internals to trust domain.
+        acceptance_criteria:
+            - Existing exported Service methods remain callable with unchanged signatures for this CR.
+            - Wrappers contain delegation only and no duplicated trust business logic.
+        scope:
+            - internal/service/service_checks.go
+            - internal/service/service_review_merge.go
+            - internal/service/service_trust.go
+      checkpoint:
+        commit: 49ef1825
+        at: "2026-02-27T05:25:32Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_review_merge.go
+            - internal/service/service_trust.go
+    - id: 6
+      title: Align CLI call sites and JSON mappers with trust extraction
+      status: done
+      contract:
+        intent: Update CLI integration points to consume trust outputs through new domain boundaries.
+        acceptance_criteria:
+            - CLI commands continue to emit stable JSON envelopes for trust-related commands.
+            - No user-facing text regressions are introduced in trust command paths.
+        scope:
+            - internal/cli/cr_cmd_check.go
+            - internal/cli/cr_cmd_review_merge.go
+            - internal/cli/cr_json_hq_status_test.go
+            - internal/cli/cr_json_mappers.go
+      checkpoint:
+        at: "2026-02-27T05:38:06Z"
+        source: task_no_checkpoint
+    - id: 7
+      title: Add focused unit coverage for trust domain and wrappers
+      status: done
+      contract:
+        intent: Guarantee trust domain behavior parity and wrapper correctness with targeted tests.
+        acceptance_criteria:
+            - New/updated tests cover domain logic and wrapper delegation boundaries.
+            - Regression tests lock critical verdict and action outputs for stable fixtures.
+        scope:
+            - internal/cli/cr_json_trust_test.go
+            - internal/service/service_trust_test.go
+            - internal/service/trust
+      checkpoint:
+        commit: 460af530
+        at: "2026-02-27T05:37:50Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/cr_json_trust_test.go
+    - id: 8
+      title: Add integration regressions for review/validate/check trust outputs
+      status: done
+      contract:
+        intent: Protect end-to-end trust workflows through integration-level assertions.
+        acceptance_criteria:
+            - Integration failures clearly indicate trust extraction regressions.
+            - Review/validate/check flows pass with expected trust payloads and no schema drift.
+        scope:
+            - internal/cli/cr_json_helpers_test.go
+            - internal/service/service_hq_status_test.go
+            - internal/service/service_integrity_test.go
+      checkpoint:
+        commit: 888153ae
+        at: "2026-02-27T05:48:04Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_integrity_test.go
+    - id: 9
+      title: Add mockable trust-status runtime seam and harness test
+      status: done
+      contract:
+        intent: Route trust status reads through runtime status-store providers and verify with harness-driven tests so trust status logic is mockable without manual git scripting.
+        acceptance_criteria:
+            - A harness-based test verifies TrustCheckStatusCR can execute against fake runtime providers without direct runGit workflow scripting.
+            - TrustCheckStatusCR loads CR data through active status-store providers rather than hard-coding the root store.
+        scope:
+            - internal/service/service_checks_test.go
+            - internal/service/service_trust_domain.go
+      checkpoint:
+        commit: efeea489
+        at: "2026-02-27T05:56:49Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_checks_test.go
+            - internal/service/service_trust_domain.go
+git_summary:
+    base_parent: 497bfb2be4a27285b131a0497cc56bd64376ba54
+    cr_parent: efeea489b11c762f5dc77a07fcf14a1266cbd797
+    files_changed:
+        - internal/cli/cr_json_trust_test.go
+        - internal/service/service.go
+        - internal/service/service_checks.go
+        - internal/service/service_checks_test.go
+        - internal/service/service_integrity_test.go
+        - internal/service/service_review_merge.go
+        - internal/service/service_trust.go
+        - internal/service/service_trust_domain.go
+        - internal/service/service_trust_test.go
+        - internal/service/service_trust_types.go
+    diffstat:
+        summary: 10 files changed, 653 insertions(+), 301 deletions(-)
+        files:
+            - path: internal/cli/cr_json_trust_test.go
+              insertions: 79
+              deletions: 0
+            - path: internal/service/service.go
+              insertions: 1
+              deletions: 93
+            - path: internal/service/service_checks.go
+              insertions: 2
+              deletions: 132
+            - path: internal/service/service_checks_test.go
+              insertions: 56
+              deletions: 0
+            - path: internal/service/service_integrity_test.go
+              insertions: 65
+              deletions: 0
+            - path: internal/service/service_review_merge.go
+              insertions: 2
+              deletions: 2
+            - path: internal/service/service_trust.go
+              insertions: 5
+              deletions: 74
+            - path: internal/service/service_trust_domain.go
+              insertions: 280
+              deletions: 0
+            - path: internal/service/service_trust_test.go
+              insertions: 69
+              deletions: 0
+            - path: internal/service/service_trust_types.go
+              insertions: 94
+              deletions: 0

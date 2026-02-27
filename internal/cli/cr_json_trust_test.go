@@ -235,6 +235,85 @@ func TestCRReviewJSONHighRiskMissingSpecializedEvidenceUsesAdvisories(t *testing
 	}
 }
 
+func TestCRReviewJSONIncludesPassingCheckResultsAfterRun(t *testing.T) {
+	dir := t.TempDir()
+	svc := service.New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "SOPHIA.yaml"), []byte(`version: v1
+trust:
+  mode: advisory
+  checks:
+    freshness_hours: 24
+    definitions:
+      - key: smoke_check
+        command: "printf 'ok\n'"
+        tiers: [low, medium, high]
+        allow_exit_codes: [0]
+`), 0o644); err != nil {
+		t.Fatalf("write policy file: %v", err)
+	}
+
+	cr, err := svc.AddCR("Trust check carry-through", "check results remain visible in review output")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	why := "Keep trust check results visible in review JSON after check execution."
+	scope := []string{"feature.txt"}
+	nonGoals := []string{"No command UX changes."}
+	invariants := []string{"Review JSON envelope remains backward compatible."}
+	blast := "Check/review trust output only."
+	testPlan := "Run go test ./... and go vet ./..."
+	rollback := "Revert trust check wiring commit."
+	if _, err := svc.SetCRContract(cr.ID, service.ContractPatch{
+		Why:          &why,
+		Scope:        &scope,
+		NonGoals:     &nonGoals,
+		Invariants:   &invariants,
+		BlastRadius:  &blast,
+		TestPlan:     &testPlan,
+		RollbackPlan: &rollback,
+	}); err != nil {
+		t.Fatalf("SetCRContract() error = %v", err)
+	}
+
+	if err := os.WriteFile(filepath.Join(dir, "feature.txt"), []byte("trust\n"), 0o644); err != nil {
+		t.Fatalf("write feature file: %v", err)
+	}
+	runGit(t, dir, "add", "feature.txt")
+	runGit(t, dir, "commit", "-m", "feat: trust check review fixture")
+
+	out, _, runErr := runCLI(t, dir, "cr", "check", "run", "1", "--json")
+	if runErr != nil {
+		t.Fatalf("cr check run --json error = %v\noutput=%s", runErr, out)
+	}
+
+	out, _, runErr = runCLI(t, dir, "cr", "review", "1", "--json")
+	if runErr != nil {
+		t.Fatalf("cr review --json error = %v\noutput=%s", runErr, out)
+	}
+	env := decodeEnvelope(t, out)
+	trust, ok := env.Data["trust"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected trust object, got %#v", env.Data["trust"])
+	}
+	results, ok := trust["check_results"].([]any)
+	if !ok || len(results) != 1 {
+		t.Fatalf("expected one trust check result, got %#v", trust["check_results"])
+	}
+	check, ok := results[0].(map[string]any)
+	if !ok {
+		t.Fatalf("expected check result object, got %#v", results[0])
+	}
+	if got, _ := check["key"].(string); got != "smoke_check" {
+		t.Fatalf("expected check key smoke_check, got %#v", check["key"])
+	}
+	if got, _ := check["status"].(string); got != "pass" {
+		t.Fatalf("expected check status pass, got %#v", check["status"])
+	}
+}
+
 func TestCRReviewTextIncludesTrustSection(t *testing.T) {
 	dir := t.TempDir()
 	svc := service.New(dir)

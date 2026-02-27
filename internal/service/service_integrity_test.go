@@ -219,3 +219,68 @@ func TestReviewCategorizationAndSignals(t *testing.T) {
 		t.Fatalf("expected go.mod in dependency files: %#v", review.DependencyFiles)
 	}
 }
+
+func TestReviewValidateAndCheckFlowWithTrustDomainExtraction(t *testing.T) {
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	writePolicyFileForTest(t, dir, `version: v1
+trust:
+  mode: advisory
+  checks:
+    freshness_hours: 24
+    definitions:
+      - key: smoke_check
+        command: "printf 'ok\n'"
+        tiers: [low, medium, high]
+        allow_exit_codes: [0]
+`)
+	cr, err := svc.AddCR("trust integration", "review/validate/check integration")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	setValidContract(t, svc, cr.ID)
+
+	validation, err := svc.ValidateCR(cr.ID)
+	if err != nil {
+		t.Fatalf("ValidateCR() error = %v", err)
+	}
+	if !validation.Valid {
+		t.Fatalf("expected validation valid, got %#v", validation)
+	}
+
+	status, err := svc.TrustCheckStatusCR(cr.ID)
+	if err != nil {
+		t.Fatalf("TrustCheckStatusCR() error = %v", err)
+	}
+	if status.CheckMode != "required" {
+		t.Fatalf("expected check mode required, got %q", status.CheckMode)
+	}
+	if len(status.CheckResults) != 1 || status.CheckResults[0].Status != policyTrustCheckStatusMissing {
+		t.Fatalf("expected one missing check result before run, got %#v", status.CheckResults)
+	}
+
+	runReport, err := svc.RunTrustChecksCR(cr.ID)
+	if err != nil {
+		t.Fatalf("RunTrustChecksCR() error = %v", err)
+	}
+	if runReport.Executed != 1 {
+		t.Fatalf("expected one executed check, got %d", runReport.Executed)
+	}
+	if len(runReport.CheckResults) != 1 || runReport.CheckResults[0].Status != policyTrustCheckStatusPass {
+		t.Fatalf("expected one passing check result after run, got %#v", runReport.CheckResults)
+	}
+
+	review, err := svc.ReviewCR(cr.ID)
+	if err != nil {
+		t.Fatalf("ReviewCR() error = %v", err)
+	}
+	if review.Trust == nil {
+		t.Fatalf("expected non-nil trust report")
+	}
+	if len(review.Trust.CheckResults) != 1 || review.Trust.CheckResults[0].Status != policyTrustCheckStatusPass {
+		t.Fatalf("expected review trust check result to remain pass, got %#v", review.Trust.CheckResults)
+	}
+}
