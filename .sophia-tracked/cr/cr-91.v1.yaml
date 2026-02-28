@@ -1,0 +1,101 @@
+schema_version: sophia.cr_archive.v1
+notice: Historical archive snapshot. Corrections are append-only revisions.
+archived_at: "2026-02-28T20:03:35Z"
+revision: 1
+cr:
+    id: 91
+    uid: cr_a36b20ae-41a9-4e2e-af1f-3e9e0b4b05a3
+    title: Improve checkpoint sync timeline and comment payload
+    description: Make checkpoint sync timeline intent-first by enforcing per-checkpoint ordering (comment first, then push checkpoint commit) and enrich checkpoint comments with task contract details (intent, acceptance criteria, scope, commit summary) for reviewer clarity.
+    status: merged
+    base_branch: main
+    base_ref: main
+    base_commit: d64115dd37372f766cc8292f9d0f7ac15c483c47
+    branch: cr-improve-checkpoint-sync-timeline-and-comment-pay-a36b
+    merged_at: "2026-02-28T20:03:35Z"
+    merged_by: Kevandrew <143258544+Kevandrew@users.noreply.github.com>
+contract:
+    why: Checkpoint sync comments should act as reviewer-facing intent records, not after-the-fact noise. In PR-first mode, each checkpoint must present intent and acceptance context before code movement so reviewers can read the timeline top-down as decision then implementation. This CR enforces deterministic per-checkpoint ordering (comment first, then checkpoint push) and upgrades checkpoint comments to include task contract details (intent, acceptance criteria, scope, and commit summary) for high-signal review handoff.
+    scope:
+        - internal/service/service_pr_gate.go
+        - internal/service/service_pr_gate_test.go
+    non_goals:
+        - Change merge gate policy evaluation semantics.
+        - Introduce non-GitHub providers in this CR.
+        - Redesign the managed PR body sections outside checkpoint sync comments.
+    invariants:
+        - Checkpoint sync remains idempotent across repeated sync runs and force-push scenarios.
+        - Local merge.mode=local behavior remains unchanged.
+        - 'PR-first flow remains deterministic: one checkpoint sync event per task checkpoint key.'
+    blast_radius: Touches PR-gate sync orchestration, gh comment behavior, checkpoint idempotency ledger handling, and reviewer timeline readability in GitHub PRs.
+    risk_tier_hint: medium
+    risk_rationale: Changes affect remote sync sequencing and PR timeline artifacts; regressions could duplicate comments or degrade sync determinism.
+    test_plan: go test ./internal/service/... -count=1 && go test ./... -count=1 && go vet ./...
+    rollback_plan: Revert CR-91 commits to restore previous checkpoint sync ordering/comment format behavior.
+tasks:
+    - id: 1
+      title: 'Enforce strict checkpoint sync ordering: comment first, then checkpoint push'
+      status: done
+      contract:
+        intent: Guarantee deterministic per-checkpoint sync sequencing so review intent appears before corresponding commit movement in PR flow.
+        acceptance_criteria:
+            - For each pending checkpoint, comment publish occurs before checkpoint push attempt in the same sync iteration.
+            - Sync processing remains sequential per checkpoint key and does not batch comment/push operations out of order.
+        scope:
+            - internal/service/service_pr_gate.go
+      checkpoint:
+        commit: 56b545f3
+        at: "2026-02-28T19:59:50Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_pr_gate.go
+    - id: 2
+      title: Design deterministic rich checkpoint sync comment template from task contract
+      status: done
+      contract:
+        intent: Produce high-signal checkpoint comments containing contract context that reviewers can evaluate without opening local metadata.
+        acceptance_criteria:
+            - Comment includes commit summary references for the checkpoint being synced.
+            - Comment includes task title, intent, acceptance criteria list, and scope summary in deterministic section order.
+        scope:
+            - internal/service/service_pr_gate.go
+            - internal/service/service_pr_gate_test.go
+      checkpoint:
+        at: "2026-02-28T20:00:12Z"
+        source: task_no_checkpoint
+    - id: 3
+      title: Implement idempotent checkpoint comment upsert keyed by task and checkpoint commit
+      status: done
+      contract:
+        intent: Prevent duplicate checkpoint comments while allowing deterministic updates for existing checkpoint sync entries.
+        acceptance_criteria:
+            - Checkpoint comment identity is keyed by task and checkpoint commit and remains idempotent across repeated sync runs.
+            - Repeated sync with unchanged content does not emit additional comments.
+        scope:
+            - internal/service/service_pr_gate.go
+            - internal/service/service_pr_gate_test.go
+      checkpoint:
+        at: "2026-02-28T20:00:12Z"
+        source: task_no_checkpoint
+    - id: 4
+      title: Add regression tests for sequencing, payload content, and duplicate prevention
+      status: done
+      contract:
+        intent: Cover timeline and payload behavior with focused regression tests to prevent future review-flow regressions.
+        acceptance_criteria:
+            - Tests verify comment-first sequencing and no false ordering inversions under sequential sync.
+            - Tests verify rich comment payload sections and duplicate-prevention semantics.
+        scope:
+            - internal/service/service_pr_gate_test.go
+      checkpoint:
+        commit: 25a8306b
+        at: "2026-02-28T20:00:16Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_pr_gate_test.go
+git_summary:
+    base_parent: d64115dd37372f766cc8292f9d0f7ac15c483c47
+    cr_parent: 25a8306b943cfa1bd6c08fe2c0426dbb671c65d5
+    files_changed: []
+    diffstat:
+        summary: 0 files changed, 0 insertions(+), 0 deletions(-)
