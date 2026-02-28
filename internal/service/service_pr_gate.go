@@ -633,7 +633,7 @@ func renderCRContractDriftSection(b *strings.Builder, drifts []model.CRContractD
 		if drift.Acknowledged {
 			ack = "yes"
 		}
-		b.WriteString(fmt.Sprintf("- **Drift #%d**\n", drift.ID))
+		b.WriteString(fmt.Sprintf("- **Drift ID %d**\n", drift.ID))
 		b.WriteString(fmt.Sprintf("  - Time: %s\n", nonEmptyTrimmed(strings.TrimSpace(drift.TS), "-")))
 		b.WriteString(fmt.Sprintf("  - Change: %s\n", nonEmptyTrimmed(strings.Join(cleanAndDedupeStrings(drift.Fields), ", "), "-")))
 		b.WriteString(fmt.Sprintf("  - Acknowledged: %s\n", ack))

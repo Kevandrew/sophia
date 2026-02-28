@@ -120,14 +120,17 @@ func TestRenderCRContractDriftSectionSortsByTimeThenID(t *testing.T) {
 		{ID: 3, TS: "2026-03-01T11:00:00Z", Fields: []string{"scope"}, Reason: "third"},
 	})
 	md := b.String()
-	first := strings.Index(md, "- **Drift #1**")
-	second := strings.Index(md, "- **Drift #2**")
-	third := strings.Index(md, "- **Drift #3**")
+	first := strings.Index(md, "- **Drift ID 1**")
+	second := strings.Index(md, "- **Drift ID 2**")
+	third := strings.Index(md, "- **Drift ID 3**")
 	if first == -1 || second == -1 || third == -1 {
 		t.Fatalf("expected all drift markers, got:\n%s", md)
 	}
 	if !(first < second && second < third) {
 		t.Fatalf("expected stable sort by ts then id, got:\n%s", md)
+	}
+	if strings.Contains(md, "Drift #") {
+		t.Fatalf("expected drift labels without # autolink pattern, got:\n%s", md)
 	}
 }
 
