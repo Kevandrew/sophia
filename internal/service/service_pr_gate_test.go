@@ -329,6 +329,30 @@ func TestNormalizeGHRepoSelectorRejectsLocalRemotePath(t *testing.T) {
 	}
 }
 
+func TestParseRepoSelectorParts(t *testing.T) {
+	host, owner, repo, ok := parseRepoSelectorParts("acme/repo")
+	if !ok || host != "" || owner != "acme" || repo != "repo" {
+		t.Fatalf("unexpected parse for owner/repo: ok=%t host=%q owner=%q repo=%q", ok, host, owner, repo)
+	}
+	host, owner, repo, ok = parseRepoSelectorParts("github.example.com/acme/repo")
+	if !ok || host != "github.example.com" || owner != "acme" || repo != "repo" {
+		t.Fatalf("unexpected parse for host/owner/repo: ok=%t host=%q owner=%q repo=%q", ok, host, owner, repo)
+	}
+	if _, _, _, ok = parseRepoSelectorParts(""); ok {
+		t.Fatalf("expected empty selector parse to fail")
+	}
+}
+
+func TestIsGHProjectCardsSunsetError(t *testing.T) {
+	err := errors.New("GraphQL: Projects (classic) is being deprecated in favor of the new Projects experience. (repository.pullRequest.projectCards)")
+	if !isGHProjectCardsSunsetError(err) {
+		t.Fatalf("expected projectCards sunset error to be detected")
+	}
+	if isGHProjectCardsSunsetError(errors.New("some other gh error")) {
+		t.Fatalf("expected non-sunset error to be ignored")
+	}
+}
+
 func TestClassifyPushCommandErrorPermissionDenied(t *testing.T) {
 	raw := errors.New("git push failed: remote: Permission to repo denied")
 	err := classifyPushCommandError(raw, "cr-1-branch")
