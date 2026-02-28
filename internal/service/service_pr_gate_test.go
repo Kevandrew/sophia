@@ -108,6 +108,55 @@ func TestClassifyGHCommandErrorAuthRequired(t *testing.T) {
 	}
 }
 
+func TestEvaluatePRGateBlocksWhenChecksRequiredButMissing(t *testing.T) {
+	policy := &model.RepoPolicy{
+		Merge: model.PolicyMerge{
+			RequirePassingChecks: boolPtr(true),
+		},
+	}
+	status := &PRStatusView{
+		ChecksObserved: false,
+		ChecksPassing:  false,
+	}
+	blocked, reasons := evaluatePRGate(policy, status)
+	if !blocked {
+		t.Fatalf("expected gate to be blocked")
+	}
+	found := false
+	for _, reason := range reasons {
+		if strings.Contains(reason, "not reported") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected missing-checks reason, got %#v", reasons)
+	}
+}
+
+func TestParsePRNumberFromURL(t *testing.T) {
+	if got := parsePRNumberFromURL("https://github.com/acme/repo/pull/123"); got != 123 {
+		t.Fatalf("expected 123, got %d", got)
+	}
+	if got := parsePRNumberFromURL("https://github.com/acme/repo/pull/123/"); got != 123 {
+		t.Fatalf("expected 123 with trailing slash, got %d", got)
+	}
+	if got := parsePRNumberFromURL("https://github.com/acme/repo/pull/not-a-number"); got != 0 {
+		t.Fatalf("expected 0 for invalid URL, got %d", got)
+	}
+}
+
+func TestBuildPRMergeArgsRespectsDeleteBranch(t *testing.T) {
+	withDelete := buildPRMergeArgs(42, true)
+	if strings.Join(withDelete, " ") != "pr merge 42 --merge --delete-branch" {
+		t.Fatalf("unexpected args with delete: %#v", withDelete)
+	}
+	withoutDelete := buildPRMergeArgs(42, false)
+	if strings.Join(withoutDelete, " ") != "pr merge 42 --merge" {
+		t.Fatalf("unexpected args without delete: %#v", withoutDelete)
+	}
+}
+
 func TestClassifyPushCommandErrorPermissionDenied(t *testing.T) {
 	raw := errors.New("git push failed: remote: Permission to repo denied")
 	err := classifyPushCommandError(raw, "cr-1-branch")
@@ -125,6 +174,14 @@ func TestClassifyPushCommandErrorPermissionDenied(t *testing.T) {
 	}
 	if got, _ := actionRequired["name"].(string); got != "request_push_access" {
 		t.Fatalf("expected action_required.name=request_push_access, got %#v", actionRequired["name"])
+	}
+}
+
+func TestClassifyPushCommandErrorDoesNotMisclassifyNonPermissionFailures(t *testing.T) {
+	raw := errors.New("git push failed: failed to push some refs to origin")
+	err := classifyPushCommandError(raw, "cr-1-branch")
+	if errors.Is(err, ErrPushPermissionDenied) {
+		t.Fatalf("expected non-permission failure to remain generic, got %v", err)
 	}
 }
 
