@@ -24,6 +24,7 @@ type TrustReport struct {
 	CheckResults     []TrustCheckResult
 	ReviewDepth      TrustReviewDepthResult
 	ContractDrift    TaskContractDriftSummary
+	CRContractDrift  CRContractDriftSummary
 	Gate             TrustGateSummary
 	AttentionActions []string
 }

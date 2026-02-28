@@ -242,6 +242,22 @@ func buildContractDriftRequirement(contractDrift TaskContractDriftSummary, crID 
 	return requirement
 }
 
+func buildCRContractDriftRequirement(contractDrift CRContractDriftSummary, crID int) TrustRequirement {
+	requirement := newTrustRequirement(
+		"cr_contract_drift_acknowledged",
+		"CR contract drift records are acknowledged",
+		contractDrift.Unacknowledged == 0,
+		"No unacknowledged CR contract drift records.",
+		"",
+		"cr_contract_drift",
+	)
+	if contractDrift.Unacknowledged > 0 {
+		requirement.Reason = fmt.Sprintf("%d unacknowledged CR contract drift record(s) remain: %s.", contractDrift.Unacknowledged, formatDriftIDList(contractDrift.UnacknowledgedDriftIDs))
+		requirement.Action = fmt.Sprintf("Acknowledge CR drift records with `sophia cr contract drift ack %d <drift-id> --reason \"...\"`.", crID)
+	}
+	return requirement
+}
+
 func appendRiskTierAdvisories(advisories []string, impact *ImpactReport, reviewDepth TrustReviewDepthResult, contract model.Contract, diff *diffSummary) []string {
 	if strings.EqualFold(strings.TrimSpace(impact.RiskTier), "high") && len(impact.MatchedRiskCriticalScopes) > 0 {
 		advisories = append(advisories, fmt.Sprintf("Spot-check critical scopes: %s.", strings.Join(impact.MatchedRiskCriticalScopes, ", ")))
@@ -1000,6 +1016,17 @@ func formatTaskIDList(taskIDs []int) string {
 	parts := make([]string, 0, len(taskIDs))
 	for _, taskID := range normalizeIntList(taskIDs) {
 		parts = append(parts, strconv.Itoa(taskID))
+	}
+	return strings.Join(parts, ", ")
+}
+
+func formatDriftIDList(driftIDs []int) string {
+	if len(driftIDs) == 0 {
+		return "(none)"
+	}
+	parts := make([]string, 0, len(driftIDs))
+	for _, driftID := range normalizeIntList(driftIDs) {
+		parts = append(parts, strconv.Itoa(driftID))
 	}
 	return strings.Join(parts, ", ")
 }
