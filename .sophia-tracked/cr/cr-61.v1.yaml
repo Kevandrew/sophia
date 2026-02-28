@@ -1,0 +1,251 @@
+schema_version: sophia.cr_archive.v1
+notice: Historical archive snapshot. Corrections are append-only revisions.
+archived_at: "2026-02-28T16:40:32Z"
+revision: 1
+cr:
+    id: 61
+    uid: cr_c39a1828-0cc0-461b-bda0-3ea7b80e57bb
+    title: PR-gated merge with deterministic CR-backed PR context
+    description: |-
+        Add a PR-gated merge mode where `sophia cr merge` does not directly merge when review gates are required.
+        Instead, it creates/updates one PR from implemented CR state (intent + checkpoints + validation/trust evidence),
+        then blocks until review gates are satisfied.
+
+        This keeps the fast flow (ideate -> implement -> one PR) while reducing rubber-stamp risk by making merge gating explicit.
+        Local CLI remains focused on structured context and merge gating; deeper collaboration workflows stay on the hq side.
+    status: merged
+    base_branch: main
+    base_ref: main
+    base_commit: 0a4b1285e0d4d375c89f4a119de9b857be593748
+    branch: cr-61-pr-draft-context-generation-from-cr-intent
+    merged_at: "2026-02-28T16:40:32Z"
+    merged_by: Kevandrew <143258544+Kevandrew@users.noreply.github.com>
+contract:
+    why: |-
+        Teams can still rubber-stamp even when PRs are required, because PR text is often unstructured and merge checks are not tied to the original intent. Sophia already captures intent/contracts/checkpoints; this CR uses that data to make one implemented PR reviewable and policy-gated before merge.
+
+        The goal is not to force multiple PRs or pre-implementation PR churn. The goal is to publish one high-signal PR per CR after implementation and require explicit review gates for final merge in team workflows.
+
+        For solo workflows, local merge mode remains available and explicit override behavior stays audited.
+
+        Identity constraint (from CR-62): local monotonic CR IDs and raw CR UIDs are internal-only identifiers used for local CLI UX. The PR title and body must use the CR title and branch slug as the human-readable reference, never local numeric IDs or raw UIDs. The branch identity scheme (human_alias_v2) already provides collision-resistant shared identifiers for cross-developer use.
+
+        PR body specification: The Sophia-managed PR body section must be deterministic and structured, containing: (1) CR title and branch slug identity, (2) base ref and risk tier, (3) contract why (verbatim), (4) declared scope, invariants, and non-goals, (5) task completion table with checkpoint commits and scope-drift indicators, (6) drift records with acknowledgement status, (7) evidence ledger summary (command runs, exit codes), (8) diff summary stats, (9) rollback plan. The managed section must be delimited by machine-readable markers so that reviewer-authored text outside the markers is preserved on sync updates.
+    scope:
+        - docs
+        - internal/cli
+        - internal/model
+        - internal/service
+        - internal/store
+    non_goals:
+        - No automatic branch push; missing remote branch remains an actionable failure.
+        - No changes to task checkpoint commit format or contract/trust core semantics.
+        - No hq-side collaboration editing, reviewer routing, or dashboard workflows in this CR.
+        - No multi-provider SCM support beyond GitHub via `gh` in this CR.
+    invariants:
+        - 'Checkpoint sync is idempotent: no duplicate checkpoint comments on repeated sync.'
+        - Exactly one PR per CR is the default publication model in PR-gated mode.
+        - Merge override remains explicit and audited, never implicit.
+        - PR body updates only replace Sophia-managed sections and preserve unmanaged reviewer notes.
+    blast_radius: 'CLI: cr pr context/draft/open/sync/status commands and cr merge finalize; CR merge path changes in pr_gate mode; Policy schema adds merge.mode and review requirement fields; PR sync state persisted in CR YAML; gh CLI used as GitHub provider; Failure modes: branch not pushed, gh auth missing, PR body marker corruption, checkpoint comment duplication, review gate evaluation mismatch.'
+    test_plan: go test ./... && go vet ./...
+    rollback_plan: Revert this CR merge commit to restore current merge behavior and remove PR-gated mode.
+tasks:
+    - id: 1
+      title: 'Policy: add PR-gated merge mode and review requirement fields'
+      status: done
+      contract:
+        intent: Allow repositories to choose local merge vs PR-gated merge with explicit review gate configuration.
+        acceptance_criteria:
+            - Repos without new fields remain backward compatible.
+            - Review requirement fields are validated and normalized (approvals, non-author approval, ready-for-review, passing checks).
+            - SOPHIA.yaml supports merge.mode with local|pr_gate.
+        scope:
+            - internal/model
+            - internal/service
+      checkpoint:
+        commit: e5a54771
+        at: "2026-02-28T15:31:17Z"
+        source: task_checkpoint
+        scope:
+            - internal/model/policy.go
+            - internal/service/service_common.go
+            - internal/service/service_policy.go
+            - internal/service/service_policy_test.go
+    - id: 2
+      title: 'Model/store: persist CR-linked PR state and checkpoint sync ledger'
+      status: done
+      contract:
+        intent: Persist enough PR linkage/sync metadata to make merge gating and idempotent sync deterministic.
+        acceptance_criteria:
+            - CR model stores provider/repo/number/url/state and sync timestamps.
+            - Legacy CR YAML loads safely with zero-value defaults.
+            - Synced checkpoint keys are persisted for de-duplication.
+        scope:
+            - internal/model
+            - internal/store
+      checkpoint:
+        commit: 9c4257fc
+        at: "2026-02-28T15:31:20Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/cr_json_mappers.go
+            - internal/model/types.go
+            - internal/store/store.go
+    - id: 3
+      title: 'Service: deterministic PR context and draft rendering from CR evidence'
+      status: done
+      contract:
+        intent: Generate structured PR content from CR contract/diff/checkpoints/validation/trust without LLM-dependent prose. Output uses CR title and branch slug as identity — never local CR IDs or raw UIDs (per CR-62 identity constraint).
+        acceptance_criteria:
+            - 'Context output includes: CR title, base ref, risk tier, contract why (verbatim), declared scope, invariants, non-goals, task completion table with checkpoint refs and drift indicators, drift records with ack status, evidence ledger summary, diff stats, and rollback plan.'
+            - Draft markdown has stable section layout with deterministic ordering and machine-readable section markers (e.g. HTML comments) to delimit the Sophia-managed block.
+            - Missing contract fields surface as explicit warnings in the rendered output, not silent omissions.
+            - No local monotonic CR IDs or raw CR UIDs appear in any PR-facing rendered text.
+        scope:
+            - internal/service
+      checkpoint:
+        commit: 77f285d5
+        at: "2026-02-28T16:16:08Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service.go
+            - internal/service/service_diff.go
+            - internal/service/service_pr_gate.go
+            - internal/service/service_review_merge.go
+    - id: 4
+      title: 'Service: GitHub PR provider implementation via gh'
+      status: done
+      contract:
+        intent: Implement PR open/sync/status/ready operations using existing gh auth context. PR title uses CR title only (no local IDs). PR body uses the Sophia-managed block from task 3's renderer.
+        acceptance_criteria:
+            - Auth/remote/branch failures return structured actionable errors with clear next-step guidance.
+            - Open creates draft PR with title from CR title; links existing PR when branch already has one.
+            - Ready transitions draft PR to ready-for-review.
+            - Sync updates managed body section and posts checkpoint comments per task 5 idempotency rules.
+        scope:
+            - internal/service
+      checkpoint:
+        commit: f522febd
+        at: "2026-02-28T16:38:26Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_pr_gate.go
+    - id: 5
+      title: 'Service: managed PR body patching and checkpoint comment idempotency'
+      status: done
+      contract:
+        intent: Prevent destructive body rewrites and duplicate checkpoint publication. Managed block is delimited by HTML comment markers (e.g. <!-- sophia:start --> / <!-- sophia:end -->) so reviewer text outside markers is preserved.
+        acceptance_criteria:
+            - Checkpoint comments reference tasks by title (not local task IDs) and include checkpoint commit short-hash and scope-drift status.
+            - Each unsynced checkpoint is posted as exactly one comment and recorded in the sync ledger; repeated sync produces no duplicates.
+            - Only Sophia-managed block between markers is replaced on sync; text outside markers is untouched.
+            - Unmanaged reviewer text (comments, notes added by humans in the PR body) is preserved across sync updates.
+        scope:
+            - internal/service
+      checkpoint:
+        commit: 216e0693
+        at: "2026-02-28T15:47:34Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_pr_gate.go
+    - id: 6
+      title: 'CLI: add sophia cr pr commands'
+      status: done
+      contract:
+        intent: Expose deterministic PR operations for context/draft/open/sync/status in CLI and JSON.
+        acceptance_criteria:
+            - JSON envelopes include machine-readable linkage/gate details.
+            - No-active-context behavior stays consistent with existing optional-selector UX.
+            - cr pr context|draft|open|sync|status commands are available with optional selector behavior.
+        scope:
+            - internal/cli
+      checkpoint:
+        commit: 1d07737b
+        at: "2026-02-28T15:31:41Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/cr.go
+            - internal/cli/cr_cmd_pr.go
+    - id: 7
+      title: 'Merge: gate cr merge in PR mode and add cr merge finalize'
+      status: done
+      contract:
+        intent: Make merge a two-step gated flow in team mode while preserving local mode compatibility.
+        acceptance_criteria:
+            - In merge.mode=local, existing merge behavior remains unchanged.
+            - In merge.mode=pr_gate, cr merge publishes/updates PR context and blocks with explicit gate status.
+            - cr merge finalize merges only when review gates pass (unless explicit audited override is allowed).
+        scope:
+            - internal/cli
+            - internal/service
+      checkpoint:
+        commit: b1203aaa
+        at: "2026-02-28T15:47:58Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/cr_cmd_pr.go
+            - internal/service/service_pr_gate.go
+    - id: 8
+      title: 'Audit: append PR-related merge lifecycle events'
+      status: done
+      contract:
+        intent: Make publication, gating, finalize, and override paths inspectable from CR history.
+        acceptance_criteria:
+            - Events are recorded for PR open/sync/ready and gate bypass.
+            - History output remains deterministic and machine-readable.
+            - Override includes reason and gate evidence context.
+        scope:
+            - internal/cli
+            - internal/model
+            - internal/service
+      checkpoint:
+        commit: f2b9646e
+        at: "2026-02-28T15:47:43Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_pr_gate.go
+    - id: 9
+      title: 'Tests: cover happy paths, failure paths, and backward compatibility'
+      status: done
+      contract:
+        intent: Prove gating behavior, deterministic output, and non-regression across merge modes.
+        acceptance_criteria:
+            - CLI tests cover new cr pr and cr merge finalize JSON/text behavior.
+            - Regression tests verify existing local merge flows are unaffected when merge.mode=local.
+            - Service tests cover policy normalization, PR linkage/sync, idempotency, and gate evaluation.
+        scope:
+            - internal/cli
+            - internal/service
+      checkpoint:
+        commit: d43e872f
+        at: "2026-02-28T16:39:23Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_pr_gate_test.go
+    - id: 10
+      title: 'Docs: document one-PR-per-CR PR-gated workflow'
+      status: done
+      contract:
+        intent: Document where PR creation happens and how gated merge differs by working style.
+        acceptance_criteria:
+            - Docs explain solo/local mode vs PR-gated mode behavior.
+            - 'Docs show default flow: implement first, then one PR publication, then finalize merge.'
+            - Troubleshooting includes auth, branch-not-pushed, and review-gate-blocked playbooks.
+        scope:
+            - docs
+      checkpoint:
+        commit: 389a7486
+        at: "2026-02-28T15:33:46Z"
+        source: task_checkpoint
+        scope:
+            - docs/cli-reference.md
+            - docs/repository-policy.md
+            - docs/troubleshooting.md
+            - docs/workflow.md
+git_summary:
+    base_parent: 6b21a9e1b53114a6c929c536f328ee30f2db92ba
+    cr_parent: d43e872f81bd797adb6cef8d1c2253b45ff2a118
+    files_changed: []
+    diffstat:
+        summary: 0 files changed, 0 insertions(+), 0 deletions(-)

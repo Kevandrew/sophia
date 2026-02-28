@@ -249,6 +249,27 @@ func crContractDriftMaps(drifts []model.CRContractDrift) []map[string]any {
 	return out
 }
 
+func prLinkToJSONMap(pr model.CRPRLink) map[string]any {
+	return map[string]any{
+		"provider":                    pr.Provider,
+		"repo":                        pr.Repo,
+		"number":                      pr.Number,
+		"url":                         pr.URL,
+		"state":                       pr.State,
+		"draft":                       pr.Draft,
+		"last_head_sha":               pr.LastHeadSHA,
+		"last_base_ref":               pr.LastBaseRef,
+		"last_body_hash":              pr.LastBodyHash,
+		"last_synced_at":              pr.LastSyncedAt,
+		"last_status_checked_at":      pr.LastStatusCheckedAt,
+		"last_merged_at":              pr.LastMergedAt,
+		"last_merged_commit":          pr.LastMergedCommit,
+		"checkpoint_comment_keys":     stringSliceOrEmpty(pr.CheckpointCommentKeys),
+		"awaiting_open_approval":      pr.AwaitingOpenApproval,
+		"awaiting_open_approval_note": pr.AwaitingOpenApprovalNote,
+	}
+}
+
 func crSearchResultToJSONMap(result model.CRSearchResult) map[string]any {
 	return map[string]any{
 		"id":              result.ID,
@@ -318,6 +339,7 @@ func crToJSONMap(cr *model.CR) map[string]any {
 		"merged_by":           cr.MergedBy,
 		"merged_commit":       cr.MergedCommit,
 		"files_touched_count": cr.FilesTouchedCount,
+		"pr":                  prLinkToJSONMap(cr.PR),
 		"created_at":          cr.CreatedAt,
 		"updated_at":          cr.UpdatedAt,
 	}
@@ -461,6 +483,7 @@ func reviewToJSONMap(review *service.Review) map[string]any {
 			"branch":          review.CR.Branch,
 			"branch_identity": branchIdentityToJSONMap(review.CR.Branch, review.CR.UID),
 			"intent":          review.CR.Description,
+			"pr":              prLinkToJSONMap(review.CR.PR),
 		},
 		"contract":            contractFieldsToJSONMap(review.Contract),
 		"subtasks":            subtasks,

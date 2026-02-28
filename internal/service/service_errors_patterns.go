@@ -37,6 +37,10 @@ var (
 	ErrHQUpstreamMoved           = errors.New("hq upstream moved")
 	ErrHQPatchConflict           = errors.New("hq patch conflict")
 	ErrHQTaskSyncUnsupported     = errors.New("hq task sync unsupported")
+	ErrPRApprovalRequired        = errors.New("pr open approval is required")
+	ErrGHAuthRequired            = errors.New("github authentication is required")
+	ErrPRPermissionDenied        = errors.New("permission denied for pull request operation")
+	ErrPushPermissionDenied      = errors.New("permission denied while pushing branch")
 )
 
 var (

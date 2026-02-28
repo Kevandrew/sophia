@@ -140,6 +140,7 @@ type InitOptions struct {
 type diffSummary struct {
 	Files           []string
 	ShortStat       string
+	NumStats        []gitx.DiffNumStat
 	NewFiles        []string
 	ModifiedFiles   []string
 	DeletedFiles    []string

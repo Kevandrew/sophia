@@ -37,6 +37,21 @@ func TestRepoPolicyDefaultsWhenFileMissing(t *testing.T) {
 	if !policyAllowsMergeOverride(policy) {
 		t.Fatalf("expected default merge override to be allowed")
 	}
+	if got := policyMergeMode(policy); got != "local" {
+		t.Fatalf("expected default merge.mode local, got %q", got)
+	}
+	if policy.Merge.RequiredApprovals == nil || *policy.Merge.RequiredApprovals != 1 {
+		t.Fatalf("expected merge.required_approvals default 1, got %#v", policy.Merge.RequiredApprovals)
+	}
+	if policy.Merge.RequireNonAuthorApproval == nil || !*policy.Merge.RequireNonAuthorApproval {
+		t.Fatalf("expected merge.require_non_author_approval default true, got %#v", policy.Merge.RequireNonAuthorApproval)
+	}
+	if policy.Merge.RequireReadyForReview == nil || !*policy.Merge.RequireReadyForReview {
+		t.Fatalf("expected merge.require_ready_for_review default true, got %#v", policy.Merge.RequireReadyForReview)
+	}
+	if policy.Merge.RequirePassingChecks == nil || !*policy.Merge.RequirePassingChecks {
+		t.Fatalf("expected merge.require_passing_checks default true, got %#v", policy.Merge.RequirePassingChecks)
+	}
 	if policy.Archive.Enabled == nil || !*policy.Archive.Enabled {
 		t.Fatalf("expected archive.enabled default true, got %#v", policy.Archive.Enabled)
 	}
@@ -120,6 +135,62 @@ archive:
 	}
 	if !strings.Contains(err.Error(), "archive.path") {
 		t.Fatalf("expected archive.path detail in error, got %v", err)
+	}
+}
+
+func TestRepoPolicyMergeModeParsesAndNormalizes(t *testing.T) {
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	writePolicyFileForTest(t, dir, `version: v1
+merge:
+  mode: PR_GATE
+  required_approvals: 2
+  require_non_author_approval: false
+  require_ready_for_review: false
+  require_passing_checks: false
+`)
+
+	policy, err := svc.repoPolicy()
+	if err != nil {
+		t.Fatalf("repoPolicy() error = %v", err)
+	}
+	if got := policyMergeMode(policy); got != "pr_gate" {
+		t.Fatalf("expected merge.mode pr_gate, got %q", got)
+	}
+	if policy.Merge.RequiredApprovals == nil || *policy.Merge.RequiredApprovals != 2 {
+		t.Fatalf("expected required_approvals=2, got %#v", policy.Merge.RequiredApprovals)
+	}
+	if policy.Merge.RequireNonAuthorApproval == nil || *policy.Merge.RequireNonAuthorApproval {
+		t.Fatalf("expected require_non_author_approval=false, got %#v", policy.Merge.RequireNonAuthorApproval)
+	}
+	if policy.Merge.RequireReadyForReview == nil || *policy.Merge.RequireReadyForReview {
+		t.Fatalf("expected require_ready_for_review=false, got %#v", policy.Merge.RequireReadyForReview)
+	}
+	if policy.Merge.RequirePassingChecks == nil || *policy.Merge.RequirePassingChecks {
+		t.Fatalf("expected require_passing_checks=false, got %#v", policy.Merge.RequirePassingChecks)
+	}
+}
+
+func TestRepoPolicyMergeRejectsInvalidMode(t *testing.T) {
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	writePolicyFileForTest(t, dir, `version: v1
+merge:
+  mode: hosted
+`)
+
+	_, err := svc.repoPolicy()
+	if !errors.Is(err, ErrPolicyInvalid) {
+		t.Fatalf("expected ErrPolicyInvalid, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "merge.mode") {
+		t.Fatalf("expected merge.mode detail in error, got %v", err)
 	}
 }
 

@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"bufio"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -123,6 +125,7 @@ func newCRMergeCmd() *cobra.Command {
 	var keepBranch bool
 	var deleteBranch bool
 	var overrideReason string
+	var approvePROpen bool
 	var asJSON bool
 
 	cmd := &cobra.Command{
@@ -139,7 +142,36 @@ func newCRMergeCmd() *cobra.Command {
 				result, err := svc.MergeCRWithOptions(id, service.MergeCROptions{
 					KeepBranch:     keepBranch,
 					OverrideReason: overrideReason,
+					ApprovePROpen:  approvePROpen,
 				})
+				if err != nil {
+					if asJSON && errors.Is(err, service.ErrPRApprovalRequired) {
+						return writeJSONSuccess(cmd, map[string]any{
+							"cr_id":      id,
+							"merge_mode": "pr_gate",
+							"action_required": map[string]any{
+								"type":         "agent_approval",
+								"name":         "open_pr",
+								"reason":       "approve PR create/open to proceed",
+								"approve_flag": "--approve-pr-open",
+							},
+						})
+					}
+					if !asJSON && errors.Is(err, service.ErrPRApprovalRequired) && !approvePROpen {
+						fmt.Fprint(cmd.OutOrStdout(), "Want me to create/open the PR now? [y/N]: ")
+						reader := bufio.NewReader(cmd.InOrStdin())
+						line, _ := reader.ReadString('\n')
+						answer := strings.ToLower(strings.TrimSpace(line))
+						if answer == "y" || answer == "yes" {
+							approvePROpen = true
+							result, err = svc.MergeCRWithOptions(id, service.MergeCROptions{
+								KeepBranch:     keepBranch,
+								OverrideReason: overrideReason,
+								ApprovePROpen:  true,
+							})
+						}
+					}
+				}
 				if err != nil {
 					if asJSON {
 						return writeJSONError(cmd, err)
@@ -155,9 +187,33 @@ func newCRMergeCmd() *cobra.Command {
 						"warnings":        stringSliceOrEmpty(warnings),
 						"keep_branch":     keepBranch,
 						"override_reason": strings.TrimSpace(overrideReason),
+						"merge_mode":      strings.TrimSpace(result.MergeMode),
+						"pr_url":          strings.TrimSpace(result.PRURL),
+						"action":          strings.TrimSpace(result.Action),
+						"action_reason":   strings.TrimSpace(result.ActionReason),
+						"gate_blocked":    result.GateBlocked,
+						"gate_reasons":    stringSliceOrEmpty(result.GateReasons),
 					})
 				}
-				fmt.Fprintf(cmd.OutOrStdout(), "Merged CR %d as commit %s\n", id, sha)
+				if strings.TrimSpace(sha) != "" {
+					fmt.Fprintf(cmd.OutOrStdout(), "Merged CR %d as commit %s\n", id, sha)
+				} else if strings.TrimSpace(result.MergeMode) == "pr_gate" {
+					fmt.Fprintf(cmd.OutOrStdout(), "PR-gated merge flow prepared for CR %d\n", id)
+					if strings.TrimSpace(result.PRURL) != "" {
+						fmt.Fprintf(cmd.OutOrStdout(), "PR: %s\n", result.PRURL)
+					}
+					if strings.TrimSpace(result.Action) != "" {
+						fmt.Fprintf(cmd.OutOrStdout(), "Action: %s\n", result.Action)
+					}
+					if strings.TrimSpace(result.ActionReason) != "" {
+						fmt.Fprintf(cmd.OutOrStdout(), "Reason: %s\n", result.ActionReason)
+					}
+					if result.GateBlocked {
+						printListSection(cmd, "Gate Reasons", result.GateReasons)
+					}
+				} else {
+					fmt.Fprintf(cmd.OutOrStdout(), "Processed merge command for CR %d\n", id)
+				}
 				for _, warning := range warnings {
 					fmt.Fprintf(cmd.OutOrStdout(), "Warning: %s\n", warning)
 				}
@@ -169,10 +225,69 @@ func newCRMergeCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&keepBranch, "keep-branch", false, "Keep CR branch after merge (default deletes merged branch)")
 	cmd.Flags().BoolVar(&deleteBranch, "delete-branch", false, "Deprecated: branch deletion is now the default")
 	cmd.Flags().StringVar(&overrideReason, "override-reason", "", "Bypass validation failures with an audited reason")
+	cmd.Flags().BoolVar(&approvePROpen, "approve-pr-open", false, "Approve opening/creating PR when running merge in pr_gate mode")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "Output in JSON format")
 	cmd.AddCommand(newCRMergeStatusCmd())
 	cmd.AddCommand(newCRMergeAbortCmd())
 	cmd.AddCommand(newCRMergeResumeCmd())
+	cmd.AddCommand(newCRMergeFinalizeCmd())
+	return cmd
+}
+
+func newCRMergeFinalizeCmd() *cobra.Command {
+	var keepBranch bool
+	var overrideReason string
+	var asJSON bool
+
+	cmd := &cobra.Command{
+		Use:   "finalize [id]",
+		Short: "Finalize PR-gated merge after approvals/checks pass",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return withOptionalCRIDAndService(cmd, asJSON, args, "id", func(id int, svc *service.Service) error {
+				result, err := svc.MergeFinalizeWithOptions(id, service.MergeCROptions{
+					KeepBranch:     keepBranch,
+					OverrideReason: overrideReason,
+				})
+				if err != nil {
+					if asJSON {
+						return writeJSONError(cmd, err)
+					}
+					return err
+				}
+				if asJSON {
+					return writeJSONSuccess(cmd, map[string]any{
+						"cr_id":           id,
+						"merged_commit":   strings.TrimSpace(result.MergedCommit),
+						"merge_mode":      strings.TrimSpace(result.MergeMode),
+						"pr_url":          strings.TrimSpace(result.PRURL),
+						"action":          strings.TrimSpace(result.Action),
+						"action_reason":   strings.TrimSpace(result.ActionReason),
+						"gate_blocked":    result.GateBlocked,
+						"gate_reasons":    stringSliceOrEmpty(result.GateReasons),
+						"warnings":        stringSliceOrEmpty(result.Warnings),
+						"override_reason": strings.TrimSpace(overrideReason),
+					})
+				}
+				if strings.TrimSpace(result.MergedCommit) != "" {
+					fmt.Fprintf(cmd.OutOrStdout(), "Finalized merge for CR %d as commit %s\n", id, result.MergedCommit)
+				} else {
+					fmt.Fprintf(cmd.OutOrStdout(), "Finalize result for CR %d: %s\n", id, nonEmpty(strings.TrimSpace(result.Action), "done"))
+				}
+				if strings.TrimSpace(result.PRURL) != "" {
+					fmt.Fprintf(cmd.OutOrStdout(), "PR: %s\n", result.PRURL)
+				}
+				for _, warning := range result.Warnings {
+					fmt.Fprintf(cmd.OutOrStdout(), "Warning: %s\n", warning)
+				}
+				return nil
+			})
+		},
+	}
+
+	cmd.Flags().BoolVar(&keepBranch, "keep-branch", false, "Keep CR branch after merge (default deletes merged branch)")
+	cmd.Flags().StringVar(&overrideReason, "override-reason", "", "Bypass validation failures with an audited reason")
+	cmd.Flags().BoolVar(&asJSON, "json", false, "Output in JSON format")
 	return cmd
 }
 

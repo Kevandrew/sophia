@@ -97,6 +97,7 @@ func (s *Service) WhyCR(id int) (*WhyView, error) {
 }
 
 func (s *Service) StatusCR(id int) (*CRStatusView, error) {
+	s.ensurePRGateReconciledInStatus(id)
 	statusStore := s.activeStatusStoreProvider()
 	statusGit := s.activeStatusGitProvider()
 	cr, err := statusStore.LoadCR(id)

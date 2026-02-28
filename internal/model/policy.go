@@ -38,7 +38,12 @@ type PolicyClassificationDependency struct {
 }
 
 type PolicyMerge struct {
-	AllowOverride *bool `yaml:"allow_override,omitempty"`
+	AllowOverride            *bool  `yaml:"allow_override,omitempty"`
+	Mode                     string `yaml:"mode,omitempty"`
+	RequiredApprovals        *int   `yaml:"required_approvals,omitempty"`
+	RequireNonAuthorApproval *bool  `yaml:"require_non_author_approval,omitempty"`
+	RequireReadyForReview    *bool  `yaml:"require_ready_for_review,omitempty"`
+	RequirePassingChecks     *bool  `yaml:"require_passing_checks,omitempty"`
 }
 
 type PolicyArchive struct {

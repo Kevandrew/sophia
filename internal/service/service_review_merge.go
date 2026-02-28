@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"sophia/internal/gitx"
 	"sophia/internal/model"
 	"strings"
 )
@@ -17,6 +18,7 @@ type Review struct {
 	ValidationWarnings []string
 	Files              []string
 	ShortStat          string
+	DiffNumStats       []gitx.DiffNumStat
 	NewFiles           []string
 	ModifiedFiles      []string
 	DeletedFiles       []string
@@ -33,11 +35,18 @@ type mergePreflightView struct {
 type MergeCROptions struct {
 	KeepBranch     bool
 	OverrideReason string
+	ApprovePROpen  bool
 }
 
 type MergeCRResult struct {
 	MergedCommit string
 	Warnings     []string
+	MergeMode    string
+	PRURL        string
+	Action       string
+	ActionReason string
+	GateBlocked  bool
+	GateReasons  []string
 }
 
 type MergeStatusView struct {
@@ -86,6 +95,7 @@ func (s *Service) ReviewCR(id int) (*Review, error) {
 		ValidationWarnings: append([]string(nil), validation.Warnings...),
 		Files:              diff.Files,
 		ShortStat:          diff.ShortStat,
+		DiffNumStats:       append([]gitx.DiffNumStat(nil), diff.NumStats...),
 		NewFiles:           diff.NewFiles,
 		ModifiedFiles:      diff.ModifiedFiles,
 		DeletedFiles:       diff.DeletedFiles,
@@ -117,9 +127,43 @@ func (s *Service) MergeCRWithWarnings(id int, keepBranch bool, overrideReason st
 }
 
 func (s *Service) MergeCRWithOptions(id int, opts MergeCROptions) (*MergeCRResult, error) {
+	policy, policyErr := s.repoPolicy()
+	if policyErr != nil {
+		return nil, policyErr
+	}
+	if policyMergeMode(policy) == "pr_gate" {
+		var out *MergeCRResult
+		if err := s.withMergeMutationLock(func() error {
+			var err error
+			out, err = s.mergePRGateCRUnlocked(id, opts, policy)
+			return err
+		}); err != nil {
+			return nil, err
+		}
+		return out, nil
+	}
 	return s.runMergeOperation(func() (string, []string, error) {
 		return s.mergeDomainService().mergeCRWithWarningsUnlocked(id, opts.KeepBranch, opts.OverrideReason)
 	})
+}
+
+func (s *Service) MergeFinalizeWithOptions(id int, opts MergeCROptions) (*MergeCRResult, error) {
+	policy, policyErr := s.repoPolicy()
+	if policyErr != nil {
+		return nil, policyErr
+	}
+	if policyMergeMode(policy) != "pr_gate" {
+		return s.MergeCRWithOptions(id, opts)
+	}
+	var out *MergeCRResult
+	if err := s.withMergeMutationLock(func() error {
+		var err error
+		out, err = s.mergePRGateFinalizeUnlocked(id, opts, policy)
+		return err
+	}); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (s *Service) runMergeOperation(operation func() (string, []string, error)) (*MergeCRResult, error) {
