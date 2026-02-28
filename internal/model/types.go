@@ -31,6 +31,10 @@ const (
 	EventTypeCRMergeOverridden = "cr_merge_overridden"
 	EventTypeCRMerged          = "cr_merged"
 	EventTypeCRReopened        = "cr_reopened"
+	EventTypeCRPROpened        = "cr_pr_opened"
+	EventTypeCRPRSynced        = "cr_pr_synced"
+	EventTypeCRPRReady         = "cr_pr_ready"
+	EventTypeCRPRMergedRemote  = "cr_pr_merged_remote"
 
 	EventTypeNoteAdded                   = "note_added"
 	EventTypeContractUpdated             = "contract_updated"
@@ -254,6 +258,25 @@ type CRHQState struct {
 	LastPushAt          string            `yaml:"last_push_at,omitempty"`
 }
 
+type CRPRLink struct {
+	Provider                 string   `yaml:"provider,omitempty"`
+	Repo                     string   `yaml:"repo,omitempty"`
+	Number                   int      `yaml:"number,omitempty"`
+	URL                      string   `yaml:"url,omitempty"`
+	State                    string   `yaml:"state,omitempty"`
+	Draft                    bool     `yaml:"draft,omitempty"`
+	LastHeadSHA              string   `yaml:"last_head_sha,omitempty"`
+	LastBaseRef              string   `yaml:"last_base_ref,omitempty"`
+	LastBodyHash             string   `yaml:"last_body_hash,omitempty"`
+	LastSyncedAt             string   `yaml:"last_synced_at,omitempty"`
+	LastStatusCheckedAt      string   `yaml:"last_status_checked_at,omitempty"`
+	LastMergedAt             string   `yaml:"last_merged_at,omitempty"`
+	LastMergedCommit         string   `yaml:"last_merged_commit,omitempty"`
+	CheckpointCommentKeys    []string `yaml:"checkpoint_comment_keys,omitempty"`
+	AwaitingOpenApproval     bool     `yaml:"awaiting_open_approval,omitempty"`
+	AwaitingOpenApprovalNote string   `yaml:"awaiting_open_approval_note,omitempty"`
+}
+
 type CR struct {
 	ID                int                `yaml:"id"`
 	UID               string             `yaml:"uid,omitempty"`
@@ -277,6 +300,7 @@ type CR struct {
 	MergedCommit      string             `yaml:"merged_commit,omitempty"`
 	FilesTouchedCount int                `yaml:"files_touched_count,omitempty"`
 	HQ                CRHQState          `yaml:"hq,omitempty"`
+	PR                CRPRLink           `yaml:"pr,omitempty"`
 	CreatedAt         string             `yaml:"created_at"`
 	UpdatedAt         string             `yaml:"updated_at"`
 }
