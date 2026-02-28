@@ -1,0 +1,56 @@
+schema_version: sophia.cr_archive.v1
+notice: Historical archive snapshot. Corrections are append-only revisions.
+archived_at: "2026-02-28T22:18:19Z"
+revision: 1
+cr:
+    id: 94
+    uid: cr_5d5b97d8-781f-4b76-b252-024271fd3e7b
+    title: Update Sophia skill PR lifecycle and restart protocol guidance
+    description: Add PR-gated lifecycle management guidance to the repository Sophia skill, including draft-first behavior, explicit ready transitions, and restart/resume reconciliation flow.
+    status: merged
+    base_branch: main
+    base_ref: main
+    base_commit: d094277249fae7a841beeb0230bd3ac985cb639a
+    branch: cr-update-sophia-skill-pr-lifecycle-and-restart-pro-5d5b
+    merged_at: "2026-02-28T22:18:19Z"
+    merged_by: Kevandrew <143258544+Kevandrew@users.noreply.github.com>
+contract:
+    why: The repository skill file needs to reflect current PR-gated behavior so agents do not perform incorrect lifecycle actions. Recent workflow additions introduced draft-first PR publishing, explicit ready transitions, and remote-merge reconciliation needs, but those decision points are not fully documented in the repo-level skill. This change updates the skill guidance to make restart/resume state hydration deterministic and to prevent accidental ready-for-review transitions during pre-implementation publication.
+    scope:
+        - .sophia-tracked/cr
+        - skills/sophia/SKILL.md
+    non_goals:
+        - Do not change Sophia runtime code or CLI behavior in this CR.
+        - Do not modify repository policy defaults in SOPHIA.yaml.
+    invariants:
+        - PR-gate guidance is draft-first unless reviewer handoff is explicitly requested.
+        - Skill guidance remains command-accurate and uses existing Sophia/gh command surfaces only.
+    blast_radius: Agent instruction quality for PR lifecycle operations, restart/resume handling, and merge-state reconciliation across Sophia and GitHub.
+    risk_tier_hint: low
+    risk_rationale: Documentation-only change in skill instructions with no runtime behavior mutation.
+    test_plan: sophia cr validate 94 --json && sophia cr review 94 --json
+    rollback_plan: Revert the CR-94 merge commit to restore previous skill guidance.
+tasks:
+    - id: 1
+      title: Add PR-gate lifecycle and restart/resume protocol guidance to repo skill
+      status: done
+      contract:
+        intent: Document deterministic PR-first lifecycle behavior so agents publish draft PRs safely, only mark ready intentionally, and reconcile state correctly on resumed sessions.
+        acceptance_criteria:
+            - Skill explicitly warns against auto-running pr ready immediately after merge publish in pr_gate mode.
+            - Skill includes explicit pr_gate decision flow (publish/sync, draft-first default, optional ready transition, permission-limited merge handoff).
+            - Skill includes restart/resume protocol commands for switch/status/pr status/refresh/sync/reconcile.
+        scope:
+            - skills/sophia/SKILL.md
+      checkpoint:
+        commit: 2a352b99
+        at: "2026-02-28T22:18:06Z"
+        source: task_checkpoint
+        scope:
+            - skills/sophia/SKILL.md
+git_summary:
+    base_parent: d094277249fae7a841beeb0230bd3ac985cb639a
+    cr_parent: 2a352b998ccf99bfaa81e34bcae3d5c2f501562b
+    files_changed: []
+    diffstat:
+        summary: 0 files changed, 0 insertions(+), 0 deletions(-)
