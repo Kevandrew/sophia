@@ -230,8 +230,9 @@ func classifyPushCommandError(err error, branch string) error {
 	lower := strings.ToLower(err.Error())
 	if strings.Contains(lower, "permission to") && strings.Contains(lower, "denied") ||
 		strings.Contains(lower, "write access to repository not granted") ||
-		strings.Contains(lower, "failed to push some refs") ||
-		strings.Contains(lower, "error: src refspec") {
+		strings.Contains(lower, "access denied") ||
+		strings.Contains(lower, "403 forbidden") ||
+		strings.Contains(lower, "the requested url returned error: 403") {
 		return &PRActionRequiredError{
 			Cause:            err,
 			Sentinel:         ErrPushPermissionDenied,
@@ -625,6 +626,23 @@ func (s *Service) openOrSyncPRForCR(cr *model.CR, policy *model.RepoPolicy, appr
 
 	finalBody, bodyErr := s.patchManagedBody(pr, ctx.Markdown)
 	if bodyErr != nil {
+	if pr != nil && pr.Number <= 0 {
+		if parsed := parsePRNumberFromURL(pr.URL); parsed > 0 {
+			if byNumber, byNumberErr := s.fetchPRByNumber(parsed); byNumberErr == nil && byNumber != nil {
+				pr = byNumber
+			} else {
+				pr.Number = parsed
+			}
+		}
+	}
+	if pr == nil || pr.Number <= 0 {
+		return nil, fmt.Errorf("unable to resolve PR number for branch %q after create/sync", strings.TrimSpace(cr.Branch))
+	}
+	if strings.TrimSpace(pr.URL) == "" {
+		if byNumber, byNumberErr := s.fetchPRByNumber(pr.Number); byNumberErr == nil && byNumber != nil {
+			pr = byNumber
+		}
+	}
 		return nil, bodyErr
 	}
 	if pr.Number > 0 {
@@ -782,6 +800,24 @@ func (s *Service) createDraftPR(cr *model.CR, body string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+func (s *Service) fetchPRByNumber(number int) (*ghPRSummary, error) {
+	if number <= 0 {
+		return nil, fmt.Errorf("pr number is required")
+	}
+	out, err := s.runCommand("gh", "pr", "view", strconv.Itoa(number), "--json", "number,url,state,isDraft,headRefOid,baseRefName,reviewDecision,mergedAt,mergeCommit")
+	if err != nil {
+		return nil, err
+	}
+	var pr ghPRSummary
+	if unmarshalErr := json.Unmarshal([]byte(out), &pr); unmarshalErr != nil {
+		return nil, fmt.Errorf("parse gh pr view output: %w", unmarshalErr)
+	}
+	if pr.Number <= 0 {
+		pr.Number = number
+	}
+	return &pr, nil
+}
+
 	defer os.Remove(bodyFile)
 	out, err := s.runCommand("gh", "pr", "create", "--draft", "--title", strings.TrimSpace(cr.Title), "--body-file", bodyFile, "--base", base, "--head", strings.TrimSpace(cr.Branch))
 	if err != nil {
@@ -1138,4 +1174,28 @@ func (s *Service) mergePRApprovalRequiredResult(cr *model.CR) *MergeCRResult {
 		GateBlocked:  true,
 		GateReasons:  []string{"approval required for PR open/create"},
 	}
+}
+
+func parsePRNumberFromURL(url string) int {
+	trimmed := strings.TrimSpace(url)
+	if trimmed == "" {
+		return 0
+	}
+	parts := strings.Split(strings.TrimRight(trimmed, "/"), "/")
+	if len(parts) == 0 {
+		return 0
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(parts[len(parts)-1]))
+	if err != nil || n <= 0 {
+		return 0
+	}
+	return n
+}
+
+func buildPRMergeArgs(number int, deleteBranch bool) []string {
+	args := []string{"pr", "merge", strconv.Itoa(number), "--merge"}
+	if deleteBranch {
+		args = append(args, "--delete-branch")
+	}
+	return args
 }
