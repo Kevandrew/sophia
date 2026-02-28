@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"sophia/internal/gitx"
 	"sophia/internal/model"
 	"strings"
 )
@@ -17,6 +18,7 @@ type Review struct {
 	ValidationWarnings []string
 	Files              []string
 	ShortStat          string
+	DiffNumStats       []gitx.DiffNumStat
 	NewFiles           []string
 	ModifiedFiles      []string
 	DeletedFiles       []string
@@ -93,6 +95,7 @@ func (s *Service) ReviewCR(id int) (*Review, error) {
 		ValidationWarnings: append([]string(nil), validation.Warnings...),
 		Files:              diff.Files,
 		ShortStat:          diff.ShortStat,
+		DiffNumStats:       append([]gitx.DiffNumStat(nil), diff.NumStats...),
 		NewFiles:           diff.NewFiles,
 		ModifiedFiles:      diff.ModifiedFiles,
 		DeletedFiles:       diff.DeletedFiles,

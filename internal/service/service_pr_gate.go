@@ -563,25 +563,18 @@ func renderManagedPRBlock(review *Review) string {
 	for _, item := range cr.Contract.NonGoals {
 		b.WriteString("- " + item + "\n")
 	}
-	b.WriteString("\n### Tasks\n")
-	for _, task := range cr.Subtasks {
-		state := "[ ]"
-		if task.Status == model.TaskStatusDone {
-			state = "[x]"
-		}
-		drift := ""
-		if task.CheckpointOrphan {
-			drift = " (scope-drift)"
-		}
-		commit := strings.TrimSpace(task.CheckpointCommit)
-		if commit == "" {
-			commit = "-"
-		}
-		if len(commit) > 12 {
-			commit = commit[:12]
-		}
-		b.WriteString(fmt.Sprintf("- %s %s | checkpoint: %s%s\n", state, strings.TrimSpace(task.Title), commit, drift))
+	b.WriteString("\n### Blast Radius\n")
+	if strings.TrimSpace(cr.Contract.BlastRadius) == "" {
+		b.WriteString("- WARNING: missing blast_radius\n")
+	} else {
+		b.WriteString(strings.TrimSpace(cr.Contract.BlastRadius) + "\n")
 	}
+	b.WriteString("\n### CR Contract Drifts\n")
+	renderCRContractDriftSection(&b, cr.ContractDrifts)
+	b.WriteString("\n### Tasks\n")
+	renderTaskContractTable(&b, cr.Subtasks)
+	b.WriteString("\n### Task Contract Drifts\n")
+	renderTaskContractDriftSection(&b, cr.Subtasks)
 	b.WriteString("\n### Evidence\n")
 	if len(cr.Evidence) == 0 {
 		b.WriteString("- (none)\n")
@@ -596,6 +589,8 @@ func renderManagedPRBlock(review *Review) string {
 	}
 	b.WriteString("\n### Diff Summary\n")
 	b.WriteString(nonEmptyTrimmed(strings.TrimSpace(review.ShortStat), "(missing)") + "\n")
+	b.WriteString("\n#### File Breakdown\n")
+	renderDiffBreakdownTable(&b, review)
 	b.WriteString("\n### Rollback Plan\n")
 	if strings.TrimSpace(cr.Contract.RollbackPlan) == "" {
 		b.WriteString("- WARNING: missing rollback_plan\n")
@@ -604,6 +599,269 @@ func renderManagedPRBlock(review *Review) string {
 	}
 	b.WriteString("\n<!-- sophia:managed:end -->\n")
 	return b.String()
+}
+
+func renderCRContractDriftSection(b *strings.Builder, drifts []model.CRContractDrift) {
+	if b == nil {
+		return
+	}
+	if len(drifts) == 0 {
+		b.WriteString("- (none)\n")
+		return
+	}
+	items := append([]model.CRContractDrift(nil), drifts...)
+	sort.SliceStable(items, func(i, j int) bool {
+		left := strings.TrimSpace(items[i].TS)
+		right := strings.TrimSpace(items[j].TS)
+		if left == right {
+			return items[i].ID < items[j].ID
+		}
+		return left < right
+	})
+	for _, drift := range items {
+		ack := "no"
+		if drift.Acknowledged {
+			ack = "yes"
+		}
+		b.WriteString(fmt.Sprintf("- ts: %s | fields: %s | acknowledged: %s | reason: %s | ack_reason: %s\n",
+			nonEmptyTrimmed(strings.TrimSpace(drift.TS), "-"),
+			nonEmptyTrimmed(strings.Join(cleanAndDedupeStrings(drift.Fields), ", "), "-"),
+			ack,
+			nonEmptyTrimmed(strings.TrimSpace(drift.Reason), "-"),
+			nonEmptyTrimmed(strings.TrimSpace(drift.AckReason), "-"),
+		))
+		if len(drift.BeforeScope) > 0 || len(drift.AfterScope) > 0 {
+			b.WriteString(fmt.Sprintf("  - before_scope: %s | after_scope: %s\n",
+				nonEmptyTrimmed(strings.Join(cleanAndDedupeStrings(drift.BeforeScope), ", "), "-"),
+				nonEmptyTrimmed(strings.Join(cleanAndDedupeStrings(drift.AfterScope), ", "), "-"),
+			))
+		}
+	}
+}
+
+func renderTaskContractTable(b *strings.Builder, tasks []model.Subtask) {
+	if b == nil {
+		return
+	}
+	if len(tasks) == 0 {
+		b.WriteString("- (none)\n")
+		return
+	}
+	items := append([]model.Subtask(nil), tasks...)
+	sort.SliceStable(items, func(i, j int) bool {
+		return items[i].ID < items[j].ID
+	})
+	b.WriteString("| Status | Task | Scope | Acceptance Criteria | Checkpoint | Contract Drift |\n")
+	b.WriteString("| --- | --- | --- | --- | --- | --- |\n")
+	for _, task := range items {
+		drift := "no"
+		if taskHasContractDrift(task) {
+			drift = fmt.Sprintf("yes (%d)", len(task.ContractDrifts))
+		}
+		b.WriteString(fmt.Sprintf("| %s | %s | %s | %s | %s | %s |\n",
+			markdownTableCell(taskStatusLabel(task.Status)),
+			markdownTableCell(strings.TrimSpace(task.Title)),
+			markdownTableCell(markdownListCell(task.Contract.Scope)),
+			markdownTableCell(markdownListCell(task.Contract.AcceptanceCriteria)),
+			markdownTableCell(shortCheckpointRef(task.CheckpointCommit)),
+			markdownTableCell(drift),
+		))
+	}
+}
+
+func renderTaskContractDriftSection(b *strings.Builder, tasks []model.Subtask) {
+	if b == nil {
+		return
+	}
+	if len(tasks) == 0 {
+		b.WriteString("- (none)\n")
+		return
+	}
+	items := append([]model.Subtask(nil), tasks...)
+	sort.SliceStable(items, func(i, j int) bool {
+		return items[i].ID < items[j].ID
+	})
+	emitted := 0
+	for _, task := range items {
+		if len(task.ContractDrifts) == 0 {
+			continue
+		}
+		drifts := append([]model.TaskContractDrift(nil), task.ContractDrifts...)
+		sort.SliceStable(drifts, func(i, j int) bool {
+			left := strings.TrimSpace(drifts[i].TS)
+			right := strings.TrimSpace(drifts[j].TS)
+			if left == right {
+				return drifts[i].ID < drifts[j].ID
+			}
+			return left < right
+		})
+		for _, drift := range drifts {
+			ack := "no"
+			if drift.Acknowledged {
+				ack = "yes"
+			}
+			b.WriteString(fmt.Sprintf("- task: %s | ts: %s | fields: %s | acknowledged: %s | reason: %s | ack_reason: %s\n",
+				nonEmptyTrimmed(strings.TrimSpace(task.Title), "-"),
+				nonEmptyTrimmed(strings.TrimSpace(drift.TS), "-"),
+				nonEmptyTrimmed(strings.Join(cleanAndDedupeStrings(drift.Fields), ", "), "-"),
+				ack,
+				nonEmptyTrimmed(strings.TrimSpace(drift.Reason), "-"),
+				nonEmptyTrimmed(strings.TrimSpace(drift.AckReason), "-"),
+			))
+		}
+		emitted++
+	}
+	if emitted == 0 {
+		b.WriteString("- (none)\n")
+	}
+}
+
+func renderDiffBreakdownTable(b *strings.Builder, review *Review) {
+	if b == nil || review == nil {
+		return
+	}
+	pathSet := map[string]struct{}{}
+	for _, path := range cleanAndDedupeStrings(review.Files) {
+		pathSet[path] = struct{}{}
+	}
+	numStatByPath := map[string]struct {
+		insertions string
+		deletions  string
+	}{}
+	for _, stat := range review.DiffNumStats {
+		path := strings.TrimSpace(stat.Path)
+		if path == "" {
+			continue
+		}
+		pathSet[path] = struct{}{}
+		insertions := "-"
+		deletions := "-"
+		if stat.Binary {
+			insertions = "bin"
+			deletions = "bin"
+		} else {
+			if stat.Insertions != nil {
+				insertions = strconv.Itoa(*stat.Insertions)
+			}
+			if stat.Deletions != nil {
+				deletions = strconv.Itoa(*stat.Deletions)
+			}
+		}
+		numStatByPath[path] = struct {
+			insertions string
+			deletions  string
+		}{insertions: insertions, deletions: deletions}
+	}
+	if len(pathSet) == 0 {
+		b.WriteString("- (none)\n")
+		return
+	}
+	newPaths := stringSet(cleanAndDedupeStrings(review.NewFiles))
+	deletedPaths := stringSet(cleanAndDedupeStrings(review.DeletedFiles))
+	paths := make([]string, 0, len(pathSet))
+	for path := range pathSet {
+		paths = append(paths, path)
+	}
+	sort.Strings(paths)
+	b.WriteString("| Path | Change | + | - |\n")
+	b.WriteString("| --- | --- | ---: | ---: |\n")
+	for _, path := range paths {
+		change := "modified"
+		if _, ok := newPaths[path]; ok {
+			change = "added"
+		} else if _, ok := deletedPaths[path]; ok {
+			change = "deleted"
+		}
+		insertions := "-"
+		deletions := "-"
+		if row, ok := numStatByPath[path]; ok {
+			insertions = row.insertions
+			deletions = row.deletions
+		}
+		b.WriteString(fmt.Sprintf("| %s | %s | %s | %s |\n",
+			markdownTableCell(path),
+			markdownTableCell(change),
+			markdownTableCell(insertions),
+			markdownTableCell(deletions),
+		))
+	}
+}
+
+func taskStatusLabel(status string) string {
+	switch strings.TrimSpace(status) {
+	case model.TaskStatusDone:
+		return "done"
+	case model.TaskStatusDelegated:
+		return "delegated"
+	default:
+		return "open"
+	}
+}
+
+func taskHasContractDrift(task model.Subtask) bool {
+	return len(task.ContractDrifts) > 0
+}
+
+func shortCheckpointRef(commit string) string {
+	trimmed := strings.TrimSpace(commit)
+	if trimmed == "" {
+		return "-"
+	}
+	if len(trimmed) > 12 {
+		return trimmed[:12]
+	}
+	return trimmed
+}
+
+func markdownListCell(items []string) string {
+	values := cleanAndDedupeStrings(items)
+	if len(values) == 0 {
+		return "-"
+	}
+	return strings.Join(values, "<br>")
+}
+
+func markdownTableCell(value string) string {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return "-"
+	}
+	trimmed = strings.ReplaceAll(trimmed, "\r\n", "\n")
+	trimmed = strings.ReplaceAll(trimmed, "\n", "<br>")
+	trimmed = strings.ReplaceAll(trimmed, "|", "\\|")
+	return trimmed
+}
+
+func stringSet(values []string) map[string]struct{} {
+	out := map[string]struct{}{}
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			continue
+		}
+		out[trimmed] = struct{}{}
+	}
+	return out
+}
+
+func cleanAndDedupeStrings(values []string) []string {
+	if len(values) == 0 {
+		return []string{}
+	}
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			continue
+		}
+		if _, exists := seen[trimmed]; exists {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		out = append(out, trimmed)
+	}
+	return out
 }
 
 func hashString(value string) string {
@@ -815,7 +1073,7 @@ func (s *Service) syncCheckpointComments(repoSelector string, prNumber int, cr *
 			short = short[:12]
 		}
 		drift := "no"
-		if task.CheckpointOrphan {
+		if taskHasContractDrift(task) {
 			drift = "yes"
 		}
 		comment := fmt.Sprintf("Checkpoint synced: %s | task: %s | scope_drift: %s", short, strings.TrimSpace(task.Title), drift)

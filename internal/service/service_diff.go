@@ -28,9 +28,10 @@ func (s *Service) summarizeCRDiffWithPolicy(cr *model.CR, policy *model.RepoPoli
 		return nil, errors.New("repo policy is required")
 	}
 	var (
-		changes   []gitx.FileChange
-		shortStat string
-		diffErr   error
+		changes      []gitx.FileChange
+		shortStat    string
+		diffNumStats []gitx.DiffNumStat
+		diffErr      error
 	)
 	switch {
 	case s.git.BranchExists(cr.Branch):
@@ -42,16 +43,22 @@ func (s *Service) summarizeCRDiffWithPolicy(cr *model.CR, policy *model.RepoPoli
 		if diffErr != nil {
 			return nil, diffErr
 		}
+		if stats, statsErr := s.diffNumStatForCR(cr); statsErr == nil {
+			diffNumStats = stats
+		}
 	case cr.Status == model.StatusMerged:
 		changes, shortStat, diffErr = s.summarizeMergedCRDiff(cr)
 		if diffErr != nil {
 			return nil, diffErr
 		}
+		if stats, statsErr := s.summarizeMergedCRDiffNumStats(cr); statsErr == nil {
+			diffNumStats = stats
+		}
 	default:
 		return nil, fmt.Errorf("%w: unable to summarize CR %d diff: missing branch context (%q, %q)", ErrCRBranchContextUnavailable, cr.ID, cr.BaseBranch, cr.Branch)
 	}
 
-	return buildDiffSummaryFromChanges(changes, shortStat, policy), nil
+	return buildDiffSummaryFromChanges(changes, shortStat, diffNumStats, policy), nil
 }
 
 func (s *Service) summarizeCRDiffFromTaskCheckpoints(cr *model.CR, policy *model.RepoPolicy) *diffSummary {
@@ -60,10 +67,10 @@ func (s *Service) summarizeCRDiffFromTaskCheckpoints(cr *model.CR, policy *model
 		return &diffSummary{}
 	}
 	shortStat := fmt.Sprintf("%d file(s) changed (derived from task checkpoint scope)", len(derivedChanges))
-	return buildDiffSummaryFromChanges(derivedChanges, shortStat, policy)
+	return buildDiffSummaryFromChanges(derivedChanges, shortStat, []gitx.DiffNumStat{}, policy)
 }
 
-func buildDiffSummaryFromChanges(changes []gitx.FileChange, shortStat string, policy *model.RepoPolicy) *diffSummary {
+func buildDiffSummaryFromChanges(changes []gitx.FileChange, shortStat string, numStats []gitx.DiffNumStat, policy *model.RepoPolicy) *diffSummary {
 	summary := servicediff.BuildSummaryFromChanges(
 		changes,
 		shortStat,
@@ -74,9 +81,11 @@ func buildDiffSummaryFromChanges(changes []gitx.FileChange, shortStat string, po
 			return isDependencyFile(path, policy)
 		},
 	)
+	statsCopy := append([]gitx.DiffNumStat(nil), numStats...)
 	return &diffSummary{
 		Files:           summary.Files,
 		ShortStat:       summary.ShortStat,
+		NumStats:        statsCopy,
 		NewFiles:        summary.NewFiles,
 		ModifiedFiles:   summary.ModifiedFiles,
 		DeletedFiles:    summary.DeletedFiles,
@@ -235,6 +244,23 @@ func (s *Service) diffShortStatForCR(cr *model.CR) (string, error) {
 	}
 	baseRef := nonEmptyTrimmed(cr.BaseRef, cr.BaseBranch)
 	return s.git.DiffShortStat(baseRef, cr.Branch)
+}
+
+func (s *Service) diffNumStatForCR(cr *model.CR) ([]gitx.DiffNumStat, error) {
+	if strings.TrimSpace(cr.BaseCommit) != "" {
+		return s.git.DiffNumStatBetween(strings.TrimSpace(cr.BaseCommit), cr.Branch)
+	}
+	baseRef := nonEmptyTrimmed(cr.BaseRef, cr.BaseBranch)
+	return s.git.DiffNumStatBetween(baseRef, cr.Branch)
+}
+
+func (s *Service) summarizeMergedCRDiffNumStats(cr *model.CR) ([]gitx.DiffNumStat, error) {
+	mergedCommit := strings.TrimSpace(cr.MergedCommit)
+	if mergedCommit == "" {
+		return []gitx.DiffNumStat{}, fmt.Errorf("missing merged commit")
+	}
+	baseRef := mergedCommit + "^1"
+	return s.git.DiffNumStatBetween(baseRef, mergedCommit)
 }
 
 func (s *Service) diffNamesForCR(cr *model.CR) ([]string, error) {
