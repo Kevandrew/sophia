@@ -265,6 +265,7 @@ func prLinkToJSONMap(pr model.CRPRLink) map[string]any {
 		"last_merged_at":              pr.LastMergedAt,
 		"last_merged_commit":          pr.LastMergedCommit,
 		"checkpoint_comment_keys":     stringSliceOrEmpty(pr.CheckpointCommentKeys),
+		"checkpoint_sync_keys":        stringSliceOrEmpty(pr.CheckpointSyncKeys),
 		"awaiting_open_approval":      pr.AwaitingOpenApproval,
 		"awaiting_open_approval_note": pr.AwaitingOpenApprovalNote,
 	}
