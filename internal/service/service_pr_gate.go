@@ -1181,6 +1181,18 @@ func (s *Service) remoteBranchHeadOID(branch string) (string, error) {
 	return strings.TrimSpace(fields[0]), nil
 }
 
+func (s *Service) resolveCommitOID(ref string) (string, error) {
+	trimmed := strings.TrimSpace(ref)
+	if trimmed == "" {
+		return "", fmt.Errorf("commit ref is required")
+	}
+	out, err := s.runCommand("git", "rev-parse", "--verify", trimmed+"^{commit}")
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(out), nil
+}
+
 func (s *Service) pushBranchRefspec(refspec string, dryRun bool) error {
 	trimmed := strings.TrimSpace(refspec)
 	if trimmed == "" {
@@ -1273,13 +1285,17 @@ func (s *Service) syncCheckpointComments(repoSelector string, prNumber int, cr *
 		if task.Status != model.TaskStatusDone {
 			continue
 		}
-		commit := strings.TrimSpace(task.CheckpointCommit)
-		if commit == "" {
+		rawCommit := strings.TrimSpace(task.CheckpointCommit)
+		if rawCommit == "" {
 			continue
 		}
-		key := checkpointSyncKey(task.ID, commit)
+		key := checkpointSyncKey(task.ID, rawCommit)
 		if _, exists := synced[key]; exists {
 			continue
+		}
+		commit, resolveErr := s.resolveCommitOID(rawCommit)
+		if resolveErr != nil {
+			return "", resolveErr
 		}
 		if pos, exists := missingIndex[commit]; exists {
 			toSync = append(toSync, checkpointSyncPending{

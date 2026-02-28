@@ -578,3 +578,30 @@ func TestPushBranchIfNeededPushesLocalAheadCommit(t *testing.T) {
 		t.Fatalf("expected remote head %s to match local head %s", parts[0], localHead)
 	}
 }
+
+func TestResolveCommitOIDExpandsShortSHA(t *testing.T) {
+	dir := t.TempDir()
+	runGit(t, dir, "init", "-b", "main")
+	runGit(t, dir, "config", "user.name", "Test User")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("seed\n"), 0o644); err != nil {
+		t.Fatalf("write README: %v", err)
+	}
+	runGit(t, dir, "add", "README.md")
+	runGit(t, dir, "commit", "-m", "seed")
+
+	full := runGit(t, dir, "rev-parse", "HEAD")
+	short := runGit(t, dir, "rev-parse", "--short", "HEAD")
+	if len(short) >= len(full) {
+		t.Fatalf("expected short SHA, got short=%q full=%q", short, full)
+	}
+
+	svc := New(dir)
+	got, err := svc.resolveCommitOID(short)
+	if err != nil {
+		t.Fatalf("resolveCommitOID() error = %v", err)
+	}
+	if got != full {
+		t.Fatalf("expected full SHA %q, got %q", full, got)
+	}
+}
