@@ -68,6 +68,8 @@ func TestRenderManagedPRBlockIncludesBlastRadiusAndCRDrifts(t *testing.T) {
 					Reason:       "Expanded for release metadata path",
 					Acknowledged: true,
 					AckReason:    "Reviewer accepted scope widening",
+					BeforeScope:  []string{"internal/service"},
+					AfterScope:   []string{"internal/service", "internal/store"},
 				},
 			},
 		},
@@ -86,6 +88,85 @@ func TestRenderManagedPRBlockIncludesBlastRadiusAndCRDrifts(t *testing.T) {
 	}
 	if !strings.Contains(md, "Expanded for release metadata path") || !strings.Contains(md, "Reviewer accepted scope widening") {
 		t.Fatalf("expected CR drift reason and ack reason, got:\n%s", md)
+	}
+	if !strings.Contains(md, "Scope Delta") || !strings.Contains(md, "Added: internal/store") || !strings.Contains(md, "Removed: none") {
+		t.Fatalf("expected readable scope delta rendering, got:\n%s", md)
+	}
+	if strings.Contains(md, "before_scope:") || strings.Contains(md, "| fields:") {
+		t.Fatalf("expected legacy pipe-delimited CR drift format to be removed, got:\n%s", md)
+	}
+}
+
+func TestRenderCRContractDriftSectionOmitsAckReasonWhenEmpty(t *testing.T) {
+	b := &strings.Builder{}
+	renderCRContractDriftSection(b, []model.CRContractDrift{{
+		ID:           1,
+		TS:           "2026-03-01T10:00:00Z",
+		Fields:       []string{"scope_changed"},
+		Reason:       "Scope expanded",
+		Acknowledged: true,
+	}})
+	md := b.String()
+	if strings.Contains(md, "Ack Reason:") {
+		t.Fatalf("expected Ack Reason line to be omitted when empty, got:\n%s", md)
+	}
+}
+
+func TestRenderCRContractDriftSectionSortsByTimeThenID(t *testing.T) {
+	b := &strings.Builder{}
+	renderCRContractDriftSection(b, []model.CRContractDrift{
+		{ID: 2, TS: "2026-03-01T10:00:00Z", Fields: []string{"scope"}, Reason: "second"},
+		{ID: 1, TS: "2026-03-01T10:00:00Z", Fields: []string{"scope"}, Reason: "first"},
+		{ID: 3, TS: "2026-03-01T11:00:00Z", Fields: []string{"scope"}, Reason: "third"},
+	})
+	md := b.String()
+	first := strings.Index(md, "- **Drift #1**")
+	second := strings.Index(md, "- **Drift #2**")
+	third := strings.Index(md, "- **Drift #3**")
+	if first == -1 || second == -1 || third == -1 {
+		t.Fatalf("expected all drift markers, got:\n%s", md)
+	}
+	if !(first < second && second < third) {
+		t.Fatalf("expected stable sort by ts then id, got:\n%s", md)
+	}
+}
+
+func TestScopeDeltaAddedAndRemoved(t *testing.T) {
+	added, removed := scopeDelta(
+		[]string{"internal/cli", "internal/service", "internal/cli"},
+		[]string{"internal/service", "internal/store", "internal/store"},
+	)
+	if strings.Join(added, ",") != "internal/store" {
+		t.Fatalf("expected added internal/store, got %#v", added)
+	}
+	if strings.Join(removed, ",") != "internal/cli" {
+		t.Fatalf("expected removed internal/cli, got %#v", removed)
+	}
+}
+
+func TestScopeDeltaNoChanges(t *testing.T) {
+	added, removed := scopeDelta(
+		[]string{"internal/service", "internal/model"},
+		[]string{"internal/model", "internal/service"},
+	)
+	if len(added) != 0 || len(removed) != 0 {
+		t.Fatalf("expected no delta for same sets, got added=%#v removed=%#v", added, removed)
+	}
+}
+
+func TestRenderCRContractDriftSectionRendersNoneForEmptyScopeDelta(t *testing.T) {
+	b := &strings.Builder{}
+	renderCRContractDriftSection(b, []model.CRContractDrift{{
+		ID:          1,
+		TS:          "2026-03-01T10:00:00Z",
+		Fields:      []string{"scope_changed"},
+		Reason:      "No-op scope normalization",
+		BeforeScope: []string{"internal/model", "internal/service"},
+		AfterScope:  []string{"internal/service", "internal/model"},
+	}})
+	md := b.String()
+	if !strings.Contains(md, "- Scope Delta:") || !strings.Contains(md, "- Added: none") || !strings.Contains(md, "- Removed: none") {
+		t.Fatalf("expected none values for empty scope delta, got:\n%s", md)
 	}
 }
 
