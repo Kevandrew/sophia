@@ -642,12 +642,32 @@ func renderCRContractDriftSection(b *strings.Builder, drifts []model.CRContractD
 			b.WriteString(fmt.Sprintf("  - Ack Reason: %s\n", strings.TrimSpace(drift.AckReason)))
 		}
 		if len(drift.BeforeScope) > 0 || len(drift.AfterScope) > 0 {
-			b.WriteString(fmt.Sprintf("  - before_scope: %s | after_scope: %s\n",
-				nonEmptyTrimmed(strings.Join(cleanAndDedupeStrings(drift.BeforeScope), ", "), "-"),
-				nonEmptyTrimmed(strings.Join(cleanAndDedupeStrings(drift.AfterScope), ", "), "-"),
-			))
+			added, removed := scopeDelta(cleanAndDedupeStrings(drift.BeforeScope), cleanAndDedupeStrings(drift.AfterScope))
+			b.WriteString("  - Scope Delta:\n")
+			b.WriteString(fmt.Sprintf("    - Added: %s\n", nonEmptyTrimmed(strings.Join(added, ", "), "none")))
+			b.WriteString(fmt.Sprintf("    - Removed: %s\n", nonEmptyTrimmed(strings.Join(removed, ", "), "none")))
 		}
 	}
+}
+
+func scopeDelta(before, after []string) ([]string, []string) {
+	beforeSet := stringSet(before)
+	afterSet := stringSet(after)
+	added := []string{}
+	removed := []string{}
+	for path := range afterSet {
+		if _, exists := beforeSet[path]; !exists {
+			added = append(added, path)
+		}
+	}
+	for path := range beforeSet {
+		if _, exists := afterSet[path]; !exists {
+			removed = append(removed, path)
+		}
+	}
+	sort.Strings(added)
+	sort.Strings(removed)
+	return added, removed
 }
 
 func renderTaskContractTable(b *strings.Builder, tasks []model.Subtask) {
