@@ -54,6 +54,20 @@ Practical guidance:
 
 `merge.allow_override` controls whether audited override flows are permitted when standard merge gating blocks.
 
+## Merge Mode and PR Gates
+
+`merge.mode` controls merge orchestration:
+- `local` (default): existing local merge behavior.
+- `pr_gate`: `sophia cr merge` publishes/syncs PR for review instead of performing final merge locally.
+
+`pr_gate` policy controls:
+- `merge.required_approvals` (default `1`)
+- `merge.require_non_author_approval` (default `true`)
+- `merge.require_ready_for_review` (default `true`)
+- `merge.require_passing_checks` (default `true`)
+
+Invalid `merge.mode` values return deterministic `policy_invalid` failures.
+
 ## Archive Policy
 
 `archive` controls tracked CR archive artifact behavior.
@@ -76,6 +90,7 @@ Archive semantics:
 - Archives are append-only snapshots named `cr-<id>.vN.yaml`.
 - Existing revisions are never rewritten; corrections are new revisions.
 - Archives are intended for historical lookback and automation-friendly records.
+- In `merge.mode=pr_gate`, `v1` archive artifact is staged/committed to the CR branch before PR sync so final review includes archive output.
 
 ## Trust Policy
 

@@ -42,6 +42,10 @@ sophia cr merge abort <cr-id>
 | `no_task_scope_matches` | Selected completion mode found no eligible files. | Use `--path`/`--patch-file`, or update task scope |
 | `merge_in_progress` | Mutating command blocked during unresolved merge. | `sophia cr merge status <cr-id>` then `resume`/`abort` |
 | `validation_failed` | Contract/policy or change validation failed. | Run `sophia cr validate [<cr-id>|<cr-uid>]` and address required items |
+| `pr_open_approval_required` | Agent/user approval needed before creating/opening PR in `pr_gate` mode. | Re-run with `--approve-pr-open` (merge) or `--approve-open` (`cr pr open`) |
+| `gh_auth_required` | `gh` CLI is not authenticated for PR operations. | Run `gh auth login`, then retry |
+| `pr_permission_denied` | Authenticated identity lacks permission for requested PR action. | Ask reviewer/maintainer to perform action on GitHub PR |
+| `push_permission_denied` | `origin` rejected branch push during PR publish/sync. | Request push access or push via authorized credential |
 | `not_found` | Requested CR/task/entity missing. | Verify ID/selector via `sophia cr list` / `sophia cr search` |
 
 ## Recovery patterns
@@ -49,6 +53,10 @@ sophia cr merge abort <cr-id>
 - Stuck after conflict: use `merge status`, resolve files, then `merge resume`.
 - Bad local metadata after manual Git operations: run `repair`, then `cr status [<id>|<uid>]`.
 - Checkpoint mismatch or orphan suspicion: use `cr reconcile <id>`, then `cr review [<id>|<uid>]`.
+- `gh` auth failure: run `gh auth status` and `gh auth login`, then retry `cr merge`/`cr pr` command.
+- Missing `origin` or push denied: verify remote with `git remote -v`, then `git push -u origin <cr-branch>` and retry.
+- Gate blocked in `pr_gate` mode: inspect `sophia cr pr status <id>` for approvals/checks/draft blockers.
+- No merge permission for finalize: hand off to reviewer merge on PR page; run `sophia cr pr status <id>` afterward to reconcile local CR merged state.
 
 ## Useful machine-readable checks
 

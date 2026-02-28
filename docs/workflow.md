@@ -105,6 +105,55 @@ sophia cr merge resume <cr-id>
 sophia cr merge abort <cr-id>
 ```
 
+## PR-gated team flow (`merge.mode=pr_gate`)
+
+Use this when authors cannot merge directly to `main` and reviewers merge from GitHub.
+
+1. Finish local readiness:
+
+```bash
+sophia cr validate <cr-id>
+sophia cr review <cr-id>
+```
+
+2. Publish/sync PR context:
+
+```bash
+sophia cr merge <cr-id>
+```
+
+Behavior in `pr_gate` mode:
+- Pushes CR branch to `origin` if needed.
+- Stages/commits `cr-<id>.v1.yaml` archive artifact on CR branch when archive policy is enabled.
+- Creates or syncs a draft PR and updates only Sophia-managed body section.
+- Returns PR URL plus gate status (approvals/checks/draft readiness).
+
+3. Optional explicit PR commands:
+
+```bash
+sophia cr pr context <cr-id>
+sophia cr pr open <cr-id> --approve-open
+sophia cr pr sync <cr-id>
+sophia cr pr ready <cr-id>
+sophia cr pr status <cr-id>
+```
+
+4. Reviewer merges on GitHub PR page (common team path), or privileged user runs:
+
+```bash
+sophia cr merge finalize <cr-id>
+```
+
+5. Reconcile remote merge into local CR metadata:
+
+```bash
+sophia cr pr status <cr-id>
+# or
+sophia cr status <cr-id>
+```
+
+If PR is already merged remotely, Sophia records merged commit metadata and marks the CR merged locally.
+
 ## Related docs
 
 - First success walkthrough: [`getting-started.md`](getting-started.md)

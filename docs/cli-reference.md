@@ -85,6 +85,7 @@ Validation/review/merge:
 sophia cr validate [<cr-id>|<cr-uid>]
 sophia cr review [<cr-id>|<cr-uid>]
 sophia cr merge <cr-id>
+sophia cr merge finalize <cr-id>
 ```
 
 Merge recovery:
@@ -94,6 +95,22 @@ sophia cr merge status <cr-id>
 sophia cr merge resume <cr-id>
 sophia cr merge abort <cr-id>
 ```
+
+PR-gated publish/sync:
+
+```bash
+sophia cr pr context [<cr-id>|<cr-uid>]
+sophia cr pr draft [<cr-id>|<cr-uid>]
+sophia cr pr open [<cr-id>|<cr-uid>] --approve-open
+sophia cr pr sync [<cr-id>|<cr-uid>]
+sophia cr pr ready [<cr-id>|<cr-uid>]
+sophia cr pr status [<cr-id>|<cr-uid>]
+```
+
+Notes:
+- In `merge.mode=pr_gate`, `sophia cr merge` is PR publish/sync + gate report.
+- `sophia cr merge finalize` is optional and intended for users/bots with GitHub merge permission.
+- If PR is merged remotely on GitHub, `cr pr status` and `cr status` reconcile merged state locally.
 
 Archive artifacts:
 
