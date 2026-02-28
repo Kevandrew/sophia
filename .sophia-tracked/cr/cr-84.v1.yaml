@@ -1,0 +1,229 @@
+schema_version: sophia.cr_archive.v1
+notice: Historical archive snapshot. Corrections are append-only revisions.
+archived_at: "2026-02-28T11:58:02Z"
+revision: 1
+cr:
+    id: 84
+    uid: cr_1379a23a-9268-41ef-8835-6394442d821c
+    title: Split internal/gitx monolith into concern-focused files
+    description: Refactor `internal/gitx/git.go` into focused files by concern to improve readability and maintainability while preserving command execution behavior and error contracts.
+    status: merged
+    base_branch: main
+    base_ref: main
+    base_commit: b1ce18ab4dccfcbf662d120f39d71882a40a1fc8
+    branch: cr-split-internal-gitx-monolith-into-concern-focuse-1379
+    merged_at: "2026-02-28T11:58:02Z"
+    merged_by: Kevandrew <143258544+Kevandrew@users.noreply.github.com>
+contract:
+    why: |-
+        internal/gitx/git.go is currently a very large multi-concern file, which slows navigation and makes targeted changes riskier than necessary.
+
+        This CR splits gitx implementation into concern-focused files with explicit ownership boundaries, preserving the same public API and runtime behavior.
+
+        Success means no functional Git behavior changes, stable error surfaces, and simpler file-level ownership for future changes.
+    scope:
+        - internal/gitx
+        - internal/gitx/git.go
+    non_goals:
+        - Do not alter exported gitx API signatures in this refactor.
+        - Do not change Git command semantics or shell invocation behavior.
+        - Do not change store/service behavior beyond imports required by file split.
+    invariants:
+        - All existing gitx tests continue passing with unchanged behavior.
+        - Error wrapping and sentinel matching semantics remain equivalent.
+        - No additional global state or hidden side effects are introduced.
+    blast_radius: Affects gitx internal structure and import paths; primary risks are behavior drift in command invocation, error handling, or edge-case repository/worktree parsing.
+    risk_critical_scopes:
+        - internal/gitx
+        - internal/service
+    risk_tier_hint: high
+    risk_rationale: gitx underpins many service workflows; structural mistakes can cause broad regressions.
+    test_plan: go test ./internal/gitx/... && go test ./internal/service/... && go test ./...
+    rollback_plan: Revert the CR merge commit and rerun gitx/service test suites to restore previous behavior.
+tasks:
+    - id: 1
+      title: Define gitx file split layout and ownership boundaries
+      status: done
+      contract:
+        intent: Create a concrete decomposition map for gitx concerns before moving code.
+        acceptance_criteria:
+            - Each major gitx concern has a target file and owner responsibility.
+            - Shared helper placement avoids cyclical or redundant utilities.
+        scope:
+            - internal/gitx
+            - internal/gitx/git.go
+      checkpoint:
+        commit: 0811da07
+        at: "2026-02-27T12:19:24Z"
+        source: task_checkpoint
+        scope:
+            - internal/gitx/git_split_layout.go
+            - internal/gitx/git_split_layout_test.go
+    - id: 2
+      title: Extract repository/worktree discovery concerns
+      status: done
+      contract:
+        intent: Move repo/worktree discovery and resolution logic into focused files.
+        acceptance_criteria:
+            - Existing worktree-related tests pass unchanged.
+            - Repo/worktree functions reside outside monolithic git.go.
+        scope:
+            - internal/gitx/git.go
+            - internal/gitx/git_repo_context.go
+            - internal/gitx/git_repo_context_test.go
+            - internal/gitx/git_worktree.go
+            - internal/gitx/git_worktree_test.go
+      checkpoint:
+        commit: ce9e7948
+        at: "2026-02-27T12:33:43Z"
+        source: task_checkpoint
+        scope:
+            - internal/gitx/git.go
+            - internal/gitx/git_repo_context.go
+            - internal/gitx/git_worktree.go
+    - id: 3
+      title: Extract index lock and staging concerns
+      status: done
+      contract:
+        intent: Isolate staging and index-lock logic into dedicated files.
+        acceptance_criteria:
+            - Index lock tests remain green with unchanged semantics.
+            - Index lock/staging helpers are moved into concern-specific files.
+        scope:
+            - internal/gitx/git.go
+            - internal/gitx/git_index_lock_test.go
+            - internal/gitx/git_index_stage.go
+      checkpoint:
+        commit: 6fa27861
+        at: "2026-02-27T12:33:53Z"
+        source: task_checkpoint
+        scope:
+            - internal/gitx/git_index_stage.go
+    - id: 4
+      title: Extract history/diff/blame concerns
+      status: done
+      contract:
+        intent: Separate read-oriented history and diff helpers from mutation flows.
+        acceptance_criteria:
+            - Blame/diff consumers in service and CLI continue to pass tests.
+            - History/diff/blame functions are grouped in focused files.
+        scope:
+            - internal/gitx/git.go
+            - internal/gitx/git_blame_test.go
+            - internal/gitx/git_diff_history_blame.go
+            - internal/service/service_blame.go
+      checkpoint:
+        commit: 8abac313
+        at: "2026-02-27T12:33:58Z"
+        source: task_checkpoint
+        scope:
+            - internal/gitx/git_diff_history_blame.go
+    - id: 5
+      title: Extract merge/rebase/cherry-pick concern cluster
+      status: done
+      contract:
+        intent: Separate high-risk mutation command helpers into explicit files.
+        acceptance_criteria:
+            - Merge/rebase/cherry-pick helpers are no longer interleaved with unrelated code.
+            - Service merge/recovery tests continue to pass with no semantic drift.
+        scope:
+            - internal/gitx/git.go
+            - internal/gitx/git_merge_rebase.go
+            - internal/service/service_merge_recovery_test.go
+            - internal/service/service_merge_review_test.go
+      checkpoint:
+        commit: 2773050a
+        at: "2026-02-27T12:34:05Z"
+        source: task_checkpoint
+        scope:
+            - internal/gitx/git_merge_rebase.go
+    - id: 6
+      title: Stabilize shared execution/error helper layer
+      status: done
+      contract:
+        intent: Keep command execution and error wrapping consistent across split files.
+        acceptance_criteria:
+            - Error wrapping remains compatible with existing assertions.
+            - Shared execution helpers are centralized and reused by split concern files.
+        scope:
+            - internal/gitx/git.go
+            - internal/gitx/git_diff_history_blame.go
+            - internal/gitx/git_exec.go
+            - internal/gitx/git_index_stage.go
+            - internal/gitx/git_merge_rebase.go
+            - internal/gitx/git_repo_context.go
+            - internal/gitx/git_worktree.go
+      checkpoint:
+        commit: "592940e8"
+        at: "2026-02-27T12:34:14Z"
+        source: task_checkpoint
+        scope:
+            - internal/gitx/git_exec.go
+    - id: 7
+      title: Run and expand gitx regression matrix
+      status: done
+      contract:
+        intent: Prove behavior parity after split across representative edge cases.
+        acceptance_criteria:
+            - Additional tests cover boundaries introduced by file split seams.
+            - Existing gitx test suite passes with no newly flaky cases.
+        scope:
+            - internal/gitx/git_blame_test.go
+            - internal/gitx/git_index_lock_test.go
+            - internal/gitx/git_repo_context_test.go
+            - internal/gitx/git_split_seams_test.go
+            - internal/gitx/git_worktree_test.go
+            - internal/service/service_git_helpers_test.go
+      checkpoint:
+        commit: 3f1cbe26
+        at: "2026-02-27T12:34:18Z"
+        source: task_checkpoint
+        scope:
+            - internal/gitx/git_split_seams_test.go
+git_summary:
+    base_parent: b1ce18ab4dccfcbf662d120f39d71882a40a1fc8
+    cr_parent: a9b07cf00c6e922d23ab801f717d5293e4215921
+    files_changed:
+        - internal/gitx/git.go
+        - internal/gitx/git_diff_history_blame.go
+        - internal/gitx/git_exec.go
+        - internal/gitx/git_index_stage.go
+        - internal/gitx/git_merge_rebase.go
+        - internal/gitx/git_repo_context.go
+        - internal/gitx/git_split_layout.go
+        - internal/gitx/git_split_layout_test.go
+        - internal/gitx/git_split_seams_test.go
+        - internal/gitx/git_worktree.go
+    diffstat:
+        summary: 10 files changed, 1223 insertions(+), 942 deletions(-)
+        files:
+            - path: internal/gitx/git.go
+              insertions: 0
+              deletions: 942
+            - path: internal/gitx/git_diff_history_blame.go
+              insertions: 486
+              deletions: 0
+            - path: internal/gitx/git_exec.go
+              insertions: 72
+              deletions: 0
+            - path: internal/gitx/git_index_stage.go
+              insertions: 88
+              deletions: 0
+            - path: internal/gitx/git_merge_rebase.go
+              insertions: 215
+              deletions: 0
+            - path: internal/gitx/git_repo_context.go
+              insertions: 55
+              deletions: 0
+            - path: internal/gitx/git_split_layout.go
+              insertions: 114
+              deletions: 0
+            - path: internal/gitx/git_split_layout_test.go
+              insertions: 53
+              deletions: 0
+            - path: internal/gitx/git_split_seams_test.go
+              insertions: 70
+              deletions: 0
+            - path: internal/gitx/git_worktree.go
+              insertions: 70
+              deletions: 0
