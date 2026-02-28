@@ -1,0 +1,132 @@
+schema_version: sophia.cr_archive.v1
+notice: Historical archive snapshot. Corrections are append-only revisions.
+archived_at: "2026-02-28T18:46:34Z"
+revision: 1
+cr:
+    id: 88
+    uid: cr_053d0ab9-dddd-4ed4-8dea-9f4e2b9e982c
+    title: Improve PR checkpoint sync timeline formatting
+    description: Make checkpoint sync timeline comments structured and commit-first so each sync event clearly lists the commits it introduced.
+    status: merged
+    base_branch: main
+    base_ref: main
+    base_commit: 24e8aa33c4d9e16382828b1470d110b98fa2d9bd
+    branch: cr-improve-pr-checkpoint-sync-timeline-formatting-053d
+    merged_at: "2026-02-28T18:46:34Z"
+    merged_by: Kevandrew <143258544+Kevandrew@users.noreply.github.com>
+contract:
+    why: Make checkpoint sync timeline updates reviewer-friendly by emitting a structured sync comment that includes the exact commits for that sync event.
+    scope:
+        - internal/cli
+        - internal/model
+        - internal/service
+        - internal/store
+    non_goals:
+        - Change merge gate policy semantics
+        - Rewrite historical PR comments
+    invariants:
+        - Checkpoint sync comments must reference only current, reachable commits for the PR head state.
+        - No local CR numeric IDs or raw UIDs appear in PR-facing text.
+        - PR body remains the source of intent/contract details.
+    blast_radius: PR sync comment formatting and ledger behavior for checkpoint updates on GitHub PR timelines.
+    risk_tier_hint: medium
+    risk_rationale: Touches reviewer-facing output and sync idempotency around PR timeline comments.
+    test_plan: go test ./internal/service/... && go test ./internal/cli/... && manual dry-run against an open PR with rebase/force-push scenario
+    rollback_plan: Revert CR-88 commits; existing PR comments remain as posted but future syncs return to prior behavior.
+tasks:
+    - id: 1
+      title: Design checkpoint sync timeline comment format (task header + commit list)
+      status: done
+      contract:
+        intent: Define marker-only checkpoint timeline comment shape aligned with GitHub commit ladder semantics.
+        acceptance_criteria:
+            - Checkpoint marker comments are concise and deterministic.
+            - Comment text does not embed commit bullet lists.
+            - Design aligns with PR body as intent source and timeline as commit source.
+        scope:
+            - internal/service
+            - internal/service/service_pr_gate_test.go
+      checkpoint:
+        at: "2026-02-28T18:45:55Z"
+        source: task_no_checkpoint
+    - id: 2
+      title: Implement sync-time commit collection for each checkpoint event using reachable PR-head commits
+      status: done
+      contract:
+        intent: Implement strict checkpoint ordering and reachable-commit collection for existing PR sync.
+        acceptance_criteria:
+            - Checkpoint sync processes unsynced task checkpoints in reachable branch order.
+            - Pre-pushed checkpoints are marked synced without retroactive comments.
+            - Sync fails when non-checkpoint commits appear before a checkpoint target in missing commit sequence.
+        scope:
+            - internal/cli
+            - internal/model
+            - internal/service
+            - internal/store
+      checkpoint:
+        at: "2026-02-28T18:45:55Z"
+        source: task_no_checkpoint
+    - id: 3
+      title: 'Render checkpoint comments as structured blocks: checkpoint sync task X then commit bullets'
+      status: done
+      contract:
+        intent: Render checkpoint marker comments and sequence push operations to let GitHub show commit ladder below markers.
+        acceptance_criteria:
+            - 'Comment format is ''Checkpoint sync: task <id> - <title>''.'
+            - Existing PR sync posts marker then pushes checkpoint commit.
+            - Initial PR open remains checkpoint-comment silent.
+        scope:
+            - internal/service
+            - internal/service/service_pr_gate_test.go
+      checkpoint:
+        at: "2026-02-28T18:45:55Z"
+        source: task_no_checkpoint
+    - id: 4
+      title: Update checkpoint comment idempotency ledger for rebase/force-push safety
+      status: done
+      contract:
+        intent: Persist checkpoint sync ledger and enforce strict checkpoint-only sync ordering for PR timelines.
+        acceptance_criteria:
+            - PR sync fails when pushing a checkpoint would include earlier non-checkpoint commits.
+            - Pre-pushed checkpoint commits are marked synced without retroactive comments.
+            - Unsynced checkpoints are tracked via checkpoint_sync_keys separate from checkpoint_comment_keys.
+        scope:
+            - internal/cli
+            - internal/model
+            - internal/service
+            - internal/store
+      checkpoint:
+        commit: 9d5a4dc2
+        at: "2026-02-28T18:33:12Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/cr_json_mappers.go
+            - internal/model/types.go
+            - internal/service/service_pr_gate.go
+            - internal/store/store.go
+    - id: 5
+      title: Add tests and docs for timeline comment format and rewritten-history behavior
+      status: done
+      contract:
+        intent: Validate and document checkpoint timeline sync behavior for PR-first workflows.
+        acceptance_criteria:
+            - Regression coverage includes push-permission and approval-gated JSON flows.
+            - Service and CLI tests cover strict order validation and checkpoint comment format.
+            - Skill guidance explains merge.mode decision flow and PR-first checkpoint lifecycle.
+        scope:
+            - docs
+            - internal/cli
+            - internal/service
+      checkpoint:
+        commit: 74e90688
+        at: "2026-02-28T18:33:17Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/cr_json_pr_gate_test.go
+            - internal/service/service_pr_gate_test.go
+git_summary:
+    base_parent: 24e8aa33c4d9e16382828b1470d110b98fa2d9bd
+    cr_parent: 74e90688bad7b8d2bdb09ca8b5a781d93b2325f6
+    files_changed: []
+    diffstat:
+        summary: 0 files changed, 0 insertions(+), 0 deletions(-)
