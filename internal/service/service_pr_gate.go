@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -46,6 +47,7 @@ type PRStatusView struct {
 	MergedCommit       string
 	ChecksPassing      bool
 	ChecksObserved     bool
+	HeadRefOID         string
 	Approvals          int
 	NonAuthorApprovals int
 	GateBlocked        bool
@@ -79,7 +81,9 @@ type ghPRSummary struct {
 	StatusCheckRollup []struct {
 		Conclusion string `json:"conclusion"`
 		Status     string `json:"status"`
+		State      string `json:"state"`
 	} `json:"statusCheckRollup"`
+	UpdatedAt string `json:"updatedAt"`
 }
 
 type PRApprovalRequiredError struct {
@@ -313,7 +317,7 @@ func (s *Service) PRReady(id int) (*PRStatusView, error) {
 	if cr.PR.Number <= 0 {
 		return nil, fmt.Errorf("cr %d has no linked PR", id)
 	}
-	if _, err := s.runCommand("gh", "pr", "ready", strconv.Itoa(cr.PR.Number)); err != nil {
+	if _, err := s.runGH(s.ghRepoSelectorForCR(cr), "pr", "ready", strconv.Itoa(cr.PR.Number)); err != nil {
 		return nil, err
 	}
 	now := s.timestamp()
@@ -399,6 +403,33 @@ func evaluatePRGate(policy *model.RepoPolicy, status *PRStatusView) (bool, []str
 	return len(reasons) > 0, reasons
 }
 
+func normalizeCheckRollupState(status, conclusion, state string) string {
+	normalizedState := strings.ToUpper(strings.TrimSpace(state))
+	if normalizedState != "" {
+		return normalizedState
+	}
+	normalizedStatus := strings.ToUpper(strings.TrimSpace(status))
+	if normalizedStatus == "COMPLETED" {
+		normalizedConclusion := strings.ToUpper(strings.TrimSpace(conclusion))
+		if normalizedConclusion != "" {
+			return normalizedConclusion
+		}
+	}
+	if normalizedStatus != "" {
+		return normalizedStatus
+	}
+	return strings.ToUpper(strings.TrimSpace(conclusion))
+}
+
+func checkRollupStatePassing(state string) bool {
+	switch strings.ToUpper(strings.TrimSpace(state)) {
+	case "SUCCESS", "NEUTRAL", "SKIPPED":
+		return true
+	default:
+		return false
+	}
+}
+
 func (s *Service) mergePRGateCRUnlocked(id int, opts MergeCROptions, policy *model.RepoPolicy) (*MergeCRResult, error) {
 	cr, err := s.store.LoadCR(id)
 	if err != nil {
@@ -459,7 +490,7 @@ func (s *Service) mergePRGateFinalizeUnlocked(id int, opts MergeCROptions, polic
 		}
 		return &MergeCRResult{MergedCommit: strings.TrimSpace(status.MergedCommit), MergeMode: "pr_gate", PRURL: status.URL, Action: "already_merged_remote"}, nil
 	}
-	if _, err := s.runCommand("gh", buildPRMergeArgs(cr.PR.Number, !opts.KeepBranch)...); err != nil {
+	if _, err := s.runGH(s.ghRepoSelectorForCR(cr), buildPRMergeArgs(cr.PR.Number, !opts.KeepBranch, status.HeadRefOID)...); err != nil {
 		return nil, err
 	}
 	status, err = s.fetchGHPRStatus(cr)
@@ -595,13 +626,30 @@ func (s *Service) openOrSyncPRForCR(cr *model.CR, policy *model.RepoPolicy, appr
 	if err != nil {
 		return nil, err
 	}
-	repo, err := s.currentRemoteRepo("origin")
+	repoURL, err := s.currentRemoteRepo("origin")
 	if err != nil {
 		return nil, err
 	}
-	pr, err := s.findPRByHead(cr.Branch)
-	if err != nil {
-		return nil, err
+	repoSelector := normalizeGHRepoSelector(repoURL)
+	repo := strings.TrimSpace(repoURL)
+	if repoSelector != "" {
+		repo = repoSelector
+	}
+	var pr *ghPRSummary
+	if cr.PR.Number > 0 {
+		pr, err = s.fetchPRByNumber(repoSelector, cr.PR.Number)
+		if err != nil {
+			if !isPRNotFoundError(err) {
+				return nil, err
+			}
+			pr = nil
+		}
+	}
+	if pr == nil {
+		pr, err = s.findPRByHead(repoSelector, cr.Branch, nonEmptyTrimmed(cr.BaseRef, cr.BaseBranch))
+		if err != nil {
+			return nil, err
+		}
 	}
 	if pr == nil {
 		if !approve {
@@ -617,18 +665,18 @@ func (s *Service) openOrSyncPRForCR(cr *model.CR, policy *model.RepoPolicy, appr
 				Reason: "approve PR create/open to proceed",
 			}
 		}
-		url, createErr := s.createDraftPR(cr, ctx.Markdown)
+		url, createErr := s.createDraftPR(repoSelector, cr, ctx.Markdown)
 		if createErr != nil {
 			return nil, createErr
 		}
 		pr = &ghPRSummary{URL: strings.TrimSpace(url)}
-		if refreshed, refreshErr := s.findPRByHead(cr.Branch); refreshErr == nil && refreshed != nil {
+		if refreshed, refreshErr := s.findPRByHead(repoSelector, cr.Branch, nonEmptyTrimmed(cr.BaseRef, cr.BaseBranch)); refreshErr == nil && refreshed != nil {
 			pr = refreshed
 		}
 	}
 	if pr != nil && pr.Number <= 0 {
 		if parsed := parsePRNumberFromURL(pr.URL); parsed > 0 {
-			if byNumber, byNumberErr := s.fetchPRByNumber(parsed); byNumberErr == nil && byNumber != nil {
+			if byNumber, byNumberErr := s.fetchPRByNumber(repoSelector, parsed); byNumberErr == nil && byNumber != nil {
 				pr = byNumber
 			} else {
 				pr.Number = parsed
@@ -639,22 +687,22 @@ func (s *Service) openOrSyncPRForCR(cr *model.CR, policy *model.RepoPolicy, appr
 		return nil, fmt.Errorf("unable to resolve PR number for branch %q after create/sync", strings.TrimSpace(cr.Branch))
 	}
 	if strings.TrimSpace(pr.URL) == "" {
-		if byNumber, byNumberErr := s.fetchPRByNumber(pr.Number); byNumberErr == nil && byNumber != nil {
+		if byNumber, byNumberErr := s.fetchPRByNumber(repoSelector, pr.Number); byNumberErr == nil && byNumber != nil {
 			pr = byNumber
 		}
 	}
 
-	finalBody, bodyErr := s.patchManagedBody(pr, ctx.Markdown)
+	finalBody, bodyErr := s.patchManagedBody(repoSelector, pr, ctx.Markdown)
 	if bodyErr != nil {
 		return nil, bodyErr
 	}
 	if pr.Number > 0 {
-		if err := s.editPR(pr.Number, cr.Title, finalBody); err != nil {
+		if err := s.editPR(repoSelector, pr.Number, cr.Title, finalBody); err != nil {
 			return nil, err
 		}
 	}
 	if pr.Number > 0 {
-		if commentErr := s.syncCheckpointComments(pr.Number, cr); commentErr != nil {
+		if commentErr := s.syncCheckpointComments(repoSelector, pr.Number, cr); commentErr != nil {
 			return nil, commentErr
 		}
 	}
@@ -694,11 +742,11 @@ func (s *Service) openOrSyncPRForCR(cr *model.CR, policy *model.RepoPolicy, appr
 	return pr, nil
 }
 
-func (s *Service) patchManagedBody(pr *ghPRSummary, managed string) (string, error) {
+func (s *Service) patchManagedBody(repoSelector string, pr *ghPRSummary, managed string) (string, error) {
 	if pr == nil || pr.Number <= 0 {
 		return managed, nil
 	}
-	body, err := s.readPRBody(pr.Number)
+	body, err := s.readPRBody(repoSelector, pr.Number)
 	if err != nil {
 		return "", fmt.Errorf("read PR body: %w", err)
 	}
@@ -742,7 +790,7 @@ func mergeManagedPRBody(existingBody, managed string) (string, error) {
 	return out.String() + "\n", nil
 }
 
-func (s *Service) syncCheckpointComments(prNumber int, cr *model.CR) error {
+func (s *Service) syncCheckpointComments(repoSelector string, prNumber int, cr *model.CR) error {
 	if cr == nil || prNumber <= 0 {
 		return nil
 	}
@@ -771,7 +819,7 @@ func (s *Service) syncCheckpointComments(prNumber int, cr *model.CR) error {
 			drift = "yes"
 		}
 		comment := fmt.Sprintf("Checkpoint synced: %s | task: %s | scope_drift: %s", short, strings.TrimSpace(task.Title), drift)
-		if _, err := s.runCommand("gh", "pr", "comment", strconv.Itoa(prNumber), "--body", comment); err != nil {
+		if _, err := s.runGH(repoSelector, "pr", "comment", strconv.Itoa(prNumber), "--body", comment); err != nil {
 			return err
 		}
 		cr.PR.CheckpointCommentKeys = append(cr.PR.CheckpointCommentKeys, key)
@@ -782,11 +830,11 @@ func (s *Service) syncCheckpointComments(prNumber int, cr *model.CR) error {
 	return nil
 }
 
-func (s *Service) findPRByHead(branch string) (*ghPRSummary, error) {
+func (s *Service) findPRByHead(repoSelector, branch, baseRef string) (*ghPRSummary, error) {
 	if strings.TrimSpace(branch) == "" {
 		return nil, fmt.Errorf("branch is required")
 	}
-	out, err := s.runCommand("gh", "pr", "list", "--head", branch, "--state", "all", "--json", "number,url,state,isDraft,headRefOid,baseRefName,reviewDecision,mergedAt,mergeCommit")
+	out, err := s.runGH(repoSelector, "pr", "list", "--head", branch, "--state", "all", "--json", "number,url,state,isDraft,headRefOid,baseRefName,reviewDecision,mergedAt,mergeCommit,updatedAt")
 	if err != nil {
 		return nil, err
 	}
@@ -797,14 +845,52 @@ func (s *Service) findPRByHead(branch string) (*ghPRSummary, error) {
 	if len(items) == 0 {
 		return nil, nil
 	}
-	return &items[0], nil
+	candidates := append([]ghPRSummary(nil), items...)
+	baseRef = strings.TrimSpace(baseRef)
+	if baseRef != "" {
+		filtered := make([]ghPRSummary, 0, len(candidates))
+		for _, item := range candidates {
+			if strings.EqualFold(strings.TrimSpace(item.BaseRefName), baseRef) {
+				filtered = append(filtered, item)
+			}
+		}
+		if len(filtered) == 1 {
+			return &filtered[0], nil
+		}
+		if len(filtered) > 1 {
+			candidates = filtered
+		}
+	}
+	if headOID, headErr := s.branchHeadOID(branch); headErr == nil && strings.TrimSpace(headOID) != "" {
+		filtered := make([]ghPRSummary, 0, len(candidates))
+		for _, item := range candidates {
+			if strings.EqualFold(strings.TrimSpace(item.HeadRefOID), strings.TrimSpace(headOID)) {
+				filtered = append(filtered, item)
+			}
+		}
+		if len(filtered) == 1 {
+			return &filtered[0], nil
+		}
+		if len(filtered) > 1 {
+			candidates = filtered
+		}
+	}
+	sort.SliceStable(candidates, func(i, j int) bool {
+		left := strings.TrimSpace(candidates[i].UpdatedAt)
+		right := strings.TrimSpace(candidates[j].UpdatedAt)
+		if left == right {
+			return candidates[i].Number > candidates[j].Number
+		}
+		return left > right
+	})
+	return &candidates[0], nil
 }
 
-func (s *Service) fetchPRByNumber(number int) (*ghPRSummary, error) {
+func (s *Service) fetchPRByNumber(repoSelector string, number int) (*ghPRSummary, error) {
 	if number <= 0 {
 		return nil, fmt.Errorf("pr number is required")
 	}
-	out, err := s.runCommand("gh", "pr", "view", strconv.Itoa(number), "--json", "number,url,state,isDraft,headRefOid,baseRefName,reviewDecision,mergedAt,mergeCommit")
+	out, err := s.runGH(repoSelector, "pr", "view", strconv.Itoa(number), "--json", "number,url,state,isDraft,headRefOid,baseRefName,reviewDecision,mergedAt,mergeCommit")
 	if err != nil {
 		return nil, err
 	}
@@ -818,7 +904,7 @@ func (s *Service) fetchPRByNumber(number int) (*ghPRSummary, error) {
 	return &pr, nil
 }
 
-func (s *Service) createDraftPR(cr *model.CR, body string) (string, error) {
+func (s *Service) createDraftPR(repoSelector string, cr *model.CR, body string) (string, error) {
 	if cr == nil {
 		return "", fmt.Errorf("cr is required")
 	}
@@ -831,7 +917,7 @@ func (s *Service) createDraftPR(cr *model.CR, body string) (string, error) {
 		return "", err
 	}
 	defer os.Remove(bodyFile)
-	out, err := s.runCommand("gh", "pr", "create", "--draft", "--title", strings.TrimSpace(cr.Title), "--body-file", bodyFile, "--base", base, "--head", strings.TrimSpace(cr.Branch))
+	out, err := s.runGH(repoSelector, "pr", "create", "--draft", "--title", strings.TrimSpace(cr.Title), "--body-file", bodyFile, "--base", base, "--head", strings.TrimSpace(cr.Branch))
 	if err != nil {
 		return "", err
 	}
@@ -850,7 +936,7 @@ func writeTempBody(body string) (string, error) {
 	return f.Name(), nil
 }
 
-func (s *Service) editPR(number int, title, body string) error {
+func (s *Service) editPR(repoSelector string, number int, title, body string) error {
 	if number <= 0 {
 		return fmt.Errorf("pr number is required")
 	}
@@ -859,12 +945,12 @@ func (s *Service) editPR(number int, title, body string) error {
 		return err
 	}
 	defer os.Remove(bodyFile)
-	_, err = s.runCommand("gh", "pr", "edit", strconv.Itoa(number), "--title", strings.TrimSpace(title), "--body-file", bodyFile)
+	_, err = s.runGH(repoSelector, "pr", "edit", strconv.Itoa(number), "--title", strings.TrimSpace(title), "--body-file", bodyFile)
 	return err
 }
 
-func (s *Service) readPRBody(number int) (string, error) {
-	out, err := s.runCommand("gh", "pr", "view", strconv.Itoa(number), "--json", "body")
+func (s *Service) readPRBody(repoSelector string, number int) (string, error) {
+	out, err := s.runGH(repoSelector, "pr", "view", strconv.Itoa(number), "--json", "body")
 	if err != nil {
 		return "", err
 	}
@@ -881,7 +967,7 @@ func (s *Service) fetchGHPRStatus(cr *model.CR) (*PRStatusView, error) {
 	if cr == nil || cr.PR.Number <= 0 {
 		return nil, fmt.Errorf("linked PR is required")
 	}
-	out, err := s.runCommand("gh", "pr", "view", strconv.Itoa(cr.PR.Number), "--json", "number,url,state,isDraft,reviewDecision,mergedAt,mergeCommit,author,latestReviews,statusCheckRollup,headRefOid,baseRefName")
+	out, err := s.runGH(s.ghRepoSelectorForCR(cr), "pr", "view", strconv.Itoa(cr.PR.Number), "--json", "number,url,state,isDraft,reviewDecision,mergedAt,mergeCommit,author,latestReviews,statusCheckRollup,headRefOid,baseRefName")
 	if err != nil {
 		return nil, err
 	}
@@ -907,16 +993,10 @@ func (s *Service) fetchGHPRStatus(cr *model.CR) (*PRStatusView, error) {
 	checksPassing := checksObserved
 	if checksObserved {
 		for _, check := range pr.StatusCheckRollup {
-			status := strings.ToUpper(strings.TrimSpace(check.Status))
-			conclusion := strings.ToUpper(strings.TrimSpace(check.Conclusion))
-			if status == "IN_PROGRESS" || status == "QUEUED" {
+			state := normalizeCheckRollupState(check.Status, check.Conclusion, check.State)
+			if !checkRollupStatePassing(state) {
 				checksPassing = false
 				break
-			}
-			switch conclusion {
-			case "", "SUCCESS", "NEUTRAL", "SKIPPED":
-			default:
-				checksPassing = false
 			}
 		}
 	}
@@ -944,6 +1024,7 @@ func (s *Service) fetchGHPRStatus(cr *model.CR) (*PRStatusView, error) {
 		MergedCommit:       mergedCommit,
 		ChecksPassing:      checksPassing,
 		ChecksObserved:     checksObserved,
+		HeadRefOID:         strings.TrimSpace(pr.HeadRefOID),
 		Approvals:          approvals,
 		NonAuthorApprovals: nonAuthor,
 		GateReasons:        []string{},
@@ -1122,6 +1203,128 @@ func (s *Service) currentRemoteRepo(remote string) (string, error) {
 	return strings.TrimSpace(url), nil
 }
 
+func (s *Service) runGH(repoSelector string, args ...string) (string, error) {
+	selector := strings.TrimSpace(repoSelector)
+	cmdArgs := make([]string, 0, len(args)+2)
+	if selector != "" {
+		cmdArgs = append(cmdArgs, "-R", selector)
+	}
+	cmdArgs = append(cmdArgs, args...)
+	return s.runCommand("gh", cmdArgs...)
+}
+
+func (s *Service) ghRepoSelectorForCR(cr *model.CR) string {
+	if cr != nil {
+		if selector := normalizeGHRepoSelector(cr.PR.Repo); selector != "" {
+			return selector
+		}
+	}
+	remoteURL, err := s.currentRemoteRepo("origin")
+	if err != nil {
+		return ""
+	}
+	return normalizeGHRepoSelector(remoteURL)
+}
+
+func normalizeGHRepoSelector(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return ""
+	}
+	if parsed := parseGitHubRepoSelector(trimmed); parsed != "" {
+		return parsed
+	}
+	if isValidGHRepoSelector(trimmed) {
+		return trimmed
+	}
+	return ""
+}
+
+func parseGitHubRepoSelector(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return ""
+	}
+	var (
+		host string
+		path string
+	)
+	if strings.Contains(trimmed, "://") {
+		u, err := url.Parse(trimmed)
+		if err != nil {
+			return ""
+		}
+		host = strings.TrimSpace(u.Host)
+		path = strings.TrimSpace(u.Path)
+	} else if at := strings.Index(trimmed, "@"); at >= 0 && strings.Contains(trimmed[at+1:], ":") {
+		right := trimmed[at+1:]
+		parts := strings.SplitN(right, ":", 2)
+		if len(parts) != 2 {
+			return ""
+		}
+		host = strings.TrimSpace(parts[0])
+		path = strings.TrimSpace(parts[1])
+	} else {
+		return ""
+	}
+	path = strings.TrimPrefix(path, "/")
+	parts := strings.Split(path, "/")
+	if len(parts) < 2 {
+		return ""
+	}
+	owner := strings.TrimSpace(parts[0])
+	repo := strings.TrimSuffix(strings.TrimSpace(parts[1]), ".git")
+	if owner == "" || repo == "" {
+		return ""
+	}
+	host = strings.ToLower(strings.TrimSpace(host))
+	if host == "" {
+		return ""
+	}
+	if host == "github.com" {
+		return owner + "/" + repo
+	}
+	return host + "/" + owner + "/" + repo
+}
+
+func isValidGHRepoSelector(selector string) bool {
+	parts := strings.Split(strings.TrimSpace(selector), "/")
+	if len(parts) != 2 && len(parts) != 3 {
+		return false
+	}
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			return false
+		}
+		if strings.ContainsAny(part, " :\\") {
+			return false
+		}
+	}
+	return true
+}
+
+func isPRNotFoundError(err error) bool {
+	if err == nil {
+		return false
+	}
+	lower := strings.ToLower(err.Error())
+	return strings.Contains(lower, "no pull requests found") ||
+		strings.Contains(lower, "pull request not found") ||
+		strings.Contains(lower, "could not resolve to a pullrequest")
+}
+
+func (s *Service) branchHeadOID(branch string) (string, error) {
+	if strings.TrimSpace(branch) == "" {
+		return "", fmt.Errorf("branch is required")
+	}
+	head, err := s.runCommand("git", "rev-parse", strings.TrimSpace(branch))
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(head), nil
+}
+
 func (s *Service) runCommand(name string, args ...string) (string, error) {
 	cmd := exec.Command(name, args...)
 	cmd.Dir = s.git.WorkDir
@@ -1206,8 +1409,11 @@ func parsePRNumberFromURL(url string) int {
 	return n
 }
 
-func buildPRMergeArgs(number int, deleteBranch bool) []string {
+func buildPRMergeArgs(number int, deleteBranch bool, expectedHeadOID string) []string {
 	args := []string{"pr", "merge", strconv.Itoa(number), "--merge"}
+	if strings.TrimSpace(expectedHeadOID) != "" {
+		args = append(args, "--match-head-commit", strings.TrimSpace(expectedHeadOID))
+	}
 	if deleteBranch {
 		args = append(args, "--delete-branch")
 	}
