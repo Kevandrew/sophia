@@ -59,6 +59,7 @@ func printImpactSection(cmd *cobra.Command, impact *service.ImpactReport) {
 	fmt.Fprintf(cmd.OutOrStdout(), "Risk Tier: %s\n", nonEmpty(strings.TrimSpace(impact.RiskTier), "-"))
 	fmt.Fprintf(cmd.OutOrStdout(), "Risk Score: %d\n", impact.RiskScore)
 	fmt.Fprintf(cmd.OutOrStdout(), "Files Changed: %d\n", impact.FilesChanged)
+	fmt.Fprintf(cmd.OutOrStdout(), "Scope Source: %s\n", nonEmpty(strings.TrimSpace(impact.ScopeSource), "contract_scope"))
 	printListSection(cmd, "Warnings", impact.Warnings)
 	printListSection(cmd, "Scope Drift", impact.ScopeDrift)
 	printListSection(cmd, "Task Scope Warnings", impact.TaskScopeWarnings)
@@ -125,6 +126,15 @@ func printTrustSection(cmd *cobra.Command, trust *service.TrustReport) {
 	}
 	if len(trust.ContractDrift.UnacknowledgedTasks) > 0 {
 		fmt.Fprintf(cmd.OutOrStdout(), "- unacknowledged_tasks: %v\n", trust.ContractDrift.UnacknowledgedTasks)
+	}
+	fmt.Fprintln(cmd.OutOrStdout(), "\nCR Contract Drift:")
+	fmt.Fprintf(cmd.OutOrStdout(), "- total: %d\n", trust.CRContractDrift.Total)
+	fmt.Fprintf(cmd.OutOrStdout(), "- unacknowledged: %d\n", trust.CRContractDrift.Unacknowledged)
+	if len(trust.CRContractDrift.DriftIDs) > 0 {
+		fmt.Fprintf(cmd.OutOrStdout(), "- drift_ids: %v\n", trust.CRContractDrift.DriftIDs)
+	}
+	if len(trust.CRContractDrift.UnacknowledgedDriftIDs) > 0 {
+		fmt.Fprintf(cmd.OutOrStdout(), "- unacknowledged_drift_ids: %v\n", trust.CRContractDrift.UnacknowledgedDriftIDs)
 	}
 	fmt.Fprintln(cmd.OutOrStdout(), "\nGate:")
 	fmt.Fprintf(cmd.OutOrStdout(), "- enabled: %t\n", trust.Gate.Enabled)

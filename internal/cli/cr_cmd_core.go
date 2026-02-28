@@ -692,6 +692,7 @@ func newCRContractCmd() *cobra.Command {
 	}
 	contractCmd.AddCommand(newCRContractSetCmd())
 	contractCmd.AddCommand(newCRContractShowCmd())
+	contractCmd.AddCommand(newCRContractDriftCmd())
 	return contractCmd
 }
 
@@ -706,6 +707,7 @@ func newCRContractSetCmd() *cobra.Command {
 	var riskRationale string
 	var testPlan string
 	var rollbackPlan string
+	var changeReason string
 	var dryRun bool
 	var asJSON bool
 
@@ -756,6 +758,10 @@ func newCRContractSetCmd() *cobra.Command {
 				v := rollbackPlan
 				patch.RollbackPlan = &v
 			}
+			if cmd.Flags().Changed("change-reason") {
+				v := changeReason
+				patch.ChangeReason = &v
+			}
 			if patch.Why == nil && patch.Scope == nil && patch.NonGoals == nil && patch.Invariants == nil && patch.BlastRadius == nil && patch.RiskCriticalScopes == nil && patch.RiskTierHint == nil && patch.RiskRationale == nil && patch.TestPlan == nil && patch.RollbackPlan == nil {
 				err := fmt.Errorf("provide at least one contract field flag")
 				return commandError(cmd, asJSON, err)
@@ -803,6 +809,7 @@ func newCRContractSetCmd() *cobra.Command {
 	cmd.Flags().StringVar(&riskRationale, "risk-rationale", "", "Optional rationale for risk hint choices")
 	cmd.Flags().StringVar(&testPlan, "test-plan", "", "Planned validation/testing approach")
 	cmd.Flags().StringVar(&rollbackPlan, "rollback-plan", "", "Rollback strategy")
+	cmd.Flags().StringVar(&changeReason, "change-reason", "", "Reason for post-checkpoint scope change")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Validate contract changes without mutating CR metadata")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "Output in JSON format")
 	return cmd
@@ -825,10 +832,20 @@ func newCRContractShowCmd() *cobra.Command {
 			if err != nil {
 				return commandError(cmd, asJSON, err)
 			}
+			baseline, err := svc.GetCRContractBaseline(id)
+			if err != nil {
+				return commandError(cmd, asJSON, err)
+			}
+			drifts, err := svc.ListCRContractDrifts(id)
+			if err != nil {
+				return commandError(cmd, asJSON, err)
+			}
 			if asJSON {
 				return writeJSONSuccess(cmd, map[string]any{
-					"cr_id":    id,
-					"contract": contractToJSONMap(*contract),
+					"cr_id":             id,
+					"contract":          contractToJSONMap(*contract),
+					"contract_baseline": crContractBaselineToJSONMap(*baseline),
+					"contract_drifts":   crContractDriftMaps(drifts),
 				})
 			}
 			fmt.Fprintln(cmd.OutOrStdout(), "Contract:")
@@ -844,9 +861,103 @@ func newCRContractShowCmd() *cobra.Command {
 			fmt.Fprintf(cmd.OutOrStdout(), "- rollback_plan: %s\n", nonEmpty(strings.TrimSpace(contract.RollbackPlan), "(missing)"))
 			fmt.Fprintf(cmd.OutOrStdout(), "- updated_at: %s\n", nonEmpty(strings.TrimSpace(contract.UpdatedAt), "(never)"))
 			fmt.Fprintf(cmd.OutOrStdout(), "- updated_by: %s\n", nonEmpty(strings.TrimSpace(contract.UpdatedBy), "(never)"))
+			fmt.Fprintf(cmd.OutOrStdout(), "- baseline_captured_at: %s\n", nonEmpty(strings.TrimSpace(baseline.CapturedAt), "(not captured)"))
+			if len(baseline.Scope) > 0 {
+				fmt.Fprintf(cmd.OutOrStdout(), "- baseline_scope: %s\n", strings.Join(baseline.Scope, ", "))
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "- contract_drifts: %d\n", len(drifts))
 			return nil
 		},
 	}
+	cmd.Flags().BoolVar(&asJSON, "json", false, "Output in JSON format")
+	return cmd
+}
+
+func newCRContractDriftCmd() *cobra.Command {
+	driftCmd := &cobra.Command{
+		Use:   "drift",
+		Short: "Inspect and acknowledge CR contract drift records",
+	}
+	driftCmd.AddCommand(newCRContractDriftListCmd())
+	driftCmd.AddCommand(newCRContractDriftAckCmd())
+	return driftCmd
+}
+
+func newCRContractDriftListCmd() *cobra.Command {
+	var asJSON bool
+	cmd := &cobra.Command{
+		Use:   "list <id>",
+		Short: "List CR contract drift records",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			id, svc, err := parseIDAndService(cmd, args[0], "id")
+			if err != nil {
+				return commandError(cmd, asJSON, err)
+			}
+			drifts, err := svc.ListCRContractDrifts(id)
+			if err != nil {
+				return commandError(cmd, asJSON, err)
+			}
+			if asJSON {
+				return writeJSONSuccess(cmd, map[string]any{
+					"cr_id":  id,
+					"drifts": crContractDriftMaps(drifts),
+				})
+			}
+			if len(drifts) == 0 {
+				fmt.Fprintf(cmd.OutOrStdout(), "No CR contract drift records for CR %d.\n", id)
+				return nil
+			}
+			fmt.Fprintln(cmd.OutOrStdout(), "DRIFT_ID\tFIELDS\tACKNOWLEDGED\tTS")
+			for _, drift := range drifts {
+				fmt.Fprintf(cmd.OutOrStdout(), "%d\t%s\t%t\t%s\n", drift.ID, strings.Join(drift.Fields, ","), drift.Acknowledged, drift.TS)
+			}
+			return nil
+		},
+	}
+	cmd.Flags().BoolVar(&asJSON, "json", false, "Output in JSON format")
+	return cmd
+}
+
+func newCRContractDriftAckCmd() *cobra.Command {
+	var reason string
+	var asJSON bool
+	cmd := &cobra.Command{
+		Use:   "ack <id> <drift-id>",
+		Short: "Acknowledge a CR contract drift record",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			id, err := parsePositiveIntArg(args[0], "id")
+			if err != nil {
+				return commandError(cmd, asJSON, err)
+			}
+			driftID, err := parsePositiveIntArg(args[1], "drift-id")
+			if err != nil {
+				return commandError(cmd, asJSON, err)
+			}
+			if strings.TrimSpace(reason) == "" {
+				err := fmt.Errorf("--reason is required")
+				return commandError(cmd, asJSON, err)
+			}
+			svc, err := newServiceForCmd(cmd)
+			if err != nil {
+				return commandError(cmd, asJSON, err)
+			}
+			drift, err := svc.AckCRContractDrift(id, driftID, reason)
+			if err != nil {
+				return commandError(cmd, asJSON, err)
+			}
+			if asJSON {
+				return writeJSONSuccess(cmd, map[string]any{
+					"cr_id": id,
+					"drift": crContractDriftToJSONMap(*drift),
+				})
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "Acknowledged CR %d contract drift %d.\n", id, driftID)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&reason, "reason", "", "Acknowledgement reason")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "Output in JSON format")
 	return cmd
 }
