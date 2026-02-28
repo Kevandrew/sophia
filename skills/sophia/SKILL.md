@@ -49,6 +49,66 @@ After implementation is complete:
 3. Run `sophia cr review <id>`.
 4. Check `sophia cr status <id>` / `--json` and `sophia cr check status <id> --json` as needed, then merge.
 
+## PR-First Vs Local-Merge Workflow (LLM Decision Guide)
+Always choose lifecycle behavior from repository policy first.
+
+Determine mode:
+1. Read `SOPHIA.yaml` and inspect `merge.mode` (`local` or `pr_gate`).
+2. If missing, treat as `local` default.
+
+If `merge.mode=pr_gate` (PR-first repo):
+1. Before making new checkpoints, ensure branch freshness against base (`sophia cr status <id> --json`, then refresh/rebase if stale).
+2. Use task checkpoints as canonical implementation units (`sophia cr task done ...`); avoid ad-hoc commits between checkpoints.
+3. Publish or sync PR via Sophia (not raw git/gh first):
+   - Preferred: `sophia cr merge <id> --approve-pr-open`
+   - Explicit: `sophia cr pr open <id> --approve-open` then `sophia cr pr sync <id>`
+4. Keep pre-implementation and in-progress PRs as draft by default.
+5. Run `sophia cr pr ready <id>` only when reviewer handoff is explicitly requested and implementation readiness is met.
+6. Do not auto-run `sophia cr pr ready` immediately after `sophia cr merge <id> --approve-pr-open`.
+7. If user lacks merge permission, hand off at PR URL and use `sophia cr pr status <id>` / `sophia cr status <id> --json` to reconcile remote outcomes.
+
+If `merge.mode=local`:
+1. Follow the normal local merge path after validate/review.
+2. PR commands are optional and not the primary merge lifecycle.
+
+## PR Lifecycle State Management (Restart/Resume Protocol)
+When resuming a CR (new agent session, terminal restart, or after remote PR actions), rehydrate lifecycle state before mutation.
+
+1. Reattach branch context:
+```bash
+sophia cr switch <id>
+```
+2. Reconcile local/remote CR + PR state:
+```bash
+sophia cr status <id> --json
+sophia cr pr status <id> --json
+```
+3. If stale vs base, refresh before edits:
+```bash
+sophia cr refresh <id>
+```
+4. If PR body/head is stale or branch is ahead locally, republish/sync via Sophia:
+```bash
+sophia cr merge <id> --approve-pr-open
+# or
+sophia cr pr sync <id>
+```
+5. Ready transition decision:
+- Keep draft if implementation is incomplete or handoff was not requested.
+- Run `sophia cr pr ready <id>` only after readiness is intentional and confirmed.
+6. If PR was marked ready too early, move it back to draft using GitHub CLI fallback:
+```bash
+gh pr ready <number> --undo
+sophia cr pr status <id> --json
+sophia cr pr sync <id>
+```
+7. If PR merged on GitHub, do not attempt local finalize; reconcile merged state:
+```bash
+sophia cr pr status <id>
+# or
+sophia cr status <id> --json
+```
+
 ## Evidence Chain (Tests, Logs, Attachments)
 Treat evidence as part of the SDLC output, not just a “nice to have”. The contract and tasks should define what needs to be proven, and the evidence ledger should contain the proof.
 
@@ -516,3 +576,5 @@ sophia cr merge abort <cr-id> [--json]
 - When branch context is ambiguous, prefer explicit CR IDs for reads and `cr switch <id>` before writes.
 - For agent workflows, prefer machine output (`--json`) where available and treat text mode as operator-facing.
 - For agent workflows, prefer setting `SOPHIA_OUTPUT=json` so `--json`-capable commands emit JSON by default; use explicit `--json=false` only when text output is required.
+- In `merge.mode=pr_gate`, do not automatically run `sophia cr pr ready` right after publish/sync; keep draft unless reviewer handoff is explicitly requested.
+- On resumed sessions, always run `sophia cr status <id> --json` and `sophia cr pr status <id> --json` before mutating.
