@@ -29,5 +29,8 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Workflow active for review-ready PRs
-        run: echo "CI workflow is enabled for non-draft pull requests."
+      - name: Go test
+        run: go test ./... -count=1
+
+      - name: Go vet
+        run: go vet ./...
