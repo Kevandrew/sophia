@@ -10,6 +10,30 @@ import (
 	"strings"
 )
 
+type DoneTaskOptions struct {
+	Checkpoint         bool
+	StageAll           bool
+	Paths              []string
+	FromContract       bool
+	PatchFile          string
+	NoCheckpointReason string
+	DryRun             bool
+}
+
+type ReopenTaskOptions struct {
+	ClearCheckpoint bool
+}
+
+type TaskChunk struct {
+	ID       string
+	Path     string
+	OldStart int
+	OldLines int
+	NewStart int
+	NewLines int
+	Preview  string
+}
+
 func dedupeStrings(values []string) []string {
 	return servicetasks.DedupeStrings(values)
 }
