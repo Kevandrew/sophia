@@ -211,6 +211,7 @@ func prStatusToJSONMap(status *service.PRStatusView) map[string]any {
 		"merged_at":            status.MergedAt,
 		"merged_commit":        status.MergedCommit,
 		"checks_passing":       status.ChecksPassing,
+		"checks_observed":      status.ChecksObserved,
 		"approvals":            status.Approvals,
 		"non_author_approvals": status.NonAuthorApprovals,
 		"gate_blocked":         status.GateBlocked,

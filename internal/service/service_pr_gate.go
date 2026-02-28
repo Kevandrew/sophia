@@ -45,6 +45,7 @@ type PRStatusView struct {
 	MergedAt           string
 	MergedCommit       string
 	ChecksPassing      bool
+	ChecksObserved     bool
 	Approvals          int
 	NonAuthorApprovals int
 	GateBlocked        bool
@@ -389,7 +390,9 @@ func evaluatePRGate(policy *model.RepoPolicy, status *PRStatusView) (bool, []str
 	if requireNonAuthor && status.NonAuthorApprovals < 1 {
 		reasons = append(reasons, "missing non-author approval")
 	}
-	if requireChecks && !status.ChecksPassing {
+	if requireChecks && !status.ChecksObserved {
+		reasons = append(reasons, "required checks are not reported")
+	} else if requireChecks && !status.ChecksPassing {
 		reasons = append(reasons, "required checks are not passing")
 	}
 	sort.Strings(reasons)
@@ -456,8 +459,7 @@ func (s *Service) mergePRGateFinalizeUnlocked(id int, opts MergeCROptions, polic
 		}
 		return &MergeCRResult{MergedCommit: strings.TrimSpace(status.MergedCommit), MergeMode: "pr_gate", PRURL: status.URL, Action: "already_merged_remote"}, nil
 	}
-	mergeMethod := "--merge"
-	if _, err := s.runCommand("gh", "pr", "merge", strconv.Itoa(cr.PR.Number), mergeMethod, "--delete-branch"); err != nil {
+	if _, err := s.runCommand("gh", buildPRMergeArgs(cr.PR.Number, !opts.KeepBranch)...); err != nil {
 		return nil, err
 	}
 	status, err = s.fetchGHPRStatus(cr)
@@ -582,9 +584,9 @@ func (s *Service) openOrSyncPRForCR(cr *model.CR, policy *model.RepoPolicy, appr
 	if cr == nil {
 		return nil, fmt.Errorf("cr is required")
 	}
+	hadLinkedPR := cr.PR.Number > 0
 	if err := s.stageArchiveForPRGate(cr, policy); err != nil {
 		return nil, err
-	hadLinkedPR := cr.PR.Number > 0
 	}
 	if err := s.pushBranchIfNeeded(cr); err != nil {
 		return nil, err
@@ -641,12 +643,12 @@ func (s *Service) openOrSyncPRForCR(cr *model.CR, policy *model.RepoPolicy, appr
 			pr = byNumber
 		}
 	}
-		return nil, bodyErr
-	}
-	if pr.Number > 0 {
 
 	finalBody, bodyErr := s.patchManagedBody(pr, ctx.Markdown)
 	if bodyErr != nil {
+		return nil, bodyErr
+	}
+	if pr.Number > 0 {
 		if err := s.editPR(pr.Number, cr.Title, finalBody); err != nil {
 			return nil, err
 		}
@@ -673,8 +675,6 @@ func (s *Service) openOrSyncPRForCR(cr *model.CR, policy *model.RepoPolicy, appr
 	if err := s.store.SaveCR(cr); err != nil {
 		return nil, err
 	}
-	_ = s.appendCRMutationEventAndSave(cr, model.Event{
-		TS:      now,
 	if !hadLinkedPR {
 		_ = s.appendCRMutationEventAndSave(cr, model.Event{
 			TS:      now,
@@ -684,6 +684,8 @@ func (s *Service) openOrSyncPRForCR(cr *model.CR, policy *model.RepoPolicy, appr
 			Ref:     fmt.Sprintf("cr:%d", cr.ID),
 		})
 	}
+	_ = s.appendCRMutationEventAndSave(cr, model.Event{
+		TS:      now,
 		Actor:   s.git.Actor(),
 		Type:    model.EventTypeCRPRSynced,
 		Summary: fmt.Sprintf("Synced PR #%d context", pr.Number),
@@ -798,18 +800,6 @@ func (s *Service) findPRByHead(branch string) (*ghPRSummary, error) {
 	return &items[0], nil
 }
 
-func (s *Service) createDraftPR(cr *model.CR, body string) (string, error) {
-	if cr == nil {
-		return "", fmt.Errorf("cr is required")
-	}
-	base := strings.TrimSpace(nonEmptyTrimmed(cr.BaseRef, cr.BaseBranch))
-	if base == "" {
-		base = "main"
-	}
-	bodyFile, err := writeTempBody(body)
-	if err != nil {
-		return "", err
-	}
 func (s *Service) fetchPRByNumber(number int) (*ghPRSummary, error) {
 	if number <= 0 {
 		return nil, fmt.Errorf("pr number is required")
@@ -828,6 +818,18 @@ func (s *Service) fetchPRByNumber(number int) (*ghPRSummary, error) {
 	return &pr, nil
 }
 
+func (s *Service) createDraftPR(cr *model.CR, body string) (string, error) {
+	if cr == nil {
+		return "", fmt.Errorf("cr is required")
+	}
+	base := strings.TrimSpace(nonEmptyTrimmed(cr.BaseRef, cr.BaseBranch))
+	if base == "" {
+		base = "main"
+	}
+	bodyFile, err := writeTempBody(body)
+	if err != nil {
+		return "", err
+	}
 	defer os.Remove(bodyFile)
 	out, err := s.runCommand("gh", "pr", "create", "--draft", "--title", strings.TrimSpace(cr.Title), "--body-file", bodyFile, "--base", base, "--head", strings.TrimSpace(cr.Branch))
 	if err != nil {
@@ -901,8 +903,9 @@ func (s *Service) fetchGHPRStatus(cr *model.CR) (*PRStatusView, error) {
 			}
 		}
 	}
-	checksPassing := true
-	if len(pr.StatusCheckRollup) > 0 {
+	checksObserved := len(pr.StatusCheckRollup) > 0
+	checksPassing := checksObserved
+	if checksObserved {
 		for _, check := range pr.StatusCheckRollup {
 			status := strings.ToUpper(strings.TrimSpace(check.Status))
 			conclusion := strings.ToUpper(strings.TrimSpace(check.Conclusion))
@@ -940,6 +943,7 @@ func (s *Service) fetchGHPRStatus(cr *model.CR) (*PRStatusView, error) {
 		MergedAt:           strings.TrimSpace(pr.MergedAt),
 		MergedCommit:       mergedCommit,
 		ChecksPassing:      checksPassing,
+		ChecksObserved:     checksObserved,
 		Approvals:          approvals,
 		NonAuthorApprovals: nonAuthor,
 		GateReasons:        []string{},
