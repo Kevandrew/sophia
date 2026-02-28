@@ -355,6 +355,47 @@ func TestIsGHProjectCardsSunsetError(t *testing.T) {
 	}
 }
 
+func TestRenderCheckpointSyncCommentFormat(t *testing.T) {
+	got := renderCheckpointSyncComment(3, "Enable pr-gate merge mode")
+	want := "### Checkpoint sync: task 3 - Enable pr-gate merge mode"
+	if got != want {
+		t.Fatalf("unexpected checkpoint sync comment format: got %q want %q", got, want)
+	}
+}
+
+func TestParseRevListOutput(t *testing.T) {
+	raw := "\nabc123\n\n  def456  \n"
+	got := parseRevListOutput(raw)
+	if len(got) != 2 || got[0] != "abc123" || got[1] != "def456" {
+		t.Fatalf("unexpected rev-list parse: %#v", got)
+	}
+}
+
+func TestValidateCheckpointStrictOrderAllowsSequential(t *testing.T) {
+	missing := []string{"c1", "c2", "c3"}
+	pending := []checkpointSyncPending{
+		{TaskID: 1, Commit: "c1", MissingIndex: 0},
+		{TaskID: 2, Commit: "c2", MissingIndex: 1},
+	}
+	if err := validateCheckpointStrictOrder(pending, missing); err != nil {
+		t.Fatalf("expected sequential checkpoints to pass, got %v", err)
+	}
+}
+
+func TestValidateCheckpointStrictOrderRejectsMixed(t *testing.T) {
+	missing := []string{"extra", "checkpoint"}
+	pending := []checkpointSyncPending{
+		{TaskID: 2, Commit: "checkpoint", MissingIndex: 1},
+	}
+	err := validateCheckpointStrictOrder(pending, missing)
+	if err == nil {
+		t.Fatalf("expected strict order error for mixed commit sequence")
+	}
+	if !strings.Contains(err.Error(), "clean checkpoint-only branch order") {
+		t.Fatalf("unexpected strict order error: %v", err)
+	}
+}
+
 func TestClassifyPushCommandErrorPermissionDenied(t *testing.T) {
 	raw := errors.New("git push failed: remote: Permission to repo denied")
 	err := classifyPushCommandError(raw, "cr-1-branch")
