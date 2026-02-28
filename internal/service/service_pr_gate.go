@@ -584,6 +584,7 @@ func (s *Service) openOrSyncPRForCR(cr *model.CR, policy *model.RepoPolicy, appr
 	}
 	if err := s.stageArchiveForPRGate(cr, policy); err != nil {
 		return nil, err
+	hadLinkedPR := cr.PR.Number > 0
 	}
 	if err := s.pushBranchIfNeeded(cr); err != nil {
 		return nil, err
@@ -674,6 +675,15 @@ func (s *Service) openOrSyncPRForCR(cr *model.CR, policy *model.RepoPolicy, appr
 	}
 	_ = s.appendCRMutationEventAndSave(cr, model.Event{
 		TS:      now,
+	if !hadLinkedPR {
+		_ = s.appendCRMutationEventAndSave(cr, model.Event{
+			TS:      now,
+			Actor:   s.git.Actor(),
+			Type:    model.EventTypeCRPROpened,
+			Summary: fmt.Sprintf("Opened PR #%d", pr.Number),
+			Ref:     fmt.Sprintf("cr:%d", cr.ID),
+		})
+	}
 		Actor:   s.git.Actor(),
 		Type:    model.EventTypeCRPRSynced,
 		Summary: fmt.Sprintf("Synced PR #%d context", pr.Number),
