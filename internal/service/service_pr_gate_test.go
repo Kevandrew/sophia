@@ -2,6 +2,8 @@ package service
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -402,5 +404,52 @@ func TestStageArchiveForPRGateSkipsWhenArchiveDisabled(t *testing.T) {
 	}
 	if err := svc.stageArchiveForPRGate(cr, policy); err != nil {
 		t.Fatalf("stageArchiveForPRGate() error = %v", err)
+	}
+}
+
+func TestPushBranchIfNeededPushesLocalAheadCommit(t *testing.T) {
+	dir := t.TempDir()
+	runGit(t, dir, "init", "-b", "main")
+	runGit(t, dir, "config", "user.name", "Test User")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("seed\n"), 0o644); err != nil {
+		t.Fatalf("write README: %v", err)
+	}
+	runGit(t, dir, "add", "README.md")
+	runGit(t, dir, "commit", "-m", "seed")
+
+	remoteDir := filepath.Join(t.TempDir(), "origin.git")
+	runGit(t, dir, "init", "--bare", remoteDir)
+	runGit(t, dir, "remote", "add", "origin", remoteDir)
+	runGit(t, dir, "push", "-u", "origin", "main")
+
+	branch := "feature/push-sync"
+	runGit(t, dir, "checkout", "-b", branch)
+	if err := os.WriteFile(filepath.Join(dir, "feature.txt"), []byte("one\n"), 0o644); err != nil {
+		t.Fatalf("write feature.txt: %v", err)
+	}
+	runGit(t, dir, "add", "feature.txt")
+	runGit(t, dir, "commit", "-m", "feat: seed feature")
+	runGit(t, dir, "push", "-u", "origin", branch)
+
+	if err := os.WriteFile(filepath.Join(dir, "feature.txt"), []byte("one\ntwo\n"), 0o644); err != nil {
+		t.Fatalf("update feature.txt: %v", err)
+	}
+	runGit(t, dir, "add", "feature.txt")
+	runGit(t, dir, "commit", "-m", "feat: local ahead commit")
+
+	svc := New(dir)
+	if err := svc.pushBranchIfNeeded(&model.CR{Branch: branch}); err != nil {
+		t.Fatalf("pushBranchIfNeeded() error = %v", err)
+	}
+
+	localHead := runGit(t, dir, "rev-parse", branch)
+	remoteHeadLine := runGit(t, dir, "ls-remote", "--heads", "origin", branch)
+	parts := strings.Fields(remoteHeadLine)
+	if len(parts) == 0 {
+		t.Fatalf("expected remote head output, got %q", remoteHeadLine)
+	}
+	if parts[0] != localHead {
+		t.Fatalf("expected remote head %s to match local head %s", parts[0], localHead)
 	}
 }
