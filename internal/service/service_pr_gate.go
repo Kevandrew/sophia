@@ -1101,7 +1101,6 @@ type checkpointSyncPending struct {
 	Key          string
 	TaskIndex    int
 	TaskID       int
-	TaskTitle    string
 	Commit       string
 	MissingIndex int
 }
@@ -1110,12 +1109,119 @@ func checkpointSyncKey(taskID int, commit string) string {
 	return fmt.Sprintf("task:%d:%s", taskID, strings.TrimSpace(commit))
 }
 
-func renderCheckpointSyncComment(taskID int, title string) string {
-	trimmed := strings.TrimSpace(title)
+func checkpointSyncCommentMarker(key string) string {
+	return fmt.Sprintf("<!-- sophia:checkpoint-sync:%s -->", strings.TrimSpace(key))
+}
+
+func extractCheckpointSyncCommentKey(body string) string {
+	trimmed := strings.TrimSpace(body)
 	if trimmed == "" {
-		trimmed = "Untitled task"
+		return ""
 	}
-	return fmt.Sprintf("### Checkpoint sync: task %d - %s", taskID, trimmed)
+	const prefix = "<!-- sophia:checkpoint-sync:"
+	const suffix = "-->"
+	start := strings.LastIndex(trimmed, prefix)
+	if start < 0 {
+		return ""
+	}
+	rest := trimmed[start+len(prefix):]
+	end := strings.Index(rest, suffix)
+	if end < 0 {
+		return ""
+	}
+	return strings.TrimSpace(rest[:end])
+}
+
+func checkpointCommentIntent(task model.Subtask) string {
+	if value := strings.TrimSpace(task.ContractBaseline.Intent); value != "" {
+		return value
+	}
+	return strings.TrimSpace(task.Contract.Intent)
+}
+
+func checkpointCommentAcceptance(task model.Subtask) []string {
+	if len(task.ContractBaseline.AcceptanceCriteria) > 0 {
+		return cleanAndDedupeStrings(task.ContractBaseline.AcceptanceCriteria)
+	}
+	return cleanAndDedupeStrings(task.Contract.AcceptanceCriteria)
+}
+
+func checkpointCommentContractScope(task model.Subtask) []string {
+	if len(task.ContractBaseline.Scope) > 0 {
+		return cleanAndDedupeStrings(task.ContractBaseline.Scope)
+	}
+	return cleanAndDedupeStrings(task.Contract.Scope)
+}
+
+func checkpointCommentCheckpointScope(task model.Subtask) []string {
+	scope := cleanAndDedupeStrings(task.CheckpointScope)
+	if len(scope) > 0 {
+		return scope
+	}
+	fromChunks := make([]string, 0, len(task.CheckpointChunks))
+	for _, chunk := range task.CheckpointChunks {
+		path := strings.TrimSpace(chunk.Path)
+		if path != "" {
+			fromChunks = append(fromChunks, path)
+		}
+	}
+	return cleanAndDedupeStrings(fromChunks)
+}
+
+func renderCheckpointSyncComment(task model.Subtask, commit, commitSubject, key string) string {
+	taskTitle := strings.TrimSpace(task.Title)
+	if taskTitle == "" {
+		taskTitle = "Untitled task"
+	}
+	intent := nonEmptyTrimmed(checkpointCommentIntent(task), "-")
+	acceptance := checkpointCommentAcceptance(task)
+	contractScope := checkpointCommentContractScope(task)
+	checkpointScope := checkpointCommentCheckpointScope(task)
+	shortCommit := shortCheckpointRef(commit)
+	subject := nonEmptyTrimmed(strings.TrimSpace(commitSubject), "(no subject)")
+
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("### Checkpoint sync: task %d - %s\n\n", task.ID, taskTitle))
+	b.WriteString(fmt.Sprintf("Intent: %s\n\n", intent))
+	b.WriteString("Acceptance Criteria:\n")
+	if len(acceptance) == 0 {
+		b.WriteString("- (none)\n")
+	} else {
+		for _, item := range acceptance {
+			b.WriteString(fmt.Sprintf("- %s\n", nonEmptyTrimmed(item, "-")))
+		}
+	}
+	b.WriteString("\nScope:\n")
+	b.WriteString("| Type | Paths |\n")
+	b.WriteString("| --- | --- |\n")
+	b.WriteString(fmt.Sprintf("| Contract Scope | %s |\n", markdownTableCell(markdownListCell(contractScope))))
+	b.WriteString(fmt.Sprintf("| Checkpoint Scope | %s |\n", markdownTableCell(markdownListCell(checkpointScope))))
+	b.WriteString("\nCommits in this sync:\n")
+	b.WriteString(fmt.Sprintf("- `%s` %s\n\n", shortCommit, subject))
+	b.WriteString(checkpointSyncCommentMarker(key))
+	b.WriteString("\n")
+	return b.String()
+}
+
+func normalizeRenderedCommentBody(value string) string {
+	return strings.TrimSpace(strings.ReplaceAll(value, "\r\n", "\n"))
+}
+
+type ghIssueComment struct {
+	ID   int64  `json:"id"`
+	Body string `json:"body"`
+}
+
+func indexCheckpointSyncComments(comments []ghIssueComment) map[string]ghIssueComment {
+	index := map[string]ghIssueComment{}
+	for _, comment := range comments {
+		key := extractCheckpointSyncCommentKey(comment.Body)
+		if key == "" {
+			continue
+		}
+		index[key] = comment
+	}
+	return index
 }
 
 func parseRevListOutput(raw string) []string {
@@ -1191,6 +1297,110 @@ func (s *Service) resolveCommitOID(ref string) (string, error) {
 		return "", err
 	}
 	return strings.TrimSpace(out), nil
+}
+
+func (s *Service) commitSubject(commit string) (string, error) {
+	resolved := strings.TrimSpace(commit)
+	if resolved == "" {
+		return "", fmt.Errorf("commit is required")
+	}
+	out, err := s.runCommand("git", "show", "-s", "--format=%s", resolved)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(out), nil
+}
+
+func (s *Service) listIssueComments(repoSelector string, prNumber int) ([]ghIssueComment, error) {
+	if prNumber <= 0 {
+		return nil, fmt.Errorf("pr number is required")
+	}
+	host, owner, repo, ok := parseRepoSelectorParts(repoSelector)
+	if !ok {
+		return nil, fmt.Errorf("unable to resolve repo selector %q for gh api comments", strings.TrimSpace(repoSelector))
+	}
+	args := []string{"api"}
+	if host != "" {
+		args = append(args, "--hostname", host)
+	}
+	args = append(args, fmt.Sprintf("repos/%s/%s/issues/%d/comments?per_page=100", owner, repo, prNumber))
+	out, err := s.runCommand("gh", args...)
+	if err != nil {
+		return nil, classifyGHCommandError(err, args)
+	}
+	var comments []ghIssueComment
+	if unmarshalErr := json.Unmarshal([]byte(out), &comments); unmarshalErr != nil {
+		return nil, fmt.Errorf("parse issue comments output: %w", unmarshalErr)
+	}
+	return comments, nil
+}
+
+func (s *Service) editIssueComment(repoSelector string, commentID int64, body string) error {
+	if commentID <= 0 {
+		return fmt.Errorf("comment id is required")
+	}
+	host, owner, repo, ok := parseRepoSelectorParts(repoSelector)
+	if !ok {
+		return fmt.Errorf("unable to resolve repo selector %q for gh api comment edit", strings.TrimSpace(repoSelector))
+	}
+	payload := map[string]string{
+		"body": body,
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	args := []string{"api"}
+	if host != "" {
+		args = append(args, "--hostname", host)
+	}
+	args = append(args,
+		fmt.Sprintf("repos/%s/%s/issues/comments/%d", owner, repo, commentID),
+		"-X", "PATCH",
+		"--input", "-",
+	)
+	cmd := exec.Command("gh", args...)
+	cmd.Dir = s.git.WorkDir
+	cmd.Stdin = strings.NewReader(string(raw))
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if runErr := cmd.Run(); runErr != nil {
+		msg := strings.TrimSpace(stderr.String())
+		if msg == "" {
+			msg = strings.TrimSpace(stdout.String())
+		}
+		if msg == "" {
+			msg = runErr.Error()
+		}
+		commandErr := fmt.Errorf("gh %s: %w: %s", strings.Join(args, " "), runErr, msg)
+		return classifyGHCommandError(commandErr, args)
+	}
+	return nil
+}
+
+func (s *Service) upsertCheckpointSyncComment(repoSelector string, prNumber int, task model.Subtask, commit, key string, index map[string]ghIssueComment) error {
+	subject, err := s.commitSubject(commit)
+	if err != nil {
+		return err
+	}
+	body := renderCheckpointSyncComment(task, commit, subject, key)
+	if existing, ok := index[key]; ok {
+		if normalizeRenderedCommentBody(existing.Body) == normalizeRenderedCommentBody(body) {
+			return nil
+		}
+		if editErr := s.editIssueComment(repoSelector, existing.ID, body); editErr != nil {
+			return editErr
+		}
+		index[key] = ghIssueComment{ID: existing.ID, Body: body}
+		return nil
+	}
+	if _, err := s.runGH(repoSelector, "pr", "comment", strconv.Itoa(prNumber), "--body", body); err != nil {
+		return err
+	}
+	index[key] = ghIssueComment{ID: 0, Body: body}
+	return nil
 }
 
 func (s *Service) pushBranchRefspec(refspec string, dryRun bool) error {
@@ -1270,12 +1480,21 @@ func (s *Service) syncCheckpointComments(repoSelector string, prNumber int, cr *
 		missingIndex[strings.TrimSpace(commit)] = i
 	}
 
-	synced := map[string]struct{}{}
+	syncedByPush := map[string]struct{}{}
 	for _, key := range cr.PR.CheckpointSyncKeys {
-		synced[strings.TrimSpace(key)] = struct{}{}
+		syncedByPush[strings.TrimSpace(key)] = struct{}{}
 	}
+	commentedByKey := map[string]struct{}{}
 	for _, key := range cr.PR.CheckpointCommentKeys {
-		synced[strings.TrimSpace(key)] = struct{}{}
+		commentedByKey[strings.TrimSpace(key)] = struct{}{}
+	}
+	commentIndex := map[string]ghIssueComment{}
+	if !skipPosting {
+		comments, commentsErr := s.listIssueComments(repoSelector, prNumber)
+		if commentsErr != nil {
+			return "", commentsErr
+		}
+		commentIndex = indexCheckpointSyncComments(comments)
 	}
 
 	toSync := make([]checkpointSyncPending, 0, len(cr.Subtasks))
@@ -1290,19 +1509,27 @@ func (s *Service) syncCheckpointComments(repoSelector string, prNumber int, cr *
 			continue
 		}
 		key := checkpointSyncKey(task.ID, rawCommit)
-		if _, exists := synced[key]; exists {
-			continue
-		}
 		commit, resolveErr := s.resolveCommitOID(rawCommit)
 		if resolveErr != nil {
 			return "", resolveErr
+		}
+		if _, pushed := syncedByPush[key]; pushed {
+			if !skipPosting {
+				if _, commented := commentedByKey[key]; !commented {
+					if err := s.upsertCheckpointSyncComment(repoSelector, prNumber, *task, commit, key, commentIndex); err != nil {
+						return "", err
+					}
+					cr.PR.CheckpointCommentKeys = append(cr.PR.CheckpointCommentKeys, key)
+					commentedByKey[key] = struct{}{}
+				}
+			}
+			continue
 		}
 		if pos, exists := missingIndex[commit]; exists {
 			toSync = append(toSync, checkpointSyncPending{
 				Key:          key,
 				TaskIndex:    idx,
 				TaskID:       task.ID,
-				TaskTitle:    strings.TrimSpace(task.Title),
 				Commit:       commit,
 				MissingIndex: pos,
 			})
@@ -1313,9 +1540,18 @@ func (s *Service) syncCheckpointComments(repoSelector string, prNumber int, cr *
 			return "", ancestorErr
 		}
 		if ancestor {
+			if !skipPosting {
+				if _, commented := commentedByKey[key]; !commented {
+					if err := s.upsertCheckpointSyncComment(repoSelector, prNumber, *task, commit, key, commentIndex); err != nil {
+						return "", err
+					}
+					cr.PR.CheckpointCommentKeys = append(cr.PR.CheckpointCommentKeys, key)
+					commentedByKey[key] = struct{}{}
+				}
+			}
 			cr.PR.CheckpointSyncKeys = append(cr.PR.CheckpointSyncKeys, key)
 			cr.Subtasks[idx].CheckpointSyncAt = now
-			synced[key] = struct{}{}
+			syncedByPush[key] = struct{}{}
 			continue
 		}
 		return "", fmt.Errorf("checkpoint sync requires task %d commit %s to be reachable from local or remote branch history", task.ID, shortCheckpointRef(commit))
@@ -1334,10 +1570,20 @@ func (s *Service) syncCheckpointComments(repoSelector string, prNumber int, cr *
 
 	lastPushedIndex := -1
 	for _, pending := range toSync {
+		task := cr.Subtasks[pending.TaskIndex]
 		if pending.MissingIndex == lastPushedIndex {
+			if !skipPosting {
+				if _, commented := commentedByKey[pending.Key]; !commented {
+					if err := s.upsertCheckpointSyncComment(repoSelector, prNumber, task, pending.Commit, pending.Key, commentIndex); err != nil {
+						return "", err
+					}
+					cr.PR.CheckpointCommentKeys = append(cr.PR.CheckpointCommentKeys, pending.Key)
+					commentedByKey[pending.Key] = struct{}{}
+				}
+			}
 			cr.PR.CheckpointSyncKeys = append(cr.PR.CheckpointSyncKeys, pending.Key)
 			cr.Subtasks[pending.TaskIndex].CheckpointSyncAt = now
-			synced[pending.Key] = struct{}{}
+			syncedByPush[pending.Key] = struct{}{}
 			continue
 		}
 		refspec := fmt.Sprintf("%s:refs/heads/%s", pending.Commit, strings.TrimSpace(cr.Branch))
@@ -1345,21 +1591,21 @@ func (s *Service) syncCheckpointComments(repoSelector string, prNumber int, cr *
 			return "", err
 		}
 		if !skipPosting {
-			commentBody := renderCheckpointSyncComment(pending.TaskID, pending.TaskTitle)
-			if _, err := s.runGH(repoSelector, "pr", "comment", strconv.Itoa(prNumber), "--body", commentBody); err != nil {
-				return "", err
+			if _, commented := commentedByKey[pending.Key]; !commented {
+				if err := s.upsertCheckpointSyncComment(repoSelector, prNumber, task, pending.Commit, pending.Key, commentIndex); err != nil {
+					return "", err
+				}
+				cr.PR.CheckpointCommentKeys = append(cr.PR.CheckpointCommentKeys, pending.Key)
+				commentedByKey[pending.Key] = struct{}{}
 			}
 		}
 		if err := s.pushBranchRefspec(refspec, false); err != nil {
 			return "", err
 		}
 		remoteHead = pending.Commit
-		if !skipPosting {
-			cr.PR.CheckpointCommentKeys = append(cr.PR.CheckpointCommentKeys, pending.Key)
-		}
 		cr.PR.CheckpointSyncKeys = append(cr.PR.CheckpointSyncKeys, pending.Key)
 		cr.Subtasks[pending.TaskIndex].CheckpointSyncAt = now
-		synced[pending.Key] = struct{}{}
+		syncedByPush[pending.Key] = struct{}{}
 		lastPushedIndex = pending.MissingIndex
 	}
 
