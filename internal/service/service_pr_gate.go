@@ -633,13 +633,14 @@ func renderCRContractDriftSection(b *strings.Builder, drifts []model.CRContractD
 		if drift.Acknowledged {
 			ack = "yes"
 		}
-		b.WriteString(fmt.Sprintf("- ts: %s | fields: %s | acknowledged: %s | reason: %s | ack_reason: %s\n",
-			nonEmptyTrimmed(strings.TrimSpace(drift.TS), "-"),
-			nonEmptyTrimmed(strings.Join(cleanAndDedupeStrings(drift.Fields), ", "), "-"),
-			ack,
-			nonEmptyTrimmed(strings.TrimSpace(drift.Reason), "-"),
-			nonEmptyTrimmed(strings.TrimSpace(drift.AckReason), "-"),
-		))
+		b.WriteString(fmt.Sprintf("- **Drift #%d**\n", drift.ID))
+		b.WriteString(fmt.Sprintf("  - Time: %s\n", nonEmptyTrimmed(strings.TrimSpace(drift.TS), "-")))
+		b.WriteString(fmt.Sprintf("  - Change: %s\n", nonEmptyTrimmed(strings.Join(cleanAndDedupeStrings(drift.Fields), ", "), "-")))
+		b.WriteString(fmt.Sprintf("  - Acknowledged: %s\n", ack))
+		b.WriteString(fmt.Sprintf("  - Reason: %s\n", nonEmptyTrimmed(strings.TrimSpace(drift.Reason), "-")))
+		if strings.TrimSpace(drift.AckReason) != "" {
+			b.WriteString(fmt.Sprintf("  - Ack Reason: %s\n", strings.TrimSpace(drift.AckReason)))
+		}
 		if len(drift.BeforeScope) > 0 || len(drift.AfterScope) > 0 {
 			b.WriteString(fmt.Sprintf("  - before_scope: %s | after_scope: %s\n",
 				nonEmptyTrimmed(strings.Join(cleanAndDedupeStrings(drift.BeforeScope), ", "), "-"),
