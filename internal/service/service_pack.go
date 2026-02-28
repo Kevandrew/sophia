@@ -13,6 +13,48 @@ const (
 	defaultPackCheckpointsLimit = 10
 )
 
+type PackOptions struct {
+	EventsLimit      int
+	CheckpointsLimit int
+}
+
+type PackSliceMeta struct {
+	Total     int
+	Returned  int
+	Truncated int
+}
+
+type CRPackCheckpoint struct {
+	TaskID  int
+	Title   string
+	Status  string
+	Commit  string
+	At      string
+	Message string
+	Scope   []string
+	Source  string
+	Orphan  bool
+	Reason  string
+}
+
+type CRPackView struct {
+	CR                *model.CR
+	Contract          model.Contract
+	Tasks             []model.Subtask
+	Anchors           *CRRangeAnchorsView
+	Status            *CRStatusView
+	RecentEvents      []model.Event
+	EventsMeta        PackSliceMeta
+	RecentCheckpoints []CRPackCheckpoint
+	CheckpointsMeta   PackSliceMeta
+	DiffStat          string
+	FilesChanged      []string
+	Impact            *ImpactReport
+	Validation        *ValidationReport
+	Trust             *TrustReport
+	Warnings          []string
+}
+
 func (s *Service) PackCR(id int, opts PackOptions) (*CRPackView, error) {
 	eventsLimit, checkpointsLimit, err := normalizePackOptions(opts)
 	if err != nil {

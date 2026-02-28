@@ -6,6 +6,52 @@ import (
 	"strings"
 )
 
+type ContractPatch struct {
+	Why                *string
+	Scope              *[]string
+	NonGoals           *[]string
+	Invariants         *[]string
+	BlastRadius        *string
+	RiskCriticalScopes *[]string
+	RiskTierHint       *string
+	RiskRationale      *string
+	TestPlan           *string
+	RollbackPlan       *string
+	ChangeReason       *string
+}
+
+type SetCRContractOptions struct {
+	DryRun bool
+}
+
+type SetCRContractResult struct {
+	ChangedFields  []string
+	AlreadyApplied bool
+	DryRun         bool
+}
+
+type TaskContractDriftSummary struct {
+	Total               int
+	Unacknowledged      int
+	TasksWithDrift      []int
+	UnacknowledgedTasks []int
+}
+
+type CRContractDriftSummary struct {
+	Total                  int
+	Unacknowledged         int
+	DriftIDs               []int
+	UnacknowledgedDriftIDs []int
+}
+
+type TaskContractPatch struct {
+	Intent             *string
+	AcceptanceCriteria *[]string
+	Scope              *[]string
+	AcceptanceChecks   *[]string
+	ChangeReason       *string
+}
+
 func (s *Service) applyCRContractPatch(contract *model.Contract, patch ContractPatch, policy *model.RepoPolicy) ([]string, error) {
 	changed := make([]string, 0, 10)
 	if patch.Why != nil {

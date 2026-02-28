@@ -11,6 +11,56 @@ import (
 
 var rangeDiffLinePattern = regexp.MustCompile(`^(\S+):\s+(\S+)\s+([<>=!])\s+(\S+):\s+(\S+)\s+(.*)$`)
 
+type RangeDiffOptions struct {
+	FromRef             string
+	ToRef               string
+	SinceLastCheckpoint bool
+}
+
+const (
+	CRAnchorKindBase      = "base"
+	CRAnchorKindHead      = "head"
+	CRAnchorKindMergeBase = "merge-base"
+)
+
+type CRRangeAnchorsView struct {
+	CRID      int
+	Base      string
+	Head      string
+	MergeBase string
+	Warnings  []string
+}
+
+type CRRevParseView struct {
+	CRID     int
+	Kind     string
+	Commit   string
+	Warnings []string
+}
+
+type RangeDiffCommitMap struct {
+	OldIndex  string
+	OldCommit string
+	Relation  string
+	NewIndex  string
+	NewCommit string
+	Subject   string
+}
+
+type RangeDiffView struct {
+	CRID         int
+	TaskID       int
+	FromRef      string
+	ToRef        string
+	BaseRef      string
+	OldRange     string
+	NewRange     string
+	Mapping      []RangeDiffCommitMap
+	FilesChanged []string
+	ShortStat    string
+	Warnings     []string
+}
+
 func (s *Service) RangeDiffCR(id int, opts RangeDiffOptions) (*RangeDiffView, error) {
 	cr, err := s.store.LoadCR(id)
 	if err != nil {

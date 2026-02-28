@@ -20,6 +20,16 @@ const (
 	evidenceTypeReviewSample     = "review_sample"
 )
 
+type AddEvidenceOptions struct {
+	Type        string
+	Scope       string
+	Summary     string
+	Command     string
+	Capture     bool
+	ExitCode    *int
+	Attachments []string
+}
+
 func normalizeEvidenceType(raw string) (string, error) {
 	value := strings.ToLower(strings.TrimSpace(raw))
 	switch value {

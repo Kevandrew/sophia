@@ -8,6 +8,22 @@ import (
 	"strings"
 )
 
+type Review struct {
+	CR                 *model.CR
+	Contract           model.Contract
+	Impact             *ImpactReport
+	Trust              *TrustReport
+	ValidationErrors   []string
+	ValidationWarnings []string
+	Files              []string
+	ShortStat          string
+	NewFiles           []string
+	ModifiedFiles      []string
+	DeletedFiles       []string
+	TestFiles          []string
+	DependencyFiles    []string
+}
+
 type mergePreflightView struct {
 	validation     *ValidationReport
 	trust          *TrustReport
@@ -22,6 +38,19 @@ type MergeCROptions struct {
 type MergeCRResult struct {
 	MergedCommit string
 	Warnings     []string
+}
+
+type MergeStatusView struct {
+	CRID          int
+	CRUID         string
+	BaseBranch    string
+	CRBranch      string
+	WorktreePath  string
+	InProgress    bool
+	ConflictFiles []string
+	TargetMatches bool
+	MergeHead     string
+	Advice        []string
 }
 
 func (s *Service) ReviewCR(id int) (*Review, error) {

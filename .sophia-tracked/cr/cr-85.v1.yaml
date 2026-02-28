@@ -1,0 +1,292 @@
+schema_version: sophia.cr_archive.v1
+notice: Historical archive snapshot. Corrections are append-only revisions.
+archived_at: "2026-02-28T13:26:02Z"
+revision: 1
+cr:
+    id: 85
+    uid: cr_8e4f27a7-8c79-4582-b924-6b318f1bbd4e
+    title: Decompose remaining service.go type surfaces into ownership-local files
+    description: Continue CR-81 by heavily decomposing residual type/view declarations from service.go into ownership-local modules, while preserving behavior and JSON contracts.
+    status: merged
+    base_branch: main
+    base_ref: main
+    base_commit: 20dddddc350f65f55dbd9254aaba6a383bea230a
+    branch: cr-decompose-remaining-service-go-type-surfaces-int-8e4f
+    merged_at: "2026-02-28T13:26:02Z"
+    merged_by: Kevandrew <143258544+Kevandrew@users.noreply.github.com>
+contract:
+    why: |-
+        service.go remains a dense aggregation point for many non-core view/diff/history/export/blame/pack type declarations, which makes navigation and ownership boundaries unclear even after CR-81.
+
+        This CR decomposes the remaining non-core type surfaces out of service.go into ownership-local type files grouped by behavior domains (status, diff/rangediff, blame, history/export/pack, and merge/doctor views). The goal is to make service.go a composition/runtime seam file rather than a monolithic type registry.
+
+        Decision boundary: this CR performs mechanical type relocation and reference rewiring only. It does not change command semantics, JSON key names, business logic, trust scoring rules, or merge gating policy.
+
+        Success is measured by materially shrinking service.go, preserving compile/runtime behavior, and keeping all JSON/read surfaces stable under existing test suites and validation/review checks.
+    scope:
+        - internal/cli
+        - internal/service
+    non_goals:
+        - No algorithmic changes to review/validate/trust/merge behavior.
+        - No new CLI flags, commands, or JSON envelope keys.
+        - No policy or metadata schema migration work.
+        - No unrelated refactors outside service type ownership decomposition.
+    invariants:
+        - All exported fields and JSON key mappings remain backward compatible.
+        - CR-81 branch remains the immediate parent and integration base.
+        - Service methods and public method signatures remain unchanged.
+        - Type moves remain mechanical ownership changes with no semantic drift.
+    blast_radius: Affects service-layer type ownership and compile-time declarations across status/diff/pack/history/blame/review surfaces; related CLI JSON mappers and tests may be touched only to preserve existing output contracts. Primary failure modes are accidental field/schema drift, reference breakage, or scope/contract drift during large-file decomposition.
+    risk_critical_scopes:
+        - internal/cli
+        - internal/service
+    risk_tier_hint: high
+    risk_rationale: High-surface structural decomposition across many shared type declarations can cause silent contract drift if not guarded by tests.
+    test_plan: go test ./internal/service/... && go test ./internal/cli/... && go test ./... && go vet ./...
+    rollback_plan: Revert the CR-85 merge commit to restore prior type placement if any regression appears.
+tasks:
+    - id: 1
+      title: Map remaining service.go type families and target ownership files
+      status: done
+      contract:
+        intent: Create a complete relocation map for all remaining non-composition types currently declared in service.go.
+        acceptance_criteria:
+            - Inventory lists every remaining service.go type and assigns an ownership-local target file.
+            - Planned move order minimizes compile churn and avoids cyclic dependency risk.
+        scope:
+            - internal/service
+            - internal/service/service.go
+      checkpoint:
+        at: "2026-02-28T12:07:02Z"
+        source: task_no_checkpoint
+    - id: 2
+      title: Extract status and merge view declarations from service.go
+      status: done
+      contract:
+        intent: Move status/merge-oriented view and context declarations into status-local ownership files.
+        acceptance_criteria:
+            - Status and merge command outputs remain behaviorally identical in existing tests.
+            - Why/Status/Merge view declarations no longer live in service.go.
+        scope:
+            - internal/service/service.go
+            - internal/service/service_cr_status.go
+            - internal/service/service_review_merge.go
+      checkpoint:
+        commit: f05be213
+        at: "2026-02-28T12:07:06Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service.go
+            - internal/service/service_cr_status.go
+            - internal/service/service_review_merge.go
+    - id: 3
+      title: Extract diff and rangediff declaration groups from service.go
+      status: done
+      contract:
+        intent: Relocate diff/rangediff option and view declarations to diff-local ownership files.
+        acceptance_criteria:
+            - CR diff/rangediff declarations are removed from service.go and owned by diff-local files.
+            - Diff and rangediff command JSON structures remain stable under regression tests.
+        scope:
+            - internal/cli/cr_json_mappers.go
+            - internal/service/service.go
+            - internal/service/service_diff_views.go
+            - internal/service/service_rangediff.go
+      checkpoint:
+        commit: 32b83914
+        at: "2026-02-28T12:07:10Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service.go
+            - internal/service/service_diff_views.go
+            - internal/service/service_rangediff.go
+    - id: 4
+      title: Extract blame declaration groups from service.go
+      status: done
+      contract:
+        intent: Move blame options and view declarations to blame-local files near blame behavior.
+        acceptance_criteria:
+            - Blame behavior and JSON outputs remain unchanged.
+            - Blame declarations are no longer defined in service.go.
+        scope:
+            - internal/service/service.go
+            - internal/service/service_blame.go
+      checkpoint:
+        commit: "81198830"
+        at: "2026-02-28T12:07:15Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service.go
+            - internal/service/service_blame.go
+    - id: 5
+      title: Extract history and evidence view declarations from service.go
+      status: done
+      contract:
+        intent: Relocate history/evidence note and event declaration groups to history-local files.
+        acceptance_criteria:
+            - History and evidence commands preserve existing output keys and ordering.
+            - History and evidence view declarations are removed from service.go.
+        scope:
+            - internal/cli/cr_json_mappers.go
+            - internal/service/service.go
+            - internal/service/service_cr_history.go
+            - internal/service/service_evidence.go
+      checkpoint:
+        commit: f081a3d2
+        at: "2026-02-28T12:07:18Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service.go
+            - internal/service/service_cr_history.go
+            - internal/service/service_evidence.go
+    - id: 6
+      title: Extract export and pack declaration groups from service.go
+      status: done
+      contract:
+        intent: Move export/pack declaration groups into export-local and pack-local ownership files.
+        acceptance_criteria:
+            - CR export and pack declarations are no longer centralized in service.go.
+            - Pack/export payload compatibility is preserved in tests and command checks.
+        scope:
+            - internal/cli/cr_json_mappers.go
+            - internal/service/service.go
+            - internal/service/service_export.go
+            - internal/service/service_pack.go
+      checkpoint:
+        commit: 9849b8c0
+        at: "2026-02-28T12:07:22Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service.go
+            - internal/service/service_export.go
+            - internal/service/service_pack.go
+    - id: 7
+      title: Extract delegation and stack view declarations from service.go
+      status: done
+      contract:
+        intent: Relocate delegation and stack view result declarations to delegation/stack-local files.
+        acceptance_criteria:
+            - Delegation and stack declaration groups are removed from service.go.
+            - Stack/delegation behavior and status reporting remain unchanged.
+        scope:
+            - internal/service/service.go
+            - internal/service/service_delegate_stack.go
+      checkpoint:
+        commit: 97ee307c
+        at: "2026-02-28T12:07:25Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service.go
+            - internal/service/service_delegate_stack.go
+    - id: 8
+      title: Extract contract and task option DTO declarations from service.go
+      status: done
+      contract:
+        intent: Move contract/task mutation DTO declarations to contract/task-local ownership files.
+        acceptance_criteria:
+            - Contract and task mutation flows compile and pass existing tests without behavior drift.
+            - Contract patch and task option declaration groups are no longer declared in service.go.
+        scope:
+            - internal/service/service.go
+            - internal/service/service_contract_mutation.go
+            - internal/service/service_task_checkpoint.go
+            - internal/service/service_tasks.go
+      checkpoint:
+        commit: e110b4d4
+        at: "2026-02-28T12:07:29Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service.go
+            - internal/service/service_contract_mutation.go
+            - internal/service/service_task_checkpoint.go
+    - id: 9
+      title: Add regression guards for moved declaration groups across JSON surfaces
+      status: done
+      contract:
+        intent: Extend or tighten regression tests to guard JSON/read surfaces touched by declaration relocation.
+        acceptance_criteria:
+            - Core JSON surface tests cover diff/status/pack/history/blame paths after relocation.
+            - No key-name or envelope drift is introduced by declaration moves.
+        scope:
+            - internal/cli/cr_json_core_keys_test.go
+            - internal/cli/cr_json_diff_test.go
+            - internal/cli/cr_json_integrity_test.go
+            - internal/cli/cr_json_mappers.go
+            - internal/cli/cr_json_pack_test.go
+            - internal/cli/cr_json_test.go
+      checkpoint:
+        at: "2026-02-28T12:07:33Z"
+        source: task_no_checkpoint
+    - id: 10
+      title: Finalize composition-focused service.go shape and CR evidence
+      status: done
+      contract:
+        intent: Leave service.go focused on composition/runtime seams and finalize validation and evidence for the decomposition.
+        acceptance_criteria:
+            - CR validate/review are green with recorded command-run evidence for required checks.
+            - service.go retains only composition/shared core declarations intentionally left in-place.
+        scope:
+            - _docs/cr-85-evidence
+            - internal/service/service.go
+      checkpoint:
+        at: "2026-02-28T12:08:18Z"
+        source: task_no_checkpoint
+git_summary:
+    base_parent: 20dddddc350f65f55dbd9254aaba6a383bea230a
+    cr_parent: e110b4d4167a72c327cf5423fe13273aaa217373
+    files_changed:
+        - internal/service/service.go
+        - internal/service/service_blame.go
+        - internal/service/service_contract_mutation.go
+        - internal/service/service_cr_history.go
+        - internal/service/service_cr_status.go
+        - internal/service/service_delegate_stack.go
+        - internal/service/service_diff_views.go
+        - internal/service/service_evidence.go
+        - internal/service/service_export.go
+        - internal/service/service_pack.go
+        - internal/service/service_rangediff.go
+        - internal/service/service_review_merge.go
+        - internal/service/service_task_checkpoint.go
+    diffstat:
+        summary: 13 files changed, 519 insertions(+), 519 deletions(-)
+        files:
+            - path: internal/service/service.go
+              insertions: 0
+              deletions: 519
+            - path: internal/service/service_blame.go
+              insertions: 32
+              deletions: 0
+            - path: internal/service/service_contract_mutation.go
+              insertions: 46
+              deletions: 0
+            - path: internal/service/service_cr_history.go
+              insertions: 41
+              deletions: 0
+            - path: internal/service/service_cr_status.go
+              insertions: 46
+              deletions: 0
+            - path: internal/service/service_delegate_stack.go
+              insertions: 46
+              deletions: 0
+            - path: internal/service/service_diff_views.go
+              insertions: 44
+              deletions: 0
+            - path: internal/service/service_evidence.go
+              insertions: 10
+              deletions: 0
+            - path: internal/service/service_export.go
+              insertions: 109
+              deletions: 0
+            - path: internal/service/service_pack.go
+              insertions: 42
+              deletions: 0
+            - path: internal/service/service_rangediff.go
+              insertions: 50
+              deletions: 0
+            - path: internal/service/service_review_merge.go
+              insertions: 29
+              deletions: 0
+            - path: internal/service/service_task_checkpoint.go
+              insertions: 24
+              deletions: 0
