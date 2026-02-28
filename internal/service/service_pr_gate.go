@@ -1204,7 +1204,96 @@ func (s *Service) editPR(repoSelector string, number int, title, body string) er
 	}
 	defer os.Remove(bodyFile)
 	_, err = s.runGH(repoSelector, "pr", "edit", strconv.Itoa(number), "--title", strings.TrimSpace(title), "--body-file", bodyFile)
+	if err == nil {
+		return nil
+	}
+	if isGHProjectCardsSunsetError(err) {
+		if fallbackErr := s.editPRViaAPI(repoSelector, number, title, body); fallbackErr == nil {
+			return nil
+		} else {
+			return fallbackErr
+		}
+	}
 	return err
+}
+
+func (s *Service) editPRViaAPI(repoSelector string, number int, title, body string) error {
+	host, owner, repo, ok := parseRepoSelectorParts(repoSelector)
+	if !ok {
+		return fmt.Errorf("unable to resolve repo selector %q for gh api fallback", strings.TrimSpace(repoSelector))
+	}
+	payload := map[string]string{
+		"title": strings.TrimSpace(title),
+		"body":  body,
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	args := []string{"api"}
+	if host != "" {
+		args = append(args, "--hostname", host)
+	}
+	args = append(args,
+		fmt.Sprintf("repos/%s/%s/pulls/%d", owner, repo, number),
+		"-X", "PATCH",
+		"--input", "-",
+	)
+	cmd := exec.Command("gh", args...)
+	cmd.Dir = s.git.WorkDir
+	cmd.Stdin = strings.NewReader(string(raw))
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if runErr := cmd.Run(); runErr != nil {
+		msg := strings.TrimSpace(stderr.String())
+		if msg == "" {
+			msg = strings.TrimSpace(stdout.String())
+		}
+		if msg == "" {
+			msg = runErr.Error()
+		}
+		commandErr := fmt.Errorf("gh %s: %w: %s", strings.Join(args, " "), runErr, msg)
+		return classifyGHCommandError(commandErr, args)
+	}
+	return nil
+}
+
+func parseRepoSelectorParts(repoSelector string) (host string, owner string, repo string, ok bool) {
+	selector := strings.TrimSpace(normalizeGHRepoSelector(repoSelector))
+	if selector == "" {
+		return "", "", "", false
+	}
+	parts := strings.Split(selector, "/")
+	switch len(parts) {
+	case 2:
+		owner = strings.TrimSpace(parts[0])
+		repo = strings.TrimSpace(parts[1])
+		if owner == "" || repo == "" {
+			return "", "", "", false
+		}
+		return "", owner, repo, true
+	case 3:
+		host = strings.TrimSpace(parts[0])
+		owner = strings.TrimSpace(parts[1])
+		repo = strings.TrimSpace(parts[2])
+		if host == "" || owner == "" || repo == "" {
+			return "", "", "", false
+		}
+		return host, owner, repo, true
+	default:
+		return "", "", "", false
+	}
+}
+
+func isGHProjectCardsSunsetError(err error) bool {
+	if err == nil {
+		return false
+	}
+	lower := strings.ToLower(err.Error())
+	return strings.Contains(lower, "projects (classic) is being deprecated") &&
+		strings.Contains(lower, "repository.pullrequest.projectcards")
 }
 
 func (s *Service) readPRBody(repoSelector string, number int) (string, error) {
