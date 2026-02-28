@@ -127,3 +127,27 @@ func TestClassifyPushCommandErrorPermissionDenied(t *testing.T) {
 		t.Fatalf("expected action_required.name=request_push_access, got %#v", actionRequired["name"])
 	}
 }
+
+func TestStageArchiveForPRGateSkipsWhenArchiveDisabled(t *testing.T) {
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	policy := &model.RepoPolicy{
+		Merge: model.PolicyMerge{
+			Mode: "pr_gate",
+		},
+		Archive: model.PolicyArchive{
+			Enabled: boolPtr(false),
+		},
+	}
+	cr := &model.CR{
+		ID:         61,
+		BaseBranch: "main",
+		Branch:     "cr-61-test",
+	}
+	if err := svc.stageArchiveForPRGate(cr, policy); err != nil {
+		t.Fatalf("stageArchiveForPRGate() error = %v", err)
+	}
+}
