@@ -8,6 +8,47 @@ import (
 	"sophia/internal/model"
 )
 
+type HistoryNote struct {
+	Index    int
+	Text     string
+	Redacted bool
+}
+
+type HistoryEvent struct {
+	Index           int
+	TS              string
+	Actor           string
+	Type            string
+	Summary         string
+	Ref             string
+	Redacted        bool
+	RedactionReason string
+	Meta            map[string]string
+}
+
+type HistoryEvidence struct {
+	Index       int
+	TS          string
+	Actor       string
+	Type        string
+	Scope       string
+	Command     string
+	ExitCode    *int
+	OutputHash  string
+	Summary     string
+	Attachments []string
+}
+
+type CRHistory struct {
+	CRID        int
+	Title       string
+	Status      string
+	Description string
+	Notes       []HistoryNote
+	Evidence    []HistoryEvidence
+	Events      []HistoryEvent
+}
+
 func (s *Service) RedactCRNote(id, noteIndex int, reason string) error {
 	return s.withMutationLock(func() error {
 		return s.redactCRNoteUnlocked(id, noteIndex, reason)
