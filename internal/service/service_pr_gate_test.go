@@ -147,13 +147,62 @@ func TestParsePRNumberFromURL(t *testing.T) {
 }
 
 func TestBuildPRMergeArgsRespectsDeleteBranch(t *testing.T) {
-	withDelete := buildPRMergeArgs(42, true)
+	withDelete := buildPRMergeArgs(42, true, "")
 	if strings.Join(withDelete, " ") != "pr merge 42 --merge --delete-branch" {
 		t.Fatalf("unexpected args with delete: %#v", withDelete)
 	}
-	withoutDelete := buildPRMergeArgs(42, false)
+	withoutDelete := buildPRMergeArgs(42, false, "")
 	if strings.Join(withoutDelete, " ") != "pr merge 42 --merge" {
 		t.Fatalf("unexpected args without delete: %#v", withoutDelete)
+	}
+}
+
+func TestBuildPRMergeArgsIncludesMatchHeadCommit(t *testing.T) {
+	args := buildPRMergeArgs(42, true, "abc123")
+	got := strings.Join(args, " ")
+	want := "pr merge 42 --merge --match-head-commit abc123 --delete-branch"
+	if got != want {
+		t.Fatalf("unexpected args: got %q want %q", got, want)
+	}
+}
+
+func TestNormalizeCheckRollupStatePrefersStateField(t *testing.T) {
+	got := normalizeCheckRollupState("COMPLETED", "SUCCESS", "FAILURE")
+	if got != "FAILURE" {
+		t.Fatalf("expected FAILURE, got %q", got)
+	}
+}
+
+func TestCheckRollupStatePassing(t *testing.T) {
+	if !checkRollupStatePassing("SUCCESS") {
+		t.Fatalf("expected SUCCESS to be passing")
+	}
+	if checkRollupStatePassing("FAILURE") {
+		t.Fatalf("expected FAILURE to be non-passing")
+	}
+	if checkRollupStatePassing("PENDING") {
+		t.Fatalf("expected PENDING to be non-passing")
+	}
+}
+
+func TestNormalizeGHRepoSelectorParsesCommonRemoteFormats(t *testing.T) {
+	cases := map[string]string{
+		"https://github.com/acme/repo.git":           "acme/repo",
+		"git@github.com:acme/repo.git":               "acme/repo",
+		"https://github.example.com/acme/repo":       "github.example.com/acme/repo",
+		"ssh://git@github.example.com/acme/repo.git": "github.example.com/acme/repo",
+		"github.example.com/acme/repo":               "github.example.com/acme/repo",
+	}
+	for input, want := range cases {
+		if got := normalizeGHRepoSelector(input); got != want {
+			t.Fatalf("normalizeGHRepoSelector(%q) = %q, want %q", input, got, want)
+		}
+	}
+}
+
+func TestNormalizeGHRepoSelectorRejectsLocalRemotePath(t *testing.T) {
+	if got := normalizeGHRepoSelector("/tmp/origin.git"); got != "" {
+		t.Fatalf("expected empty selector for local path, got %q", got)
 	}
 }
 
