@@ -221,6 +221,14 @@ func jsonErrorCode(err error) string {
 		return "hq_patch_conflict"
 	case errors.Is(err, service.ErrHQTaskSyncUnsupported):
 		return "hq_task_sync_unsupported"
+	case errors.Is(err, service.ErrPRApprovalRequired):
+		return "pr_open_approval_required"
+	case errors.Is(err, service.ErrGHAuthRequired):
+		return "gh_auth_required"
+	case errors.Is(err, service.ErrPRPermissionDenied):
+		return "pr_permission_denied"
+	case errors.Is(err, service.ErrPushPermissionDenied):
+		return "push_permission_denied"
 	case errors.Is(err, store.ErrNotFound):
 		return "not_found"
 	case errors.Is(err, store.ErrInvalidArgument):
