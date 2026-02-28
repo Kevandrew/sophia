@@ -1,0 +1,158 @@
+schema_version: sophia.cr_archive.v1
+notice: Historical archive snapshot. Corrections are append-only revisions.
+archived_at: "2026-02-28T17:38:28Z"
+revision: 1
+cr:
+    id: 87
+    uid: cr_b0ade802-e333-4847-a828-e3d528b1da19
+    title: Slim PR body and batch checkpoint comments
+    description: The PR body renderer dumps too much detail (full acceptance criteria in task table, file breakdown inline, empty sections) and checkpoint sync posts one comment per task instead of batching. This makes generated PRs noisy and hard to scan. Slim the managed block and make checkpoint comments incremental.
+    status: merged
+    base_branch: main
+    base_ref: main
+    base_commit: 6b21a9e1b53114a6c929c536f328ee30f2db92ba
+    branch: cr-slim-pr-body-and-batch-checkpoint-comments-b0ad
+    merged_at: "2026-02-28T17:38:28Z"
+    merged_by: Kevandrew <143258544+Kevandrew@users.noreply.github.com>
+contract:
+    why: |-
+        PR #1 on kevandrew/sophia showed two problems with the current PR-gate renderer:
+
+        1. The managed PR body is too dense. It inlines full acceptance criteria per task (multi-line cells with <br> separators), renders empty sections like 'Task Contract Drifts: (none)' and 'Evidence: (none)', and dumps the full file breakdown table inline. A 10-task CR produces a wall of text that defeats the purpose of structured review.
+
+        2. Checkpoint comments are spammed one-per-task on every sync. When all tasks are already done at PR open time, the first sync dumps 10+ individual one-liner comments simultaneously. These carry no incremental signal and drown out actual reviewer discussion.
+
+        Success criteria: a 10-task CR with no drift and no evidence produces a PR body that fits comfortably on one screen, and checkpoint sync posts at most one batched comment per sync call.
+    scope:
+        - SOPHIA.yaml
+        - internal/service/service_pr_gate.go
+        - internal/service/service_pr_gate_test.go
+    non_goals:
+        - No changes to CR contract fields or task contract data model.
+        - No changes to PR gate evaluation, merge finalize, or reconciliation logic.
+        - No changes to managed marker format or body patching logic.
+    invariants:
+        - All contract sections that have data are still rendered; only empty sections are suppressed.
+        - Checkpoint comment idempotency is maintained; repeated sync does not duplicate comments.
+        - Existing managed markers are preserved; body patching behavior unchanged.
+    blast_radius: PR body markdown output changes shape (sections collapsed/removed); checkpoint comment format changes from one-per-task to batched. Existing PRs with old-format managed blocks will get new format on next sync.
+    risk_tier_hint: low
+    test_plan: go test ./... && go vet ./...
+    rollback_plan: Revert the CR merge commit.
+tasks:
+    - id: 1
+      title: Drop acceptance criteria column from task table
+      status: done
+      contract:
+        intent: Remove acceptance criteria column from the task table to reduce cell width and noise.
+        acceptance_criteria:
+            - Table renders correctly for tasks with and without checkpoints.
+            - 'Task table has columns: Status, Task, Scope, Checkpoint, Contract Drift — no Acceptance Criteria column.'
+        scope:
+            - internal/service/service_pr_gate.go
+      checkpoint:
+        commit: b36e6662
+        at: "2026-02-28T17:30:11Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_pr_gate.go
+    - id: 2
+      title: Drop acceptance criteria column from task table
+      status: done
+      contract:
+        intent: Do not render sections that contain no data.
+        acceptance_criteria:
+            - CR Contract Drifts and Evidence blocks do not appear at all when empty.
+            - Similarly, any future empty sections should be skipped.
+        scope:
+            - internal/service/service_pr_gate.go
+      checkpoint:
+        at: "2026-02-28T17:30:23Z"
+        source: task_no_checkpoint
+    - id: 3
+      title: Suppress empty sections in managed block
+      status: done
+      contract:
+        intent: Wrap the file breakdown table in a details/summary HTML block.
+        acceptance_criteria:
+            - 'File breakdown is enclosed by <details><summary>File Breakdown: N files (+X/-Y)</summary>...table...</details>.'
+        scope:
+            - internal/service/service_pr_gate.go
+      checkpoint:
+        at: "2026-02-28T17:30:23Z"
+        source: task_no_checkpoint
+    - id: 4
+      title: Wrap file breakdown in details/summary collapsible
+      status: done
+      contract:
+        intent: Batch unsynced checkpoints into a single sync comment.
+        acceptance_criteria:
+            - 'A single sync comment contains a table summarizing all newly-synced checkpoints: Checkpoint | Task | Scope Drift.'
+            - Idempotency key per comment uses a hash of checkpoint sync IDs or similar ledger to prevent duplicate batched comments.
+        scope:
+            - internal/service/service_pr_gate.go
+      checkpoint:
+        at: "2026-02-28T17:30:23Z"
+        source: task_no_checkpoint
+    - id: 5
+      title: Batch checkpoint comments into single sync comment
+      status: done
+      contract:
+        intent: Do not post any checkpoint comments during the initial PR open.
+        acceptance_criteria:
+            - The synced keys ledger is updated so the initial checkpoints are not later synced incrementally.
+            - When cr pr open/create happens, the PR body reflects all tasks correctly and NO checkpoint comments are posted.
+        scope:
+            - internal/service/service_pr_gate.go
+      checkpoint:
+        at: "2026-02-28T17:30:23Z"
+        source: task_no_checkpoint
+    - id: 6
+      title: Skip checkpoint comments on initial PR open
+      status: done
+      contract:
+        intent: Update tests to assert the slimmer output format and batched sync commenting.
+        acceptance_criteria:
+            - All idempotency and comment-count edge cases have test coverage.
+            - service_pr_gate_test.go passes with new layout.
+        scope:
+            - internal/service/service_pr_gate_test.go
+      checkpoint:
+        commit: 7951cf6b
+        at: "2026-02-28T17:30:23Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_pr_gate_test.go
+    - id: 7
+      title: Update tests for new PR body shape and batched comments
+      status: done
+      contract:
+        intent: Update tests
+        acceptance_criteria:
+            - passes
+        scope:
+            - internal/service/service_pr_gate_test.go
+      checkpoint:
+        at: "2026-02-28T17:37:16Z"
+        source: task_no_checkpoint
+    - id: 8
+      title: Enable pr-gate merge mode
+      status: done
+      contract:
+        intent: Enable pr-gate mode
+        acceptance_criteria:
+            - done
+        scope:
+            - SOPHIA.yaml
+      checkpoint:
+        commit: eed3be95
+        at: "2026-02-28T17:36:11Z"
+        source: task_checkpoint
+        scope:
+            - SOPHIA.yaml
+git_summary:
+    base_parent: 83069a1940e43aa0c1bd7c07e80e0a8dd71aa4c5
+    cr_parent: eed3be953194e04c04abe32325943dd83682b3f3
+    files_changed: []
+    diffstat:
+        summary: 0 files changed, 0 insertions(+), 0 deletions(-)

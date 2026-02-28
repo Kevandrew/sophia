@@ -128,10 +128,10 @@ func TestRenderManagedPRBlockUsesTaskContractDriftsForScopeDriftSignal(t *testin
 	}
 
 	md := renderManagedPRBlock(review)
-	if strings.Contains(md, "| done | Orphan checkpoint only | - | - | aaaaaaaaaaaa | yes") {
+	if strings.Contains(md, "| done | Orphan checkpoint only | - | aaaaaaaaaaaa | yes") {
 		t.Fatalf("expected orphan-only task to not be marked as contract drift, got:\n%s", md)
 	}
-	if !strings.Contains(md, "| done | Contract drift task | - | - | bbbbbbbbbbbb | yes (1) |") {
+	if !strings.Contains(md, "| done | Contract drift task | - | bbbbbbbbbbbb | yes (1) |") {
 		t.Fatalf("expected contract-drift task marker, got:\n%s", md)
 	}
 }
@@ -163,7 +163,7 @@ func TestRenderManagedPRBlockIncludesDiffBreakdownWithNumStats(t *testing.T) {
 	}
 
 	md := renderManagedPRBlock(review)
-	if !strings.Contains(md, "#### File Breakdown") {
+	if !strings.Contains(md, "<details><summary>File Breakdown") {
 		t.Fatalf("expected file breakdown section, got:\n%s", md)
 	}
 	if !strings.Contains(md, "| internal/service/service_pr_gate.go | modified | 7 | 3 |") {

@@ -49,6 +49,7 @@ classification:
       - "poetry.lock"
 
 merge:
+  mode: pr_gate
   allow_override: true
 
 archive:

@@ -569,16 +569,27 @@ func renderManagedPRBlock(review *Review) string {
 	} else {
 		b.WriteString(strings.TrimSpace(cr.Contract.BlastRadius) + "\n")
 	}
-	b.WriteString("\n### CR Contract Drifts\n")
-	renderCRContractDriftSection(&b, cr.ContractDrifts)
+	if len(cr.ContractDrifts) > 0 {
+		b.WriteString("\n### CR Contract Drifts\n")
+		renderCRContractDriftSection(&b, cr.ContractDrifts)
+	}
 	b.WriteString("\n### Tasks\n")
 	renderTaskContractTable(&b, cr.Subtasks)
-	b.WriteString("\n### Task Contract Drifts\n")
-	renderTaskContractDriftSection(&b, cr.Subtasks)
-	b.WriteString("\n### Evidence\n")
-	if len(cr.Evidence) == 0 {
-		b.WriteString("- (none)\n")
-	} else {
+
+	hasTaskDrifts := false
+	for _, t := range cr.Subtasks {
+		if len(t.ContractDrifts) > 0 {
+			hasTaskDrifts = true
+			break
+		}
+	}
+	if hasTaskDrifts {
+		b.WriteString("\n### Task Contract Drifts\n")
+		renderTaskContractDriftSection(&b, cr.Subtasks)
+	}
+
+	if len(cr.Evidence) > 0 {
+		b.WriteString("\n### Evidence\n")
 		for _, ev := range cr.Evidence {
 			exitCode := ""
 			if ev.ExitCode != nil {
@@ -589,7 +600,6 @@ func renderManagedPRBlock(review *Review) string {
 	}
 	b.WriteString("\n### Diff Summary\n")
 	b.WriteString(nonEmptyTrimmed(strings.TrimSpace(review.ShortStat), "(missing)") + "\n")
-	b.WriteString("\n#### File Breakdown\n")
 	renderDiffBreakdownTable(&b, review)
 	b.WriteString("\n### Rollback Plan\n")
 	if strings.TrimSpace(cr.Contract.RollbackPlan) == "" {
@@ -606,7 +616,6 @@ func renderCRContractDriftSection(b *strings.Builder, drifts []model.CRContractD
 		return
 	}
 	if len(drifts) == 0 {
-		b.WriteString("- (none)\n")
 		return
 	}
 	items := append([]model.CRContractDrift(nil), drifts...)
@@ -651,18 +660,17 @@ func renderTaskContractTable(b *strings.Builder, tasks []model.Subtask) {
 	sort.SliceStable(items, func(i, j int) bool {
 		return items[i].ID < items[j].ID
 	})
-	b.WriteString("| Status | Task | Scope | Acceptance Criteria | Checkpoint | Contract Drift |\n")
-	b.WriteString("| --- | --- | --- | --- | --- | --- |\n")
+	b.WriteString("| Status | Task | Scope | Checkpoint | Contract Drift |\n")
+	b.WriteString("| --- | --- | --- | --- | --- |\n")
 	for _, task := range items {
 		drift := "no"
 		if taskHasContractDrift(task) {
 			drift = fmt.Sprintf("yes (%d)", len(task.ContractDrifts))
 		}
-		b.WriteString(fmt.Sprintf("| %s | %s | %s | %s | %s | %s |\n",
+		b.WriteString(fmt.Sprintf("| %s | %s | %s | %s | %s |\n",
 			markdownTableCell(taskStatusLabel(task.Status)),
 			markdownTableCell(strings.TrimSpace(task.Title)),
 			markdownTableCell(markdownListCell(task.Contract.Scope)),
-			markdownTableCell(markdownListCell(task.Contract.AcceptanceCriteria)),
 			markdownTableCell(shortCheckpointRef(task.CheckpointCommit)),
 			markdownTableCell(drift),
 		))
@@ -674,7 +682,6 @@ func renderTaskContractDriftSection(b *strings.Builder, tasks []model.Subtask) {
 		return
 	}
 	if len(tasks) == 0 {
-		b.WriteString("- (none)\n")
 		return
 	}
 	items := append([]model.Subtask(nil), tasks...)
@@ -710,9 +717,6 @@ func renderTaskContractDriftSection(b *strings.Builder, tasks []model.Subtask) {
 			))
 		}
 		emitted++
-	}
-	if emitted == 0 {
-		b.WriteString("- (none)\n")
 	}
 }
 
@@ -753,7 +757,6 @@ func renderDiffBreakdownTable(b *strings.Builder, review *Review) {
 		}{insertions: insertions, deletions: deletions}
 	}
 	if len(pathSet) == 0 {
-		b.WriteString("- (none)\n")
 		return
 	}
 	newPaths := stringSet(cleanAndDedupeStrings(review.NewFiles))
@@ -763,6 +766,19 @@ func renderDiffBreakdownTable(b *strings.Builder, review *Review) {
 		paths = append(paths, path)
 	}
 	sort.Strings(paths)
+	totalAdd := 0
+	totalDel := 0
+	for _, stat := range review.DiffNumStats {
+		if !stat.Binary {
+			if stat.Insertions != nil {
+				totalAdd += *stat.Insertions
+			}
+			if stat.Deletions != nil {
+				totalDel += *stat.Deletions
+			}
+		}
+	}
+	b.WriteString(fmt.Sprintf("\n<details><summary>File Breakdown: %d files (+%d/-%d)</summary>\n\n", len(paths), totalAdd, totalDel))
 	b.WriteString("| Path | Change | + | - |\n")
 	b.WriteString("| --- | --- | ---: | ---: |\n")
 	for _, path := range paths {
@@ -785,6 +801,7 @@ func renderDiffBreakdownTable(b *strings.Builder, review *Review) {
 			markdownTableCell(deletions),
 		))
 	}
+	b.WriteString("\n</details>\n")
 }
 
 func taskStatusLabel(status string) string {
@@ -960,7 +977,7 @@ func (s *Service) openOrSyncPRForCR(cr *model.CR, policy *model.RepoPolicy, appr
 		}
 	}
 	if pr.Number > 0 {
-		if commentErr := s.syncCheckpointComments(repoSelector, pr.Number, cr); commentErr != nil {
+		if commentErr := s.syncCheckpointComments(repoSelector, pr.Number, cr, !hadLinkedPR); commentErr != nil {
 			return nil, commentErr
 		}
 	}
@@ -1048,7 +1065,7 @@ func mergeManagedPRBody(existingBody, managed string) (string, error) {
 	return out.String() + "\n", nil
 }
 
-func (s *Service) syncCheckpointComments(repoSelector string, prNumber int, cr *model.CR) error {
+func (s *Service) syncCheckpointComments(repoSelector string, prNumber int, cr *model.CR, skipPosting bool) error {
 	if cr == nil || prNumber <= 0 {
 		return nil
 	}
@@ -1056,6 +1073,15 @@ func (s *Service) syncCheckpointComments(repoSelector string, prNumber int, cr *
 	for _, key := range cr.PR.CheckpointCommentKeys {
 		posted[strings.TrimSpace(key)] = struct{}{}
 	}
+
+	type pending struct {
+		key   string
+		short string
+		title string
+		drift string
+	}
+	var toSync []pending
+
 	for _, task := range cr.Subtasks {
 		if task.Status != model.TaskStatusDone {
 			continue
@@ -1076,15 +1102,29 @@ func (s *Service) syncCheckpointComments(repoSelector string, prNumber int, cr *
 		if taskHasContractDrift(task) {
 			drift = "yes"
 		}
-		comment := fmt.Sprintf("Checkpoint synced: %s | task: %s | scope_drift: %s", short, strings.TrimSpace(task.Title), drift)
-		if _, err := s.runGH(repoSelector, "pr", "comment", strconv.Itoa(prNumber), "--body", comment); err != nil {
-			return err
-		}
-		cr.PR.CheckpointCommentKeys = append(cr.PR.CheckpointCommentKeys, key)
-		posted[key] = struct{}{}
+		toSync = append(toSync, pending{key: key, short: short, title: strings.TrimSpace(task.Title), drift: drift})
 	}
-	sort.Strings(cr.PR.CheckpointCommentKeys)
-	cr.PR.CheckpointCommentKeys = dedupeStrings(cr.PR.CheckpointCommentKeys)
+
+	if len(toSync) > 0 {
+		if !skipPosting {
+			var b strings.Builder
+			b.WriteString("### Checkpoints Synced\n\n")
+			b.WriteString("| Checkpoint | Task | Scope Drift |\n")
+			b.WriteString("| --- | --- | --- |\n")
+			for _, p := range toSync {
+				b.WriteString(fmt.Sprintf("| %s | %s | %s |\n", markdownTableCell(p.short), markdownTableCell(p.title), markdownTableCell(p.drift)))
+			}
+			if _, err := s.runGH(repoSelector, "pr", "comment", strconv.Itoa(prNumber), "--body", b.String()); err != nil {
+				return err
+			}
+		}
+
+		for _, p := range toSync {
+			cr.PR.CheckpointCommentKeys = append(cr.PR.CheckpointCommentKeys, p.key)
+		}
+		sort.Strings(cr.PR.CheckpointCommentKeys)
+		cr.PR.CheckpointCommentKeys = dedupeStrings(cr.PR.CheckpointCommentKeys)
+	}
 	return nil
 }
 
