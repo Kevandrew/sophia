@@ -66,6 +66,11 @@ Practical guidance:
 - `merge.require_ready_for_review` (default `true`)
 - `merge.require_passing_checks` (default `true`)
 
+Repository CI guidance for `pr_gate`:
+- PR checks should run from GitHub Actions `pull_request` events and treat draft PRs as non-ready.
+- Use `ready_for_review` in workflow triggers so checks run as soon as a draft PR is promoted.
+- For this repository, the `CI` workflow runs `go test ./... -count=1` and `go vet ./...` when `pull_request.draft == false`.
+
 Invalid `merge.mode` values return deterministic `policy_invalid` failures.
 
 ## Archive Policy

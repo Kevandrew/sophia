@@ -56,6 +56,7 @@ sophia cr merge abort <cr-id>
 - `gh` auth failure: run `gh auth status` and `gh auth login`, then retry `cr merge`/`cr pr` command.
 - Missing `origin` or push denied: verify remote with `git remote -v`, then `git push -u origin <cr-branch>` and retry.
 - Gate blocked in `pr_gate` mode: inspect `sophia cr pr status <id>` for approvals/checks/draft blockers.
+- No CI checks shown on an open PR: confirm PR state is not draft. This repository's `CI` workflow is skipped while `pull_request.draft == true` and runs after `ready_for_review`.
 - No merge permission for finalize: hand off to reviewer merge on PR page; run `sophia cr pr status <id>` afterward to reconcile local CR merged state.
 
 ## Useful machine-readable checks
