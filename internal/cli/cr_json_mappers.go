@@ -217,6 +217,38 @@ func contractToJSONMap(contract model.Contract) map[string]any {
 	return out
 }
 
+func crContractBaselineToJSONMap(baseline model.CRContractBaseline) map[string]any {
+	return map[string]any{
+		"captured_at": baseline.CapturedAt,
+		"captured_by": baseline.CapturedBy,
+		"scope":       stringSliceOrEmpty(baseline.Scope),
+	}
+}
+
+func crContractDriftToJSONMap(drift model.CRContractDrift) map[string]any {
+	return map[string]any{
+		"id":              drift.ID,
+		"ts":              drift.TS,
+		"actor":           drift.Actor,
+		"fields":          stringSliceOrEmpty(drift.Fields),
+		"before_scope":    stringSliceOrEmpty(drift.BeforeScope),
+		"after_scope":     stringSliceOrEmpty(drift.AfterScope),
+		"reason":          drift.Reason,
+		"acknowledged":    drift.Acknowledged,
+		"acknowledged_at": drift.AcknowledgedAt,
+		"acknowledged_by": drift.AcknowledgedBy,
+		"ack_reason":      drift.AckReason,
+	}
+}
+
+func crContractDriftMaps(drifts []model.CRContractDrift) []map[string]any {
+	out := make([]map[string]any, 0, len(drifts))
+	for _, drift := range drifts {
+		out = append(out, crContractDriftToJSONMap(drift))
+	}
+	return out
+}
+
 func crSearchResultToJSONMap(result model.CRSearchResult) map[string]any {
 	return map[string]any{
 		"id":              result.ID,
@@ -278,6 +310,8 @@ func crToJSONMap(cr *model.CR) map[string]any {
 		"notes":               stringSliceOrEmpty(cr.Notes),
 		"evidence":            evidence,
 		"contract":            contractToJSONMap(cr.Contract),
+		"contract_baseline":   crContractBaselineToJSONMap(cr.ContractBaseline),
+		"contract_drifts":     crContractDriftMaps(cr.ContractDrifts),
 		"subtasks":            subtasks,
 		"events":              events,
 		"merged_at":           cr.MergedAt,
@@ -366,6 +400,7 @@ func impactToJSONMap(impact *service.ImpactReport) map[string]any {
 		"base_ref":                     impact.BaseRef,
 		"base_commit":                  impact.BaseCommit,
 		"parent_cr_id":                 impact.ParentCRID,
+		"scope_source":                 impact.ScopeSource,
 		"risk_tier_hint":               impact.RiskTierHint,
 		"risk_tier_floor_applied":      impact.RiskTierFloorApplied,
 		"matched_risk_critical_scopes": stringSliceOrEmpty(impact.MatchedRiskCriticalScopes),
@@ -480,6 +515,7 @@ func trustToJSONMap(trust *service.TrustReport) map[string]any {
 		"check_results":     checkResults,
 		"review_depth":      trustReviewDepthToJSONMap(trust.ReviewDepth),
 		"contract_drift":    trustContractDriftSummaryToJSONMap(trust.ContractDrift),
+		"cr_contract_drift": trustCRContractDriftSummaryToJSONMap(trust.CRContractDrift),
 		"gate":              trustGateToJSONMap(trust.Gate),
 		"required_actions":  stringSliceOrEmpty(trust.RequiredActions),
 		"attention_actions": stringSliceOrEmpty(trust.AttentionActions),
@@ -547,6 +583,15 @@ func trustContractDriftSummaryToJSONMap(summary service.TaskContractDriftSummary
 		"unacknowledged":       summary.Unacknowledged,
 		"tasks_with_drift":     intSliceOrEmpty(summary.TasksWithDrift),
 		"unacknowledged_tasks": intSliceOrEmpty(summary.UnacknowledgedTasks),
+	}
+}
+
+func trustCRContractDriftSummaryToJSONMap(summary service.CRContractDriftSummary) map[string]any {
+	return map[string]any{
+		"total":                    summary.Total,
+		"unacknowledged":           summary.Unacknowledged,
+		"drift_ids":                intSliceOrEmpty(summary.DriftIDs),
+		"unacknowledged_drift_ids": intSliceOrEmpty(summary.UnacknowledgedDriftIDs),
 	}
 }
 

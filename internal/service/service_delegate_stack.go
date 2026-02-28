@@ -334,6 +334,10 @@ func (s *Service) mergeBlockersForCR(cr *model.CR, validation *ValidationReport)
 		}
 		blockers = append(blockers, fmt.Sprintf("task #%d delegated to unmerged child CR(s): %s", task.ID, joinIntIDs(pending)))
 	}
+	crDrift := summarizeCRContractDrift(cr.ContractDrifts)
+	if crDrift.Unacknowledged > 0 {
+		blockers = append(blockers, fmt.Sprintf("CR contract drift has %d unacknowledged record(s): %s", crDrift.Unacknowledged, formatDriftIDList(crDrift.UnacknowledgedDriftIDs)))
+	}
 	return dedupeStrings(blockers)
 }
 

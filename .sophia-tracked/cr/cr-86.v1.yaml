@@ -1,0 +1,300 @@
+schema_version: sophia.cr_archive.v1
+notice: Historical archive snapshot. Corrections are append-only revisions.
+archived_at: "2026-02-28T11:53:30Z"
+revision: 1
+cr:
+    id: 86
+    uid: cr_6d4a4f08-aa74-458f-b856-bef63ef74c8d
+    title: Freeze CR scope baseline on first checkpoint
+    description: Prevent silent CR scope drift by freezing baseline scope at first task checkpoint, recording post-freeze scope edits as explicit CR contract drift, and gating merge on unresolved drift records.
+    status: merged
+    base_branch: main
+    base_ref: main
+    base_commit: 03696edd91c2b06bde3ced32024c33867ff0fe57
+    branch: cr-freeze-cr-scope-baseline-on-first-checkpoint-6d4a
+    merged_at: "2026-02-28T11:53:30Z"
+    merged_by: Kevandrew <143258544+Kevandrew@users.noreply.github.com>
+contract:
+    why: |-
+        Sophia currently computes scope drift from the mutable current CR scope. This allows an agent to remove drift by widening scope after implementation starts, which weakens review integrity in agent-first workflows.
+
+        This change introduces an auditable decision boundary: once the first checkpoint commit is made, CR scope is frozen as baseline for drift evaluation. Post-freeze scope changes remain possible, but only through explicit, reasoned revision flow with recorded drift and acknowledgement.
+
+        Success criteria: drift cannot be silently neutralized by editing scope after checkpoint; reviewers can inspect and acknowledge CR-level drift; merge gate blocks unresolved drift without emergency override.
+    scope:
+        - internal/cli
+        - internal/model
+        - internal/service
+    non_goals:
+        - Do not change task-level drift semantics.
+        - Do not force validate --record as mandatory for all merges.
+        - Do not freeze non-scope contract fields in this iteration.
+    invariants:
+        - Existing override/merge policy behavior remains intact except for new CR-drift blocker.
+        - First checkpoint deterministically captures CR scope baseline once.
+        - Post-freeze scope edits are explicit and auditable, never silent.
+        - Pre-checkpoint CR authoring remains fully editable.
+    blast_radius: 'CLI: cr contract set + new contract drift commands; Data: CR YAML adds contract baseline/drift metadata + events; Validation: drift source changes to baseline when frozen; Trust/Merge: new CR-drift requirement and blocker path; Failure modes: missing reason on frozen scope edit, stale unresolved drift preventing merge.'
+    risk_critical_scopes:
+        - internal/service
+    risk_tier_hint: medium
+    risk_rationale: Touches validation and merge gating behavior for all CRs.
+    test_plan: go test ./... && go vet ./...
+    rollback_plan: Revert the CR merge commit to restore mutable-scope validation behavior.
+tasks:
+    - id: 1
+      title: Add CR contract baseline and drift model/event types
+      status: done
+      contract:
+        intent: Define persistent CR metadata needed for freeze-state, drift records, and audit events.
+        acceptance_criteria:
+            - CR model includes baseline scope snapshot and CR drift records.
+            - Event constants exist for baseline capture, drift record, and drift acknowledgement.
+            - YAML serialization remains backward-compatible for CRs without new fields.
+        scope:
+            - internal/model/types.go
+      checkpoint:
+        at: "2026-02-28T11:49:16Z"
+        source: task_no_checkpoint
+    - id: 2
+      title: Capture CR baseline scope at first task checkpoint
+      status: done
+      contract:
+        intent: Freeze CR scope exactly once when first checkpoint commit is created.
+        acceptance_criteria:
+            - CR history includes baseline-captured event with source task/checkpoint metadata.
+            - First successful checkpoint captures baseline from current CR contract scope.
+            - Subsequent checkpoints do not overwrite baseline.
+        scope:
+            - internal/service
+            - internal/service/service_task_domain.go
+      checkpoint:
+        at: "2026-02-28T11:49:16Z"
+        source: task_no_checkpoint
+    - id: 3
+      title: Extend CR contract mutation to support post-freeze reasoned revisions
+      status: done
+      contract:
+        intent: Require explicit reason on scope changes after freeze and record CR contract drift.
+        acceptance_criteria:
+            - CR contract patch supports optional change reason.
+            - If baseline exists and scope changes with reason, CR drift record is appended.
+            - If baseline exists and scope changes without reason, mutation fails deterministically.
+        scope:
+            - internal/service/service.go
+            - internal/service/service_contract_mutation.go
+            - internal/service/service_cr.go
+      checkpoint:
+        at: "2026-02-28T11:49:16Z"
+        source: task_no_checkpoint
+    - id: 4
+      title: Add CR contract drift list/ack service operations
+      status: done
+      contract:
+        intent: Provide first-class CR-level drift inspection and acknowledgement.
+        acceptance_criteria:
+            - Ack operation appends explicit audit event.
+            - Ack operation requires non-empty reason and stamps actor/time.
+            - Service can list CR drift records deterministically.
+        scope:
+            - internal/service
+      checkpoint:
+        at: "2026-02-28T11:49:16Z"
+        source: task_no_checkpoint
+    - id: 5
+      title: Switch CR scope-drift validation to baseline scope when frozen
+      status: done
+      contract:
+        intent: Measure scope drift against frozen baseline after first checkpoint.
+        acceptance_criteria:
+            - Pre-freeze behavior remains unchanged.
+            - Validate/impact uses baseline scope if present, current scope otherwise.
+            - Validation output clearly indicates baseline-vs-current scope source.
+        scope:
+            - internal/service
+            - internal/service/service_cr_status.go
+            - internal/service/service_impact.go
+      checkpoint:
+        at: "2026-02-28T11:49:17Z"
+        source: task_no_checkpoint
+    - id: 6
+      title: Add CR-level drift requirement and merge blocker
+      status: done
+      contract:
+        intent: Block merge when CR contract drift exists and is unacknowledged.
+        acceptance_criteria:
+            - Merge preflight fails on unresolved CR drift when no override reason is supplied.
+            - Required actions include CR drift acknowledgement guidance.
+            - Trust report includes CR contract drift summary and requirement.
+        scope:
+            - internal/service/service_delegate_stack.go
+            - internal/service/service_merge_domain.go
+            - internal/service/service_trust.go
+      checkpoint:
+        at: "2026-02-28T11:49:17Z"
+        source: task_no_checkpoint
+    - id: 7
+      title: Expose --change-reason on cr contract set
+      status: done
+      contract:
+        intent: Allow operators/agents to submit explicit rationale for post-freeze scope changes.
+        acceptance_criteria:
+            - Error text is clear when frozen scope edit lacks reason.
+            - JSON output remains envelope-compatible.
+            - cr contract set accepts --change-reason and passes it to service patch.
+        scope:
+            - internal/cli
+            - internal/cli/cr_cmd_core.go
+      checkpoint:
+        at: "2026-02-28T11:49:17Z"
+        source: task_no_checkpoint
+    - id: 8
+      title: Add cr contract drift list/ack CLI commands
+      status: done
+      contract:
+        intent: Make CR-level drift auditable and actionable from CLI.
+        acceptance_criteria:
+            - 'Commands: cr contract drift list <cr-id> and ack <cr-id> <drift-id> --reason.'
+            - Help output follows existing command style and examples.
+            - Text and JSON outputs include fields needed for reviewer workflows.
+        scope:
+            - internal/cli
+            - internal/cli/cr_json_mappers.go
+      checkpoint:
+        at: "2026-02-28T11:49:17Z"
+        source: task_no_checkpoint
+    - id: 9
+      title: Add service tests for freeze, drift recording, validation source, and merge blockers
+      status: done
+      contract:
+        intent: Prove core semantics for freeze-time capture and anti-reward-hacking guardrails.
+        acceptance_criteria:
+            - Tests cover first-checkpoint capture and no-overwrite behavior.
+            - Tests cover merge blocked by unacknowledged CR drift and unblocked after ack.
+            - Tests cover post-freeze scope update failure without reason and success with reason.
+        scope:
+            - internal/model/types.go
+            - internal/service
+      checkpoint:
+        commit: 368eaf12
+        at: "2026-02-28T11:45:39Z"
+        source: task_checkpoint
+        scope:
+            - internal/model/types.go
+            - internal/service/service.go
+            - internal/service/service_cr.go
+            - internal/service/service_cr_contract_drift.go
+            - internal/service/service_cr_contract_drift_test.go
+            - internal/service/service_cr_status.go
+            - internal/service/service_delegate_stack.go
+            - internal/service/service_doc.go
+            - internal/service/service_impact.go
+            - internal/service/service_impact_types.go
+            - internal/service/service_messages.go
+            - internal/service/service_task_domain.go
+            - internal/service/service_trust.go
+            - internal/service/service_trust_domain.go
+            - internal/service/service_trust_types.go
+    - id: 10
+      title: Add CLI and JSON-surface tests for new flags/commands/events
+      status: done
+      contract:
+        intent: Ensure operator and agent interfaces remain stable and machine-consumable.
+        acceptance_criteria:
+            - CLI tests verify validate behavior remains non-recording by default.
+            - Help tests verify new flags and command trees are discoverable.
+            - JSON tests verify baseline/drift fields and contract drift command payloads.
+        scope:
+            - internal/cli
+      checkpoint:
+        commit: 20f34280
+        at: "2026-02-28T11:45:46Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/cr_cmd_core.go
+            - internal/cli/cr_contract_drift_cli_test.go
+            - internal/cli/cr_helpers.go
+            - internal/cli/cr_json_mappers.go
+git_summary:
+    base_parent: 03696edd91c2b06bde3ced32024c33867ff0fe57
+    cr_parent: 20f3428005590e6218e075bfd7e2e4b383139f53
+    files_changed:
+        - internal/cli/cr_cmd_core.go
+        - internal/cli/cr_contract_drift_cli_test.go
+        - internal/cli/cr_helpers.go
+        - internal/cli/cr_json_mappers.go
+        - internal/model/types.go
+        - internal/service/service.go
+        - internal/service/service_cr.go
+        - internal/service/service_cr_contract_drift.go
+        - internal/service/service_cr_contract_drift_test.go
+        - internal/service/service_cr_status.go
+        - internal/service/service_delegate_stack.go
+        - internal/service/service_doc.go
+        - internal/service/service_impact.go
+        - internal/service/service_impact_types.go
+        - internal/service/service_messages.go
+        - internal/service/service_task_domain.go
+        - internal/service/service_trust.go
+        - internal/service/service_trust_domain.go
+        - internal/service/service_trust_types.go
+    diffstat:
+        summary: 19 files changed, 873 insertions(+), 54 deletions(-)
+        files:
+            - path: internal/cli/cr_cmd_core.go
+              insertions: 113
+              deletions: 2
+            - path: internal/cli/cr_contract_drift_cli_test.go
+              insertions: 116
+              deletions: 0
+            - path: internal/cli/cr_helpers.go
+              insertions: 10
+              deletions: 0
+            - path: internal/cli/cr_json_mappers.go
+              insertions: 45
+              deletions: 0
+            - path: internal/model/types.go
+              insertions: 49
+              deletions: 24
+            - path: internal/service/service.go
+              insertions: 31
+              deletions: 21
+            - path: internal/service/service_cr.go
+              insertions: 115
+              deletions: 4
+            - path: internal/service/service_cr_contract_drift.go
+              insertions: 49
+              deletions: 0
+            - path: internal/service/service_cr_contract_drift_test.go
+              insertions: 228
+              deletions: 0
+            - path: internal/service/service_cr_status.go
+              insertions: 22
+              deletions: 2
+            - path: internal/service/service_delegate_stack.go
+              insertions: 4
+              deletions: 0
+            - path: internal/service/service_doc.go
+              insertions: 23
+              deletions: 0
+            - path: internal/service/service_impact.go
+              insertions: 12
+              deletions: 1
+            - path: internal/service/service_impact_types.go
+              insertions: 1
+              deletions: 0
+            - path: internal/service/service_messages.go
+              insertions: 9
+              deletions: 0
+            - path: internal/service/service_task_domain.go
+              insertions: 15
+              deletions: 0
+            - path: internal/service/service_trust.go
+              insertions: 27
+              deletions: 0
+            - path: internal/service/service_trust_domain.go
+              insertions: 3
+              deletions: 0
+            - path: internal/service/service_trust_types.go
+              insertions: 1
+              deletions: 0

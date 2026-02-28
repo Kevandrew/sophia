@@ -237,27 +237,29 @@ type CRDocEvent struct {
 }
 
 type CRDoc struct {
-	ID                int                   `json:"id"`
-	UID               string                `json:"uid,omitempty"`
-	Title             string                `json:"title"`
-	Description       string                `json:"description"`
-	Status            string                `json:"status"`
-	BaseBranch        string                `json:"base_branch"`
-	BaseRef           string                `json:"base_ref,omitempty"`
-	BaseCommit        string                `json:"base_commit,omitempty"`
-	ParentCRID        int                   `json:"parent_cr_id,omitempty"`
-	Branch            string                `json:"branch"`
-	Notes             []string              `json:"notes"`
-	Evidence          []model.EvidenceEntry `json:"evidence,omitempty"`
-	Contract          model.Contract        `json:"contract,omitempty"`
-	Subtasks          []model.Subtask       `json:"subtasks"`
-	Events            []CRDocEvent          `json:"events"`
-	MergedAt          string                `json:"merged_at,omitempty"`
-	MergedBy          string                `json:"merged_by,omitempty"`
-	MergedCommit      string                `json:"merged_commit,omitempty"`
-	FilesTouchedCount int                   `json:"files_touched_count,omitempty"`
-	CreatedAt         string                `json:"created_at"`
-	UpdatedAt         string                `json:"updated_at"`
+	ID                int                      `json:"id"`
+	UID               string                   `json:"uid,omitempty"`
+	Title             string                   `json:"title"`
+	Description       string                   `json:"description"`
+	Status            string                   `json:"status"`
+	BaseBranch        string                   `json:"base_branch"`
+	BaseRef           string                   `json:"base_ref,omitempty"`
+	BaseCommit        string                   `json:"base_commit,omitempty"`
+	ParentCRID        int                      `json:"parent_cr_id,omitempty"`
+	Branch            string                   `json:"branch"`
+	Notes             []string                 `json:"notes"`
+	Evidence          []model.EvidenceEntry    `json:"evidence,omitempty"`
+	Contract          model.Contract           `json:"contract,omitempty"`
+	ContractBaseline  model.CRContractBaseline `json:"contract_baseline,omitempty"`
+	ContractDrifts    []model.CRContractDrift  `json:"contract_drifts,omitempty"`
+	Subtasks          []model.Subtask          `json:"subtasks"`
+	Events            []CRDocEvent             `json:"events"`
+	MergedAt          string                   `json:"merged_at,omitempty"`
+	MergedBy          string                   `json:"merged_by,omitempty"`
+	MergedCommit      string                   `json:"merged_commit,omitempty"`
+	FilesTouchedCount int                      `json:"files_touched_count,omitempty"`
+	CreatedAt         string                   `json:"created_at"`
+	UpdatedAt         string                   `json:"updated_at"`
 }
 
 type WhyView struct {
@@ -441,6 +443,7 @@ type ContractPatch struct {
 	RiskRationale      *string
 	TestPlan           *string
 	RollbackPlan       *string
+	ChangeReason       *string
 }
 
 type SetCRContractOptions struct {
@@ -458,6 +461,13 @@ type TaskContractDriftSummary struct {
 	Unacknowledged      int
 	TasksWithDrift      []int
 	UnacknowledgedTasks []int
+}
+
+type CRContractDriftSummary struct {
+	Total                  int
+	Unacknowledged         int
+	DriftIDs               []int
+	UnacknowledgedDriftIDs []int
 }
 
 type TaskContractPatch struct {

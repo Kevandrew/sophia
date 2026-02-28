@@ -31,6 +31,8 @@ func canonicalCRDoc(cr *model.CR) *CRDoc {
 		Notes:             append([]string(nil), cr.Notes...),
 		Evidence:          append([]model.EvidenceEntry(nil), cr.Evidence...),
 		Contract:          cloneContract(cr.Contract),
+		ContractBaseline:  cloneCRContractBaseline(cr.ContractBaseline),
+		ContractDrifts:    cloneCRContractDrifts(cr.ContractDrifts),
 		Subtasks:          cloneSubtasks(cr.Subtasks),
 		Events:            make([]CRDocEvent, 0, len(cr.Events)),
 		MergedAt:          strings.TrimSpace(cr.MergedAt),
@@ -147,6 +149,27 @@ func cloneTaskContractDrifts(drifts []model.TaskContractDrift) []model.TaskContr
 		copyDrift.AfterScope = append([]string(nil), drift.AfterScope...)
 		copyDrift.BeforeAcceptanceChecks = append([]string(nil), drift.BeforeAcceptanceChecks...)
 		copyDrift.AfterAcceptanceChecks = append([]string(nil), drift.AfterAcceptanceChecks...)
+		out = append(out, copyDrift)
+	}
+	return out
+}
+
+func cloneCRContractBaseline(baseline model.CRContractBaseline) model.CRContractBaseline {
+	out := baseline
+	out.Scope = append([]string(nil), baseline.Scope...)
+	return out
+}
+
+func cloneCRContractDrifts(drifts []model.CRContractDrift) []model.CRContractDrift {
+	if len(drifts) == 0 {
+		return []model.CRContractDrift{}
+	}
+	out := make([]model.CRContractDrift, 0, len(drifts))
+	for _, drift := range drifts {
+		copyDrift := drift
+		copyDrift.Fields = append([]string(nil), drift.Fields...)
+		copyDrift.BeforeScope = append([]string(nil), drift.BeforeScope...)
+		copyDrift.AfterScope = append([]string(nil), drift.AfterScope...)
 		out = append(out, copyDrift)
 	}
 	return out

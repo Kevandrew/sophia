@@ -12,6 +12,7 @@ type ImpactReport struct {
 	BaseRef                   string
 	BaseCommit                string
 	ParentCRID                int
+	ScopeSource               string
 	RiskTierHint              string
 	RiskTierFloorApplied      bool
 	MatchedRiskCriticalScopes []string

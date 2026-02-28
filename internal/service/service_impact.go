@@ -9,7 +9,7 @@ import (
 )
 
 func buildImpactReport(cr *model.CR, diff *diffSummary, policy *model.RepoPolicy) *ImpactReport {
-	scope := append([]string(nil), cr.Contract.Scope...)
+	scope, scopeSource := scopeReferenceForCR(cr)
 	scopeDrift := findScopeDrift(diff.Files, scope)
 	taskScopeWarnings := findTaskScopeWarnings(cr.Subtasks, scope)
 	taskRequiredFields := append([]string(nil), defaultTaskRequiredContractFields...)
@@ -69,6 +69,7 @@ func buildImpactReport(cr *model.CR, diff *diffSummary, policy *model.RepoPolicy
 		BaseRef:                   strings.TrimSpace(cr.BaseRef),
 		BaseCommit:                strings.TrimSpace(cr.BaseCommit),
 		ParentCRID:                cr.ParentCRID,
+		ScopeSource:               scopeSource,
 		RiskTierHint:              riskTierHint,
 		RiskTierFloorApplied:      riskTierFloorApplied,
 		MatchedRiskCriticalScopes: matchedRiskCriticalScopes,
@@ -86,6 +87,16 @@ func buildImpactReport(cr *model.CR, diff *diffSummary, policy *model.RepoPolicy
 		RiskScore:                 riskScore,
 		RiskTier:                  riskTier,
 	}
+}
+
+func scopeReferenceForCR(cr *model.CR) ([]string, string) {
+	if cr != nil && !crContractBaselineIsEmpty(cr.ContractBaseline) {
+		return append([]string(nil), cr.ContractBaseline.Scope...), "contract_baseline"
+	}
+	if cr == nil {
+		return []string{}, "contract_scope"
+	}
+	return append([]string(nil), cr.Contract.Scope...), "contract_scope"
 }
 
 func findMatchedScopePrefixes(changedFiles, scopePrefixes []string) []string {

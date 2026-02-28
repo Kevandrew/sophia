@@ -32,8 +32,11 @@ const (
 	EventTypeCRMerged          = "cr_merged"
 	EventTypeCRReopened        = "cr_reopened"
 
-	EventTypeNoteAdded       = "note_added"
-	EventTypeContractUpdated = "contract_updated"
+	EventTypeNoteAdded                   = "note_added"
+	EventTypeContractUpdated             = "contract_updated"
+	EventTypeCRContractBaselineCaptured  = "cr_contract_baseline_captured"
+	EventTypeCRContractDriftRecorded     = "cr_contract_drift_recorded"
+	EventTypeCRContractDriftAcknowledged = "cr_contract_drift_acknowledged"
 
 	EventTypeTaskAdded                     = "task_added"
 	EventTypeTaskDone                      = "task_done"
@@ -171,6 +174,26 @@ type TaskContractDrift struct {
 	AckReason              string   `yaml:"ack_reason,omitempty"`
 }
 
+type CRContractBaseline struct {
+	CapturedAt string   `yaml:"captured_at,omitempty"`
+	CapturedBy string   `yaml:"captured_by,omitempty"`
+	Scope      []string `yaml:"scope,omitempty"`
+}
+
+type CRContractDrift struct {
+	ID             int      `yaml:"id"`
+	TS             string   `yaml:"ts"`
+	Actor          string   `yaml:"actor"`
+	Fields         []string `yaml:"fields,omitempty"`
+	BeforeScope    []string `yaml:"before_scope,omitempty"`
+	AfterScope     []string `yaml:"after_scope,omitempty"`
+	Reason         string   `yaml:"reason,omitempty"`
+	Acknowledged   bool     `yaml:"acknowledged,omitempty"`
+	AcknowledgedAt string   `yaml:"acknowledged_at,omitempty"`
+	AcknowledgedBy string   `yaml:"acknowledged_by,omitempty"`
+	AckReason      string   `yaml:"ack_reason,omitempty"`
+}
+
 type Contract struct {
 	Why                string   `yaml:"why,omitempty"`
 	Scope              []string `yaml:"scope,omitempty"`
@@ -232,28 +255,30 @@ type CRHQState struct {
 }
 
 type CR struct {
-	ID                int             `yaml:"id"`
-	UID               string          `yaml:"uid,omitempty"`
-	Title             string          `yaml:"title"`
-	Description       string          `yaml:"description"`
-	Status            string          `yaml:"status"`
-	BaseBranch        string          `yaml:"base_branch"`
-	BaseRef           string          `yaml:"base_ref,omitempty"`
-	BaseCommit        string          `yaml:"base_commit,omitempty"`
-	ParentCRID        int             `yaml:"parent_cr_id,omitempty"`
-	Branch            string          `yaml:"branch"`
-	Notes             []string        `yaml:"notes"`
-	Evidence          []EvidenceEntry `yaml:"evidence,omitempty"`
-	Contract          Contract        `yaml:"contract,omitempty"`
-	Subtasks          []Subtask       `yaml:"subtasks"`
-	Events            []Event         `yaml:"events"`
-	MergedAt          string          `yaml:"merged_at,omitempty"`
-	MergedBy          string          `yaml:"merged_by,omitempty"`
-	MergedCommit      string          `yaml:"merged_commit,omitempty"`
-	FilesTouchedCount int             `yaml:"files_touched_count,omitempty"`
-	HQ                CRHQState       `yaml:"hq,omitempty"`
-	CreatedAt         string          `yaml:"created_at"`
-	UpdatedAt         string          `yaml:"updated_at"`
+	ID                int                `yaml:"id"`
+	UID               string             `yaml:"uid,omitempty"`
+	Title             string             `yaml:"title"`
+	Description       string             `yaml:"description"`
+	Status            string             `yaml:"status"`
+	BaseBranch        string             `yaml:"base_branch"`
+	BaseRef           string             `yaml:"base_ref,omitempty"`
+	BaseCommit        string             `yaml:"base_commit,omitempty"`
+	ParentCRID        int                `yaml:"parent_cr_id,omitempty"`
+	Branch            string             `yaml:"branch"`
+	Notes             []string           `yaml:"notes"`
+	Evidence          []EvidenceEntry    `yaml:"evidence,omitempty"`
+	Contract          Contract           `yaml:"contract,omitempty"`
+	ContractBaseline  CRContractBaseline `yaml:"contract_baseline,omitempty"`
+	ContractDrifts    []CRContractDrift  `yaml:"contract_drifts,omitempty"`
+	Subtasks          []Subtask          `yaml:"subtasks"`
+	Events            []Event            `yaml:"events"`
+	MergedAt          string             `yaml:"merged_at,omitempty"`
+	MergedBy          string             `yaml:"merged_by,omitempty"`
+	MergedCommit      string             `yaml:"merged_commit,omitempty"`
+	FilesTouchedCount int                `yaml:"files_touched_count,omitempty"`
+	HQ                CRHQState          `yaml:"hq,omitempty"`
+	CreatedAt         string             `yaml:"created_at"`
+	UpdatedAt         string             `yaml:"updated_at"`
 }
 
 type CRSearchQuery struct {

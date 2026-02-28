@@ -337,6 +337,7 @@ func (s *Service) SetCRContractWithOptions(id int, patch ContractPatch, opts Set
 		}
 
 		nextContract := cr.Contract
+		beforeScope := append([]string(nil), nextContract.Scope...)
 		changed, err := s.applyCRContractPatch(&nextContract, patch, policy)
 		if err != nil {
 			return err
@@ -347,6 +348,14 @@ func (s *Service) SetCRContractWithOptions(id int, patch ContractPatch, opts Set
 			return nil
 		}
 		result.ChangedFields = append([]string(nil), changed...)
+		changeReason := ""
+		if patch.ChangeReason != nil {
+			changeReason = strings.TrimSpace(*patch.ChangeReason)
+		}
+		scopeChanged := !equalStringSlices(beforeScope, nextContract.Scope)
+		if !crContractBaselineIsEmpty(cr.ContractBaseline) && scopeChanged && changeReason == "" {
+			return fmt.Errorf("change reason is required when updating CR contract scope after first checkpoint freeze")
+		}
 		if opts.DryRun {
 			return nil
 		}
@@ -356,16 +365,46 @@ func (s *Service) SetCRContractWithOptions(id int, patch ContractPatch, opts Set
 		nextContract.UpdatedAt = now
 		nextContract.UpdatedBy = actor
 		cr.Contract = nextContract
-		return s.appendCRMutationEventAndSave(cr, model.Event{
+		cr.UpdatedAt = now
+		meta := map[string]string{
+			"fields": strings.Join(changed, ","),
+		}
+		if changeReason != "" {
+			meta["change_reason"] = changeReason
+		}
+		cr.Events = append(cr.Events, model.Event{
 			TS:      now,
 			Actor:   actor,
 			Type:    model.EventTypeContractUpdated,
 			Summary: fmt.Sprintf("Updated contract fields: %s", strings.Join(changed, ",")),
 			Ref:     fmt.Sprintf("cr:%d", id),
-			Meta: map[string]string{
-				"fields": strings.Join(changed, ","),
-			},
+			Meta:    meta,
 		})
+		if !crContractBaselineIsEmpty(cr.ContractBaseline) && scopeChanged {
+			drift := model.CRContractDrift{
+				ID:          nextCRContractDriftID(cr.ContractDrifts),
+				TS:          now,
+				Actor:       actor,
+				Fields:      []string{"scope_changed"},
+				BeforeScope: append([]string(nil), beforeScope...),
+				AfterScope:  append([]string(nil), nextContract.Scope...),
+				Reason:      changeReason,
+			}
+			cr.ContractDrifts = append(cr.ContractDrifts, drift)
+			cr.Events = append(cr.Events, model.Event{
+				TS:      now,
+				Actor:   actor,
+				Type:    model.EventTypeCRContractDriftRecorded,
+				Summary: fmt.Sprintf("Recorded CR contract drift #%d (scope_changed)", drift.ID),
+				Ref:     fmt.Sprintf("cr:%d", id),
+				Meta: map[string]string{
+					"drift_id": strconv.Itoa(drift.ID),
+					"fields":   "scope_changed",
+					"reason":   changeReason,
+				},
+			})
+		}
+		return s.activeLifecycleStoreProvider().SaveCR(cr)
 	}); err != nil {
 		return nil, err
 	}
@@ -383,6 +422,78 @@ func (s *Service) GetCRContract(id int) (*model.Contract, error) {
 	contract.Invariants = append([]string(nil), contract.Invariants...)
 	contract.RiskCriticalScopes = append([]string(nil), contract.RiskCriticalScopes...)
 	return &contract, nil
+}
+
+func (s *Service) GetCRContractBaseline(crID int) (*model.CRContractBaseline, error) {
+	cr, err := s.store.LoadCR(crID)
+	if err != nil {
+		return nil, err
+	}
+	baseline := cr.ContractBaseline
+	baseline.Scope = append([]string(nil), baseline.Scope...)
+	return &baseline, nil
+}
+
+func (s *Service) ListCRContractDrifts(crID int) ([]model.CRContractDrift, error) {
+	cr, err := s.store.LoadCR(crID)
+	if err != nil {
+		return nil, err
+	}
+	drifts := append([]model.CRContractDrift(nil), cr.ContractDrifts...)
+	sort.Slice(drifts, func(i, j int) bool {
+		if drifts[i].ID == drifts[j].ID {
+			return drifts[i].TS < drifts[j].TS
+		}
+		return drifts[i].ID < drifts[j].ID
+	})
+	return drifts, nil
+}
+
+func (s *Service) AckCRContractDrift(crID, driftID int, reason string) (*model.CRContractDrift, error) {
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		return nil, fmt.Errorf("ack reason is required")
+	}
+	var ack model.CRContractDrift
+	if err := s.withMutationLock(func() error {
+		cr, err := s.loadCRForMutation(crID)
+		if err != nil {
+			return err
+		}
+		driftIndex := indexOfCRDrift(cr.ContractDrifts, driftID)
+		if driftIndex < 0 {
+			return fmt.Errorf("cr %d drift %d not found", crID, driftID)
+		}
+
+		now := s.timestamp()
+		actor := s.git.Actor()
+		cr.ContractDrifts[driftIndex].Acknowledged = true
+		cr.ContractDrifts[driftIndex].AcknowledgedAt = now
+		cr.ContractDrifts[driftIndex].AcknowledgedBy = actor
+		cr.ContractDrifts[driftIndex].AckReason = reason
+
+		if err := s.appendCRMutationEventAndSave(cr, model.Event{
+			TS:      now,
+			Actor:   actor,
+			Type:    model.EventTypeCRContractDriftAcknowledged,
+			Summary: fmt.Sprintf("Acknowledged CR contract drift #%d", driftID),
+			Ref:     fmt.Sprintf("cr:%d", crID),
+			Meta: map[string]string{
+				"drift_id": strconv.Itoa(driftID),
+				"reason":   reason,
+			},
+		}); err != nil {
+			return err
+		}
+		ack = cr.ContractDrifts[driftIndex]
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+	ack.Fields = append([]string(nil), ack.Fields...)
+	ack.BeforeScope = append([]string(nil), ack.BeforeScope...)
+	ack.AfterScope = append([]string(nil), ack.AfterScope...)
+	return &ack, nil
 }
 
 func (s *Service) SetCRBase(id int, ref string, rebase bool) (*model.CR, error) {

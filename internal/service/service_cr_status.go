@@ -202,11 +202,25 @@ func (s *Service) ValidateCR(id int) (*ValidationReport, error) {
 	impact := buildImpactReport(cr, diff, policy)
 
 	errorsOut := make([]string, 0)
+	scopeLabel := "declared contract scope"
+	if strings.TrimSpace(impact.ScopeSource) == "contract_baseline" {
+		scopeLabel = "frozen contract baseline scope"
+	}
+	scopeDriftErrors := append([]string(nil), impact.ScopeDrift...)
+	if strings.TrimSpace(impact.ScopeSource) == "contract_baseline" {
+		crDrift := summarizeCRContractDrift(cr.ContractDrifts)
+		if crDrift.Unacknowledged == 0 {
+			// Drift is still surfaced in impact, but acknowledged contract revisions
+			// should be validated against the latest declared scope for merge eligibility.
+			scopeDriftErrors = findScopeDrift(diff.Files, append([]string(nil), cr.Contract.Scope...))
+			scopeLabel = "declared contract scope"
+		}
+	}
 	for _, field := range missingCRContractFields(cr.Contract, policy.Contract.RequiredFields) {
 		errorsOut = append(errorsOut, fmt.Sprintf("missing required contract field: %s", field))
 	}
-	for _, driftPath := range impact.ScopeDrift {
-		errorsOut = append(errorsOut, fmt.Sprintf("scope drift: changed path %q is outside declared contract scope", driftPath))
+	for _, driftPath := range scopeDriftErrors {
+		errorsOut = append(errorsOut, fmt.Sprintf("scope drift: changed path %q is outside %s", driftPath, scopeLabel))
 	}
 	errorsOut = append(errorsOut, policyScopeViolationErrors(cr, policy.Scope.AllowedPrefixes)...)
 	for _, task := range cr.Subtasks {
@@ -218,6 +232,9 @@ func (s *Service) ValidateCR(id int) (*ValidationReport, error) {
 	sort.Strings(errorsOut)
 
 	warnings := append([]string(nil), policyWarnings...)
+	if strings.TrimSpace(impact.ScopeSource) == "contract_baseline" {
+		warnings = append(warnings, "scope drift is evaluated against frozen contract baseline scope (first checkpoint)")
+	}
 	warnings = append(warnings, impact.TaskScopeWarnings...)
 	warnings = append(warnings, impact.TaskContractWarnings...)
 	warnings = append(warnings, impact.TaskChunkWarnings...)
@@ -249,6 +266,9 @@ func (s *Service) validateCRWithoutDiffContext(cr *model.CR, policy *model.RepoP
 
 	warnings := append([]string(nil), policyWarnings...)
 	warnings = append(warnings, "branch context unavailable; validation derived from CR metadata only")
+	if strings.TrimSpace(impact.ScopeSource) == "contract_baseline" {
+		warnings = append(warnings, "scope drift source: frozen contract baseline scope (first checkpoint)")
+	}
 	warnings = append(warnings, impact.TaskScopeWarnings...)
 	warnings = append(warnings, impact.TaskContractWarnings...)
 	warnings = append(warnings, impact.TaskChunkWarnings...)

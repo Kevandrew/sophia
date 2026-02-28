@@ -109,7 +109,9 @@ func (d *trustDomain) buildReportWithPolicyAt(cr *model.CR, validation *Validati
 	requirements = append(requirements, checkRequirements...)
 	requirements = append(requirements, buildReviewDepthRequirement(reviewDepth))
 	contractDrift := summarizeTaskContractDrift(cr.Subtasks)
+	crContractDrift := summarizeCRContractDrift(cr.ContractDrifts)
 	requirements = append(requirements, buildContractDriftRequirement(contractDrift, cr.ID))
+	requirements = append(requirements, buildCRContractDriftRequirement(crContractDrift, cr.ID))
 	advisories = appendRiskTierAdvisories(advisories, impact, reviewDepth, cr.Contract, diff)
 	requiredActions := collectRequiredActions(requirements)
 
@@ -136,6 +138,7 @@ func (d *trustDomain) buildReportWithPolicyAt(cr *model.CR, validation *Validati
 		CheckResults:     checkResults,
 		ReviewDepth:      reviewDepth,
 		ContractDrift:    contractDrift,
+		CRContractDrift:  crContractDrift,
 		Gate:             gate,
 	}
 }

@@ -522,6 +522,21 @@ func (d *taskLifecycleDomain) applyTaskCheckpointForDone(gitProvider taskLifecyc
 	if servicetasks.TaskContractBaselineIsEmpty(task.ContractBaseline) {
 		task.ContractBaseline = servicetasks.TaskContractBaselineFromContract(task.Contract, now, actor)
 	}
+	if crContractBaselineIsEmpty(cr.ContractBaseline) {
+		cr.ContractBaseline = crContractBaselineFromScope(cr.Contract.Scope, now, actor)
+		cr.Events = append(cr.Events, model.Event{
+			TS:      now,
+			Actor:   actor,
+			Type:    model.EventTypeCRContractBaselineCaptured,
+			Summary: fmt.Sprintf("Captured CR contract scope baseline at first checkpoint (task %d)", taskID),
+			Ref:     fmt.Sprintf("cr:%d", cr.ID),
+			Meta: map[string]string{
+				"task_id":           strconv.Itoa(taskID),
+				"checkpoint_commit": sha,
+				"scope":             strings.Join(cr.ContractBaseline.Scope, ","),
+			},
+		})
+	}
 
 	meta := map[string]string{
 		"commit":  sha,
