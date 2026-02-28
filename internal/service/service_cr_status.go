@@ -10,6 +10,52 @@ import (
 	"sophia/internal/model"
 )
 
+type WhyView struct {
+	CRID              int
+	CRUID             string
+	BaseRef           string
+	BaseCommit        string
+	ParentCRID        int
+	EffectiveWhy      string
+	Source            string
+	Description       string
+	ContractWhy       string
+	ContractUpdatedAt string
+	ContractUpdatedBy string
+}
+
+type CRStatusView struct {
+	ID                    int
+	UID                   string
+	Title                 string
+	Status                string
+	BaseBranch            string
+	BaseRef               string
+	BaseCommit            string
+	ParentCRID            int
+	ParentStatus          string
+	Branch                string
+	CurrentBranch         string
+	BranchMatch           bool
+	ModifiedStagedCount   int
+	UntrackedCount        int
+	Dirty                 bool
+	TasksTotal            int
+	TasksOpen             int
+	TasksDone             int
+	TasksDelegated        int
+	TasksDelegatedPending int
+	ContractComplete      bool
+	ContractMissingFields []string
+	ValidationValid       bool
+	ValidationErrors      int
+	ValidationWarnings    int
+	RiskTier              string
+	RiskScore             int
+	MergeBlocked          bool
+	MergeBlockers         []string
+}
+
 func (s *Service) WhyCR(id int) (*WhyView, error) {
 	statusStore := s.activeStatusStoreProvider()
 	statusGit := s.activeStatusGitProvider()
