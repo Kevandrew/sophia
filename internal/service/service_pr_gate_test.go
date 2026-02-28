@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"sophia/internal/gitx"
 	"sophia/internal/model"
 )
 
@@ -43,6 +44,128 @@ func TestMergeManagedPRBodyRejectsMarkerCorruption(t *testing.T) {
 	}
 	if !strings.Contains(strings.ToLower(err.Error()), "marker corruption") {
 		t.Fatalf("expected marker corruption error, got %v", err)
+	}
+}
+
+func TestRenderManagedPRBlockIncludesBlastRadiusAndCRDrifts(t *testing.T) {
+	review := &Review{
+		CR: &model.CR{
+			Title:      "Feature rollout",
+			Branch:     "feature-rollout",
+			BaseRef:    "main",
+			BaseBranch: "main",
+			Contract: model.Contract{
+				Why:          "Improve rollout safety",
+				BlastRadius:  "Affects deployment workflow and release bot comments.",
+				RollbackPlan: "Revert merge commit.",
+			},
+			ContractDrifts: []model.CRContractDrift{
+				{
+					TS:           "2026-03-01T10:00:00Z",
+					Fields:       []string{"scope"},
+					Reason:       "Expanded for release metadata path",
+					Acknowledged: true,
+					AckReason:    "Reviewer accepted scope widening",
+				},
+			},
+		},
+		ShortStat: "2 files changed, 10 insertions(+), 1 deletion(-)",
+	}
+
+	md := renderManagedPRBlock(review)
+	if !strings.Contains(md, "### Blast Radius") {
+		t.Fatalf("expected blast radius section, got:\n%s", md)
+	}
+	if !strings.Contains(md, "Affects deployment workflow and release bot comments.") {
+		t.Fatalf("expected blast radius content, got:\n%s", md)
+	}
+	if !strings.Contains(md, "### CR Contract Drifts") {
+		t.Fatalf("expected CR contract drift section, got:\n%s", md)
+	}
+	if !strings.Contains(md, "Expanded for release metadata path") || !strings.Contains(md, "Reviewer accepted scope widening") {
+		t.Fatalf("expected CR drift reason and ack reason, got:\n%s", md)
+	}
+}
+
+func TestRenderManagedPRBlockUsesTaskContractDriftsForScopeDriftSignal(t *testing.T) {
+	review := &Review{
+		CR: &model.CR{
+			Title:      "Task drift signal",
+			Branch:     "task-drift",
+			BaseRef:    "main",
+			BaseBranch: "main",
+			Contract: model.Contract{
+				Why:          "Validate task drift rendering",
+				BlastRadius:  "Renderer output only.",
+				RollbackPlan: "Revert.",
+			},
+			Subtasks: []model.Subtask{
+				{
+					ID:               1,
+					Title:            "Orphan checkpoint only",
+					Status:           model.TaskStatusDone,
+					CheckpointCommit: "aaaaaaaaaaaa",
+					CheckpointOrphan: true,
+				},
+				{
+					ID:               2,
+					Title:            "Contract drift task",
+					Status:           model.TaskStatusDone,
+					CheckpointCommit: "bbbbbbbbbbbb",
+					ContractDrifts: []model.TaskContractDrift{
+						{
+							TS:     "2026-03-01T11:00:00Z",
+							Fields: []string{"scope"},
+							Reason: "Scope widened for tests",
+						},
+					},
+				},
+			},
+		},
+		ShortStat: "1 file changed, 2 insertions(+), 0 deletions(-)",
+	}
+
+	md := renderManagedPRBlock(review)
+	if strings.Contains(md, "| done | Orphan checkpoint only | - | - | aaaaaaaaaaaa | yes") {
+		t.Fatalf("expected orphan-only task to not be marked as contract drift, got:\n%s", md)
+	}
+	if !strings.Contains(md, "| done | Contract drift task | - | - | bbbbbbbbbbbb | yes (1) |") {
+		t.Fatalf("expected contract-drift task marker, got:\n%s", md)
+	}
+}
+
+func TestRenderManagedPRBlockIncludesDiffBreakdownWithNumStats(t *testing.T) {
+	ins := 7
+	del := 3
+	review := &Review{
+		CR: &model.CR{
+			Title:      "Diff table",
+			Branch:     "diff-table",
+			BaseRef:    "main",
+			BaseBranch: "main",
+			Contract: model.Contract{
+				Why:          "Show per-file stats",
+				BlastRadius:  "PR rendering.",
+				RollbackPlan: "Revert.",
+			},
+		},
+		ShortStat: "1 file changed, 7 insertions(+), 3 deletions(-)",
+		Files:     []string{"internal/service/service_pr_gate.go"},
+		DiffNumStats: []gitx.DiffNumStat{
+			{
+				Path:       "internal/service/service_pr_gate.go",
+				Insertions: &ins,
+				Deletions:  &del,
+			},
+		},
+	}
+
+	md := renderManagedPRBlock(review)
+	if !strings.Contains(md, "#### File Breakdown") {
+		t.Fatalf("expected file breakdown section, got:\n%s", md)
+	}
+	if !strings.Contains(md, "| internal/service/service_pr_gate.go | modified | 7 | 3 |") {
+		t.Fatalf("expected per-file numstat row, got:\n%s", md)
 	}
 }
 
