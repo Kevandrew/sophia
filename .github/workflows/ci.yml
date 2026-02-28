@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  pull_request:
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - ready_for_review
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  go-checks:
+    if: ${{ github.event.pull_request.draft == false }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Configure Git identity for tests
+        run: |
+          git config --global user.name "sophia-ci"
+          git config --global user.email "sophia-ci@users.noreply.github.com"
+
+      - name: Go test
+        run: go test ./... -count=1
+
+      - name: Go vet
+        run: go vet ./...

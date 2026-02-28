@@ -127,6 +127,7 @@ Behavior in `pr_gate` mode:
 - Stages/commits `cr-<id>.v1.yaml` archive artifact on CR branch when archive policy is enabled.
 - Creates or syncs a draft PR and updates only Sophia-managed body section.
 - Returns PR URL plus gate status (approvals/checks/draft readiness).
+- Repository CI checks run on PR lifecycle events only after PR is non-draft (`ready_for_review` or non-draft open/sync events).
 
 3. Optional explicit PR commands:
 

@@ -1,0 +1,79 @@
+schema_version: sophia.cr_archive.v1
+notice: Historical archive snapshot. Corrections are append-only revisions.
+archived_at: "2026-02-28T21:11:29Z"
+revision: 1
+cr:
+    id: 92
+    uid: cr_b10ec7e7-40d3-4836-8657-8fb23b9ef1a8
+    title: Add PR-ready CI test workflow
+    description: Add GitHub Actions CI to run Go tests for review-ready PR changes while avoiding draft PR noise.
+    status: merged
+    base_branch: main
+    base_ref: main
+    base_commit: 66d0d946f45a4d43531c7eb785b7e8c85cacb417
+    branch: cr-add-pr-ready-ci-test-workflow-b10e
+    merged_at: "2026-02-28T21:11:29Z"
+    merged_by: Kevandrew <143258544+Kevandrew@users.noreply.github.com>
+contract:
+    why: Repository policy is PR-gated but only release automation exists today, so PRs can be merged without a consistent CI signal. This CR adds a dedicated PR CI workflow that runs validation for Go changes and is intentionally gated to review-ready (non-draft) PR states to avoid churn while work is still draft. Success means PRs that are ready for review always receive a deterministic test check, and draft PRs do not consume CI unnecessarily.
+    scope:
+        - .github/workflows
+        - go.mod
+        - go.sum
+    non_goals:
+        - Do not change release/tag workflow behavior.
+        - Do not introduce multi-OS or Go-version matrix in this CR.
+        - Do not redesign repository merge policy or PR gate rules in Sophia.
+    invariants:
+        - CI workflow skips execution for draft PRs and runs when PR is review-ready.
+        - Release workflow remains tag-only and functionally unchanged.
+        - Workflow commands are reproducible locally (go test/go vet).
+    blast_radius: GitHub Actions PR checks, branch protection/check gating behavior, and contributor feedback loop for review-ready pull requests.
+    risk_tier_hint: medium
+    risk_rationale: Changes affect merge-gate signal reliability and PR feedback timing but are isolated to workflow automation.
+    test_plan: go test ./... -count=1 && go vet ./...
+    rollback_plan: Revert the CR-92 merge commit to remove the CI workflow and restore prior behavior.
+tasks:
+    - id: 1
+      title: Add PR CI workflow triggers for review-ready lifecycle events
+      status: open
+      contract:
+        intent: Introduce a dedicated CI workflow trigger model for pull requests and ensure job execution is tied to review-ready (non-draft) state transitions.
+        acceptance_criteria:
+            - CI job is skipped when pull_request.draft is true.
+            - Transitioning draft -> ready_for_review causes CI execution without requiring manual rerun.
+            - Workflow triggers on pull_request events needed for review lifecycle (opened/reopened/synchronize/ready_for_review).
+        scope:
+            - .github/workflows/ci.yml
+    - id: 2
+      title: Implement deterministic Go test and vet job steps in CI workflow
+      status: open
+      contract:
+        intent: Define deterministic Go validation steps in CI so reviewers have a consistent pass/fail signal on ready PRs.
+        acceptance_criteria:
+            - Job fails fast on command failure and reports a single clear status check.
+            - Workflow executes go vet ./... in the same CI job or deterministic sequence.
+            - Workflow sets up Go from go.mod and executes go test ./... -count=1.
+        scope:
+            - .github/workflows/ci.yml
+            - go.mod
+            - go.sum
+    - id: 3
+      title: Add workflow docs note for PR-ready test behavior and expected checks
+      status: open
+      contract:
+        intent: Document the new PR-ready CI behavior so contributors know when checks run and which status signal to expect before review/merge.
+        acceptance_criteria:
+            - Docs note where to look in GitHub UI when required checks are missing or skipped due to draft state.
+            - Documentation lists the baseline CI commands (go test ./... -count=1 and go vet ./...) that back the status check.
+            - Documentation states that CI test workflow is intended for review-ready PRs and drafts are skipped.
+        scope:
+            - docs/repository-policy.md
+            - docs/troubleshooting.md
+            - docs/workflow.md
+git_summary:
+    base_parent: 66d0d946f45a4d43531c7eb785b7e8c85cacb417
+    cr_parent: 66d0d946f45a4d43531c7eb785b7e8c85cacb417
+    files_changed: []
+    diffstat:
+        summary: 0 files changed, 0 insertions(+), 0 deletions(-)
