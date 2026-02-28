@@ -8,6 +8,52 @@ import (
 	"strings"
 )
 
+type TaskDelegationView struct {
+	ChildCRID   int
+	ChildCRUID  string
+	ChildTaskID int
+	ChildStatus string
+	LinkedAt    string
+	LinkedBy    string
+}
+
+type DelegateTaskResult struct {
+	ParentTaskID     int
+	ParentTaskStatus string
+	ChildTaskID      int
+	ChildCRID        int
+}
+
+type UndelegateTaskResult struct {
+	ParentTaskID      int
+	ParentTaskStatus  string
+	RemovedDelegation int
+}
+
+type StackNodeView struct {
+	ID                    int
+	UID                   string
+	ParentCRID            int
+	Title                 string
+	Status                string
+	Branch                string
+	Depth                 int
+	Children              []int
+	MergeBlocked          bool
+	MergeBlockers         []string
+	TasksTotal            int
+	TasksOpen             int
+	TasksDone             int
+	TasksDelegated        int
+	TasksDelegatedPending int
+}
+
+type StackView struct {
+	RootCRID  int
+	FocusCRID int
+	Nodes     []StackNodeView
+}
+
 func (s *Service) AddChildCRFromCurrent(title, description string) (*model.CR, []string, error) {
 	ctx, err := s.CurrentCR()
 	if err != nil {
