@@ -29,6 +29,11 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: Configure Git identity for tests
+        run: |
+          git config --global user.name "sophia-ci"
+          git config --global user.email "sophia-ci@users.noreply.github.com"
+
       - name: Go test
         run: go test ./... -count=1
 
