@@ -115,7 +115,7 @@ func TestPRGateMergeJSONReturnsPushPermissionDeniedErrorDetails(t *testing.T) {
 	installFakeGH(t, "echo '[]'; exit 0")
 	installFakeGitPushDenied(t)
 
-	out, _, runErr := runCLI(t, dir, "cr", "merge", "1", "--json")
+	out, _, runErr := runCLI(t, dir, "cr", "merge", "1", "--approve-pr-open", "--json")
 	if runErr == nil {
 		t.Fatalf("expected cr merge --json to fail for push denial")
 	}

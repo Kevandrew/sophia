@@ -273,6 +273,7 @@ type CRPRLink struct {
 	LastMergedAt             string   `yaml:"last_merged_at,omitempty"`
 	LastMergedCommit         string   `yaml:"last_merged_commit,omitempty"`
 	CheckpointCommentKeys    []string `yaml:"checkpoint_comment_keys,omitempty"`
+	CheckpointSyncKeys       []string `yaml:"checkpoint_sync_keys,omitempty"`
 	AwaitingOpenApproval     bool     `yaml:"awaiting_open_approval,omitempty"`
 	AwaitingOpenApprovalNote string   `yaml:"awaiting_open_approval_note,omitempty"`
 }

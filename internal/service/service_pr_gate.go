@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -894,9 +895,6 @@ func (s *Service) openOrSyncPRForCR(cr *model.CR, policy *model.RepoPolicy, appr
 	if err := s.stageArchiveForPRGate(cr, policy); err != nil {
 		return nil, err
 	}
-	if err := s.pushBranchIfNeeded(cr); err != nil {
-		return nil, err
-	}
 	ctx, err := s.buildPRContextView(cr)
 	if err != nil {
 		return nil, err
@@ -940,6 +938,9 @@ func (s *Service) openOrSyncPRForCR(cr *model.CR, policy *model.RepoPolicy, appr
 				Reason: "approve PR create/open to proceed",
 			}
 		}
+		if err := s.pushBranchIfNeeded(cr); err != nil {
+			return nil, err
+		}
 		url, createErr := s.createDraftPR(repoSelector, cr, ctx.Markdown)
 		if createErr != nil {
 			return nil, createErr
@@ -976,9 +977,19 @@ func (s *Service) openOrSyncPRForCR(cr *model.CR, policy *model.RepoPolicy, appr
 			return nil, err
 		}
 	}
+	remoteHead := strings.TrimSpace(pr.HeadRefOID)
 	if pr.Number > 0 {
-		if commentErr := s.syncCheckpointComments(repoSelector, pr.Number, cr, !hadLinkedPR); commentErr != nil {
+		updatedHead, commentErr := s.syncCheckpointComments(repoSelector, pr.Number, cr, !hadLinkedPR, remoteHead)
+		if commentErr != nil {
 			return nil, commentErr
+		}
+		if strings.TrimSpace(updatedHead) != "" {
+			remoteHead = strings.TrimSpace(updatedHead)
+		}
+		if refreshed, refreshErr := s.fetchPRByNumber(repoSelector, pr.Number); refreshErr == nil && refreshed != nil {
+			pr = refreshed
+		} else if remoteHead != "" {
+			pr.HeadRefOID = remoteHead
 		}
 	}
 	now := s.timestamp()
@@ -988,7 +999,7 @@ func (s *Service) openOrSyncPRForCR(cr *model.CR, policy *model.RepoPolicy, appr
 	cr.PR.URL = strings.TrimSpace(pr.URL)
 	cr.PR.State = strings.TrimSpace(pr.State)
 	cr.PR.Draft = pr.IsDraft
-	cr.PR.LastHeadSHA = strings.TrimSpace(pr.HeadRefOID)
+	cr.PR.LastHeadSHA = strings.TrimSpace(nonEmptyTrimmed(pr.HeadRefOID, remoteHead))
 	cr.PR.LastBaseRef = strings.TrimSpace(pr.BaseRefName)
 	cr.PR.LastBodyHash = hashString(finalBody)
 	cr.PR.LastSyncedAt = now
@@ -1065,24 +1076,179 @@ func mergeManagedPRBody(existingBody, managed string) (string, error) {
 	return out.String() + "\n", nil
 }
 
-func (s *Service) syncCheckpointComments(repoSelector string, prNumber int, cr *model.CR, skipPosting bool) error {
+type checkpointSyncPending struct {
+	Key          string
+	TaskIndex    int
+	TaskID       int
+	TaskTitle    string
+	Commit       string
+	MissingIndex int
+}
+
+func checkpointSyncKey(taskID int, commit string) string {
+	return fmt.Sprintf("task:%d:%s", taskID, strings.TrimSpace(commit))
+}
+
+func renderCheckpointSyncComment(taskID int, title string) string {
+	trimmed := strings.TrimSpace(title)
+	if trimmed == "" {
+		trimmed = "Untitled task"
+	}
+	return fmt.Sprintf("### Checkpoint sync: task %d - %s", taskID, trimmed)
+}
+
+func parseRevListOutput(raw string) []string {
+	lines := strings.Split(strings.TrimSpace(raw), "\n")
+	out := make([]string, 0, len(lines))
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		out = append(out, trimmed)
+	}
+	return out
+}
+
+func validateCheckpointStrictOrder(toSync []checkpointSyncPending, missingCommits []string) error {
+	lastMissingIndex := -1
+	for _, pending := range toSync {
+		if pending.MissingIndex == lastMissingIndex {
+			continue
+		}
+		if pending.MissingIndex != lastMissingIndex+1 {
+			blocking := ""
+			if lastMissingIndex+1 >= 0 && lastMissingIndex+1 < len(missingCommits) {
+				blocking = shortCheckpointRef(missingCommits[lastMissingIndex+1])
+			}
+			if blocking == "" {
+				blocking = "non-checkpoint commit"
+			}
+			return fmt.Errorf("checkpoint sync for task %d requires a clean checkpoint-only branch order; commit %s appears before checkpoint commit %s", pending.TaskID, blocking, shortCheckpointRef(pending.Commit))
+		}
+		lastMissingIndex = pending.MissingIndex
+	}
+	return nil
+}
+
+func (s *Service) revListReverse(from, to string) ([]string, error) {
+	left := strings.TrimSpace(from)
+	right := strings.TrimSpace(to)
+	if left == "" || right == "" || left == right {
+		return []string{}, nil
+	}
+	out, err := s.runCommand("git", "rev-list", "--reverse", fmt.Sprintf("%s..%s", left, right))
+	if err != nil {
+		return nil, err
+	}
+	return parseRevListOutput(out), nil
+}
+
+func (s *Service) remoteBranchHeadOID(branch string) (string, error) {
+	trimmed := strings.TrimSpace(branch)
+	if trimmed == "" {
+		return "", fmt.Errorf("branch is required")
+	}
+	out, err := s.runCommand("git", "ls-remote", "--heads", "origin", trimmed)
+	if err != nil {
+		return "", err
+	}
+	fields := strings.Fields(strings.TrimSpace(out))
+	if len(fields) == 0 {
+		return "", nil
+	}
+	return strings.TrimSpace(fields[0]), nil
+}
+
+func (s *Service) pushBranchRefspec(refspec string, dryRun bool) error {
+	trimmed := strings.TrimSpace(refspec)
+	if trimmed == "" {
+		return fmt.Errorf("push refspec is required")
+	}
+	args := []string{"push"}
+	if dryRun {
+		args = append(args, "--dry-run")
+	}
+	args = append(args, "origin", trimmed)
+	_, err := s.runCommand("git", args...)
+	return err
+}
+
+func (s *Service) gitIsAncestor(ancestor, descendant string) (bool, error) {
+	left := strings.TrimSpace(ancestor)
+	right := strings.TrimSpace(descendant)
+	if left == "" || right == "" {
+		return false, fmt.Errorf("ancestor and descendant refs are required")
+	}
+	cmd := exec.Command("git", "merge-base", "--is-ancestor", left, right)
+	cmd.Dir = s.git.WorkDir
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+			return false, nil
+		}
+		msg := strings.TrimSpace(stderr.String())
+		if msg == "" {
+			msg = strings.TrimSpace(stdout.String())
+		}
+		if msg == "" {
+			msg = err.Error()
+		}
+		return false, fmt.Errorf("git merge-base --is-ancestor %s %s: %s", left, right, msg)
+	}
+	return true, nil
+}
+
+func (s *Service) syncCheckpointComments(repoSelector string, prNumber int, cr *model.CR, skipPosting bool, remoteHeadSHA string) (string, error) {
 	if cr == nil || prNumber <= 0 {
-		return nil
+		return strings.TrimSpace(remoteHeadSHA), nil
 	}
-	posted := map[string]struct{}{}
+	remoteHead := strings.TrimSpace(remoteHeadSHA)
+	if remoteHead == "" {
+		resolved, err := s.remoteBranchHeadOID(cr.Branch)
+		if err != nil {
+			return "", err
+		}
+		remoteHead = strings.TrimSpace(resolved)
+	}
+	localHead, err := s.branchHeadOID(cr.Branch)
+	if err != nil {
+		return "", err
+	}
+	localHead = strings.TrimSpace(localHead)
+	if localHead == "" {
+		return remoteHead, nil
+	}
+	if remoteHead == "" {
+		// Branch not yet on remote; initial open/create path handles publication.
+		return localHead, nil
+	}
+
+	missingCommits, err := s.revListReverse(remoteHead, localHead)
+	if err != nil {
+		return "", err
+	}
+	missingIndex := map[string]int{}
+	for i, commit := range missingCommits {
+		missingIndex[strings.TrimSpace(commit)] = i
+	}
+
+	synced := map[string]struct{}{}
+	for _, key := range cr.PR.CheckpointSyncKeys {
+		synced[strings.TrimSpace(key)] = struct{}{}
+	}
 	for _, key := range cr.PR.CheckpointCommentKeys {
-		posted[strings.TrimSpace(key)] = struct{}{}
+		synced[strings.TrimSpace(key)] = struct{}{}
 	}
 
-	type pending struct {
-		key   string
-		short string
-		title string
-		drift string
-	}
-	var toSync []pending
-
-	for _, task := range cr.Subtasks {
+	toSync := make([]checkpointSyncPending, 0, len(cr.Subtasks))
+	now := s.timestamp()
+	for idx := range cr.Subtasks {
+		task := &cr.Subtasks[idx]
 		if task.Status != model.TaskStatusDone {
 			continue
 		}
@@ -1090,42 +1256,92 @@ func (s *Service) syncCheckpointComments(repoSelector string, prNumber int, cr *
 		if commit == "" {
 			continue
 		}
-		key := fmt.Sprintf("task:%d:%s", task.ID, commit)
-		if _, exists := posted[key]; exists {
+		key := checkpointSyncKey(task.ID, commit)
+		if _, exists := synced[key]; exists {
 			continue
 		}
-		short := commit
-		if len(short) > 12 {
-			short = short[:12]
+		if pos, exists := missingIndex[commit]; exists {
+			toSync = append(toSync, checkpointSyncPending{
+				Key:          key,
+				TaskIndex:    idx,
+				TaskID:       task.ID,
+				TaskTitle:    strings.TrimSpace(task.Title),
+				Commit:       commit,
+				MissingIndex: pos,
+			})
+			continue
 		}
-		drift := "no"
-		if taskHasContractDrift(task) {
-			drift = "yes"
+		ancestor, ancestorErr := s.gitIsAncestor(commit, remoteHead)
+		if ancestorErr != nil {
+			return "", ancestorErr
 		}
-		toSync = append(toSync, pending{key: key, short: short, title: strings.TrimSpace(task.Title), drift: drift})
+		if ancestor {
+			cr.PR.CheckpointSyncKeys = append(cr.PR.CheckpointSyncKeys, key)
+			cr.Subtasks[idx].CheckpointSyncAt = now
+			synced[key] = struct{}{}
+			continue
+		}
+		return "", fmt.Errorf("checkpoint sync requires task %d commit %s to be reachable from local or remote branch history", task.ID, shortCheckpointRef(commit))
 	}
 
-	if len(toSync) > 0 {
+	sort.SliceStable(toSync, func(i, j int) bool {
+		if toSync[i].MissingIndex != toSync[j].MissingIndex {
+			return toSync[i].MissingIndex < toSync[j].MissingIndex
+		}
+		return toSync[i].TaskID < toSync[j].TaskID
+	})
+
+	if err := validateCheckpointStrictOrder(toSync, missingCommits); err != nil {
+		return "", err
+	}
+
+	lastPushedIndex := -1
+	for _, pending := range toSync {
+		if pending.MissingIndex == lastPushedIndex {
+			cr.PR.CheckpointSyncKeys = append(cr.PR.CheckpointSyncKeys, pending.Key)
+			cr.Subtasks[pending.TaskIndex].CheckpointSyncAt = now
+			synced[pending.Key] = struct{}{}
+			continue
+		}
+		refspec := fmt.Sprintf("%s:refs/heads/%s", pending.Commit, strings.TrimSpace(cr.Branch))
+		if err := s.pushBranchRefspec(refspec, true); err != nil {
+			return "", err
+		}
 		if !skipPosting {
-			var b strings.Builder
-			b.WriteString("### Checkpoints Synced\n\n")
-			b.WriteString("| Checkpoint | Task | Scope Drift |\n")
-			b.WriteString("| --- | --- | --- |\n")
-			for _, p := range toSync {
-				b.WriteString(fmt.Sprintf("| %s | %s | %s |\n", markdownTableCell(p.short), markdownTableCell(p.title), markdownTableCell(p.drift)))
-			}
-			if _, err := s.runGH(repoSelector, "pr", "comment", strconv.Itoa(prNumber), "--body", b.String()); err != nil {
-				return err
+			commentBody := renderCheckpointSyncComment(pending.TaskID, pending.TaskTitle)
+			if _, err := s.runGH(repoSelector, "pr", "comment", strconv.Itoa(prNumber), "--body", commentBody); err != nil {
+				return "", err
 			}
 		}
-
-		for _, p := range toSync {
-			cr.PR.CheckpointCommentKeys = append(cr.PR.CheckpointCommentKeys, p.key)
+		if err := s.pushBranchRefspec(refspec, false); err != nil {
+			return "", err
 		}
-		sort.Strings(cr.PR.CheckpointCommentKeys)
-		cr.PR.CheckpointCommentKeys = dedupeStrings(cr.PR.CheckpointCommentKeys)
+		remoteHead = pending.Commit
+		if !skipPosting {
+			cr.PR.CheckpointCommentKeys = append(cr.PR.CheckpointCommentKeys, pending.Key)
+		}
+		cr.PR.CheckpointSyncKeys = append(cr.PR.CheckpointSyncKeys, pending.Key)
+		cr.Subtasks[pending.TaskIndex].CheckpointSyncAt = now
+		synced[pending.Key] = struct{}{}
+		lastPushedIndex = pending.MissingIndex
 	}
-	return nil
+
+	if strings.TrimSpace(remoteHead) != localHead {
+		refspec := fmt.Sprintf("%s:refs/heads/%s", localHead, strings.TrimSpace(cr.Branch))
+		if err := s.pushBranchRefspec(refspec, true); err != nil {
+			return "", err
+		}
+		if err := s.pushBranchRefspec(refspec, false); err != nil {
+			return "", err
+		}
+		remoteHead = localHead
+	}
+
+	sort.Strings(cr.PR.CheckpointCommentKeys)
+	cr.PR.CheckpointCommentKeys = dedupeStrings(cr.PR.CheckpointCommentKeys)
+	sort.Strings(cr.PR.CheckpointSyncKeys)
+	cr.PR.CheckpointSyncKeys = dedupeStrings(cr.PR.CheckpointSyncKeys)
+	return remoteHead, nil
 }
 
 func (s *Service) findPRByHead(repoSelector, branch, baseRef string) (*ghPRSummary, error) {

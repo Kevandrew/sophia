@@ -295,6 +295,9 @@ func (s *Store) LoadCR(id int) (*model.CR, error) {
 	if cr.PR.CheckpointCommentKeys == nil {
 		cr.PR.CheckpointCommentKeys = []string{}
 	}
+	if cr.PR.CheckpointSyncKeys == nil {
+		cr.PR.CheckpointSyncKeys = []string{}
+	}
 	return &cr, nil
 }
 
@@ -319,6 +322,9 @@ func (s *Store) SaveCR(cr *model.CR) error {
 	}
 	if cr.PR.CheckpointCommentKeys == nil {
 		cr.PR.CheckpointCommentKeys = []string{}
+	}
+	if cr.PR.CheckpointSyncKeys == nil {
+		cr.PR.CheckpointSyncKeys = []string{}
 	}
 	if err := os.MkdirAll(s.CRDir(), 0o755); err != nil {
 		return fmt.Errorf("ensure cr directory: %w", err)
@@ -389,6 +395,9 @@ func (s *Store) ListCRs() ([]model.CR, error) {
 		}
 		if cr.PR.CheckpointCommentKeys == nil {
 			cr.PR.CheckpointCommentKeys = []string{}
+		}
+		if cr.PR.CheckpointSyncKeys == nil {
+			cr.PR.CheckpointSyncKeys = []string{}
 		}
 		crs = append(crs, cr)
 	}
