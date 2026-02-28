@@ -38,6 +38,7 @@ func newCRCmd() *cobra.Command {
 	crCmd.AddCommand(newCREvidenceCmd())
 	crCmd.AddCommand(newCRCheckCmd())
 	crCmd.AddCommand(newCRReviewCmd())
+	crCmd.AddCommand(newCRPRCmd())
 	crCmd.AddCommand(newCRMergeCmd())
 	crCmd.AddCommand(newCRTaskCmd())
 	crCmd.AddCommand(newCRCurrentCmd())
