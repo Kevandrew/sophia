@@ -633,20 +633,41 @@ func renderCRContractDriftSection(b *strings.Builder, drifts []model.CRContractD
 		if drift.Acknowledged {
 			ack = "yes"
 		}
-		b.WriteString(fmt.Sprintf("- ts: %s | fields: %s | acknowledged: %s | reason: %s | ack_reason: %s\n",
-			nonEmptyTrimmed(strings.TrimSpace(drift.TS), "-"),
-			nonEmptyTrimmed(strings.Join(cleanAndDedupeStrings(drift.Fields), ", "), "-"),
-			ack,
-			nonEmptyTrimmed(strings.TrimSpace(drift.Reason), "-"),
-			nonEmptyTrimmed(strings.TrimSpace(drift.AckReason), "-"),
-		))
+		b.WriteString(fmt.Sprintf("- **Drift ID %d**\n", drift.ID))
+		b.WriteString(fmt.Sprintf("  - Time: %s\n", nonEmptyTrimmed(strings.TrimSpace(drift.TS), "-")))
+		b.WriteString(fmt.Sprintf("  - Change: %s\n", nonEmptyTrimmed(strings.Join(cleanAndDedupeStrings(drift.Fields), ", "), "-")))
+		b.WriteString(fmt.Sprintf("  - Acknowledged: %s\n", ack))
+		b.WriteString(fmt.Sprintf("  - Reason: %s\n", nonEmptyTrimmed(strings.TrimSpace(drift.Reason), "-")))
+		if strings.TrimSpace(drift.AckReason) != "" {
+			b.WriteString(fmt.Sprintf("  - Ack Reason: %s\n", strings.TrimSpace(drift.AckReason)))
+		}
 		if len(drift.BeforeScope) > 0 || len(drift.AfterScope) > 0 {
-			b.WriteString(fmt.Sprintf("  - before_scope: %s | after_scope: %s\n",
-				nonEmptyTrimmed(strings.Join(cleanAndDedupeStrings(drift.BeforeScope), ", "), "-"),
-				nonEmptyTrimmed(strings.Join(cleanAndDedupeStrings(drift.AfterScope), ", "), "-"),
-			))
+			added, removed := scopeDelta(cleanAndDedupeStrings(drift.BeforeScope), cleanAndDedupeStrings(drift.AfterScope))
+			b.WriteString("  - Scope Delta:\n")
+			b.WriteString(fmt.Sprintf("    - Added: %s\n", nonEmptyTrimmed(strings.Join(added, ", "), "none")))
+			b.WriteString(fmt.Sprintf("    - Removed: %s\n", nonEmptyTrimmed(strings.Join(removed, ", "), "none")))
 		}
 	}
+}
+
+func scopeDelta(before, after []string) ([]string, []string) {
+	beforeSet := stringSet(before)
+	afterSet := stringSet(after)
+	added := []string{}
+	removed := []string{}
+	for path := range afterSet {
+		if _, exists := beforeSet[path]; !exists {
+			added = append(added, path)
+		}
+	}
+	for path := range beforeSet {
+		if _, exists := afterSet[path]; !exists {
+			removed = append(removed, path)
+		}
+	}
+	sort.Strings(added)
+	sort.Strings(removed)
+	return added, removed
 }
 
 func renderTaskContractTable(b *strings.Builder, tasks []model.Subtask) {
@@ -1160,6 +1181,18 @@ func (s *Service) remoteBranchHeadOID(branch string) (string, error) {
 	return strings.TrimSpace(fields[0]), nil
 }
 
+func (s *Service) resolveCommitOID(ref string) (string, error) {
+	trimmed := strings.TrimSpace(ref)
+	if trimmed == "" {
+		return "", fmt.Errorf("commit ref is required")
+	}
+	out, err := s.runCommand("git", "rev-parse", "--verify", trimmed+"^{commit}")
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(out), nil
+}
+
 func (s *Service) pushBranchRefspec(refspec string, dryRun bool) error {
 	trimmed := strings.TrimSpace(refspec)
 	if trimmed == "" {
@@ -1252,13 +1285,17 @@ func (s *Service) syncCheckpointComments(repoSelector string, prNumber int, cr *
 		if task.Status != model.TaskStatusDone {
 			continue
 		}
-		commit := strings.TrimSpace(task.CheckpointCommit)
-		if commit == "" {
+		rawCommit := strings.TrimSpace(task.CheckpointCommit)
+		if rawCommit == "" {
 			continue
 		}
-		key := checkpointSyncKey(task.ID, commit)
+		key := checkpointSyncKey(task.ID, rawCommit)
 		if _, exists := synced[key]; exists {
 			continue
+		}
+		commit, resolveErr := s.resolveCommitOID(rawCommit)
+		if resolveErr != nil {
+			return "", resolveErr
 		}
 		if pos, exists := missingIndex[commit]; exists {
 			toSync = append(toSync, checkpointSyncPending{

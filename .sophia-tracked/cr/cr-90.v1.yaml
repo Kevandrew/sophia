@@ -1,0 +1,100 @@
+schema_version: sophia.cr_archive.v1
+notice: Historical archive snapshot. Corrections are append-only revisions.
+archived_at: "2026-02-28T19:10:18Z"
+revision: 1
+cr:
+    id: 90
+    uid: cr_afcff7c6-8d90-42fb-92b1-a51299d7983a
+    title: Fix scope drift baseline UX
+    description: Make contract scope-change handling less noisy and predictable so normal scope refinements do not produce confusing PR drift output.
+    status: merged
+    base_branch: main
+    base_ref: main
+    base_commit: 8158d0f4c50ec8dd39af06ad86d131961c780088
+    branch: cr-fix-scope-drift-baseline-ux-afcf
+    merged_at: "2026-02-28T19:10:18Z"
+    merged_by: Kevandrew <143258544+Kevandrew@users.noreply.github.com>
+contract:
+    why: Scope updates after first checkpoint currently generate drift output that feels noisy and low-signal for normal implementation refinement. We need a clearer baseline lifecycle so intended scope adjustments are explicit and less surprising.
+    scope:
+        - docs
+        - internal/cli
+        - internal/model
+        - internal/service
+    non_goals:
+        - Change merge gating semantics
+        - Remove scope discipline or drift auditing entirely
+    invariants:
+        - Scope changes remain auditable and explicit.
+        - Validation output stays deterministic and machine-readable.
+    blast_radius: Contract baseline capture timing, drift recording rules, and PR-facing drift context output.
+    risk_tier_hint: medium
+    risk_rationale: Touches contract validation and reviewer-facing drift interpretation paths.
+    test_plan: go test ./internal/service/... && go test ./internal/cli/... && go test ./...
+    rollback_plan: Revert CR-90 commits to restore current baseline/drift behavior.
+tasks:
+    - id: 1
+      title: Refactor CR drift renderer to structured block format
+      status: done
+      contract:
+        intent: Replace dense CR contract drift line output with structured reviewer-friendly blocks in PR managed markdown.
+        acceptance_criteria:
+            - CR drift entries render as Drift block with Time/Change/Acknowledged/Reason lines.
+            - Legacy inline pipe-delimited drift line format is removed from CR drift section.
+        scope:
+            - internal/service/service_pr_gate.go
+      checkpoint:
+        commit: a9e293e5
+        at: "2026-02-28T19:04:20Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_pr_gate.go
+    - id: 2
+      title: Implement and validate scope delta helper behavior
+      status: done
+      contract:
+        intent: Ensure scope delta reporting is deterministic and semantically correct for CR drift scope changes.
+        acceptance_criteria:
+            - Added scope is computed as after-before and Removed scope as before-after.
+            - Scope delta output is deduplicated and sorted deterministically.
+        scope:
+            - internal/service/service_pr_gate.go
+      checkpoint:
+        commit: 629c0c56
+        at: "2026-02-28T19:04:31Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_pr_gate.go
+    - id: 3
+      title: Add regression tests for readability and legacy-format removal
+      status: done
+      contract:
+        intent: Protect CR drift readability behavior with regression tests covering rendering and delta edge cases.
+        acceptance_criteria:
+            - Tests assert Scope Delta rendering with Added/Removed lines and no legacy pipe pattern.
+            - Tests cover ack-reason omission, stable drift ordering, and empty-delta none rendering.
+        scope:
+            - internal/service/service_pr_gate_test.go
+      checkpoint:
+        commit: 8e8589e7
+        at: "2026-02-28T19:04:31Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_pr_gate_test.go
+    - id: 4
+      title: Run validation/review and publish PR
+      status: open
+      contract:
+        intent: Run required validation/review checks and publish CR-90 PR in ready-for-review state.
+        acceptance_criteria:
+            - Required Go tests and vet pass without regressions.
+            - Sophia validate/review pass and PR is opened/synced then marked ready.
+        scope:
+            - internal/service/service_pr_gate.go
+            - internal/service/service_pr_gate_test.go
+git_summary:
+    base_parent: 8158d0f4c50ec8dd39af06ad86d131961c780088
+    cr_parent: 8e8589e7cd7e56d8fa740e6fc8fe7b875a3ad753
+    files_changed: []
+    diffstat:
+        summary: 0 files changed, 0 insertions(+), 0 deletions(-)
