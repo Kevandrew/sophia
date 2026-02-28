@@ -1434,9 +1434,8 @@ func (s *Service) pushBranchIfNeeded(cr *model.CR) error {
 	if branch == "" {
 		return fmt.Errorf("cr branch is empty")
 	}
-	if _, err := s.runCommand("git", "ls-remote", "--exit-code", "--heads", "origin", branch); err == nil {
-		return nil
-	}
+	// Always push before PR create/sync so existing PRs receive local-ahead commits.
+	// This is idempotent when branch state is unchanged.
 	_, err := s.runCommand("git", "push", "-u", "origin", branch)
 	return classifyPushCommandError(err, branch)
 }
