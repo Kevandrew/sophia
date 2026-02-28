@@ -623,9 +623,6 @@ func (s *Service) openOrSyncPRForCR(cr *model.CR, policy *model.RepoPolicy, appr
 			pr = refreshed
 		}
 	}
-
-	finalBody, bodyErr := s.patchManagedBody(pr, ctx.Markdown)
-	if bodyErr != nil {
 	if pr != nil && pr.Number <= 0 {
 		if parsed := parsePRNumberFromURL(pr.URL); parsed > 0 {
 			if byNumber, byNumberErr := s.fetchPRByNumber(parsed); byNumberErr == nil && byNumber != nil {
@@ -646,6 +643,9 @@ func (s *Service) openOrSyncPRForCR(cr *model.CR, policy *model.RepoPolicy, appr
 		return nil, bodyErr
 	}
 	if pr.Number > 0 {
+
+	finalBody, bodyErr := s.patchManagedBody(pr, ctx.Markdown)
+	if bodyErr != nil {
 		if err := s.editPR(pr.Number, cr.Title, finalBody); err != nil {
 			return nil, err
 		}
@@ -688,7 +688,7 @@ func (s *Service) patchManagedBody(pr *ghPRSummary, managed string) (string, err
 	}
 	body, err := s.readPRBody(pr.Number)
 	if err != nil {
-		return managed, nil
+		return "", fmt.Errorf("read PR body: %w", err)
 	}
 	return mergeManagedPRBody(body, managed)
 }
