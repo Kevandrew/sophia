@@ -68,6 +68,12 @@ var (
 	defaultArchivePath             = ".sophia-tracked/cr"
 	defaultArchiveFormat           = "yaml"
 	defaultArchiveIncludeFullDiffs = false
+
+	defaultMergeMode                     = "local"
+	defaultMergeRequiredApprovals        = 1
+	defaultMergeRequireNonAuthorApproval = true
+	defaultMergeRequireReadyForReview    = true
+	defaultMergeRequirePassingChecks     = true
 )
 
 const (
@@ -112,7 +118,12 @@ func defaultRepoPolicy() *model.RepoPolicy {
 			},
 		},
 		Merge: model.PolicyMerge{
-			AllowOverride: boolPtr(true),
+			AllowOverride:            boolPtr(true),
+			Mode:                     defaultMergeMode,
+			RequiredApprovals:        intPtr(defaultMergeRequiredApprovals),
+			RequireNonAuthorApproval: boolPtr(defaultMergeRequireNonAuthorApproval),
+			RequireReadyForReview:    boolPtr(defaultMergeRequireReadyForReview),
+			RequirePassingChecks:     boolPtr(defaultMergeRequirePassingChecks),
 		},
 		Archive: model.PolicyArchive{
 			Enabled:          boolPtr(defaultArchiveEnabled),
@@ -303,6 +314,28 @@ func (s *Service) normalizeRepoPolicy(input *model.RepoPolicy) (*model.RepoPolic
 
 	if input.Merge.AllowOverride != nil {
 		normalized.Merge.AllowOverride = boolPtr(*input.Merge.AllowOverride)
+	}
+	if strings.TrimSpace(input.Merge.Mode) != "" {
+		mode, modeErr := normalizePolicyMergeMode(input.Merge.Mode)
+		if modeErr != nil {
+			return nil, modeErr
+		}
+		normalized.Merge.Mode = mode
+	}
+	if input.Merge.RequiredApprovals != nil {
+		if *input.Merge.RequiredApprovals < 0 {
+			return nil, fmt.Errorf("%w: merge.required_approvals must be >= 0", ErrPolicyInvalid)
+		}
+		normalized.Merge.RequiredApprovals = intPtr(*input.Merge.RequiredApprovals)
+	}
+	if input.Merge.RequireNonAuthorApproval != nil {
+		normalized.Merge.RequireNonAuthorApproval = boolPtr(*input.Merge.RequireNonAuthorApproval)
+	}
+	if input.Merge.RequireReadyForReview != nil {
+		normalized.Merge.RequireReadyForReview = boolPtr(*input.Merge.RequireReadyForReview)
+	}
+	if input.Merge.RequirePassingChecks != nil {
+		normalized.Merge.RequirePassingChecks = boolPtr(*input.Merge.RequirePassingChecks)
 	}
 	archive, archiveErr := normalizePolicyArchive(input.Archive)
 	if archiveErr != nil {
@@ -643,4 +676,31 @@ func policyAllowsMergeOverride(policy *model.RepoPolicy) bool {
 		return true
 	}
 	return *policy.Merge.AllowOverride
+}
+
+func policyMergeMode(policy *model.RepoPolicy) string {
+	if policy == nil {
+		return defaultMergeMode
+	}
+	mode := strings.ToLower(strings.TrimSpace(policy.Merge.Mode))
+	switch mode {
+	case "", defaultMergeMode:
+		return defaultMergeMode
+	case "pr_gate":
+		return "pr_gate"
+	default:
+		return defaultMergeMode
+	}
+}
+
+func normalizePolicyMergeMode(raw string) (string, error) {
+	mode := strings.ToLower(strings.TrimSpace(raw))
+	switch mode {
+	case "", defaultMergeMode:
+		return defaultMergeMode, nil
+	case "pr_gate":
+		return "pr_gate", nil
+	default:
+		return "", fmt.Errorf("%w: merge.mode %q is invalid (expected local or pr_gate)", ErrPolicyInvalid, raw)
+	}
 }

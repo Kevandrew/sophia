@@ -372,6 +372,11 @@ classification:
 
 merge:
   allow_override: true
+  mode: local
+  required_approvals: 1
+  require_non_author_approval: true
+  require_ready_for_review: true
+  require_passing_checks: true
 
 archive:
   enabled: true
