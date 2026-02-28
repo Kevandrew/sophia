@@ -440,10 +440,61 @@ func TestIsGHProjectCardsSunsetError(t *testing.T) {
 }
 
 func TestRenderCheckpointSyncCommentFormat(t *testing.T) {
-	got := renderCheckpointSyncComment(3, "Enable pr-gate merge mode")
-	want := "### Checkpoint sync: task 3 - Enable pr-gate merge mode"
-	if got != want {
-		t.Fatalf("unexpected checkpoint sync comment format: got %q want %q", got, want)
+	task := model.Subtask{
+		ID:    3,
+		Title: "Enable pr-gate merge mode",
+		ContractBaseline: model.TaskContractBaseline{
+			Intent:             "Enable PR-gated merge path.",
+			AcceptanceCriteria: []string{"PR sync runs before merge finalize", "Gate report is deterministic"},
+			Scope:              []string{"internal/service/service_pr_gate.go"},
+		},
+		CheckpointScope: []string{"internal/service/service_pr_gate.go"},
+	}
+	got := renderCheckpointSyncComment(task, "abc123def456", "feat: enable merge mode", "task:3:abc123def456")
+	expectedParts := []string{
+		"### Checkpoint sync: task 3 - Enable pr-gate merge mode",
+		"Intent: Enable PR-gated merge path.",
+		"Acceptance Criteria:",
+		"- PR sync runs before merge finalize",
+		"- Gate report is deterministic",
+		"| Contract Scope | internal/service/service_pr_gate.go |",
+		"| Checkpoint Scope | internal/service/service_pr_gate.go |",
+		"Commits in this sync:",
+		"- `abc123def456` feat: enable merge mode",
+		"<!-- sophia:checkpoint-sync:task:3:abc123def456 -->",
+	}
+	for _, part := range expectedParts {
+		if !strings.Contains(got, part) {
+			t.Fatalf("expected comment to contain %q, got:\n%s", part, got)
+		}
+	}
+}
+
+func TestExtractCheckpointSyncCommentKey(t *testing.T) {
+	body := "hello\n\n<!-- sophia:checkpoint-sync:task:5:abc123 -->\n"
+	if got := extractCheckpointSyncCommentKey(body); got != "task:5:abc123" {
+		t.Fatalf("unexpected extracted key: %q", got)
+	}
+	if got := extractCheckpointSyncCommentKey("no marker"); got != "" {
+		t.Fatalf("expected empty key without marker, got %q", got)
+	}
+}
+
+func TestIndexCheckpointSyncCommentsUsesMarkerKey(t *testing.T) {
+	comments := []ghIssueComment{
+		{ID: 11, Body: "a\n<!-- sophia:checkpoint-sync:task:1:a1 -->"},
+		{ID: 12, Body: "b\n<!-- sophia:checkpoint-sync:task:2:b2 -->"},
+		{ID: 13, Body: "without marker"},
+	}
+	index := indexCheckpointSyncComments(comments)
+	if len(index) != 2 {
+		t.Fatalf("expected 2 keyed comments, got %d (%#v)", len(index), index)
+	}
+	if got := index["task:1:a1"].ID; got != 11 {
+		t.Fatalf("expected marker task:1:a1 to map to id 11, got %d", got)
+	}
+	if got := index["task:2:b2"].ID; got != 12 {
+		t.Fatalf("expected marker task:2:b2 to map to id 12, got %d", got)
 	}
 }
 
