@@ -7,6 +7,7 @@
 </p>
 <h1 align="center">Sophia</h1>
 <p align="center"><strong>Your AI builds the code. Sophia makes sure it's right.</strong></p>
+<p align="center"><a href="https://sophiahq.com/blog/at-what-point-do-we-stop-reading-code/">Read the manifesto: At what point do we stop reading the code?</a></p>
 
 
 
