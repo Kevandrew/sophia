@@ -6,7 +6,6 @@ import (
 )
 
 func TestVersionCommandDefaults(t *testing.T) {
-	t.Parallel()
 	SetBuildInfo("dev", "unknown", "unknown")
 
 	out, _, err := runCLI(t, t.TempDir(), "version")
@@ -21,7 +20,6 @@ func TestVersionCommandDefaults(t *testing.T) {
 }
 
 func TestVersionCommandInjectedBuildInfo(t *testing.T) {
-	t.Parallel()
 	SetBuildInfo("v1.2.3", "abc1234", "2026-02-19T11:00:00Z")
 
 	out, _, err := runCLI(t, t.TempDir(), "version")
