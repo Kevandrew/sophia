@@ -94,6 +94,60 @@ func TestInitDefaultsToLocalMetadataAndGitIgnoreEntry(t *testing.T) {
 	}
 }
 
+// integration-required: verifies AddCR can lazily bootstrap metadata without explicit init.
+func TestAddCRBootstrapsLocalMetadataInInitializedGitRepo(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	runGit(t, dir, "init", "-b", "main")
+
+	svc := New(dir)
+	result, err := svc.AddCRWithOptions("No init CR", "bootstrap on first add", AddCROptions{NoSwitch: true})
+	if err != nil {
+		t.Fatalf("AddCRWithOptions() error = %v", err)
+	}
+	if !result.Bootstrap.Triggered {
+		t.Fatalf("expected bootstrap to be triggered, got %#v", result.Bootstrap)
+	}
+	if result.Bootstrap.MetadataMode != model.MetadataModeLocal {
+		t.Fatalf("expected bootstrap metadata mode %q, got %q", model.MetadataModeLocal, result.Bootstrap.MetadataMode)
+	}
+	if result.Bootstrap.BaseBranch != "main" {
+		t.Fatalf("expected bootstrap base branch main, got %q", result.Bootstrap.BaseBranch)
+	}
+	if _, err := os.Stat(filepath.Join(localMetadataDir(t, dir), "config.yaml")); err != nil {
+		t.Fatalf("expected local metadata config to exist: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".sophia", "config.yaml")); !os.IsNotExist(err) {
+		t.Fatalf("expected legacy tracked metadata to be absent, err=%v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "SOPHIA.yaml")); !os.IsNotExist(err) {
+		t.Fatalf("expected SOPHIA.yaml to be absent, err=%v", err)
+	}
+}
+
+// integration-required: ensures bootstrap signal is only emitted on first add after lazy init.
+func TestAddCRLazyBootstrapIsIdempotentAcrossSubsequentAdds(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	runGit(t, dir, "init", "-b", "main")
+
+	svc := New(dir)
+	first, err := svc.AddCRWithOptions("First no-init", "bootstrap", AddCROptions{NoSwitch: true})
+	if err != nil {
+		t.Fatalf("AddCRWithOptions(first) error = %v", err)
+	}
+	second, err := svc.AddCRWithOptions("Second no-init", "no re-bootstrap", AddCROptions{NoSwitch: true})
+	if err != nil {
+		t.Fatalf("AddCRWithOptions(second) error = %v", err)
+	}
+	if !first.Bootstrap.Triggered {
+		t.Fatalf("expected first AddCR to trigger bootstrap, got %#v", first.Bootstrap)
+	}
+	if second.Bootstrap.Triggered {
+		t.Fatalf("expected second AddCR not to trigger bootstrap, got %#v", second.Bootstrap)
+	}
+}
+
 // fake-eligible: lifecycle ID-floor logic only; no real git plumbing semantics required.
 func TestAddCRAlignsNextIDWithHistory(t *testing.T) {
 	t.Parallel()

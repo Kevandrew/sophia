@@ -88,6 +88,13 @@ type AddCROptions struct {
 	UIDOverride    string
 }
 
+type AddCRBootstrapInfo struct {
+	Triggered    bool
+	BaseBranch   string
+	MetadataMode string
+	SophiaDir    string
+}
+
 const (
 	RefreshStrategyAuto    = "auto"
 	RefreshStrategyRestack = "restack"
@@ -267,15 +274,36 @@ func (s *Service) resolveInitInputs(baseBranch, metadataMode string) (initResolu
 		return initResolution{}, fmt.Errorf("invalid metadata mode %q (expected local or tracked)", resolution.effectiveMode)
 	}
 	if resolution.effectiveBase == "" {
-		currentBranch, err := s.git.CurrentBranch()
-		if err == nil && strings.TrimSpace(currentBranch) != "" {
-			resolution.effectiveBase = currentBranch
-		}
-	}
-	if resolution.effectiveBase == "" {
-		resolution.effectiveBase = "main"
+		resolution.effectiveBase = s.inferDefaultBaseBranch()
 	}
 	return resolution, nil
+}
+
+func (s *Service) inferDefaultBaseBranch() string {
+	if s.git != nil {
+		if symbolic, err := s.git.ResolveSymbolicRef("refs/remotes/origin/HEAD"); err == nil {
+			const remotePrefix = "refs/remotes/origin/"
+			if strings.HasPrefix(symbolic, remotePrefix) {
+				branch := strings.TrimSpace(strings.TrimPrefix(symbolic, remotePrefix))
+				if branch != "" {
+					return branch
+				}
+			}
+		}
+	}
+	if s.git != nil && s.git.BranchExists("main") {
+		return "main"
+	}
+	if s.git != nil && s.git.BranchExists("master") {
+		return "master"
+	}
+	if s.git != nil {
+		currentBranch, err := s.git.CurrentBranch()
+		if err == nil && strings.TrimSpace(currentBranch) != "" {
+			return strings.TrimSpace(currentBranch)
+		}
+	}
+	return "main"
 }
 
 func (s *Service) applyEffectiveMetadataModeForInit(effectiveMode string, fallbackInitialized bool) bool {
@@ -372,4 +400,39 @@ func (s *Service) finalizeInitArtifacts(effectiveMode string, branchOwnerPrefix 
 
 func (s *Service) Config() (model.Config, error) {
 	return s.store.LoadConfig()
+}
+
+func (s *Service) ensureLazyLocalBootstrapForCRMutation() (AddCRBootstrapInfo, error) {
+	info := AddCRBootstrapInfo{}
+	if s.lifecycleStoreCustom || s.lifecycleGitCustom {
+		return info, nil
+	}
+	if s.store != nil && s.store.IsInitialized() {
+		return info, nil
+	}
+
+	if s.git != nil && !s.git.InRepo() {
+		return info, store.ErrNotInitialized
+	}
+
+	// Rebind to the active repository root before deciding bootstrap target metadata path.
+	s.bootstrapRepoContext(s.git.WorkDir)
+	s.composeRuntimePorts()
+	if s.store != nil && s.store.IsInitialized() {
+		return info, nil
+	}
+
+	baseBranch := s.inferDefaultBaseBranch()
+	if err := s.store.Init(baseBranch, model.MetadataModeLocal); err != nil {
+		return info, err
+	}
+	cfg, err := s.store.LoadConfig()
+	if err != nil {
+		return info, err
+	}
+	info.Triggered = true
+	info.BaseBranch = strings.TrimSpace(cfg.BaseBranch)
+	info.MetadataMode = strings.TrimSpace(cfg.MetadataMode)
+	info.SophiaDir = s.store.SophiaDir()
+	return info, nil
 }

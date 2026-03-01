@@ -12,15 +12,7 @@ Use this mental model:
 - a Git repository
 - an agent session with the Sophia skill enabled (see [`agent-quickstart.md`](agent-quickstart.md))
 
-## 1) Initialize the repository
-
-```bash
-sophia init
-```
-
-This creates Sophia metadata and policy scaffolding.
-
-## 2) Open intent
+## 1) Open intent (no explicit init required)
 
 ```bash
 sophia cr add "Add jittered retries for outbound API calls" \
@@ -28,9 +20,18 @@ sophia cr add "Add jittered retries for outbound API calls" \
 sophia cr switch <cr-id>
 ```
 
+On first use in an uninitialized Git repository, Sophia lazily bootstraps local metadata.
+Use `sophia init` only when you want explicit setup behavior (for example tracked metadata mode).
+
+## 2) Optional explicit initialization
+
+```bash
+sophia init
+```
+
 Expected outcome:
-- CR exists with a dedicated branch.
-- Work is now scoped to that CR context.
+- Explicit metadata/policy setup is created.
+- Existing no-init workflow remains available.
 
 ## 3) Set CR contract before coding
 

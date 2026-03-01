@@ -45,11 +45,13 @@ func runCRAddFlow(
 	}
 	cr := result.CR
 	warnings := append([]string(nil), result.Warnings...)
+	bootstrap := result.Bootstrap
 	if asJSON {
 		payload := map[string]any{
-			"cr":       crToJSONMap(cr),
-			"warnings": stringSliceOrEmpty(warnings),
-			"switched": renderOpts.switchBranch,
+			"cr":        crToJSONMap(cr),
+			"warnings":  stringSliceOrEmpty(warnings),
+			"switched":  renderOpts.switchBranch,
+			"bootstrap": addCRBootstrapToJSONMap(bootstrap),
 		}
 		if renderOpts.includeParentID {
 			payload["parent_cr_id"] = renderOpts.parentCRID
@@ -66,6 +68,9 @@ func runCRAddFlow(
 		fmt.Fprintf(cmd.OutOrStdout(), "Active branch: %s\n", cr.Branch)
 	} else {
 		fmt.Fprintf(cmd.OutOrStdout(), "Run: sophia cr switch %d\n", cr.ID)
+	}
+	if bootstrap.Triggered {
+		fmt.Fprintf(cmd.OutOrStdout(), "Bootstrapped local Sophia metadata (base: %s, mode: %s)\n", nonEmpty(bootstrap.BaseBranch, "-"), nonEmpty(bootstrap.MetadataMode, "-"))
 	}
 	if len(warnings) > 0 {
 		fmt.Fprintln(cmd.OutOrStdout(), "Overlap warnings:")

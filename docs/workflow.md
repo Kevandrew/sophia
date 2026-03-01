@@ -18,6 +18,9 @@ sophia cr add "<title>" --description "<why>"
 sophia cr switch <cr-id>
 ```
 
+If the repository has not been explicitly initialized, `sophia cr add` bootstraps local metadata automatically.
+Run `sophia init` when you want explicit initialization behavior (for example tracked mode setup).
+
 ## Define contract and tasks
 
 ```bash

@@ -33,8 +33,9 @@ type addCRBaseContext struct {
 }
 
 type AddCRResult struct {
-	CR       *model.CR
-	Warnings []string
+	CR        *model.CR
+	Warnings  []string
+	Bootstrap AddCRBootstrapInfo
 }
 
 func (s *Service) AddCRWithOptionsWithWarnings(title, description string, opts AddCROptions) (*model.CR, []string, error) {
@@ -58,6 +59,10 @@ func (s *Service) AddCRWithOptions(title, description string, opts AddCROptions)
 }
 
 func (s *Service) addCRWithOptionsUnlocked(title, description string, opts AddCROptions) (*AddCRResult, error) {
+	bootstrap, err := s.ensureLazyLocalBootstrapForCRMutation()
+	if err != nil {
+		return nil, err
+	}
 	lifecycleStore := s.activeLifecycleStoreProvider()
 	lifecycleGit := s.activeLifecycleGitProvider()
 	if err := servicecr.ValidateAddRequest(title, opts.BaseRef, opts.ParentCRID, opts.BranchAlias, opts.OwnerPrefixSet); err != nil {
@@ -152,8 +157,9 @@ func (s *Service) addCRWithOptionsUnlocked(title, description string, opts AddCR
 
 	warnings := s.computeOverlapWarnings(referenceDirs, cr.ID)
 	return &AddCRResult{
-		CR:       cr,
-		Warnings: append([]string{}, warnings...),
+		CR:        cr,
+		Warnings:  append([]string{}, warnings...),
+		Bootstrap: bootstrap,
 	}, nil
 }
 

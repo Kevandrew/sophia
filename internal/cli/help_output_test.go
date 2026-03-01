@@ -14,11 +14,12 @@ func TestRootHelpStartPath(t *testing.T) {
 	}
 	assertHelpContains(t, out,
 		"Start Here:",
-		"sophia init",
 		"sophia cr add \"<title>\" --description \"<why>\"",
 		"sophia cr switch <cr-id>",
 		"sophia cr review <cr-id>",
 		"sophia cr merge <cr-id>",
+		"Optional explicit setup:",
+		"sophia init",
 	)
 }
 

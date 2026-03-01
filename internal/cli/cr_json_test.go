@@ -215,3 +215,41 @@ func TestWarningBearingJSONCommandsAlwaysReturnWarningsArray(t *testing.T) {
 	mergeEnv := decodeEnvelope(t, mergeOut)
 	requireJSONArrayField(t, mergeEnv.Data, "warnings")
 }
+
+func TestCRAddJSONIncludesBootstrapMetadataForNoInitFlow(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	runGit(t, dir, "init", "-b", "main")
+
+	firstOut, _, firstErr := runCLI(t, dir, "cr", "add", "No init json", "--json")
+	if firstErr != nil {
+		t.Fatalf("first cr add --json error = %v\noutput=%s", firstErr, firstOut)
+	}
+	firstEnv := decodeEnvelope(t, firstOut)
+	bootstrap, ok := firstEnv.Data["bootstrap"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected bootstrap object, got %#v", firstEnv.Data["bootstrap"])
+	}
+	triggered, _ := bootstrap["triggered"].(bool)
+	if !triggered {
+		t.Fatalf("expected bootstrap.triggered=true, got %#v", bootstrap)
+	}
+	mode, _ := bootstrap["metadata_mode"].(string)
+	if mode != "local" {
+		t.Fatalf("expected bootstrap metadata_mode local, got %#v", bootstrap)
+	}
+
+	secondOut, _, secondErr := runCLI(t, dir, "cr", "add", "No init json second", "--json")
+	if secondErr != nil {
+		t.Fatalf("second cr add --json error = %v\noutput=%s", secondErr, secondOut)
+	}
+	secondEnv := decodeEnvelope(t, secondOut)
+	bootstrap, ok = secondEnv.Data["bootstrap"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected bootstrap object on second call, got %#v", secondEnv.Data["bootstrap"])
+	}
+	triggered, _ = bootstrap["triggered"].(bool)
+	if triggered {
+		t.Fatalf("expected bootstrap.triggered=false on subsequent call, got %#v", bootstrap)
+	}
+}
