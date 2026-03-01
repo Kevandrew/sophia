@@ -1,0 +1,66 @@
+schema_version: sophia.cr_archive.v1
+notice: Historical archive snapshot. Corrections are append-only revisions.
+archived_at: "2026-03-01T15:42:55Z"
+revision: 1
+cr:
+    id: 99
+    uid: cr_84880491-2b52-4802-8e42-17b910fadcc6
+    title: Hotfix flaky version build-info tests
+    description: Fix nondeterministic failure in internal/cli version tests caused by parallel mutation of shared build metadata globals.
+    status: merged
+    base_branch: main
+    base_ref: main
+    base_commit: 16cf6b6345931a5ba84e3c88f12d7fe34f6d59e1
+    branch: cr-hotfix-flaky-version-build-info-tests-8488
+    merged_at: "2026-03-01T15:42:55Z"
+    merged_by: Kevandrew <143258544+Kevandrew@users.noreply.github.com>
+contract:
+    why: Stabilize CI by removing nondeterministic behavior in version command tests. The tests currently run in parallel while mutating shared process-global build metadata via SetBuildInfo, causing random assertion mismatches depending on execution order. This change makes the test suite deterministic without changing runtime version command behavior.
+    scope:
+        - internal/cli/version_test.go
+    non_goals:
+        - No changes to build metadata injection API surface.
+        - No changes to production version command output format.
+    invariants:
+        - version command output remains identical for default and injected values.
+    blast_radius: Only internal/cli version test execution ordering and determinism; no production codepath behavior change.
+    risk_tier_hint: low
+    risk_rationale: Test-only hotfix in isolated file.
+    test_plan: go test ./internal/cli -count=1 && go test ./... -count=1
+    rollback_plan: Revert CR merge commit.
+tasks:
+    - id: 1
+      title: Remove parallel execution from version build-info tests
+      status: done
+      contract:
+        intent: Eliminate race-prone test parallelism for version build-info tests that mutate shared globals.
+        acceptance_criteria:
+            - Assertions for default and injected values remain unchanged.
+            - Version tests no longer run in parallel while calling SetBuildInfo.
+        scope:
+            - internal/cli/version_test.go
+      checkpoint:
+        commit: 269085c7
+        at: "2026-03-01T15:42:03Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/version_test.go
+    - id: 2
+      title: Validate deterministic behavior under full test run
+      status: done
+      contract:
+        intent: Prove deterministic behavior by rerunning targeted and full suite tests and recording evidence.
+        acceptance_criteria:
+            - go test ./... -count=1 passes.
+            - go test ./internal/cli -count=1 passes.
+        scope:
+            - internal/cli/version_test.go
+      checkpoint:
+        at: "2026-03-01T15:42:04Z"
+        source: task_no_checkpoint
+git_summary:
+    base_parent: 16cf6b6345931a5ba84e3c88f12d7fe34f6d59e1
+    cr_parent: 269085c766bc40bcda8cd96f80bbbc83571082e9
+    files_changed: []
+    diffstat:
+        summary: 0 files changed, 0 insertions(+), 0 deletions(-)
