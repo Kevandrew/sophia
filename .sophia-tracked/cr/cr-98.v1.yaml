@@ -1,0 +1,122 @@
+schema_version: sophia.cr_archive.v1
+notice: Historical archive snapshot. Corrections are append-only revisions.
+archived_at: "2026-03-01T15:31:48Z"
+revision: 1
+cr:
+    id: 98
+    uid: cr_881ed0f2-7364-499b-8faa-ce05192f6682
+    title: Enable no-init contribution mode
+    description: Allow sophia cr add to lazily bootstrap local metadata in uninitialized repos, surface bootstrap status in CLI/JSON, and document/test the workflow.
+    status: merged
+    base_branch: main
+    base_ref: main
+    base_commit: f339a476d5ec908219c16ce85b0f1e0436805ee2
+    branch: cr-enable-no-init-contribution-mode-881e
+    merged_at: "2026-03-01T15:31:48Z"
+    merged_by: Kevandrew <143258544+Kevandrew@users.noreply.github.com>
+contract:
+    why: Enable zero-friction Sophia adoption in third-party repos by allowing mutating CR entrypoints to lazily bootstrap local metadata without explicit init. Preserve existing initialized-repo behavior and keep maintainer-facing workflows unchanged.
+    scope:
+        - docs/cli-reference.md
+        - docs/getting-started.md
+        - docs/workflow.md
+        - internal/cli/cr_cmd_core.go
+        - internal/cli/cr_json_branch_ops_test.go
+        - internal/cli/cr_json_mappers.go
+        - internal/cli/cr_json_test.go
+        - internal/cli/help_output_test.go
+        - internal/cli/root.go
+        - internal/service/service.go
+        - internal/service/service_cr.go
+        - internal/service/service_metadata_root.go
+        - internal/service/service_test.go
+    non_goals:
+        - Do not auto-create tracked SOPHIA.yaml in lazy bootstrap path.
+        - Do not change explicit sophia init behavior.
+    invariants:
+        - AddCR in initialized repos remains behavior-compatible.
+        - Lazy bootstrap defaults to local metadata mode.
+    blast_radius: CR add mutation preflight, base-branch inference defaults, CLI/JSON output surfaces, and first-run docs.
+    risk_critical_scopes:
+        - internal/service/service.go
+        - internal/service/service_cr.go
+    risk_tier_hint: high
+    risk_rationale: Touches foundational mutation path used by authors in all repos.
+    test_plan: go test ./internal/service ./internal/cli ./internal/store ./internal/model && go test ./...
+    rollback_plan: Revert the CR merge commit.
+tasks:
+    - id: 1
+      title: Implement lazy bootstrap runtime for AddCR
+      status: done
+      contract:
+        intent: Auto-bootstrap local metadata on first AddCR mutation in uninitialized repositories.
+        acceptance_criteria:
+            - AddCR succeeds without explicit init in git repos and initializes local metadata mode.
+            - Base branch inference uses origin/HEAD target when available with deterministic fallback.
+            - Behavior in initialized repositories is unchanged.
+        scope:
+            - internal/service/service.go
+            - internal/service/service_cr.go
+            - internal/service/service_metadata_root.go
+      checkpoint:
+        commit: 9e28b450
+        at: "2026-03-01T15:29:51Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service.go
+            - internal/service/service_cr.go
+    - id: 2
+      title: Update docs and tests for no-init workflow
+      status: done
+      contract:
+        intent: Document and test no-init workflow for service and CLI surfaces.
+        acceptance_criteria:
+            - CLI tests cover bootstrap signal in text and JSON outputs.
+            - Docs describe no-init start path and clarify explicit init remains available.
+            - Service tests cover add in uninitialized repo and idempotent repeated add flow.
+        scope:
+            - docs/cli-reference.md
+            - docs/getting-started.md
+            - docs/workflow.md
+            - internal/cli/cr_json_branch_ops_test.go
+            - internal/cli/cr_json_test.go
+            - internal/cli/help_output_test.go
+            - internal/service/service_test.go
+      checkpoint:
+        commit: d073db32
+        at: "2026-03-01T15:30:01Z"
+        source: task_checkpoint
+        scope:
+            - docs/cli-reference.md
+            - docs/getting-started.md
+            - docs/workflow.md
+            - internal/cli/cr_json_branch_ops_test.go
+            - internal/cli/cr_json_test.go
+            - internal/cli/help_output_test.go
+            - internal/service/service_test.go
+    - id: 3
+      title: Surface bootstrap status in CLI and JSON
+      status: done
+      contract:
+        intent: Expose lazy bootstrap signal in human and JSON output of cr add.
+        acceptance_criteria:
+            - Human output shows concise bootstrap notice only when triggered.
+            - JSON output includes stable bootstrap fields without breaking existing keys.
+        scope:
+            - internal/cli/cr_cmd_core.go
+            - internal/cli/cr_json_mappers.go
+            - internal/cli/root.go
+      checkpoint:
+        commit: a9f5573a
+        at: "2026-03-01T15:29:57Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/cr_cmd_core.go
+            - internal/cli/cr_json_mappers.go
+            - internal/cli/root.go
+git_summary:
+    base_parent: f339a476d5ec908219c16ce85b0f1e0436805ee2
+    cr_parent: d073db3233dc8868bb68cc8e2d2717f0f02dbc47
+    files_changed: []
+    diffstat:
+        summary: 0 files changed, 0 insertions(+), 0 deletions(-)
