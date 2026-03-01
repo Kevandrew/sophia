@@ -13,6 +13,7 @@ import (
 )
 
 func TestExportIncludesFingerprintDeterministic(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -48,6 +49,7 @@ func TestExportIncludesFingerprintDeterministic(t *testing.T) {
 }
 
 func TestPatchApplyNonOverlappingChangesAutoMerge(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -114,6 +116,7 @@ func TestPatchApplyNonOverlappingChangesAutoMerge(t *testing.T) {
 }
 
 func TestPatchApplyConflictsOnStaleBefore(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -176,6 +179,7 @@ func TestPatchApplyConflictsOnStaleBefore(t *testing.T) {
 }
 
 func TestPatchApplyDedupNotes(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -238,6 +242,7 @@ func TestPatchApplyDedupNotes(t *testing.T) {
 }
 
 func TestImportCreateAndReplaceByUID(t *testing.T) {
+	t.Parallel()
 	sourceDir := t.TempDir()
 	sourceSvc := New(sourceDir)
 	if _, err := sourceSvc.Init("main", ""); err != nil {
@@ -297,6 +302,7 @@ func TestImportCreateAndReplaceByUID(t *testing.T) {
 }
 
 func TestStatusCRImportedMetadataOnlyDoesNotFail(t *testing.T) {
+	t.Parallel()
 	sourceDir := t.TempDir()
 	sourceSvc := New(sourceDir)
 	if _, err := sourceSvc.Init("main", ""); err != nil {
@@ -353,6 +359,7 @@ func TestStatusCRImportedMetadataOnlyDoesNotFail(t *testing.T) {
 }
 
 func TestValidateCRImportedMetadataOnlyReturnsStructuredReport(t *testing.T) {
+	t.Parallel()
 	sourceDir := t.TempDir()
 	sourceSvc := New(sourceDir)
 	if _, err := sourceSvc.Init("main", ""); err != nil {
@@ -405,6 +412,7 @@ func TestValidateCRImportedMetadataOnlyReturnsStructuredReport(t *testing.T) {
 }
 
 func TestImpactCRImportedMetadataOnlyReturnsStructuredReport(t *testing.T) {
+	t.Parallel()
 	sourceDir := t.TempDir()
 	sourceSvc := New(sourceDir)
 	if _, err := sourceSvc.Init("main", ""); err != nil {
@@ -454,6 +462,7 @@ func TestImpactCRImportedMetadataOnlyReturnsStructuredReport(t *testing.T) {
 }
 
 func TestImpactCRImportedMetadataOnlyDerivesChangesFromTaskCheckpointScope(t *testing.T) {
+	t.Parallel()
 	sourceDir := t.TempDir()
 	sourceSvc := New(sourceDir)
 	if _, err := sourceSvc.Init("main", ""); err != nil {
@@ -529,6 +538,7 @@ func TestImpactCRImportedMetadataOnlyDerivesChangesFromTaskCheckpointScope(t *te
 }
 
 func TestReviewCRImportedMetadataOnlyDoesNotFail(t *testing.T) {
+	t.Parallel()
 	sourceDir := t.TempDir()
 	sourceSvc := New(sourceDir)
 	if _, err := sourceSvc.Init("main", ""); err != nil {
@@ -581,6 +591,7 @@ func TestReviewCRImportedMetadataOnlyDoesNotFail(t *testing.T) {
 }
 
 func TestSwitchCRImportedMetadataOnlyFallsBackToLocalBase(t *testing.T) {
+	t.Parallel()
 	sourceDir := t.TempDir()
 	sourceSvc := New(sourceDir)
 	if _, err := sourceSvc.Init("main", ""); err != nil {
@@ -652,6 +663,7 @@ func TestSwitchCRImportedMetadataOnlyFallsBackToLocalBase(t *testing.T) {
 }
 
 func TestSwitchCRImportedMetadataOnlyWithoutLocalAnchorReturnsActionableError(t *testing.T) {
+	t.Parallel()
 	sourceDir := t.TempDir()
 	sourceSvc := New(sourceDir)
 	if _, err := sourceSvc.Init("main", ""); err != nil {

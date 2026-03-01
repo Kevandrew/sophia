@@ -10,6 +10,7 @@ import (
 )
 
 func TestCRRefLifecycleAddMergeReopen(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -73,6 +74,7 @@ func TestCRRefLifecycleAddMergeReopen(t *testing.T) {
 }
 
 func TestRepairFromGitSynchronizesAndCleansCRRefs(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -153,6 +155,7 @@ func TestRepairFromGitSynchronizesAndCleansCRRefs(t *testing.T) {
 }
 
 func TestRangeAndRevParseCR(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {

@@ -11,6 +11,7 @@ import (
 )
 
 func TestRootCommandsSupportJSON(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 
 	out, _, runErr := runCLI(t, dir, "init", "--json")
@@ -82,6 +83,7 @@ func TestRootCommandsSupportJSON(t *testing.T) {
 }
 
 func TestValidateRecordFlagControlsEventRecording(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := service.New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -163,6 +165,7 @@ func TestValidateRecordFlagControlsEventRecording(t *testing.T) {
 }
 
 func TestCRListSearchFilterValidationAndAlias(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := service.New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -213,6 +216,7 @@ func TestCRListSearchFilterValidationAndAlias(t *testing.T) {
 }
 
 func TestTaskListJSONUsesSnakeCaseKeys(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := service.New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -251,6 +255,7 @@ func TestTaskListJSONUsesSnakeCaseKeys(t *testing.T) {
 }
 
 func TestCRMutationCommandsSupportJSON(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := service.New(dir)
 	if _, err := svc.Init("main", ""); err != nil {

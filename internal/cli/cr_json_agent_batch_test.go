@@ -25,6 +25,7 @@ func runCLIWithStdin(t *testing.T, dir string, stdin string, args ...string) (st
 }
 
 func TestCRApplyStdinDryRunJSONMatchesFileMode(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := service.New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -70,6 +71,7 @@ func TestCRApplyStdinDryRunJSONMatchesFileMode(t *testing.T) {
 }
 
 func TestCRApplyStdinMutuallyExclusiveWithFile(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := service.New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -91,6 +93,7 @@ func TestCRApplyStdinMutuallyExclusiveWithFile(t *testing.T) {
 }
 
 func TestCRApplyStdinInvalidYAMLFails(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := service.New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -108,6 +111,7 @@ func TestCRApplyStdinInvalidYAMLFails(t *testing.T) {
 }
 
 func TestCRContractSetDryRunAndAlreadyAppliedJSON(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := service.New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -171,6 +175,7 @@ func TestCRContractSetDryRunAndAlreadyAppliedJSON(t *testing.T) {
 }
 
 func TestCRTaskDoneDryRunDoesNotCreateCommit(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := service.New(dir)
 	if _, err := svc.Init("main", ""); err != nil {

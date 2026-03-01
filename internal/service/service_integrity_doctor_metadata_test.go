@@ -7,6 +7,7 @@ import (
 )
 
 func TestDoctorFlagsTrackedSophiaMetadataInLocalMode(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -38,6 +39,7 @@ func TestDoctorFlagsTrackedSophiaMetadataInLocalMode(t *testing.T) {
 }
 
 func TestDoctorFlagsStaleMergedBranches(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -70,6 +72,7 @@ func TestDoctorFlagsStaleMergedBranches(t *testing.T) {
 }
 
 func TestDoctorIgnoresLegacyPersistChoreCommit(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -93,6 +96,7 @@ func TestDoctorIgnoresLegacyPersistChoreCommit(t *testing.T) {
 }
 
 func TestLogFallsBackToGitWhenLocalMetadataMissing(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {

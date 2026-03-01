@@ -7,6 +7,7 @@ import (
 )
 
 func TestApplyTaskContractTransitionRecordsDriftAndBaseline(t *testing.T) {
+	t.Parallel()
 	task := &model.Subtask{
 		ID:               1,
 		Status:           model.TaskStatusDone,
@@ -43,6 +44,7 @@ func TestApplyTaskContractTransitionRecordsDriftAndBaseline(t *testing.T) {
 }
 
 func TestApplyTaskContractTransitionWithoutCheckpointSkipsDrift(t *testing.T) {
+	t.Parallel()
 	task := &model.Subtask{
 		ID:     1,
 		Status: model.TaskStatusOpen,

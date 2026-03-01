@@ -10,6 +10,7 @@ import (
 )
 
 func TestServiceNewFallsBackToSharedLocalMetadata(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	runGit(t, dir, "init", "-b", "main")
 	runGit(t, dir, "config", "user.name", "Test User")
@@ -36,6 +37,7 @@ func TestServiceNewFallsBackToSharedLocalMetadata(t *testing.T) {
 }
 
 func TestServiceNewResolvesRepoRootFromSubdirectory(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -58,6 +60,7 @@ func TestServiceNewResolvesRepoRootFromSubdirectory(t *testing.T) {
 }
 
 func TestServiceNewPrefersLegacyMetadataWhenInitialized(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {

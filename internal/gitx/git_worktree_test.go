@@ -3,6 +3,7 @@ package gitx
 import "testing"
 
 func TestParseWorktreeListPorcelain(t *testing.T) {
+	t.Parallel()
 	raw := "worktree /tmp/repo\nHEAD aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\nbranch refs/heads/main\n\n" +
 		"worktree /tmp/repo-wt\nHEAD bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\nbranch refs/heads/sophia/cr-25\n\n" +
 		"worktree /tmp/repo-detached\nHEAD cccccccccccccccccccccccccccccccccccccccc\ndetached\n"

@@ -9,6 +9,7 @@ import (
 )
 
 func TestSetAndGetCRContractRoundTrip(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -80,6 +81,7 @@ func TestSetAndGetCRContractRoundTrip(t *testing.T) {
 }
 
 func TestSetCRContractRejectsInvalidRiskTierHint(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -98,6 +100,7 @@ func TestSetCRContractRejectsInvalidRiskTierHint(t *testing.T) {
 }
 
 func TestSetCRContractPartialUpdateOnlyMutatesTargetFields(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -131,6 +134,7 @@ func TestSetCRContractPartialUpdateOnlyMutatesTargetFields(t *testing.T) {
 }
 
 func TestSetCRContractWithOptionsDryRunAndAlreadyApplied(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -180,6 +184,7 @@ func TestSetCRContractWithOptionsDryRunAndAlreadyApplied(t *testing.T) {
 }
 
 func TestWhyCRUsesContractThenDescriptionThenMissing(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -224,6 +229,7 @@ func TestWhyCRUsesContractThenDescriptionThenMissing(t *testing.T) {
 }
 
 func TestStatusCRReflectsReadinessAndWorkspaceState(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -277,6 +283,7 @@ func TestStatusCRReflectsReadinessAndWorkspaceState(t *testing.T) {
 }
 
 func TestSetAndGetTaskContractRoundTrip(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -319,6 +326,7 @@ func TestSetAndGetTaskContractRoundTrip(t *testing.T) {
 }
 
 func TestDoneTaskBlockedWhenTaskContractMissing(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {

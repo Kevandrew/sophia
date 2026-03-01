@@ -6,6 +6,7 @@ import (
 )
 
 func TestAddCRWithOptionsSupportsNoSwitchAndSwitch(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -41,6 +42,7 @@ func TestAddCRWithOptionsSupportsNoSwitchAndSwitch(t *testing.T) {
 }
 
 func TestAddCRUsesConfiguredOwnerPrefix(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.InitWithOptions(InitOptions{
@@ -60,6 +62,7 @@ func TestAddCRUsesConfiguredOwnerPrefix(t *testing.T) {
 }
 
 func TestAddCRWithExplicitBranchAlias(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -88,6 +91,7 @@ func TestAddCRWithExplicitBranchAlias(t *testing.T) {
 }
 
 func TestAddCRRejectsInvalidAliasCombinations(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {

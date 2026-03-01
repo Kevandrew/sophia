@@ -10,6 +10,7 @@ import (
 )
 
 func TestCRArchiveWriteAndAppendJSON(t *testing.T) {
+	t.Parallel()
 	dir := setupCLIMergedCRNoArchiveRepo(t)
 
 	writeOut, _, writeErr := runCLI(t, dir, "cr", "archive", "write", "1", "--json")
@@ -47,6 +48,7 @@ func TestCRArchiveWriteAndAppendJSON(t *testing.T) {
 }
 
 func TestCRArchiveBackfillDryRunAndCommitJSON(t *testing.T) {
+	t.Parallel()
 	dir := setupCLIMergedCRNoArchiveRepo(t)
 	svc := service.New(dir)
 

@@ -10,6 +10,7 @@ import (
 )
 
 func TestTaskChunkListCommandSupportsTextJSONAndPathFilter(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := service.New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -91,6 +92,7 @@ func TestTaskChunkListCommandSupportsTextJSONAndPathFilter(t *testing.T) {
 }
 
 func TestTaskChunkShowAndExportCommandsJSON(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := service.New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -192,6 +194,7 @@ func TestTaskChunkShowAndExportCommandsJSON(t *testing.T) {
 }
 
 func TestTaskChunkListJSONReturnsPreStagedError(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := service.New(dir)
 	if _, err := svc.Init("main", ""); err != nil {

@@ -8,6 +8,7 @@ import (
 )
 
 func TestRuntimeProvidersDefaultToServiceDependencies(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 
@@ -43,6 +44,7 @@ func TestRuntimeProvidersDefaultToServiceDependencies(t *testing.T) {
 }
 
 func TestRuntimeProvidersUseOverrides(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 
@@ -86,6 +88,7 @@ func TestRuntimeProvidersUseOverrides(t *testing.T) {
 }
 
 func TestRuntimeProvidersComposePreservesExplicitOverrides(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 
@@ -129,6 +132,7 @@ func TestRuntimeProvidersComposePreservesExplicitOverrides(t *testing.T) {
 }
 
 func TestRuntimeProvidersComposeRebindsDefaultsAfterDependencySwap(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 

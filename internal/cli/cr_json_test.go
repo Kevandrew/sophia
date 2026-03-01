@@ -10,6 +10,7 @@ import (
 )
 
 func TestCRJSONCommandsReturnEnvelope(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := service.New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -137,6 +138,7 @@ func TestCRJSONCommandsReturnEnvelope(t *testing.T) {
 }
 
 func TestValidateJSONReturnsStructuredErrorWhenInvalid(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := service.New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -167,6 +169,7 @@ func TestValidateJSONReturnsStructuredErrorWhenInvalid(t *testing.T) {
 }
 
 func TestWarningBearingJSONCommandsAlwaysReturnWarningsArray(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := service.New(dir)
 	if _, err := svc.Init("main", ""); err != nil {

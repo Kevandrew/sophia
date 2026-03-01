@@ -7,6 +7,7 @@ import (
 )
 
 func TestFingerprintHQIntentCRIgnoresVolatileLocalFields(t *testing.T) {
+	t.Parallel()
 	cr := &model.CR{
 		ID:          1,
 		UID:         "cr_intent",
@@ -59,6 +60,7 @@ func TestFingerprintHQIntentCRIgnoresVolatileLocalFields(t *testing.T) {
 }
 
 func TestFingerprintHQIntentCRIgnoresUID(t *testing.T) {
+	t.Parallel()
 	cr := &model.CR{
 		ID:          1,
 		UID:         "cr_one",
@@ -84,6 +86,7 @@ func TestFingerprintHQIntentCRIgnoresUID(t *testing.T) {
 }
 
 func TestFingerprintHQIntentCRChangesForIntentEdits(t *testing.T) {
+	t.Parallel()
 	cr := &model.CR{
 		ID:          1,
 		UID:         "cr_intent_2",

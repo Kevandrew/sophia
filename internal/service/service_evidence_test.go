@@ -11,6 +11,7 @@ import (
 )
 
 func TestAddEvidenceManualNoteAndHistory(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -63,6 +64,7 @@ func TestAddEvidenceManualNoteAndHistory(t *testing.T) {
 }
 
 func TestAddEvidenceCommandCapture(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -96,6 +98,7 @@ func TestAddEvidenceCommandCapture(t *testing.T) {
 }
 
 func TestAddEvidenceRejectsInvalidTypeAndCaptureMismatch(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -114,6 +117,7 @@ func TestAddEvidenceRejectsInvalidTypeAndCaptureMismatch(t *testing.T) {
 }
 
 func TestAddEvidenceCaptureDoesNotExecuteCommandWhenCRMissing(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {

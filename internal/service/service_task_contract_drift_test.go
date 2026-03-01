@@ -77,6 +77,7 @@ func newCheckpointedTaskFixture(t *testing.T, checks []string) (*Service, int, i
 }
 
 func TestDoneTaskCheckpointCapturesTaskContractBaseline(t *testing.T) {
+	t.Parallel()
 	svc, crID, taskID := newCheckpointedTaskFixture(t, []string{"unit_tests"})
 
 	cr, err := svc.store.LoadCR(crID)
@@ -96,6 +97,7 @@ func TestDoneTaskCheckpointCapturesTaskContractBaseline(t *testing.T) {
 }
 
 func TestSetTaskContractRecordsScopeWidenDriftAndSupportsAck(t *testing.T) {
+	t.Parallel()
 	svc, crID, taskID := newCheckpointedTaskFixture(t, nil)
 
 	scope := []string{"."}
@@ -128,6 +130,7 @@ func TestSetTaskContractRecordsScopeWidenDriftAndSupportsAck(t *testing.T) {
 }
 
 func TestSetTaskContractChangeReasonAutoAcknowledgesDrift(t *testing.T) {
+	t.Parallel()
 	svc, crID, taskID := newCheckpointedTaskFixture(t, []string{"unit_tests"})
 
 	checks := []string{"lint"}
@@ -153,6 +156,7 @@ func TestSetTaskContractChangeReasonAutoAcknowledgesDrift(t *testing.T) {
 }
 
 func TestValidateCRFailsWhenAcceptanceCheckKeyMissingFromPolicy(t *testing.T) {
+	t.Parallel()
 	svc, crID, taskID := newCheckpointedTaskFixture(t, []string{"unit_tests"})
 	writePolicyWithChecks(t, svc.git.WorkDir)
 
@@ -169,6 +173,7 @@ func TestValidateCRFailsWhenAcceptanceCheckKeyMissingFromPolicy(t *testing.T) {
 }
 
 func TestSetTaskContractRejectsUnknownAcceptanceCheckKey(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {

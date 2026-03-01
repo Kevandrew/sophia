@@ -12,6 +12,7 @@ import (
 )
 
 func TestPatchFileDisplayNameUsesBaseName(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "nested", "task.patch")
 	if got := patchFileDisplayName(path); got != "task.patch" {
 		t.Fatalf("expected base filename, got %q", got)
@@ -19,6 +20,7 @@ func TestPatchFileDisplayNameUsesBaseName(t *testing.T) {
 }
 
 func TestReadPatchManifestContentRejectsOversize(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "huge.patch")
 	payload := bytes.Repeat([]byte("x"), maxPatchManifestBytes+1)
@@ -31,6 +33,7 @@ func TestReadPatchManifestContentRejectsOversize(t *testing.T) {
 }
 
 func TestTaskAddAndDonePreservesOrderAndStatus(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -77,6 +80,7 @@ func TestTaskAddAndDonePreservesOrderAndStatus(t *testing.T) {
 }
 
 func TestDoneTaskWithCheckpointCreatesCommit(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -133,6 +137,7 @@ func TestDoneTaskWithCheckpointCreatesCommit(t *testing.T) {
 }
 
 func TestDoneTaskWithCheckpointDryRunDoesNotCreateCommit(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -177,6 +182,7 @@ func TestDoneTaskWithCheckpointDryRunDoesNotCreateCommit(t *testing.T) {
 }
 
 func TestDoneTaskWithCheckpointAfterReopenUsesV2Suffix(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -219,6 +225,7 @@ func TestDoneTaskWithCheckpointAfterReopenUsesV2Suffix(t *testing.T) {
 }
 
 func TestDoneTaskWithCheckpointAfterTwoReopensUsesV3Suffix(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -270,6 +277,7 @@ func TestDoneTaskWithCheckpointAfterTwoReopensUsesV3Suffix(t *testing.T) {
 }
 
 func TestDoneTaskWithCheckpointAfterNoCheckpointReopenUsesV2Suffix(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -311,6 +319,7 @@ func TestDoneTaskWithCheckpointAfterNoCheckpointReopenUsesV2Suffix(t *testing.T)
 }
 
 func TestDoneTaskWithCheckpointNoChangesKeepsTaskOpen(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -340,6 +349,7 @@ func TestDoneTaskWithCheckpointNoChangesKeepsTaskOpen(t *testing.T) {
 }
 
 func TestDoneTaskWithNoCheckpointIsMetadataOnly(t *testing.T) {
+	t.Parallel()
 	cr := seedCR(1, "Metadata only", seedCROptions{
 		Description: "done without commit",
 		Branch:      "cr-1-runtime",
@@ -382,6 +392,7 @@ func TestDoneTaskWithNoCheckpointIsMetadataOnly(t *testing.T) {
 }
 
 func TestDoneTaskWithNoCheckpointRequiresReason(t *testing.T) {
+	t.Parallel()
 	cr := seedCR(1, "Metadata reason", seedCROptions{
 		Description: "require no-checkpoint rationale",
 		Branch:      "cr-1-runtime",
@@ -396,6 +407,7 @@ func TestDoneTaskWithNoCheckpointRequiresReason(t *testing.T) {
 }
 
 func TestDoneTaskWithCheckpointRequiresCRBranch(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -421,6 +433,7 @@ func TestDoneTaskWithCheckpointRequiresCRBranch(t *testing.T) {
 }
 
 func TestDoneTaskWithCheckpointScopesToSelectedPaths(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -480,6 +493,7 @@ func TestDoneTaskWithCheckpointScopesToSelectedPaths(t *testing.T) {
 }
 
 func TestDoneTaskWithCheckpointFromContractScopesToChangedFiles(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -561,6 +575,7 @@ func TestDoneTaskWithCheckpointFromContractScopesToChangedFiles(t *testing.T) {
 }
 
 func TestDoneTaskWithCheckpointFromContractNoMatchesFails(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -598,6 +613,7 @@ func TestDoneTaskWithCheckpointFromContractNoMatchesFails(t *testing.T) {
 }
 
 func TestDoneTaskWithCheckpointPatchFileScopesToSelectedHunks(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -684,6 +700,7 @@ func TestDoneTaskWithCheckpointPatchFileScopesToSelectedHunks(t *testing.T) {
 }
 
 func TestDoneTaskWithCheckpointPatchFileMalformedFails(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -723,6 +740,7 @@ func TestDoneTaskWithCheckpointPatchFileMalformedFails(t *testing.T) {
 }
 
 func TestListTaskChunksReturnsSortedChunksAndPathFilter(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -786,6 +804,7 @@ func TestListTaskChunksReturnsSortedChunksAndPathFilter(t *testing.T) {
 }
 
 func TestTaskChunkWorkingTreePatchIsApplyable(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -844,6 +863,7 @@ func TestTaskChunkWorkingTreePatchIsApplyable(t *testing.T) {
 }
 
 func TestExportTaskChunkWorkingTreePatchAcrossFiles(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -917,6 +937,7 @@ func TestExportTaskChunkWorkingTreePatchAcrossFiles(t *testing.T) {
 }
 
 func TestTaskChunkCommandsRejectPreStagedChanges(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -958,6 +979,7 @@ func TestTaskChunkCommandsRejectPreStagedChanges(t *testing.T) {
 }
 
 func TestDoneTaskWithCheckpointRequiresExplicitScope(t *testing.T) {
+	t.Parallel()
 	cr := seedCR(1, "Scope required", seedCROptions{
 		Description: "checkpoint scope required",
 		Branch:      "cr-1-runtime",
@@ -972,6 +994,7 @@ func TestDoneTaskWithCheckpointRequiresExplicitScope(t *testing.T) {
 }
 
 func TestDoneTaskWithCheckpointRejectsInvalidScopePaths(t *testing.T) {
+	t.Parallel()
 	cr := seedCR(1, "Invalid scope", seedCROptions{
 		Description: "reject invalid paths",
 		Branch:      "cr-1-runtime",
@@ -1012,6 +1035,7 @@ func TestDoneTaskWithCheckpointRejectsInvalidScopePaths(t *testing.T) {
 }
 
 func TestDoneTaskWithCheckpointRejectsPreStagedChanges(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -1056,6 +1080,7 @@ func TestDoneTaskWithCheckpointRejectsPreStagedChanges(t *testing.T) {
 }
 
 func TestDoneTaskWithCheckpointScopedPathWithoutChangesFails(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {

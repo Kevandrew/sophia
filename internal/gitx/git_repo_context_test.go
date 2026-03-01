@@ -9,6 +9,7 @@ import (
 )
 
 func TestRepoRootAndGitCommonDirAbs(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	runGit(t, dir, "init", "-b", "main")
 

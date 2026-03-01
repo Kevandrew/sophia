@@ -7,6 +7,7 @@ import (
 )
 
 func TestActiveTaskMergeGuardDefaultsToServiceMergeGuard(t *testing.T) {
+	t.Parallel()
 	svc := &Service{}
 	guard := svc.activeTaskMergeGuard()
 	if guard == nil {
@@ -15,6 +16,7 @@ func TestActiveTaskMergeGuardDefaultsToServiceMergeGuard(t *testing.T) {
 }
 
 func TestActiveTaskMergeGuardUsesOverride(t *testing.T) {
+	t.Parallel()
 	expected := errors.New("guard hit")
 	svc := &Service{}
 	svc.overrideTaskMergeGuardForTests(func(*model.CR) error { return expected })
@@ -25,6 +27,7 @@ func TestActiveTaskMergeGuardUsesOverride(t *testing.T) {
 }
 
 func TestDoneTaskWithCheckpointNoCheckpointUsesRuntimeProviders(t *testing.T) {
+	t.Parallel()
 	cr := seedCR(1, "runtime done", seedCROptions{Branch: "cr-1-runtime"})
 	task := seedTask(1, "done task", model.TaskStatusOpen, "Before")
 	task.Contract = model.TaskContract{

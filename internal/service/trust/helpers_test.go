@@ -6,6 +6,7 @@ import (
 )
 
 func TestParseShortStatMetrics(t *testing.T) {
+	t.Parallel()
 	got := ParseShortStatMetrics("21 files changed, 995 insertions(+), 70 deletions(-)")
 	if got.FilesChanged != 21 || got.Insertions != 995 || got.Deletions != 70 {
 		t.Fatalf("ParseShortStatMetrics = %#v, want files=21 ins=995 del=70", got)
@@ -13,6 +14,7 @@ func TestParseShortStatMetrics(t *testing.T) {
 }
 
 func TestTrustThresholdForTier(t *testing.T) {
+	t.Parallel()
 	trust := model.PolicyTrust{
 		Thresholds: model.PolicyTrustThresholds{
 			Low:    floatPtr(0.7),

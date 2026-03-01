@@ -9,6 +9,7 @@ import (
 )
 
 func TestDiffCRDeterministicAndCriticalFilter(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -69,6 +70,7 @@ func TestDiffCRDeterministicAndCriticalFilter(t *testing.T) {
 }
 
 func TestDiffTaskCheckpointAndFallback(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -127,6 +129,7 @@ func TestDiffTaskCheckpointAndFallback(t *testing.T) {
 }
 
 func TestDiffTaskChunkMetadataAndDerivedFallback(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -213,6 +216,7 @@ func TestDiffTaskChunkMetadataAndDerivedFallback(t *testing.T) {
 }
 
 func TestDiffTaskFallbackRequiresCheckpointScope(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {

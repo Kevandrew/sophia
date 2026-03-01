@@ -6,6 +6,7 @@ import (
 )
 
 func TestResolveCRIDByUID(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -25,6 +26,7 @@ func TestResolveCRIDByUID(t *testing.T) {
 }
 
 func TestResolveCRIDSupportsIDUIDAndAlias(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -51,6 +53,7 @@ func TestResolveCRIDSupportsIDUIDAndAlias(t *testing.T) {
 }
 
 func TestResolveCRIDRejectsUnknownBranchLikeSelector(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {

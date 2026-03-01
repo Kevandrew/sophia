@@ -7,6 +7,7 @@ import (
 )
 
 func TestRunTrustChecksCRExecutesRequiredCommands(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -65,6 +66,7 @@ trust:
 }
 
 func TestTrustCheckStatusMarksStaleEvidence(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -120,6 +122,7 @@ trust:
 }
 
 func TestTrustCheckStatusCRUsesRuntimeStatusStoreProvider(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	cr := &model.CR{
 		ID:          1,

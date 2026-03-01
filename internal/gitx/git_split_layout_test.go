@@ -3,6 +3,7 @@ package gitx
 import "testing"
 
 func TestSplitConcernOwnershipIsCompleteAndNonOverlapping(t *testing.T) {
+	t.Parallel()
 	concerns := SplitConcernOwnership()
 	if len(concerns) == 0 {
 		t.Fatalf("expected non-empty concern ownership map")
@@ -32,6 +33,7 @@ func TestSplitConcernOwnershipIsCompleteAndNonOverlapping(t *testing.T) {
 }
 
 func TestSplitSharedHelperPlacementIsUnique(t *testing.T) {
+	t.Parallel()
 	placements := SplitSharedHelperPlacement()
 	if len(placements) == 0 {
 		t.Fatalf("expected non-empty shared helper placement map")
