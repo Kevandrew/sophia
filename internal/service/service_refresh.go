@@ -19,7 +19,9 @@ func (s *Service) RefreshCR(id int, opts RefreshOptions) (*CRRefreshView, error)
 }
 
 func (s *Service) refreshCRUnlocked(id int, opts RefreshOptions) (*CRRefreshView, error) {
-	cr, err := s.store.LoadCR(id)
+	lifecycleStore := s.activeLifecycleStoreProvider()
+	lifecycleGit := s.activeLifecycleGitProvider()
+	cr, err := lifecycleStore.LoadCR(id)
 	if err != nil {
 		return nil, err
 	}
@@ -48,8 +50,8 @@ func (s *Service) refreshCRUnlocked(id int, opts RefreshOptions) (*CRRefreshView
 	}
 
 	beforeHead := ""
-	if s.git.BranchExists(cr.Branch) {
-		if resolved, resolveErr := s.git.ResolveRef(cr.Branch); resolveErr == nil {
+	if lifecycleGit.BranchExists(cr.Branch) {
+		if resolved, resolveErr := lifecycleGit.ResolveRef(cr.Branch); resolveErr == nil {
 			beforeHead = strings.TrimSpace(resolved)
 		}
 	}
@@ -69,13 +71,13 @@ func (s *Service) refreshCRUnlocked(id int, opts RefreshOptions) (*CRRefreshView
 		if cr.ParentCRID <= 0 {
 			return nil, ErrParentCRRequired
 		}
-		parent, parentErr := s.store.LoadCR(cr.ParentCRID)
+		parent, parentErr := lifecycleStore.LoadCR(cr.ParentCRID)
 		if parentErr != nil {
 			return nil, parentErr
 		}
 		targetRef := ""
 		switch {
-		case parent.Status == model.StatusInProgress && s.git.BranchExists(parent.Branch):
+		case parent.Status == model.StatusInProgress && lifecycleGit.BranchExists(parent.Branch):
 			targetRef = parent.Branch
 		case parent.Status == model.StatusMerged && strings.TrimSpace(parent.MergedCommit) != "":
 			targetRef = strings.TrimSpace(parent.MergedCommit)
@@ -111,8 +113,8 @@ func (s *Service) refreshCRUnlocked(id int, opts RefreshOptions) (*CRRefreshView
 		return nil, fmt.Errorf("unsupported refresh strategy %q", strategy)
 	}
 
-	if s.git.BranchExists(cr.Branch) {
-		if resolved, resolveErr := s.git.ResolveRef(cr.Branch); resolveErr == nil {
+	if lifecycleGit.BranchExists(cr.Branch) {
+		if resolved, resolveErr := lifecycleGit.ResolveRef(cr.Branch); resolveErr == nil {
 			view.AfterHead = strings.TrimSpace(resolved)
 		}
 	}
