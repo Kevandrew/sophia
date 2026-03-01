@@ -1,0 +1,53 @@
+schema_version: sophia.cr_archive.v1
+notice: Historical archive snapshot. Corrections are append-only revisions.
+archived_at: "2026-03-01T19:12:56Z"
+revision: 1
+cr:
+    id: 101
+    uid: cr_cf4f748f-089a-4da3-81f7-ab8583965913
+    title: Surface manifesto link in README
+    description: Add a direct link to the core manifesto near the top of the GitHub README, without changing any other positioning or copy.
+    status: merged
+    base_branch: main
+    base_ref: main
+    base_commit: e8f69a5a4acfa19b4f3e0105675f35d8648e42a0
+    branch: cr-surface-manifesto-link-in-readme-cf4f
+    merged_at: "2026-03-01T19:12:56Z"
+    merged_by: Kevandrew <143258544+Kevandrew@users.noreply.github.com>
+contract:
+    why: The project's thesis is captured in the manifesto; make it immediately discoverable from the GitHub README so readers can understand the intent-first premise without digging.
+    scope:
+        - README.md
+    non_goals:
+        - Do not change any existing copy beyond adding the manifesto link line.
+        - Do not restructure the README or move existing sections.
+    invariants:
+        - Existing links and headings remain unchanged.
+        - README rendering remains valid on GitHub.
+    blast_radius: GitHub README only (top-of-page discoverability and outbound link).
+    risk_tier_hint: low
+    risk_rationale: Documentation-only change in a single file.
+    test_plan: go test ./... && go vet ./...
+    rollback_plan: Revert the CR merge commit.
+tasks:
+    - id: 1
+      title: Add manifesto link near top of README
+      status: done
+      contract:
+        intent: Make the manifesto directly discoverable from the README header area.
+        acceptance_criteria:
+            - README includes a direct link to the manifesto near the top (immediately under the tagline), with no other copy/structure changes.
+        scope:
+            - README.md
+      checkpoint:
+        commit: 75efdc00
+        at: "2026-03-01T19:11:34Z"
+        source: task_checkpoint
+        scope:
+            - README.md
+git_summary:
+    base_parent: e8f69a5a4acfa19b4f3e0105675f35d8648e42a0
+    cr_parent: 75efdc007817dc6603f716f453ca3672920b59a2
+    files_changed: []
+    diffstat:
+        summary: 0 files changed, 0 insertions(+), 0 deletions(-)
