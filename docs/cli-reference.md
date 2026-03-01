@@ -43,10 +43,18 @@ sophia cr status 12 --json=false
 
 - `sophia init` initialize repository metadata.
 - `sophia version` print version, commit, and build date.
+- `sophia update` check for/apply new Sophia releases via the installer route.
 - `sophia doctor` run workflow integrity diagnostics.
 - `sophia log` inspect intent-first history.
 - `sophia repair` rebuild metadata from Git history.
 - `sophia hook install` install local Git guardrails.
+
+Update examples:
+
+```bash
+sophia update --check
+sophia update --yes
+```
 
 ## CR command families
 
