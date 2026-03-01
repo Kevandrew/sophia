@@ -34,19 +34,27 @@ type TaskDoneFlags struct {
 	FromContract       bool
 	ScopePaths         []string
 	PatchFile          string
+	CommitType         string
 }
 
 func ValidateTaskDoneFlags(flags TaskDoneFlags) error {
 	trimmedReason := strings.TrimSpace(flags.NoCheckpointReason)
 	trimmedPatchFile := strings.TrimSpace(flags.PatchFile)
+	trimmedCommitType := strings.TrimSpace(flags.CommitType)
 	if flags.NoCheckpoint && (flags.StageAll || flags.FromContract || len(flags.ScopePaths) > 0 || trimmedPatchFile != "") {
 		return fmt.Errorf("--no-checkpoint cannot be combined with --from-contract, --path, --patch-file, or --all")
+	}
+	if flags.NoCheckpoint && trimmedCommitType != "" {
+		return fmt.Errorf("--commit-type requires a checkpoint commit and cannot be combined with --no-checkpoint")
 	}
 	if flags.NoCheckpoint && trimmedReason == "" {
 		return fmt.Errorf("--no-checkpoint requires --no-checkpoint-reason")
 	}
 	if !flags.NoCheckpoint && trimmedReason != "" {
 		return fmt.Errorf("--no-checkpoint-reason requires --no-checkpoint")
+	}
+	if trimmedCommitType != "" && !isValidCommitType(trimmedCommitType) {
+		return fmt.Errorf("invalid --commit-type %q (supported: feat, fix, docs, refactor, test, chore, perf, build, ci, style, revert)", trimmedCommitType)
 	}
 	if flags.NoCheckpoint {
 		return nil
@@ -81,6 +89,7 @@ func BuildTaskDoneOptions(flags TaskDoneFlags) service.DoneTaskOptions {
 		Paths:              append([]string(nil), flags.ScopePaths...),
 		PatchFile:          strings.TrimSpace(flags.PatchFile),
 		NoCheckpointReason: strings.TrimSpace(flags.NoCheckpointReason),
+		CommitType:         strings.TrimSpace(flags.CommitType),
 	}
 }
 
@@ -108,4 +117,13 @@ func TaskDoneCheckpointSource(flags TaskDoneFlags) string {
 		return "task_no_checkpoint"
 	}
 	return "task_checkpoint"
+}
+
+func isValidCommitType(raw string) bool {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "feat", "fix", "docs", "refactor", "test", "chore", "perf", "build", "ci", "style", "revert":
+		return true
+	default:
+		return false
+	}
 }

@@ -632,6 +632,7 @@ type taskDoneFlags struct {
 	fromContract       bool
 	scopePaths         []string
 	patchFile          string
+	commitType         string
 	dryRun             bool
 }
 
@@ -643,6 +644,7 @@ func validateTaskDoneFlags(flags taskDoneFlags) error {
 		FromContract:       flags.fromContract,
 		ScopePaths:         append([]string(nil), flags.scopePaths...),
 		PatchFile:          flags.patchFile,
+		CommitType:         flags.commitType,
 	})
 }
 
@@ -654,6 +656,7 @@ func buildTaskDoneOptions(flags taskDoneFlags) service.DoneTaskOptions {
 		FromContract:       flags.fromContract,
 		ScopePaths:         append([]string(nil), flags.scopePaths...),
 		PatchFile:          flags.patchFile,
+		CommitType:         flags.commitType,
 	})
 	opts.DryRun = flags.dryRun
 	return opts
@@ -685,6 +688,7 @@ func writeTaskDoneResult(cmd *cobra.Command, asJSON bool, crID, taskID int, sha 
 			"scope_mode":           taskDoneScopeMode(flags),
 			"scope_paths":          stringSliceOrEmpty(flags.scopePaths),
 			"patch_file":           strings.TrimSpace(flags.patchFile),
+			"commit_type":          strings.TrimSpace(flags.commitType),
 			"no_checkpoint_reason": strings.TrimSpace(flags.noCheckpointReason),
 			"checkpoint_source":    taskDoneCheckpointSource(flags),
 			"dry_run":              flags.dryRun,
@@ -709,6 +713,7 @@ func newCRTaskDoneCmd() *cobra.Command {
 	var fromContract bool
 	var scopePaths []string
 	var patchFile string
+	var commitType string
 	var dryRun bool
 	var asJSON bool
 
@@ -716,7 +721,7 @@ func newCRTaskDoneCmd() *cobra.Command {
 		Use:     "done [<cr-id>] <task-id>",
 		Short:   "Mark a subtask as done",
 		Long:    "Complete a task with one explicit checkpoint scope mode. Prefer --from-contract once task contract scope is defined.",
-		Example: "  sophia cr task done 25 1 --from-contract\n  sophia cr task done 25 1 --path internal/service/service.go --path internal/service/service_test.go\n  sophia cr task done 25 1 --patch-file /tmp/task1.patch\n  sophia cr task done 25 1 --all\n  sophia cr task done 25 1 --no-checkpoint --no-checkpoint-reason \"metadata-only task\"",
+		Example: "  sophia cr task done 25 1 --commit-type fix --from-contract\n  sophia cr task done 25 1 --path internal/service/service.go --path internal/service/service_test.go\n  sophia cr task done 25 1 --patch-file /tmp/task1.patch\n  sophia cr task done 25 1 --all\n  sophia cr task done 25 1 --no-checkpoint --no-checkpoint-reason \"metadata-only task\"",
 		Args:    cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return withOptionalCRTaskIDsAndService(cmd, asJSON, args, "cr-id", "task-id", func(crID, taskID int, svc *service.Service) error {
@@ -727,6 +732,7 @@ func newCRTaskDoneCmd() *cobra.Command {
 					fromContract:       fromContract,
 					scopePaths:         append([]string(nil), scopePaths...),
 					patchFile:          resolvePathForCmd(cmd, patchFile),
+					commitType:         commitType,
 					dryRun:             dryRun,
 				}
 				if err := validateTaskDoneFlags(flags); err != nil {
@@ -748,6 +754,7 @@ func newCRTaskDoneCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&fromContract, "from-contract", false, "Checkpoint by staging changed files that match task contract scope")
 	cmd.Flags().StringArrayVar(&scopePaths, "path", nil, "Checkpoint scope path (repo-relative file, repeatable)")
 	cmd.Flags().StringVar(&patchFile, "patch-file", "", "Checkpoint scope patch manifest file")
+	cmd.Flags().StringVar(&commitType, "commit-type", "", "Conventional commit type for checkpoint subject (feat|fix|docs|refactor|test|chore|perf|build|ci|style|revert)")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Validate task checkpoint scope without creating a commit or mutating CR metadata")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "Output in JSON format")
 	return cmd

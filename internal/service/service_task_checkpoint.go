@@ -17,6 +17,7 @@ type DoneTaskOptions struct {
 	FromContract       bool
 	PatchFile          string
 	NoCheckpointReason string
+	CommitType         string
 	DryRun             bool
 }
 
@@ -39,7 +40,11 @@ func dedupeStrings(values []string) []string {
 }
 
 func validateDoneTaskOptions(opts DoneTaskOptions) error {
+	trimmedCommitType := strings.TrimSpace(opts.CommitType)
 	if !opts.Checkpoint {
+		if trimmedCommitType != "" {
+			return fmt.Errorf("%w: --commit-type requires a checkpoint commit and cannot be combined with --no-checkpoint", ErrInvalidTaskScope)
+		}
 		if opts.StageAll || opts.FromContract || len(opts.Paths) > 0 || strings.TrimSpace(opts.PatchFile) != "" {
 			return fmt.Errorf("%w: --no-checkpoint cannot be combined with --from-contract, --path, --patch-file, or --all", ErrInvalidTaskScope)
 		}
@@ -50,6 +55,11 @@ func validateDoneTaskOptions(opts DoneTaskOptions) error {
 	}
 	if strings.TrimSpace(opts.NoCheckpointReason) != "" {
 		return fmt.Errorf("%w: --no-checkpoint-reason requires --no-checkpoint", ErrInvalidTaskScope)
+	}
+	if trimmedCommitType != "" {
+		if _, ok := normalizeTaskCommitTypeToken(trimmedCommitType); !ok {
+			return fmt.Errorf("%w: invalid --commit-type %q (supported: feat, fix, docs, refactor, test, chore, perf, build, ci, style, revert)", ErrInvalidTaskScope, trimmedCommitType)
+		}
 	}
 	modes := 0
 	if opts.StageAll {
