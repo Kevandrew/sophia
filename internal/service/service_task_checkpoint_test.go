@@ -136,6 +136,88 @@ func TestDoneTaskWithCheckpointCreatesCommit(t *testing.T) {
 	}
 }
 
+func TestDoneTaskWithCheckpointUsesCommitTypeOverride(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	runGit(t, dir, "config", "user.name", "Test User")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+
+	cr, err := svc.AddCR("Checkpoint override CR", "override behavior")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	task, err := svc.AddTask(cr.ID, "Implement checkpoint without prefix")
+	if err != nil {
+		t.Fatalf("AddTask() error = %v", err)
+	}
+	setValidTaskContract(t, svc, cr.ID, task.ID)
+	if err := os.WriteFile(filepath.Join(dir, "checkpoint-override.txt"), []byte("checkpoint\n"), 0o644); err != nil {
+		t.Fatalf("write checkpoint file: %v", err)
+	}
+
+	if _, err := svc.DoneTaskWithCheckpoint(cr.ID, task.ID, DoneTaskOptions{
+		Checkpoint: true,
+		StageAll:   true,
+		CommitType: "fix",
+	}); err != nil {
+		t.Fatalf("DoneTaskWithCheckpoint() error = %v", err)
+	}
+
+	msg := runGit(t, dir, "log", "-1", "--pretty=%B")
+	if !strings.Contains(msg, "fix(cr-1/task-1): Implement checkpoint without prefix") {
+		t.Fatalf("unexpected checkpoint subject with override: %q", msg)
+	}
+}
+
+func TestDoneTaskWithCheckpointFallsBackToTaskContractIntentType(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	runGit(t, dir, "config", "user.name", "Test User")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+
+	cr, err := svc.AddCR("Checkpoint intent fallback CR", "fallback behavior")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	task, err := svc.AddTask(cr.ID, "Implement checkpoint without title prefix")
+	if err != nil {
+		t.Fatalf("AddTask() error = %v", err)
+	}
+	intent := "refactor: simplify checkpoint type inference"
+	acceptance := []string{"Typed checkpoint prefix is inferred from task intent."}
+	scope := []string{"."}
+	if _, err := svc.SetTaskContract(cr.ID, task.ID, TaskContractPatch{
+		Intent:             &intent,
+		AcceptanceCriteria: &acceptance,
+		Scope:              &scope,
+	}); err != nil {
+		t.Fatalf("SetTaskContract() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "checkpoint-intent-fallback.txt"), []byte("checkpoint\n"), 0o644); err != nil {
+		t.Fatalf("write checkpoint file: %v", err)
+	}
+
+	if _, err := svc.DoneTaskWithCheckpoint(cr.ID, task.ID, DoneTaskOptions{
+		Checkpoint: true,
+		StageAll:   true,
+	}); err != nil {
+		t.Fatalf("DoneTaskWithCheckpoint() error = %v", err)
+	}
+
+	msg := runGit(t, dir, "log", "-1", "--pretty=%B")
+	if !strings.Contains(msg, "refactor(cr-1/task-1): Implement checkpoint without title prefix") {
+		t.Fatalf("unexpected checkpoint subject with intent fallback: %q", msg)
+	}
+}
+
 func TestDoneTaskWithCheckpointDryRunDoesNotCreateCommit(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
@@ -1020,10 +1102,12 @@ func TestDoneTaskWithCheckpointRejectsInvalidScopePaths(t *testing.T) {
 		{Checkpoint: true, StageAll: true, PatchFile: "task.patch"},
 		{Checkpoint: true, FromContract: true, PatchFile: "task.patch"},
 		{Checkpoint: true, Paths: []string{"x.txt"}, PatchFile: "task.patch"},
+		{Checkpoint: true, StageAll: true, CommitType: "invalid"},
 		{Checkpoint: false, Paths: []string{"x.txt"}},
 		{Checkpoint: false, StageAll: true},
 		{Checkpoint: false, FromContract: true},
 		{Checkpoint: false, PatchFile: "task.patch"},
+		{Checkpoint: false, NoCheckpointReason: "metadata-only", CommitType: "fix"},
 	}
 
 	for _, tc := range cases {
