@@ -73,11 +73,16 @@ sophia cr task contract set [<cr-id>|<cr-uid>] <task-id> --intent "..." --accept
 Implementation and checkpoints:
 
 ```bash
-sophia cr task done [<cr-id>|<cr-uid>] <task-id> --path <file> --path <file>
+sophia cr task done [<cr-id>|<cr-uid>] <task-id> --commit-type fix --path <file> --path <file>
 sophia cr task chunk list <cr-id> <task-id>
 sophia cr task chunk export <cr-id> <task-id> --chunk <chunk-id> --out task.patch
 sophia cr task done [<cr-id>|<cr-uid>] <task-id> --patch-file task.patch
 ```
+
+Checkpoint type selection:
+
+- Explicit: `--commit-type <feat|fix|docs|refactor|test|chore|perf|build|ci|style|revert>`
+- Fallback when omitted: task title prefix, then task contract intent prefix, then `chore`.
 
 Validation/review/merge:
 
