@@ -8,9 +8,11 @@ import (
 	"strings"
 	"testing"
 
+	"sophia/internal/gitx"
 	"sophia/internal/model"
 )
 
+// integration-required: verifies real repo initialization and on-disk metadata creation.
 func TestInitInNonGitDirectoryInitializesGitAndSophia(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
@@ -33,6 +35,7 @@ func TestInitInNonGitDirectoryInitializesGitAndSophia(t *testing.T) {
 	}
 }
 
+// integration-required: validates idempotent init behavior against a real git repo.
 func TestInitIsIdempotentInExistingRepo(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
@@ -55,6 +58,7 @@ func TestInitIsIdempotentInExistingRepo(t *testing.T) {
 	}
 }
 
+// integration-required: asserts filesystem-level defaults and .gitignore writes.
 func TestInitDefaultsToLocalMetadataAndGitIgnoreEntry(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
@@ -90,21 +94,22 @@ func TestInitDefaultsToLocalMetadataAndGitIgnoreEntry(t *testing.T) {
 	}
 }
 
+// fake-eligible: lifecycle ID-floor logic only; no real git plumbing semantics required.
 func TestAddCRAlignsNextIDWithHistory(t *testing.T) {
 	t.Parallel()
-	dir := t.TempDir()
-	svc := New(dir)
-	if _, err := svc.Init("main", ""); err != nil {
-		t.Fatalf("Init() error = %v", err)
-	}
+	h := harnessService(t, runtimeHarnessOptions{
+		Branch: "main",
+		Index:  model.Index{NextID: 1},
+	})
+	h.LifecycleGit.SeedLocalBranches("main")
+	h.LifecycleGit.SeedRecentCommits(
+		gitx.Commit{
+			Subject: "[CR-4] Existing merged intent",
+			Body:    "Sophia-CR: 4\nSophia-Intent: Existing merged intent\nSophia-Tasks: 0 completed",
+		},
+	)
 
-	// Simulate existing merged CR history in Git while local index is stale.
-	runGit(t, dir, "-c", "user.name=Test User", "-c", "user.email=test@example.com", "commit", "--allow-empty", "-m", "[CR-4] Existing merged intent", "-m", "Sophia-CR: 4\nSophia-Intent: Existing merged intent\nSophia-Tasks: 0 completed")
-	if err := svc.store.SaveIndex(model.Index{NextID: 1}); err != nil {
-		t.Fatalf("SaveIndex() error = %v", err)
-	}
-
-	cr, err := svc.AddCR("New intent", "should pick id 5")
+	cr, err := h.Service.AddCR("New intent", "should pick id 5")
 	if err != nil {
 		t.Fatalf("AddCR() error = %v", err)
 	}
@@ -116,6 +121,7 @@ func TestAddCRAlignsNextIDWithHistory(t *testing.T) {
 	}
 }
 
+// integration-required: asserts real branch checkout and persisted CR YAML behavior.
 func TestAddCRCreatesBranchAndCRFile(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
@@ -167,6 +173,7 @@ func TestAddCRCreatesBranchAndCRFile(t *testing.T) {
 	}
 }
 
+// integration-required: keeps end-to-end AddCR flow coverage with real runtime wiring.
 func TestAddCRAssignsDistinctUIDs(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
@@ -192,22 +199,14 @@ func TestAddCRAssignsDistinctUIDs(t *testing.T) {
 	}
 }
 
+// fake-eligible: base-ref resolution and lifecycle metadata decisions are runtime-logic only.
 func TestAddCRWithExplicitBaseRef(t *testing.T) {
 	t.Parallel()
-	dir := t.TempDir()
-	svc := New(dir)
-	if _, err := svc.Init("main", ""); err != nil {
-		t.Fatalf("Init() error = %v", err)
-	}
-	runGit(t, dir, "checkout", "-b", "release")
-	if err := os.WriteFile(filepath.Join(dir, "release_base.txt"), []byte("release\n"), 0o644); err != nil {
-		t.Fatalf("write release base file: %v", err)
-	}
-	runGit(t, dir, "add", "release_base.txt")
-	runGit(t, dir, "-c", "user.name=Test User", "-c", "user.email=test@example.com", "commit", "-m", "feat: release base")
-	runGit(t, dir, "checkout", "-B", "main")
+	h := harnessService(t, runtimeHarnessOptions{Branch: "main"})
+	h.LifecycleGit.SeedBranch("release", true)
+	h.LifecycleGit.SeedResolve("release", "release-head-sha")
 
-	result, err := svc.AddCRWithOptions("Release-based", "base ref", AddCROptions{BaseRef: "release"})
+	result, err := h.Service.AddCRWithOptions("Release-based", "base ref", AddCROptions{BaseRef: "release"})
 	if err != nil {
 		t.Fatalf("AddCRWithOptions() error = %v", err)
 	}
@@ -218,41 +217,24 @@ func TestAddCRWithExplicitBaseRef(t *testing.T) {
 	if cr.BaseRef != "release" {
 		t.Fatalf("expected base ref release, got %q", cr.BaseRef)
 	}
-	releaseHead, err := svc.git.ResolveRef("release")
-	if err != nil {
-		t.Fatalf("ResolveRef(release) error = %v", err)
-	}
+	releaseHead := "release-head-sha"
 	if cr.BaseCommit != releaseHead {
 		t.Fatalf("expected base commit %q, got %q", releaseHead, cr.BaseCommit)
 	}
-	if _, statErr := os.Stat(filepath.Join(dir, "release_base.txt")); statErr != nil {
-		t.Fatalf("expected CR branch from release base to contain file: %v", statErr)
-	}
 }
 
+// fake-eligible: parent-anchor selection is a lifecycle decision, not git command fidelity.
 func TestAddChildCRUsesParentAnchor(t *testing.T) {
 	t.Parallel()
-	dir := t.TempDir()
-	svc := New(dir)
-	if _, err := svc.Init("main", ""); err != nil {
-		t.Fatalf("Init() error = %v", err)
-	}
-
-	parent, err := svc.AddCR("Parent", "base for child")
+	h := harnessService(t, runtimeHarnessOptions{Branch: "main"})
+	parent, err := h.Service.AddCR("Parent", "base for child")
 	if err != nil {
 		t.Fatalf("AddCR(parent) error = %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "parent.txt"), []byte("parent\n"), 0o644); err != nil {
-		t.Fatalf("write parent file: %v", err)
-	}
-	runGit(t, dir, "add", "parent.txt")
-	runGit(t, dir, "-c", "user.name=Test User", "-c", "user.email=test@example.com", "commit", "-m", "feat: parent work")
-	parentHead, err := svc.git.ResolveRef(parent.Branch)
-	if err != nil {
-		t.Fatalf("ResolveRef(parent branch) error = %v", err)
-	}
+	h.LifecycleGit.SeedResolve(parent.Branch, "parent-head-sha")
+	parentHead := "parent-head-sha"
 
-	childResult, err := svc.AddCRWithOptions("Child", "stacked", AddCROptions{ParentCRID: parent.ID})
+	childResult, err := h.Service.AddCRWithOptions("Child", "stacked", AddCROptions{ParentCRID: parent.ID})
 	if err != nil {
 		t.Fatalf("AddCRWithOptions(child) error = %v", err)
 	}
@@ -268,6 +250,7 @@ func TestAddChildCRUsesParentAnchor(t *testing.T) {
 	}
 }
 
+// integration-required: merge gate + parent merge backfill relies on real merge/runtime behavior.
 func TestMergeChildBlockedUntilParentMergedAndParentMergeBackfillsChildBase(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
@@ -321,73 +304,65 @@ func TestMergeChildBlockedUntilParentMergedAndParentMergeBackfillsChildBase(t *t
 	}
 }
 
+// fake-eligible: SetCRBase/Restack branch-target decisions are validated via runtime fakes.
 func TestSetCRBaseAndRestack(t *testing.T) {
 	t.Parallel()
-	dir := t.TempDir()
-	svc := New(dir)
-	if _, err := svc.Init("main", ""); err != nil {
-		t.Fatalf("Init() error = %v", err)
-	}
+	baseCR := seedCR(1, "Base set", seedCROptions{
+		Branch:     "cr-base-set",
+		BaseBranch: "main",
+		BaseRef:    "main",
+		BaseCommit: "main-head-sha",
+	})
+	parent := seedCR(2, "Restack parent", seedCROptions{
+		Branch:     "cr-restack-parent",
+		BaseBranch: "main",
+		BaseRef:    "main",
+		BaseCommit: "main-head-sha",
+	})
+	child := seedCR(3, "Restack child", seedCROptions{
+		Branch:     "cr-restack-child",
+		BaseBranch: "main",
+		BaseRef:    parent.Branch,
+		BaseCommit: "parent-head-old",
+		ParentCRID: parent.ID,
+	})
+	h := harnessService(t, runtimeHarnessOptions{
+		Branch: "main",
+		CRs:    []*model.CR{baseCR, parent, child},
+	})
+	h.LifecycleGit.SeedBranch("release", true)
+	h.LifecycleGit.SeedBranch(baseCR.Branch, true)
+	h.LifecycleGit.SeedBranch(parent.Branch, true)
+	h.LifecycleGit.SeedBranch(child.Branch, true)
+	h.LifecycleGit.SeedResolve("release", "release-head-sha")
+	h.LifecycleGit.SeedResolve(parent.Branch, "parent-head-new")
 
-	runGit(t, dir, "checkout", "-b", "release")
-	if err := os.WriteFile(filepath.Join(dir, "release_stack.txt"), []byte("release\n"), 0o644); err != nil {
-		t.Fatalf("write release stack file: %v", err)
-	}
-	runGit(t, dir, "add", "release_stack.txt")
-	runGit(t, dir, "-c", "user.name=Test User", "-c", "user.email=test@example.com", "commit", "-m", "feat: release stack")
-	runGit(t, dir, "checkout", "-B", "main")
-
-	cr, err := svc.AddCR("Base set", "retarget base")
-	if err != nil {
-		t.Fatalf("AddCR() error = %v", err)
-	}
-	updated, err := svc.SetCRBase(cr.ID, "release", false)
+	updated, err := h.Service.SetCRBase(baseCR.ID, "release", false)
 	if err != nil {
 		t.Fatalf("SetCRBase() error = %v", err)
 	}
-	if updated.BaseRef != "release" || strings.TrimSpace(updated.BaseCommit) == "" {
+	if updated.BaseRef != "release" || updated.BaseCommit != "release-head-sha" {
 		t.Fatalf("unexpected SetCRBase result %#v", updated)
 	}
-
-	parent, err := svc.AddCR("Restack parent", "parent")
-	if err != nil {
-		t.Fatalf("AddCR(parent) error = %v", err)
+	if h.MergeGit.Calls("RebaseBranchOnto") != 0 {
+		t.Fatalf("expected SetCRBase(rebase=false) not to rebase")
 	}
-	if err := os.WriteFile(filepath.Join(dir, "restack_parent.txt"), []byte("p1\n"), 0o644); err != nil {
-		t.Fatalf("write restack parent file: %v", err)
-	}
-	runGit(t, dir, "add", "restack_parent.txt")
-	runGit(t, dir, "-c", "user.name=Test User", "-c", "user.email=test@example.com", "commit", "-m", "feat: restack parent 1")
-
-	child, _, err := svc.AddCRWithOptionsWithWarnings("Restack child", "child", AddCROptions{ParentCRID: parent.ID})
-	if err != nil {
-		t.Fatalf("AddCRWithOptionsWithWarnings(child) error = %v", err)
-	}
-	if _, err := svc.SwitchCR(parent.ID); err != nil {
-		t.Fatalf("SwitchCR(parent) error = %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "restack_parent_2.txt"), []byte("p2\n"), 0o644); err != nil {
-		t.Fatalf("write restack parent second file: %v", err)
-	}
-	runGit(t, dir, "add", "restack_parent_2.txt")
-	runGit(t, dir, "-c", "user.name=Test User", "-c", "user.email=test@example.com", "commit", "-m", "feat: restack parent 2")
-
-	if _, err := svc.RestackCR(child.ID); err != nil {
+	if _, err := h.Service.RestackCR(child.ID); err != nil {
 		t.Fatalf("RestackCR() error = %v", err)
 	}
-	reloadedChild, err := svc.store.LoadCR(child.ID)
+	reloadedChild, err := h.Store.LoadCR(child.ID)
 	if err != nil {
 		t.Fatalf("LoadCR(child) error = %v", err)
 	}
-	parentHead, err := svc.git.ResolveRef(parent.Branch)
-	if err != nil {
-		t.Fatalf("ResolveRef(parent branch) error = %v", err)
-	}
-	if reloadedChild.BaseRef != parent.Branch || reloadedChild.BaseCommit != parentHead {
+	if reloadedChild.BaseRef != parent.Branch || reloadedChild.BaseCommit != "parent-head-new" {
 		t.Fatalf("expected child restacked onto parent head, got %#v", reloadedChild)
+	}
+	if h.MergeGit.Calls("RebaseBranchOnto") != 1 {
+		t.Fatalf("expected one rebase call from restack, got %d", h.MergeGit.Calls("RebaseBranchOnto"))
 	}
 }
 
+// integration-required: keeps end-to-end CR persistence/event append coverage.
 func TestNoteAppendsAndUpdatesCR(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()

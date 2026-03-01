@@ -1,0 +1,158 @@
+schema_version: sophia.cr_archive.v1
+notice: Historical archive snapshot. Corrections are append-only revisions.
+archived_at: "2026-03-01T11:58:01Z"
+revision: 1
+cr:
+    id: 96
+    uid: cr_98aeca89-a607-4100-96dc-6037b2a2e92f
+    title: Shift lifecycle orchestration tests to fakeLifecycleGit
+    description: |-
+        Reduce service test runtime by migrating lifecycle-orchestration unit tests away from per-test real Git setup and onto the existing runtime harness (`fakeLifecycleGit`, `fakeCRStore`).
+
+        This CR is intentionally scoped to lifecycle behavior (AddCR/SetCRBase/Restack/Refresh and related state transitions). It does not replace integration tests that validate real git semantics (merge conflict flows, worktree ownership, refs wiring, blame/patch behavior).
+
+        Baseline before this CR (2026-03-01): internal/service package ~97s (`go test ./internal/service -count=1`) with 432 `runGit(...)` invocations across 36 files.
+    status: merged
+    base_branch: main
+    base_ref: main
+    base_commit: f5f56f63e9cd2c8cd0c6eb69462b1cd574aad1e3
+    branch: cr-shift-lifecycle-orchestration-tests-to-fakelifec-98ae
+    merged_at: "2026-03-01T11:58:01Z"
+    merged_by: Kevandrew <143258544+Kevandrew@users.noreply.github.com>
+contract:
+    why: |-
+        The repository already provides mature runtime fakes and a reusable harness, but many lifecycle tests still shell out to `git` repeatedly, creating avoidable cost and setup noise. These tests mostly validate service decision logic and metadata transitions, not git plumbing fidelity.
+
+        By moving those tests to `fakeLifecycleGit`, we can keep assertions precise, make failure causes clearer, and materially reduce test runtime. Faster lifecycle tests also improve confidence in future refactors by making the feedback loop short enough to run repeatedly.
+
+        Decision boundary: convert lifecycle-orchestration tests that only need lifecycle runtime signals; keep real-git integration coverage where command-level semantics are the behavior under test.
+    scope:
+        - internal/service
+        - internal/service/service_refresh_test.go
+        - internal/service/service_runtime_fakes_test.go
+        - internal/service/service_runtime_harness_test.go
+        - internal/service/service_test.go
+    non_goals:
+        - No global shared mutable git fixture across tests.
+        - No production service/CLI behavior changes.
+        - No replacement of merge/worktree/ref integration suites that depend on real git command behavior.
+    invariants:
+        - Lifecycle unit tests remain deterministic and isolated with no dependence on host git state.
+        - Real-git integration coverage for merge/worktree/ref semantics remains present and passing.
+        - Runtime-provider seams remain optional test overrides; production wiring is unchanged.
+    blast_radius: |-
+        Test-only changes in internal/service lifecycle suites and runtime test harness helpers.
+        Failure modes: accidental over-mocking that hides integration regressions, or fake behavior drift from real lifecycle contracts.
+        Mitigation: preserve explicit real-git integration tests and add focused assertions for fake call expectations and state transitions.
+    risk_tier_hint: low
+    risk_rationale: Test-only refactor with existing fake infrastructure; no runtime production path mutation.
+    test_plan: go test ./internal/service -count=1 && go test ./internal/service -run 'Test(AddCR|Refresh|SetCRBase|Restack)' -count=3 && go test ./... -count=1
+    rollback_plan: Revert the CR merge commit to restore prior real-git lifecycle tests.
+tasks:
+    - id: 1
+      title: Classify lifecycle tests into fake-eligible vs real-git-required
+      status: done
+      contract:
+        intent: Create an explicit per-test boundary so conversion does not erode integration coverage.
+        acceptance_criteria:
+            - A short rationale exists for every test kept on real git.
+            - Classification is captured in-file comments or a dedicated test note in internal/service.
+            - Each lifecycle-related test in service_test.go and service_refresh_test.go is labeled fake-eligible or integration-required.
+        scope:
+            - internal/service
+            - internal/service/service_refresh_test.go
+            - internal/service/service_test.go
+      checkpoint:
+        at: "2026-03-01T11:51:17Z"
+        source: task_no_checkpoint
+    - id: 2
+      title: Harden lifecycle harness helpers for branch/ref/status simulation
+      status: done
+      contract:
+        intent: Ensure the harness can express all lifecycle preconditions currently assembled via runGit shelling.
+        acceptance_criteria:
+            - Helper APIs exist to seed branch existence, ref resolution, and recent commits needed by lifecycle flows.
+            - Helper usage avoids direct mutation of fake internals from call sites where practical.
+            - Runtime harness tests cover new helper behavior deterministically.
+        scope:
+            - internal/service/service_runtime_fakes_test.go
+            - internal/service/service_runtime_harness_test.go
+      checkpoint:
+        commit: f4bafb44
+        at: "2026-03-01T11:51:00Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_runtime_fakes_test.go
+    - id: 3
+      title: Migrate lifecycle-only cases in service_test.go to fakeLifecycleGit
+      status: done
+      contract:
+        intent: Replace runGit-heavy setup in lifecycle orchestration tests with harness-driven fake lifecycle runtime state.
+        acceptance_criteria:
+            - Assertions include lifecycle fake call expectations where behavior depends on runtime interactions.
+            - Converted tests in service_test.go no longer call runGit for lifecycle-only scenarios.
+            - Coverage for AddCR base/parent/branch behavior and SetCRBase/Restack decisions is preserved.
+        scope:
+            - internal/service/service_test.go
+      checkpoint:
+        commit: 2711137d
+        at: "2026-03-01T11:51:04Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_test.go
+    - id: 4
+      title: Migrate refresh strategy tests to fakeLifecycleGit
+      status: done
+      contract:
+        intent: Refactor service_refresh_test.go to model parent/root refresh scenarios through fake lifecycle runtime inputs.
+        acceptance_criteria:
+            - No loss of refresh error-path coverage.
+            - Refresh tests validate auto strategy selection (rebase/restack) without real git commits/checkouts.
+            - Tests assert expected fake lifecycle calls (e.g., rebase operations) for each strategy path.
+        scope:
+            - internal/service/service_refresh.go
+            - internal/service/service_refresh_test.go
+      checkpoint:
+        commit: 6abb6853
+        at: "2026-03-01T11:51:09Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_refresh.go
+            - internal/service/service_refresh_test.go
+    - id: 5
+      title: Preserve explicit real-git integration guardrails
+      status: done
+      contract:
+        intent: Prevent accidental replacement of tests whose purpose is to verify true git semantics.
+        acceptance_criteria:
+            - A small comment-level guard documents why these suites are intentionally not moved to fakes.
+            - CI still executes these integration suites in normal go test flow.
+            - Merge/worktree/archive/ref integration suites remain real-git and unchanged in intent.
+        scope:
+            - internal/service/service_archive_test.go
+            - internal/service/service_cr_refs_test.go
+            - internal/service/service_merge_recovery_test.go
+            - internal/service/service_worktree_integration_test.go
+      checkpoint:
+        at: "2026-03-01T11:51:17Z"
+        source: task_no_checkpoint
+    - id: 6
+      title: Validate runtime impact and stability after migration
+      status: done
+      contract:
+        intent: Demonstrate measurable speedup and stable behavior after fakeLifecycleGit migration.
+        acceptance_criteria:
+            - Converted lifecycle selectors pass under repeated execution (-count=3).
+            - No new flaky failures appear in full-suite run.
+            - internal/service package runtime is measured before/after using the same command shape.
+        scope:
+            - internal/service
+      checkpoint:
+        at: "2026-03-01T11:51:17Z"
+        source: task_no_checkpoint
+git_summary:
+    base_parent: f5f56f63e9cd2c8cd0c6eb69462b1cd574aad1e3
+    cr_parent: 28928a28e69c21a9fca4366cbb52bdeea50e4bc7
+    files_changed: []
+    diffstat:
+        summary: 0 files changed, 0 insertions(+), 0 deletions(-)

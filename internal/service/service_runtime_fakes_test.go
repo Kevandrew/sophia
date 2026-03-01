@@ -254,6 +254,29 @@ func newFakeLifecycleGit(actor, branch string) *fakeLifecycleGit {
 }
 
 func (g *fakeLifecycleGit) Calls(name string) int { return g.counter.count(name) }
+
+func (g *fakeLifecycleGit) SeedBranch(branch string, exists bool) {
+	if g.branchExists == nil {
+		g.branchExists = map[string]bool{}
+	}
+	g.branchExists[branch] = exists
+}
+
+func (g *fakeLifecycleGit) SeedResolve(ref, commit string) {
+	if g.resolve == nil {
+		g.resolve = map[string]string{}
+	}
+	g.resolve[ref] = strings.TrimSpace(commit)
+}
+
+func (g *fakeLifecycleGit) SeedLocalBranches(branches ...string) {
+	g.localBranches = append([]string(nil), branches...)
+}
+
+func (g *fakeLifecycleGit) SeedRecentCommits(commits ...gitx.Commit) {
+	g.recentCommits = append([]gitx.Commit(nil), commits...)
+}
+
 func (g *fakeLifecycleGit) ActionErr(name string) error {
 	if g.actionErr == nil {
 		return nil
@@ -308,6 +331,13 @@ func (g *fakeLifecycleGit) CreateBranchFrom(branch, ref string) error {
 		g.branchExists = map[string]bool{}
 	}
 	g.branchExists[branch] = true
+	g.currentBranch = branch
+	if g.resolve == nil {
+		g.resolve = map[string]string{}
+	}
+	if trimmed := strings.TrimSpace(ref); trimmed != "" {
+		g.resolve[branch] = trimmed
+	}
 	return nil
 }
 
@@ -320,6 +350,12 @@ func (g *fakeLifecycleGit) CreateBranchAt(branch, ref string) error {
 		g.branchExists = map[string]bool{}
 	}
 	g.branchExists[branch] = true
+	if g.resolve == nil {
+		g.resolve = map[string]string{}
+	}
+	if trimmed := strings.TrimSpace(ref); trimmed != "" {
+		g.resolve[branch] = trimmed
+	}
 	return nil
 }
 
