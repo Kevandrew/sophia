@@ -115,8 +115,8 @@ func taskStatusMarker(status string) string {
 	}
 }
 
-func buildTaskCheckpointMessage(cr *model.CR, task *model.Subtask, scopeMode string, chunkCount int) string {
-	taskType := inferTaskCommitType(task.Title)
+func buildTaskCheckpointMessage(cr *model.CR, task *model.Subtask, commitTypeOverride, scopeMode string, chunkCount int) string {
+	taskType := resolveTaskCommitType(task, commitTypeOverride)
 	attempt := taskCheckpointAttempt(cr, task.ID)
 	taskIdentifier := fmt.Sprintf("task-%d", task.ID)
 	if attempt > 1 {
@@ -163,13 +163,46 @@ func taskCheckpointAttempt(cr *model.CR, taskID int) int {
 }
 
 func inferTaskCommitType(taskTitle string) string {
-	prefixes := []string{"feat", "fix", "docs", "refactor", "test", "chore", "perf", "build", "ci", "style", "revert"}
-	lower := strings.ToLower(strings.TrimSpace(taskTitle))
-	for _, prefix := range prefixes {
-		token := prefix + ":"
-		if strings.HasPrefix(lower, token) || strings.HasPrefix(lower, prefix+" ") {
-			return prefix
-		}
+	if inferred, ok := inferTaskCommitTypeToken(taskTitle); ok {
+		return inferred
 	}
 	return "chore"
+}
+
+func resolveTaskCommitType(task *model.Subtask, commitTypeOverride string) string {
+	if normalized, ok := normalizeTaskCommitTypeToken(commitTypeOverride); ok {
+		return normalized
+	}
+	if task == nil {
+		return "chore"
+	}
+	if inferred, ok := inferTaskCommitTypeToken(task.Title); ok {
+		return inferred
+	}
+	if inferred, ok := inferTaskCommitTypeToken(task.Contract.Intent); ok {
+		return inferred
+	}
+	return "chore"
+}
+
+func inferTaskCommitTypeToken(raw string) (string, bool) {
+	lower := strings.ToLower(strings.TrimSpace(raw))
+	if lower == "" {
+		return "", false
+	}
+	for _, token := range []string{"feat", "fix", "docs", "refactor", "test", "chore", "perf", "build", "ci", "style", "revert"} {
+		if strings.HasPrefix(lower, token+":") || strings.HasPrefix(lower, token+" ") {
+			return token, true
+		}
+	}
+	return "", false
+}
+
+func normalizeTaskCommitTypeToken(raw string) (string, bool) {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "feat", "fix", "docs", "refactor", "test", "chore", "perf", "build", "ci", "style", "revert":
+		return strings.ToLower(strings.TrimSpace(raw)), true
+	default:
+		return "", false
+	}
 }
