@@ -66,6 +66,7 @@ func (g *spyLifecycleRuntimeGit) BranchExists(branch string) bool {
 }
 
 func TestWhyCRUsesStatusRuntimeProvidersForBaseFieldHydration(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -110,6 +111,7 @@ func TestWhyCRUsesStatusRuntimeProvidersForBaseFieldHydration(t *testing.T) {
 }
 
 func TestAddCRWithParentUsesLifecycleRuntimeProvidersForBaseAnchor(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {

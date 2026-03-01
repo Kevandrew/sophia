@@ -63,6 +63,7 @@ crs:
 `
 
 func TestApplyCRPlanDryRunDoesNotMutate(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -119,6 +120,7 @@ func TestApplyCRPlanDryRunDoesNotMutate(t *testing.T) {
 }
 
 func TestApplyCRPlanDryRunFromStdinDoesNotMutate(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -152,6 +154,7 @@ func TestApplyCRPlanDryRunFromStdinDoesNotMutate(t *testing.T) {
 }
 
 func TestApplyCRPlanDryRunPredictionsMatchAppliedBranches(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -187,6 +190,7 @@ func TestApplyCRPlanDryRunPredictionsMatchAppliedBranches(t *testing.T) {
 }
 
 func TestApplyCRPlanDryRunToleratesMalformedExistingUIDs(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -226,6 +230,7 @@ func TestApplyCRPlanDryRunToleratesMalformedExistingUIDs(t *testing.T) {
 }
 
 func TestApplyCRPlanDryRunGeneratedBranchCollisionFallsBackSuffixLength(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -279,6 +284,7 @@ crs:
 }
 
 func TestApplyCRPlanDryRunRejectsExplicitBranchAliasCollision(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -305,6 +311,7 @@ crs:
 }
 
 func TestApplyCRPlanCreatesStackAndConsumesByDefault(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -364,6 +371,7 @@ func TestApplyCRPlanCreatesStackAndConsumesByDefault(t *testing.T) {
 }
 
 func TestApplyCRPlanKeepFilePreservesPlan(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -384,6 +392,7 @@ func TestApplyCRPlanKeepFilePreservesPlan(t *testing.T) {
 }
 
 func TestApplyCRPlanRejectsInvalidVersion(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -398,6 +407,7 @@ func TestApplyCRPlanRejectsInvalidVersion(t *testing.T) {
 }
 
 func TestApplyCRPlanRejectsUnknownFields(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -413,6 +423,7 @@ func TestApplyCRPlanRejectsUnknownFields(t *testing.T) {
 }
 
 func TestApplyCRPlanRejectsBaseAndParentConflict(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -438,6 +449,7 @@ crs:
 }
 
 func TestApplyCRPlanRejectsParentCycles(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -463,6 +475,7 @@ crs:
 }
 
 func TestApplyCRPlanRejectsDelegationToNonChild(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -492,6 +505,7 @@ crs:
 }
 
 func TestInitSeedsCRPlanSampleTemplateIdempotently(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {

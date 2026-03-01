@@ -10,6 +10,7 @@ import (
 )
 
 func TestCRContractSetAndShowSupportsRiskHintFields(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := service.New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -55,6 +56,7 @@ func TestCRContractSetAndShowSupportsRiskHintFields(t *testing.T) {
 }
 
 func TestCRImpactJSONIncludesRiskHintProvenanceFields(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := service.New(dir)
 	if _, err := svc.Init("main", ""); err != nil {

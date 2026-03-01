@@ -10,6 +10,7 @@ import (
 )
 
 func TestDoctorCRFindingsCoverCheckpointAndBaseDrift(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -81,6 +82,7 @@ func TestDoctorCRFindingsCoverCheckpointAndBaseDrift(t *testing.T) {
 }
 
 func TestDoctorCRFlagsParentBaseRefMismatch(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -108,6 +110,7 @@ func TestDoctorCRFlagsParentBaseRefMismatch(t *testing.T) {
 }
 
 func TestReconcileCRRelinksAndOrphansCheckpoints(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -206,6 +209,7 @@ func TestReconcileCRRelinksAndOrphansCheckpoints(t *testing.T) {
 }
 
 func TestReconcileCRRelinksParentFromBaseRef(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {

@@ -10,6 +10,7 @@ import (
 
 // Integration coverage: merge recovery depends on real git conflict state transitions.
 func TestMergeConflictReturnsStructuredErrorAndStatus(t *testing.T) {
+	t.Parallel()
 	svc, cr, _ := setupMergeConflictScenario(t)
 
 	_, _, err := svc.MergeCRWithWarnings(cr.ID, false, "")
@@ -65,6 +66,7 @@ func TestMergeConflictReturnsStructuredErrorAndStatus(t *testing.T) {
 }
 
 func TestAbortMergeClearsStateAndRecordsEvent(t *testing.T) {
+	t.Parallel()
 	svc, cr, _ := setupMergeConflictScenario(t)
 
 	if _, _, err := svc.MergeCRWithWarnings(cr.ID, false, ""); err == nil {
@@ -98,6 +100,7 @@ func TestAbortMergeClearsStateAndRecordsEvent(t *testing.T) {
 }
 
 func TestResumeMergeFinalizesAfterManualResolution(t *testing.T) {
+	t.Parallel()
 	svc, cr, dir := setupMergeConflictScenario(t)
 
 	if _, _, err := svc.MergeCRWithWarnings(cr.ID, false, ""); err == nil {
@@ -148,6 +151,7 @@ func TestResumeMergeFinalizesAfterManualResolution(t *testing.T) {
 }
 
 func TestMutatingCommandsBlockedDuringMergeInProgress(t *testing.T) {
+	t.Parallel()
 	svc, cr, _ := setupMergeConflictScenario(t)
 
 	if _, _, err := svc.MergeCRWithWarnings(cr.ID, false, ""); err == nil {
@@ -171,6 +175,7 @@ func TestMutatingCommandsBlockedDuringMergeInProgress(t *testing.T) {
 }
 
 func TestAbortAndResumeFailWhenNoMergeInProgress(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {

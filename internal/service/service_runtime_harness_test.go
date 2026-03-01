@@ -127,6 +127,7 @@ func harnessService(t *testing.T, opts runtimeHarnessOptions) *runtimeHarness {
 }
 
 func TestHarnessServiceWiresRuntimeProviders(t *testing.T) {
+	t.Parallel()
 	h := harnessService(t, runtimeHarnessOptions{})
 
 	if got := h.Service.activeLifecycleStoreProvider(); got != h.Store {
@@ -157,6 +158,7 @@ func TestHarnessServiceWiresRuntimeProviders(t *testing.T) {
 }
 
 func TestHarnessServiceMergeFactoryReturnsIndependentAdapter(t *testing.T) {
+	t.Parallel()
 	h := harnessService(t, runtimeHarnessOptions{})
 	factory := h.Service.activeMergeGitFactory()
 	if factory == nil {

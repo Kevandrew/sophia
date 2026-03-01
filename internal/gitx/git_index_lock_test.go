@@ -9,6 +9,8 @@ import (
 	"time"
 )
 
+// tparallel:serial-exception
+// This file mutates package-level retry hooks and must remain serial.
 func TestRunRetriesIndexLockAndSucceeds(t *testing.T) {
 	repo := t.TempDir()
 	runGit(t, repo, "init", "-b", "main")

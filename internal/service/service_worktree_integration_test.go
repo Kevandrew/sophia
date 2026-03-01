@@ -10,6 +10,7 @@ import (
 
 // Integration coverage: worktree behavior requires real git worktree orchestration.
 func TestWorktreeSharedLocalMetadataAndCRIDSequence(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svcMain := New(dir)
 	if _, err := svcMain.Init("main", ""); err != nil {
@@ -49,6 +50,7 @@ func TestWorktreeSharedLocalMetadataAndCRIDSequence(t *testing.T) {
 }
 
 func TestInitInSecondaryWorktreeDoesNotRequireBaseCheckout(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	runGit(t, dir, "init", "-b", "main")
 	runGit(t, dir, "config", "user.name", "Test User")
@@ -69,6 +71,7 @@ func TestInitInSecondaryWorktreeDoesNotRequireBaseCheckout(t *testing.T) {
 }
 
 func TestSwitchCRFailsWithBranchOwnerPathWhenCheckedOutElsewhere(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -96,6 +99,7 @@ func TestSwitchCRFailsWithBranchOwnerPathWhenCheckedOutElsewhere(t *testing.T) {
 }
 
 func TestMergeCRUsesBaseOwnerWorktreeAndWarnsWhenCRBranchOwnedElsewhere(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {

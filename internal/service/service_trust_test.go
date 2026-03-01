@@ -7,6 +7,7 @@ import (
 )
 
 func TestTrustReportValidationErrorsHardFail(t *testing.T) {
+	t.Parallel()
 	cr := &model.CR{
 		Contract: validTrustContract(),
 	}
@@ -30,6 +31,7 @@ func TestTrustReportValidationErrorsHardFail(t *testing.T) {
 }
 
 func TestTrustReportTrustedWhenEvidenceStrong(t *testing.T) {
+	t.Parallel()
 	cr := &model.CR{
 		Contract: validTrustContract(),
 		Subtasks: []model.Subtask{
@@ -61,6 +63,7 @@ func TestTrustReportTrustedWhenEvidenceStrong(t *testing.T) {
 }
 
 func TestTrustReportUntrustedWhenCheckpointExceptionIsUnjustified(t *testing.T) {
+	t.Parallel()
 	cr := &model.CR{
 		ID:       12,
 		Contract: validTrustContract(),
@@ -91,6 +94,7 @@ func TestTrustReportUntrustedWhenCheckpointExceptionIsUnjustified(t *testing.T) 
 }
 
 func TestTrustReportCheckpointExceptionReasonAvoidsPenalty(t *testing.T) {
+	t.Parallel()
 	cr := &model.CR{
 		Contract: validTrustContract(),
 		Subtasks: []model.Subtask{
@@ -123,6 +127,7 @@ func TestTrustReportCheckpointExceptionReasonAvoidsPenalty(t *testing.T) {
 }
 
 func TestTrustReportWarningHeavyNeedsAttention(t *testing.T) {
+	t.Parallel()
 	cr := &model.CR{
 		Contract: validTrustContract(),
 	}
@@ -153,6 +158,7 @@ func TestTrustReportWarningHeavyNeedsAttention(t *testing.T) {
 }
 
 func TestTrustReportAppliesWeakContractTextPenalties(t *testing.T) {
+	t.Parallel()
 	cr := &model.CR{
 		Contract: model.Contract{
 			Why:          "todo",
@@ -182,6 +188,7 @@ func TestTrustReportAppliesWeakContractTextPenalties(t *testing.T) {
 }
 
 func TestTrustReportPenalizesDependencyChangesWithoutTests(t *testing.T) {
+	t.Parallel()
 	cr := &model.CR{
 		Contract: validTrustContract(),
 	}
@@ -206,6 +213,7 @@ func TestTrustReportPenalizesDependencyChangesWithoutTests(t *testing.T) {
 }
 
 func TestTrustReportPenalizesDelegatedPendingTasks(t *testing.T) {
+	t.Parallel()
 	cr := &model.CR{
 		Contract: validTrustContract(),
 		Subtasks: []model.Subtask{
@@ -234,6 +242,7 @@ func TestTrustReportPenalizesDelegatedPendingTasks(t *testing.T) {
 }
 
 func TestTrustReportNoTaskCanStillBeNeedsAttention(t *testing.T) {
+	t.Parallel()
 	cr := &model.CR{
 		Contract: validTrustContract(),
 	}
@@ -257,6 +266,7 @@ func TestTrustReportNoTaskCanStillBeNeedsAttention(t *testing.T) {
 }
 
 func TestSelectTrustVerdictUsesRatioThresholds(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name         string
 		score        int
@@ -283,6 +293,7 @@ func TestSelectTrustVerdictUsesRatioThresholds(t *testing.T) {
 }
 
 func TestParseShortStatMetrics(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name     string
 		input    string
@@ -333,6 +344,7 @@ func TestParseShortStatMetrics(t *testing.T) {
 }
 
 func TestTrustReportAppliesChangeMagnitudePenalties(t *testing.T) {
+	t.Parallel()
 	cr := &model.CR{
 		Contract: validTrustContract(),
 		Subtasks: []model.Subtask{
@@ -367,6 +379,7 @@ func TestTrustReportAppliesChangeMagnitudePenalties(t *testing.T) {
 }
 
 func TestTrustReportHighRiskWithoutSpecializedEvidenceAddsAdvisory(t *testing.T) {
+	t.Parallel()
 	cr := &model.CR{
 		Contract: validTrustContract(),
 		Subtasks: []model.Subtask{
@@ -402,6 +415,7 @@ func TestTrustReportHighRiskWithoutSpecializedEvidenceAddsAdvisory(t *testing.T)
 }
 
 func TestTrustReportHighRiskWithSpecializedEvidenceCanBeTrusted(t *testing.T) {
+	t.Parallel()
 	cr := &model.CR{
 		Contract: validTrustContract(),
 		Subtasks: []model.Subtask{
@@ -434,6 +448,7 @@ func TestTrustReportHighRiskWithSpecializedEvidenceCanBeTrusted(t *testing.T) {
 }
 
 func TestTrustDimensionsKeepCodesAndUseUpdatedLabels(t *testing.T) {
+	t.Parallel()
 	cr := &model.CR{
 		Contract: validTrustContract(),
 		Subtasks: []model.Subtask{
@@ -470,6 +485,7 @@ func TestTrustDimensionsKeepCodesAndUseUpdatedLabels(t *testing.T) {
 }
 
 func TestTrustDomainUsesInjectedClockForCheckFreshness(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, time.January, 10, 12, 0, 0, 0, time.UTC)
 	svc := &Service{
 		now: func() time.Time { return now },

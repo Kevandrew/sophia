@@ -12,6 +12,7 @@ import (
 )
 
 func TestCRAddRejectsBaseAndParentTogether(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := service.New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -25,6 +26,7 @@ func TestCRAddRejectsBaseAndParentTogether(t *testing.T) {
 }
 
 func TestCRAddDefaultsToNoSwitchAndSupportsSwitchFlag(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := service.New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -71,6 +73,7 @@ func TestCRAddDefaultsToNoSwitchAndSupportsSwitchFlag(t *testing.T) {
 }
 
 func TestCRAddSupportsOwnerPrefixAndExplicitBranchAlias(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	if _, _, initErr := runCLI(t, dir, "init", "--base-branch", "main", "--branch-owner-prefix", "kevandrew"); initErr != nil {
 		t.Fatalf("init with owner prefix error = %v", initErr)
@@ -114,6 +117,7 @@ func TestCRAddSupportsOwnerPrefixAndExplicitBranchAlias(t *testing.T) {
 }
 
 func TestCRBranchFormatSupportsExistingIDAndExplicitUID(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := service.New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -168,6 +172,7 @@ func TestCRBranchFormatSupportsExistingIDAndExplicitUID(t *testing.T) {
 }
 
 func TestCRBranchFormatPreservesOwnerPrefixForExistingCR(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	if _, _, initErr := runCLI(t, dir, "init", "--base-branch", "main", "--branch-owner-prefix", "team"); initErr != nil {
 		t.Fatalf("init with owner prefix error = %v", initErr)
@@ -198,6 +203,7 @@ func TestCRBranchFormatPreservesOwnerPrefixForExistingCR(t *testing.T) {
 }
 
 func TestCRBaseSetAndRestackCommands(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := service.New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -252,6 +258,7 @@ func TestCRBaseSetAndRestackCommands(t *testing.T) {
 }
 
 func TestCRRefreshCommandAutoStrategy(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := service.New(dir)
 	if _, err := svc.Init("main", ""); err != nil {

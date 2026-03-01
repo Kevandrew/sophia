@@ -10,6 +10,7 @@ import (
 )
 
 func TestTaskDoneFlagConflictsWithFromContract(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := service.New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -61,6 +62,7 @@ func TestTaskDoneFlagConflictsWithFromContract(t *testing.T) {
 }
 
 func TestTaskDonePatchFileSuccess(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := service.New(dir)
 	if _, err := svc.Init("main", ""); err != nil {

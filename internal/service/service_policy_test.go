@@ -9,6 +9,7 @@ import (
 )
 
 func TestRepoPolicyDefaultsWhenFileMissing(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -67,6 +68,7 @@ func TestRepoPolicyDefaultsWhenFileMissing(t *testing.T) {
 }
 
 func TestRepoPolicyArchiveConfigParsesAndNormalizes(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -99,6 +101,7 @@ archive:
 }
 
 func TestRepoPolicyArchiveRejectsInvalidFormat(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -119,6 +122,7 @@ archive:
 }
 
 func TestRepoPolicyArchiveRejectsInvalidPath(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -139,6 +143,7 @@ archive:
 }
 
 func TestRepoPolicyMergeModeParsesAndNormalizes(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -175,6 +180,7 @@ merge:
 }
 
 func TestRepoPolicyMergeRejectsInvalidMode(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -195,6 +201,7 @@ merge:
 }
 
 func TestRepoPolicyUnknownFieldsAreIgnoredWithWarnings(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -219,6 +226,7 @@ merge:
 }
 
 func TestRepoPolicyRejectsTypeMismatchEvenWhenUnknownFieldsExist(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -237,6 +245,7 @@ merge:
 }
 
 func TestPolicyUnknownFieldWarningsSurfaceInValidateAndDoctor(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -269,6 +278,7 @@ unknown_key: true
 }
 
 func TestRepoPolicyRejectsInvalidRequiredFieldEnum(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -288,6 +298,7 @@ contract:
 }
 
 func TestRepoPolicyRejectsInvalidAllowedPrefix(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -306,6 +317,7 @@ scope:
 }
 
 func TestInitSeedsRepoPolicyFileIdempotently(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -336,6 +348,7 @@ func TestInitSeedsRepoPolicyFileIdempotently(t *testing.T) {
 }
 
 func TestInitDoesNotOverwriteExistingRepoPolicyFile(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -363,6 +376,7 @@ merge:
 }
 
 func TestPolicyCustomCRRequiredFieldsAffectValidate(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -391,6 +405,7 @@ contract:
 }
 
 func TestPolicyCustomTaskRequiredFieldsAffectTaskDone(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -428,6 +443,7 @@ task_contract:
 }
 
 func TestPolicyScopeAllowlistBlocksContractWrites(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -462,6 +478,7 @@ scope:
 }
 
 func TestPolicyScopeAllowlistAppearsInValidateForExistingData(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -499,6 +516,7 @@ scope:
 }
 
 func TestPolicyScopeAllowlistBlocksPlanApplyContractScopes(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -526,6 +544,7 @@ crs:
 }
 
 func TestPolicyClassificationOverridesDiffClassification(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -585,6 +604,7 @@ classification:
 }
 
 func TestPolicyMergeAllowOverrideFalseBlocksMergeOverride(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -614,6 +634,7 @@ merge:
 }
 
 func TestPolicyMergeAllowOverrideFalseBlocksResumeOverride(t *testing.T) {
+	t.Parallel()
 	svc, cr, dir := setupMergeConflictScenario(t)
 
 	if _, _, err := svc.MergeCRWithWarnings(cr.ID, false, ""); err == nil {
@@ -636,6 +657,7 @@ merge:
 }
 
 func TestRepoPolicyTrustDefaultsApplied(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -664,6 +686,7 @@ func TestRepoPolicyTrustDefaultsApplied(t *testing.T) {
 }
 
 func TestRepoPolicyRejectsInvalidTrustMode(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -681,6 +704,7 @@ trust:
 }
 
 func TestRepoPolicyRejectsInvalidTrustThreshold(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -701,6 +725,7 @@ trust:
 }
 
 func TestRepoPolicyRejectsDuplicateTrustCheckKeys(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -723,6 +748,7 @@ trust:
 }
 
 func TestPolicyTrustGateBlocksMergeWithoutOverride(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {

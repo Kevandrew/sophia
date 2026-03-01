@@ -10,6 +10,7 @@ import (
 )
 
 func TestEditCRMergedAndNoOpValidation(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -63,6 +64,7 @@ func TestEditCRMergedAndNoOpValidation(t *testing.T) {
 }
 
 func TestRedactNoteAndEventWithAuditTrail(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -122,6 +124,7 @@ func TestRedactNoteAndEventWithAuditTrail(t *testing.T) {
 }
 
 func TestHistoryCRIndexesAndRedactionVisibility(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {

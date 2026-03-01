@@ -8,6 +8,7 @@ import (
 )
 
 func TestConcurrentAddTaskMutationsPreserveAllUpdates(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -59,6 +60,7 @@ func TestConcurrentAddTaskMutationsPreserveAllUpdates(t *testing.T) {
 }
 
 func TestConcurrentSetTaskContractMutationsRecordEveryUpdateEvent(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {

@@ -8,6 +8,7 @@ import (
 )
 
 func TestCRMergeJSONConflictStatusAbortFlow(t *testing.T) {
+	t.Parallel()
 	dir := setupCLIMergeConflictRepo(t)
 
 	out, _, runErr := runCLI(t, dir, "cr", "merge", "1", "--json")
@@ -60,6 +61,7 @@ func TestCRMergeJSONConflictStatusAbortFlow(t *testing.T) {
 }
 
 func TestCRMergeResumeJSONSuccess(t *testing.T) {
+	t.Parallel()
 	dir := setupCLIMergeConflictRepo(t)
 
 	if _, _, runErr := runCLI(t, dir, "cr", "merge", "1", "--json"); runErr == nil {
@@ -84,6 +86,7 @@ func TestCRMergeResumeJSONSuccess(t *testing.T) {
 }
 
 func TestCRApplyBlockedDuringMergeInProgressReturnsJSONCode(t *testing.T) {
+	t.Parallel()
 	dir := setupCLIMergeConflictRepo(t)
 
 	if _, _, runErr := runCLI(t, dir, "cr", "merge", "1", "--json"); runErr == nil {
@@ -103,6 +106,7 @@ func TestCRApplyBlockedDuringMergeInProgressReturnsJSONCode(t *testing.T) {
 }
 
 func TestCRMergeAbortJSONReturnsNoMergeInProgressCode(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := service.New(dir)
 	if _, err := svc.Init("main", ""); err != nil {

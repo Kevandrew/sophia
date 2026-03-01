@@ -7,6 +7,7 @@ import (
 )
 
 func TestSplitSeamsComposeAcrossConcernFiles(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	runGit(t, dir, "init", "-b", "main")
 	runGit(t, dir, "config", "user.name", "Test User")

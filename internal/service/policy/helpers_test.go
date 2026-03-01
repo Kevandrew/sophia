@@ -6,6 +6,7 @@ import (
 )
 
 func TestNormalizeArchivePath(t *testing.T) {
+	t.Parallel()
 	got, err := NormalizeArchivePath(".sophia-tracked/cr")
 	if err != nil {
 		t.Fatalf("NormalizeArchivePath valid path error: %v", err)
@@ -16,6 +17,7 @@ func TestNormalizeArchivePath(t *testing.T) {
 }
 
 func TestNormalizeArchivePathRejectsEscape(t *testing.T) {
+	t.Parallel()
 	_, err := NormalizeArchivePath("../outside")
 	if err == nil {
 		t.Fatalf("expected error for escaping archive path")
@@ -23,6 +25,7 @@ func TestNormalizeArchivePathRejectsEscape(t *testing.T) {
 }
 
 func TestParseUnknownFieldsParsesStrictYAMLErrors(t *testing.T) {
+	t.Parallel()
 	err := errors.New("yaml: unmarshal errors:\n  line 2: field future_option not found in type model.RepoPolicy")
 	fields, ok := ParseUnknownFields(err)
 	if !ok {

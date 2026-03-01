@@ -12,6 +12,7 @@ import (
 )
 
 func TestInitInNonGitDirectoryInitializesGitAndSophia(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 
@@ -33,6 +34,7 @@ func TestInitInNonGitDirectoryInitializesGitAndSophia(t *testing.T) {
 }
 
 func TestInitIsIdempotentInExistingRepo(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	runGit(t, dir, "init")
 
@@ -54,6 +56,7 @@ func TestInitIsIdempotentInExistingRepo(t *testing.T) {
 }
 
 func TestInitDefaultsToLocalMetadataAndGitIgnoreEntry(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 
@@ -88,6 +91,7 @@ func TestInitDefaultsToLocalMetadataAndGitIgnoreEntry(t *testing.T) {
 }
 
 func TestAddCRAlignsNextIDWithHistory(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -113,6 +117,7 @@ func TestAddCRAlignsNextIDWithHistory(t *testing.T) {
 }
 
 func TestAddCRCreatesBranchAndCRFile(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -163,6 +168,7 @@ func TestAddCRCreatesBranchAndCRFile(t *testing.T) {
 }
 
 func TestAddCRAssignsDistinctUIDs(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -187,6 +193,7 @@ func TestAddCRAssignsDistinctUIDs(t *testing.T) {
 }
 
 func TestAddCRWithExplicitBaseRef(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -224,6 +231,7 @@ func TestAddCRWithExplicitBaseRef(t *testing.T) {
 }
 
 func TestAddChildCRUsesParentAnchor(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -261,6 +269,7 @@ func TestAddChildCRUsesParentAnchor(t *testing.T) {
 }
 
 func TestMergeChildBlockedUntilParentMergedAndParentMergeBackfillsChildBase(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -313,6 +322,7 @@ func TestMergeChildBlockedUntilParentMergedAndParentMergeBackfillsChildBase(t *t
 }
 
 func TestSetCRBaseAndRestack(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -379,6 +389,7 @@ func TestSetCRBaseAndRestack(t *testing.T) {
 }
 
 func TestNoteAppendsAndUpdatesCR(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {

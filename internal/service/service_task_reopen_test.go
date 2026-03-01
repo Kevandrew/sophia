@@ -9,6 +9,7 @@ import (
 )
 
 func TestReopenTaskUnlockedPreservesCheckpointByDefault(t *testing.T) {
+	t.Parallel()
 	cr := seedCR(1, "task reopen", seedCROptions{Branch: "cr-1-runtime"})
 	task := seedTask(1, "done task", model.TaskStatusDone, "Before")
 	task.CheckpointCommit = "abc1234"
@@ -53,6 +54,7 @@ func TestReopenTaskUnlockedPreservesCheckpointByDefault(t *testing.T) {
 }
 
 func TestReopenTaskUnlockedClearsCheckpointWhenRequested(t *testing.T) {
+	t.Parallel()
 	cr := seedCR(1, "task reopen", seedCROptions{Branch: "cr-1-runtime"})
 	task := seedTask(1, "done task", model.TaskStatusDone, "Before")
 	task.CheckpointCommit = "abc1234"
@@ -84,6 +86,7 @@ func TestReopenTaskUnlockedClearsCheckpointWhenRequested(t *testing.T) {
 }
 
 func TestReopenTaskUnlockedFailsWhenTaskIsNotDone(t *testing.T) {
+	t.Parallel()
 	cr := seedCR(1, "task reopen", seedCROptions{Branch: "cr-1-runtime"})
 	cr.Subtasks = []model.Subtask{seedTask(1, "open task", model.TaskStatusOpen, "Before")}
 
@@ -95,6 +98,7 @@ func TestReopenTaskUnlockedFailsWhenTaskIsNotDone(t *testing.T) {
 }
 
 func TestSetTaskContractUnlockedUsesRuntimeProviders(t *testing.T) {
+	t.Parallel()
 	cr := seedCR(1, "task contract", seedCROptions{Branch: "cr-1-runtime"})
 	cr.Subtasks = []model.Subtask{seedTask(1, "task", model.TaskStatusOpen, "Before")}
 
@@ -131,6 +135,7 @@ func TestSetTaskContractUnlockedUsesRuntimeProviders(t *testing.T) {
 }
 
 func TestLoadWorkingTreeTaskChunksUsesRuntimeProviders(t *testing.T) {
+	t.Parallel()
 	cr := seedCR(1, "task chunks", seedCROptions{Branch: "cr-1-runtime"})
 	cr.Subtasks = []model.Subtask{seedTask(1, "chunk task", model.TaskStatusOpen, "Before")}
 

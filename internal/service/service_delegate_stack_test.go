@@ -10,6 +10,7 @@ import (
 )
 
 func TestAddChildCRFromCurrentUsesActiveCRAsParent(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -33,6 +34,7 @@ func TestAddChildCRFromCurrentUsesActiveCRAsParent(t *testing.T) {
 }
 
 func TestDelegateFlowAllowsChildMergeBeforeParentAndAutoCompletesParentTask(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -107,6 +109,7 @@ func TestDelegateFlowAllowsChildMergeBeforeParentAndAutoCompletesParentTask(t *t
 }
 
 func TestUndelegateTaskReturnsDelegatedTaskToOpenWhenLastLinkRemoved(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -153,6 +156,7 @@ func TestUndelegateTaskReturnsDelegatedTaskToOpenWhenLastLinkRemoved(t *testing.
 }
 
 func TestStackCRIncludesChildAndDelegationBlockers(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {

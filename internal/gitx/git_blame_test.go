@@ -6,6 +6,7 @@ import (
 )
 
 func TestParseBlamePorcelainParsesMetadataAndLines(t *testing.T) {
+	t.Parallel()
 	raw := "1111111111111111111111111111111111111111 1 1 2\n" +
 		"author Test One\n" +
 		"author-mail <one@example.com>\n" +
@@ -61,6 +62,7 @@ func TestParseBlamePorcelainParsesMetadataAndLines(t *testing.T) {
 }
 
 func TestBuildBlameArgsWithRevAndRanges(t *testing.T) {
+	t.Parallel()
 	args := buildBlameArgs("internal/service/service.go", "HEAD~1", []BlameRange{{Start: 10, End: 20}, {Start: 33, End: 34}})
 	want := []string{"blame", "--line-porcelain", "-L", "10,20", "-L", "33,34", "HEAD~1", "--", "internal/service/service.go"}
 	if !reflect.DeepEqual(args, want) {

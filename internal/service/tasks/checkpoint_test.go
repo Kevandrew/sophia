@@ -7,6 +7,7 @@ import (
 )
 
 func TestNormalizeScopePathsAcceptsRepoRelativeFiles(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	file := filepath.Join(dir, "a.txt")
 	if err := os.WriteFile(file, []byte("x"), 0o644); err != nil {
@@ -23,6 +24,7 @@ func TestNormalizeScopePathsAcceptsRepoRelativeFiles(t *testing.T) {
 }
 
 func TestNormalizeScopePathsRejectsDirectories(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	sub := filepath.Join(dir, "sub")
 	if err := os.MkdirAll(sub, 0o755); err != nil {
@@ -34,6 +36,7 @@ func TestNormalizeScopePathsRejectsDirectories(t *testing.T) {
 }
 
 func TestNormalizePatchFilePathRejectsMissing(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	if _, err := NormalizePatchFilePath(dir, "missing.patch"); err == nil {
 		t.Fatalf("expected missing file error")

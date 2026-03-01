@@ -9,6 +9,7 @@ import (
 )
 
 func TestCRPackJSONCommand(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := service.New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -56,6 +57,7 @@ func TestCRPackJSONCommand(t *testing.T) {
 }
 
 func TestCRPackJSONCommandRejectsNegativeLimits(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := service.New(dir)
 	if _, err := svc.Init("main", ""); err != nil {

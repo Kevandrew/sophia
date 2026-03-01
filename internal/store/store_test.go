@@ -14,6 +14,7 @@ import (
 )
 
 func TestInitCreatesLayout(t *testing.T) {
+	t.Parallel()
 	s := New(t.TempDir())
 	if err := s.Init("main", model.MetadataModeLocal); err != nil {
 		t.Fatalf("Init() error = %v", err)
@@ -44,6 +45,7 @@ func TestInitCreatesLayout(t *testing.T) {
 }
 
 func TestNextCRIDDeterministic(t *testing.T) {
+	t.Parallel()
 	s := New(t.TempDir())
 	if err := s.Init("main", model.MetadataModeLocal); err != nil {
 		t.Fatalf("Init() error = %v", err)
@@ -72,6 +74,7 @@ func TestNextCRIDDeterministic(t *testing.T) {
 }
 
 func TestCRReadWriteRoundTrip(t *testing.T) {
+	t.Parallel()
 	s := New(t.TempDir())
 	if err := s.Init("main", model.MetadataModeLocal); err != nil {
 		t.Fatalf("Init() error = %v", err)
@@ -117,6 +120,7 @@ func TestCRReadWriteRoundTrip(t *testing.T) {
 }
 
 func TestListCRsSortedByID(t *testing.T) {
+	t.Parallel()
 	s := New(t.TempDir())
 	if err := s.Init("main", model.MetadataModeLocal); err != nil {
 		t.Fatalf("Init() error = %v", err)
@@ -142,6 +146,7 @@ func TestListCRsSortedByID(t *testing.T) {
 }
 
 func TestLoadOldCRYAMLWithoutContractField(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	s := New(dir)
 	if err := s.Init("main", model.MetadataModeLocal); err != nil {
@@ -174,6 +179,7 @@ updated_at: 2026-01-01T00:00:00Z
 }
 
 func TestNewWithSophiaRootUsesExplicitMetadataPath(t *testing.T) {
+	t.Parallel()
 	repo := t.TempDir()
 	metadata := filepath.Join(t.TempDir(), "custom-sophia")
 	s := NewWithSophiaRoot(repo, metadata)
@@ -189,6 +195,7 @@ func TestNewWithSophiaRootUsesExplicitMetadataPath(t *testing.T) {
 }
 
 func TestLoadCRByUID(t *testing.T) {
+	t.Parallel()
 	s := New(t.TempDir())
 	if err := s.Init("main", model.MetadataModeLocal); err != nil {
 		t.Fatalf("Init() error = %v", err)
@@ -221,6 +228,7 @@ func TestLoadCRByUID(t *testing.T) {
 }
 
 func TestLoadCRTypedErrors(t *testing.T) {
+	t.Parallel()
 	s := New(t.TempDir())
 	if err := s.Init("main", model.MetadataModeLocal); err != nil {
 		t.Fatalf("Init() error = %v", err)
@@ -240,6 +248,7 @@ func TestLoadCRTypedErrors(t *testing.T) {
 }
 
 func TestWithMutationLockTimeoutAndActionableError(t *testing.T) {
+	t.Parallel()
 	s := New(t.TempDir())
 	if err := s.Init("main", model.MetadataModeLocal); err != nil {
 		t.Fatalf("Init() error = %v", err)
@@ -272,6 +281,7 @@ func TestWithMutationLockTimeoutAndActionableError(t *testing.T) {
 }
 
 func TestWithMutationLockRejectsNilCallback(t *testing.T) {
+	t.Parallel()
 	s := New(t.TempDir())
 	if err := s.Init("main", model.MetadataModeLocal); err != nil {
 		t.Fatalf("Init() error = %v", err)
@@ -282,6 +292,7 @@ func TestWithMutationLockRejectsNilCallback(t *testing.T) {
 }
 
 func TestWithMutationLockPathRejectsEmptyPath(t *testing.T) {
+	t.Parallel()
 	s := New(t.TempDir())
 	if err := s.Init("main", model.MetadataModeLocal); err != nil {
 		t.Fatalf("Init() error = %v", err)

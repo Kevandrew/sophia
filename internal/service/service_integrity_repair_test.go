@@ -10,6 +10,7 @@ import (
 )
 
 func TestRepairFromGitRebuildsCRsAndRealignsIndex(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -74,6 +75,7 @@ func TestRepairFromGitRebuildsCRsAndRealignsIndex(t *testing.T) {
 }
 
 func TestRepairBackfillsMissingUIDOnExistingCRMetadata(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -115,6 +117,7 @@ func TestRepairBackfillsMissingUIDOnExistingCRMetadata(t *testing.T) {
 }
 
 func TestLegacyAndChunkCheckpointMetadataCoexistence(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -183,6 +186,7 @@ func TestLegacyAndChunkCheckpointMetadataCoexistence(t *testing.T) {
 }
 
 func TestRepairFromGitLegacyCommitWithoutBaseOrParentFootersStillReconstructs(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {

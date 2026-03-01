@@ -6,6 +6,7 @@ import (
 )
 
 func TestStatusCRBranchContextUnavailableReturnsValidationBlockers(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {

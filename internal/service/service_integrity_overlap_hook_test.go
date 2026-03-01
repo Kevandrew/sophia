@@ -9,6 +9,7 @@ import (
 )
 
 func TestAddCRWithWarningsReportsOverlap(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -56,6 +57,7 @@ func TestAddCRWithWarningsReportsOverlap(t *testing.T) {
 }
 
 func TestInstallHookBlocksBaseBranchCommitUnlessNoVerify(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {

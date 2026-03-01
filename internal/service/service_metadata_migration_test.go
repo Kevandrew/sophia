@@ -10,6 +10,7 @@ import (
 )
 
 func TestLegacyLocalMetadataMigratesToSharedStoreWithBackup(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	runGit(t, dir, "init", "-b", "main")
 	runGit(t, dir, "config", "user.name", "Test User")
@@ -71,6 +72,7 @@ func TestLegacyLocalMetadataMigratesToSharedStoreWithBackup(t *testing.T) {
 }
 
 func TestLegacyAndSharedMetadataConflictReconcilesIntoSharedStore(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	runGit(t, dir, "init", "-b", "main")
 	runGit(t, dir, "config", "user.name", "Test User")

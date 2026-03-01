@@ -17,6 +17,7 @@ type mergeRuntimeGitAdapter struct {
 }
 
 func TestMergeWritesArchiveFileIntoMergeCommit(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -64,6 +65,7 @@ func TestMergeWritesArchiveFileIntoMergeCommit(t *testing.T) {
 }
 
 func TestMergeWritesArchiveWhenBaseBranchOwnedByOtherWorktree(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -104,6 +106,7 @@ func TestMergeWritesArchiveWhenBaseBranchOwnedByOtherWorktree(t *testing.T) {
 }
 
 func TestMergeWritesArchiveWithNonConcreteMergeRuntimeAdapter(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -146,6 +149,7 @@ func TestMergeWritesArchiveWithNonConcreteMergeRuntimeAdapter(t *testing.T) {
 }
 
 func TestResumeWritesArchiveOnlyAfterConflictsResolved(t *testing.T) {
+	t.Parallel()
 	svc, cr, dir := setupMergeConflictScenario(t)
 	writeArchivePolicyEnabledForTest(t, dir, true)
 
@@ -182,6 +186,7 @@ func TestResumeWritesArchiveOnlyAfterConflictsResolved(t *testing.T) {
 }
 
 func TestResumeReusesExistingArchiveRevisionAfterCommitFailure(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -247,6 +252,7 @@ func TestResumeReusesExistingArchiveRevisionAfterCommitFailure(t *testing.T) {
 }
 
 func TestBackfillCreatesMissingV1ArchivesInOneCommit(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -309,6 +315,7 @@ func TestBackfillCreatesMissingV1ArchivesInOneCommit(t *testing.T) {
 }
 
 func TestBackfillCommitRequiresBaseBranch(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -352,6 +359,7 @@ func TestBackfillCommitRequiresBaseBranch(t *testing.T) {
 }
 
 func TestArchiveDocumentEncodingIsDeterministic(t *testing.T) {
+	t.Parallel()
 	cr := &model.CR{
 		ID:          7,
 		UID:         "cr_test",
