@@ -1,0 +1,94 @@
+schema_version: sophia.cr_archive.v1
+notice: Historical archive snapshot. Corrections are append-only revisions.
+archived_at: "2026-03-01T15:56:23Z"
+revision: 1
+cr:
+    id: 100
+    uid: cr_85ec900a-f148-4e90-988c-000677f43d92
+    title: Add Sophia auto-update workflow
+    description: Implement a first-class auto-update command/workflow so users can update Sophia from installed binaries without manual reinstall steps.
+    status: merged
+    base_branch: main
+    base_ref: main
+    base_commit: 1019739b30d74f7de20b9e8b8c19aa24f46ab88e
+    branch: cr-add-sophia-auto-update-workflow-85ec
+    merged_at: "2026-03-01T15:56:23Z"
+    merged_by: Kevandrew <143258544+Kevandrew@users.noreply.github.com>
+contract:
+    why: Sophia currently relies on manual reinstall steps after each release, which is slow and error-prone in active development and user onboarding. Add an explicit auto-update workflow so installed binaries can self-update safely and predictably from official release artifacts. Success means a user can run a single command to discover and apply updates with clear rollback/error behavior and no surprise side effects.
+    scope:
+        - docs
+        - internal/cli
+        - internal/service
+    non_goals:
+        - Do not change core CR/task workflow behavior.
+        - Do not introduce mandatory background auto-updates.
+    invariants:
+        - Update flow is explicit and user-triggered.
+        - Version command remains truthful before and after update.
+    blast_radius: CLI command surface, release artifact resolution, installer/update execution paths, and user-facing docs.
+    risk_tier_hint: medium
+    risk_rationale: Touches binary replacement path and user environment behavior.
+    test_plan: go test ./internal/cli ./internal/service && go test ./...
+    rollback_plan: Revert CR merge commit and fall back to documented manual install flow.
+tasks:
+    - id: 1
+      title: Add tests and docs for auto-update workflow
+      status: done
+      contract:
+        intent: Cover update behavior with tests and document operator workflow.
+        acceptance_criteria:
+            - Docs include recommended update command and fallback manual install.
+            - Unit/integration tests cover update available, no update, and failure paths.
+        scope:
+            - docs/cli-reference.md
+            - docs/getting-started.md
+            - internal/cli
+            - internal/service
+      checkpoint:
+        commit: aead99ae
+        at: "2026-03-01T15:56:07Z"
+        source: task_checkpoint
+        scope:
+            - docs/cli-reference.md
+            - docs/getting-started.md
+            - internal/cli/update_test.go
+    - id: 2
+      title: Implement release discovery and update execution
+      status: done
+      contract:
+        intent: Implement update flow that discovers latest release artifact and installs it safely.
+        acceptance_criteria:
+            - Apply path replaces binary atomically or fails with actionable error.
+            - Non-update/no-op path exits cleanly with deterministic output.
+            - Update command can detect newer release and report current/latest versions.
+        scope:
+            - internal/cli
+            - internal/service
+      checkpoint:
+        commit: 4a916062
+        at: "2026-03-01T15:56:07Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/root.go
+            - internal/cli/update.go
+    - id: 3
+      title: Design update command UX and flags
+      status: done
+      contract:
+        intent: Define explicit update UX (check-only, apply, force, and channel/version targeting) with safe defaults.
+        acceptance_criteria:
+            - CLI help/spec clearly describes default behavior and flags.
+            - No update occurs without explicit user action.
+        scope:
+            - docs/cli-reference.md
+            - internal/cli
+      checkpoint:
+        at: "2026-03-01T15:56:08Z"
+        source: task_no_checkpoint
+git_summary:
+    base_parent: 1019739b30d74f7de20b9e8b8c19aa24f46ab88e
+    cr_parent: aead99aea417988402b08023b6750247c0551d0a
+    files_changed: []
+    diffstat:
+        summary: 0 files changed, 0 insertions(+), 0 deletions(-)
