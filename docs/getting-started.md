@@ -131,3 +131,10 @@ sophia cr merge abort <cr-id>
 - Reviewer checklist: [`reviewer-workflow.md`](reviewer-workflow.md)
 - Collaboration without HQ: [`collaboration.md`](collaboration.md)
 - Troubleshooting and repair: [`troubleshooting.md`](troubleshooting.md)
+
+For CLI updates:
+
+```bash
+sophia update --check
+sophia update --yes
+```
