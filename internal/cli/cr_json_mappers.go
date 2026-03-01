@@ -18,6 +18,15 @@ func mapStringStringOrEmpty(in map[string]string) map[string]string {
 	return clijson.MapStringStringOrEmpty(in)
 }
 
+func addCRBootstrapToJSONMap(info service.AddCRBootstrapInfo) map[string]any {
+	return map[string]any{
+		"triggered":     info.Triggered,
+		"base_branch":   info.BaseBranch,
+		"metadata_mode": info.MetadataMode,
+		"sophia_dir":    info.SophiaDir,
+	}
+}
+
 func branchIdentityToJSONMap(branch, uid string) map[string]any {
 	return clijson.BranchIdentityToMap(branch, uid)
 }
