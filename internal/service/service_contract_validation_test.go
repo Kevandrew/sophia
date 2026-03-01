@@ -9,6 +9,7 @@ import (
 )
 
 func TestValidateCRFailsWhenRequiredContractFieldsMissing(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -32,6 +33,7 @@ func TestValidateCRFailsWhenRequiredContractFieldsMissing(t *testing.T) {
 }
 
 func TestValidateCRDetectsScopeDriftAsError(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -79,6 +81,7 @@ func TestValidateCRDetectsScopeDriftAsError(t *testing.T) {
 }
 
 func TestValidateCRWarnsOnTaskScopeMismatch(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -129,6 +132,7 @@ func TestValidateCRWarnsOnTaskScopeMismatch(t *testing.T) {
 }
 
 func TestValidateCRWarnsOnTaskContractScopeDrift(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -170,6 +174,7 @@ func TestValidateCRWarnsOnTaskContractScopeDrift(t *testing.T) {
 }
 
 func TestValidateCRUsesCheckpointChunksWhenCheckpointScopeMissing(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -226,6 +231,7 @@ func TestValidateCRUsesCheckpointChunksWhenCheckpointScopeMissing(t *testing.T) 
 }
 
 func TestValidateCRWarnsOnInvalidCheckpointChunkMetadata(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {

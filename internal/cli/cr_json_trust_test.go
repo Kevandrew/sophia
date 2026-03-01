@@ -10,6 +10,7 @@ import (
 )
 
 func TestCRReviewJSONIncludesTrustEnvelope(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := service.New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -109,6 +110,7 @@ func TestCRReviewJSONIncludesTrustEnvelope(t *testing.T) {
 }
 
 func TestCRReviewJSONHighRiskMissingSpecializedEvidenceUsesAdvisories(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := service.New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -236,6 +238,7 @@ func TestCRReviewJSONHighRiskMissingSpecializedEvidenceUsesAdvisories(t *testing
 }
 
 func TestCRReviewJSONIncludesPassingCheckResultsAfterRun(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := service.New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -315,6 +318,7 @@ trust:
 }
 
 func TestCRReviewTextIncludesTrustSection(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := service.New(dir)
 	if _, err := svc.Init("main", ""); err != nil {

@@ -7,6 +7,7 @@ import (
 )
 
 func TestDoctorFindingsForUntiedBaseCommitAndDirtyWorktree(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -45,6 +46,7 @@ func TestDoctorFindingsForUntiedBaseCommitAndDirtyWorktree(t *testing.T) {
 }
 
 func TestCurrentSwitchAndReopenCRWorkflow(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -112,6 +114,7 @@ func TestCurrentSwitchAndReopenCRWorkflow(t *testing.T) {
 }
 
 func TestLogShowsMergedThenActive(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -161,6 +164,7 @@ func TestLogShowsMergedThenActive(t *testing.T) {
 }
 
 func TestReviewCategorizationAndSignals(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -221,6 +225,7 @@ func TestReviewCategorizationAndSignals(t *testing.T) {
 }
 
 func TestReviewValidateAndCheckFlowWithTrustDomainExtraction(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {

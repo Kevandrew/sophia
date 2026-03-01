@@ -6,6 +6,7 @@ import (
 )
 
 func TestHandledErrorRoundTrip(t *testing.T) {
+	t.Parallel()
 	base := errors.New("boom")
 	wrapped := MarkHandled(base)
 	if wrapped == nil {
@@ -17,6 +18,7 @@ func TestHandledErrorRoundTrip(t *testing.T) {
 }
 
 func TestBranchIdentityToMapParsesHumanAliasV2(t *testing.T) {
+	t.Parallel()
 	m := BranchIdentityToMap("team/cr-refactor-4a06", "cr_uid")
 	if got := m["scheme"]; got != "human_alias_v2" {
 		t.Fatalf("scheme = %v, want human_alias_v2", got)

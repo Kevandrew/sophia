@@ -6,6 +6,7 @@ import (
 )
 
 func TestMatchCRSearch_Status(t *testing.T) {
+	t.Parallel()
 	cr := model.CR{Status: model.StatusInProgress}
 	if !matchCRSearch(cr, model.CRSearchQuery{Status: model.StatusInProgress}) {
 		t.Error("expected match for same status")
@@ -16,6 +17,7 @@ func TestMatchCRSearch_Status(t *testing.T) {
 }
 
 func TestMatchCRSearch_RiskTier(t *testing.T) {
+	t.Parallel()
 	cr := model.CR{Contract: model.Contract{RiskTierHint: "high"}}
 	if !matchCRSearch(cr, model.CRSearchQuery{RiskTier: "high"}) {
 		t.Error("expected match for same risk tier")
@@ -33,6 +35,7 @@ func TestMatchCRSearch_RiskTier(t *testing.T) {
 }
 
 func TestMatchCRSearch_ScopePrefix(t *testing.T) {
+	t.Parallel()
 	cr := model.CR{Contract: model.Contract{Scope: []string{"internal/cli", "internal/service"}}}
 	if !matchCRSearch(cr, model.CRSearchQuery{ScopePrefix: "internal/cli"}) {
 		t.Error("expected match for exact scope")
@@ -49,6 +52,7 @@ func TestMatchCRSearch_ScopePrefix(t *testing.T) {
 }
 
 func TestMatchCRSearch_Text(t *testing.T) {
+	t.Parallel()
 	cr := model.CR{
 		Title:       "CR index and search primitives",
 		Description: "Discovery improvements",
@@ -79,6 +83,7 @@ func TestMatchCRSearch_Text(t *testing.T) {
 }
 
 func TestMatchCRSearch_Combined(t *testing.T) {
+	t.Parallel()
 	cr := model.CR{
 		Status:   model.StatusInProgress,
 		Title:    "CR index and search primitives",
@@ -102,6 +107,7 @@ func TestMatchCRSearch_Combined(t *testing.T) {
 }
 
 func TestCountTaskStats(t *testing.T) {
+	t.Parallel()
 	tasks := []model.Subtask{
 		{Status: model.TaskStatusOpen},
 		{Status: model.TaskStatusDone},

@@ -11,6 +11,7 @@ import (
 )
 
 func TestCRImportAndPatchJSONCommands(t *testing.T) {
+	t.Parallel()
 	sourceDir := t.TempDir()
 	sourceSvc := service.New(sourceDir)
 	if _, err := sourceSvc.Init("main", ""); err != nil {

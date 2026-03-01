@@ -66,6 +66,7 @@ func newCRCheckpointFixture(t *testing.T) (*Service, int, int) {
 }
 
 func TestFirstCheckpointCapturesCRContractBaselineOnce(t *testing.T) {
+	t.Parallel()
 	svc, crID, _ := newCRCheckpointFixture(t)
 	cr, err := svc.store.LoadCR(crID)
 	if err != nil {
@@ -116,6 +117,7 @@ func TestFirstCheckpointCapturesCRContractBaselineOnce(t *testing.T) {
 }
 
 func TestSetCRContractScopeAfterFreezeRequiresReasonAndRecordsDrift(t *testing.T) {
+	t.Parallel()
 	svc, crID, _ := newCRCheckpointFixture(t)
 
 	updatedScope := []string{"scoped-a.txt", "scoped-b.txt"}
@@ -149,6 +151,7 @@ func TestSetCRContractScopeAfterFreezeRequiresReasonAndRecordsDrift(t *testing.T
 }
 
 func TestMergeBlockedByUnacknowledgedCRContractDriftUntilAcked(t *testing.T) {
+	t.Parallel()
 	svc, crID, _ := newCRCheckpointFixture(t)
 
 	updatedScope := []string{"scoped-a.txt", "scoped-b.txt"}
@@ -198,6 +201,7 @@ func TestMergeBlockedByUnacknowledgedCRContractDriftUntilAcked(t *testing.T) {
 }
 
 func TestSetCRContractUpdatesCRUpdatedAt(t *testing.T) {
+	t.Parallel()
 	svc, crID, _ := newCRCheckpointFixture(t)
 	before, err := svc.store.LoadCR(crID)
 	if err != nil {

@@ -10,6 +10,7 @@ import (
 )
 
 func TestImpactCRAppliesRiskSignalsDeterministically(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -78,6 +79,7 @@ func TestImpactCRAppliesRiskSignalsDeterministically(t *testing.T) {
 }
 
 func TestImpactCRDoesNotUseRepoHardcodedCriticalPathSignals(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -112,6 +114,7 @@ func TestImpactCRDoesNotUseRepoHardcodedCriticalPathSignals(t *testing.T) {
 }
 
 func TestImpactCRRiskTierHintNoFloorWhenHintLowerOrEqual(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -157,6 +160,7 @@ func TestImpactCRRiskTierHintNoFloorWhenHintLowerOrEqual(t *testing.T) {
 }
 
 func TestImpactCRRiskTierHintRaisesLowToMediumFloor(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -198,6 +202,7 @@ func TestImpactCRRiskTierHintRaisesLowToMediumFloor(t *testing.T) {
 }
 
 func TestImpactCRRiskTierHintRaisesMediumToHighFloor(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -246,6 +251,7 @@ func TestImpactCRRiskTierHintRaisesMediumToHighFloor(t *testing.T) {
 }
 
 func TestMergeCRBlockedWithoutOverrideWhenValidationFails(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -269,6 +275,7 @@ func TestMergeCRBlockedWithoutOverrideWhenValidationFails(t *testing.T) {
 }
 
 func TestMergeCROverridePersistsAuditEvent(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -313,6 +320,7 @@ func TestMergeCROverridePersistsAuditEvent(t *testing.T) {
 }
 
 func TestReviewAndValidateWorkForMergedCRAfterBranchDeletion(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {

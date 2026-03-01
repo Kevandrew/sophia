@@ -9,6 +9,7 @@ import (
 )
 
 func TestExportCRBundleDeterministicJSON(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -70,6 +71,7 @@ func TestExportCRBundleDeterministicJSON(t *testing.T) {
 }
 
 func TestExportCRBundleIncludesTaskDiffs(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -121,6 +123,7 @@ func TestExportCRBundleIncludesTaskDiffs(t *testing.T) {
 }
 
 func TestExportCRBundleRejectsInvalidInclude(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {

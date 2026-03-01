@@ -1,0 +1,284 @@
+schema_version: sophia.cr_archive.v1
+notice: Historical archive snapshot. Corrections are append-only revisions.
+archived_at: "2026-03-01T00:44:30Z"
+revision: 1
+cr:
+    id: 95
+    uid: cr_b51425df-4737-47f6-83bc-1d7a9d41f22f
+    title: Mass-adopt t.Parallel() across the test surface (safe-first)
+    description: |-
+        Expand top-level test parallelism across Sophia's existing isolated test surface to reduce wall-clock time and increase early detection of hidden shared-state coupling.
+
+        Baseline (2026-03-01): 474 top-level Test* functions, 34 currently using t.Parallel(). This CR targets all eligible tests that do not mutate process-global environment state.
+
+        Safe-first boundary: tests that call t.Setenv/os.Setenv/os.Unsetenv remain serial in this CR and are explicitly documented for follow-up refactors.
+    status: merged
+    base_branch: main
+    base_ref: main
+    base_commit: 02f20f6177343fa0d95c237e7a1e51e329fd6c4e
+    branch: cr-mass-adopt-t-parallel-across-the-test-surface-sa-b514
+    merged_at: "2026-03-01T00:44:30Z"
+    merged_by: Kevandrew <143258544+Kevandrew@users.noreply.github.com>
+contract:
+    why: |-
+        The suite already uses per-test temp directories and ephemeral repos in most places, but only a small fraction of tests actually opt into parallel execution. That leaves CI runtime and local feedback loops slower than necessary, and it reduces our ability to expose hidden cross-test coupling early.
+
+        This CR raises adoption of t.Parallel() across the eligible surface while preserving deterministic behavior. The decision boundary is explicit: we parallelize tests that are already process-isolated, and we do not refactor environment-mutating tests in the same change.
+
+        Success means all eligible top-level tests run with t.Parallel(), serial exceptions are explicit and intentional, and the full suite remains green under normal and shuffled execution.
+    scope:
+        - .github/workflows
+        - docs
+        - internal/cli
+        - internal/cli/cr
+        - internal/cli/json
+        - internal/gitx
+        - internal/service
+        - internal/service/policy
+        - internal/service/tasks
+        - internal/service/trust
+        - internal/store
+        - scripts
+    non_goals:
+        - No env-isolation refactor for tests that currently call t.Setenv/os.Setenv/os.Unsetenv.
+        - No production CLI/service behavior changes; this CR modifies tests, test tooling, and CI checks only.
+        - No retries/flaky-test masking; failures discovered under parallelism must be fixed or left serial with rationale.
+    invariants:
+        - New t.Parallel() calls occur at top-level Test* entrypoints before shared mutable state is touched.
+        - Repository behavior and command outputs remain unchanged outside test execution characteristics.
+        - Tests that mutate process-global environment remain serial in this CR.
+    blast_radius: |-
+        Affects Go test execution characteristics across internal/* packages and CI validation flow.
+        Potential failure modes: latent shared-state coupling, ordering assumptions, and file-path collisions becoming visible under parallel execution.
+        Detection and recovery: go test failures under standard/shuffle runs, with immediate rollback via merge commit revert.
+    risk_critical_scopes:
+        - internal/cli
+        - internal/service
+    risk_tier_hint: medium
+    risk_rationale: High test-surface touch count with concurrency-order behavior changes, but limited to test/CI surfaces.
+    test_plan: go test ./... && go test ./... -shuffle=on && go test ./... -count=3 && go vet ./...
+    rollback_plan: Revert the CR merge commit to restore prior serial test behavior.
+tasks:
+    - id: 1
+      title: Add deterministic parallel-eligibility guardrail and baseline inventory
+      status: done
+      contract:
+        intent: Create a repeatable check that flags eligible Test* functions missing t.Parallel() while honoring a serial-exception list.
+        acceptance_criteria:
+            - A repository command emits/fails deterministically when eligible tests lack t.Parallel().
+            - Guard output includes summary counts for total, eligible, parallelized, and blocked tests.
+            - Serial exceptions are explicit and file-scoped for env-mutating tests.
+        scope:
+            - docs
+            - scripts
+      checkpoint:
+        at: "2026-03-01T00:41:58Z"
+        source: task_no_checkpoint
+    - id: 2
+      title: Parallelize eligible internal/service top-level tests
+      status: done
+      contract:
+        intent: Adopt t.Parallel() across internal/service tests that do not mutate process-global state.
+        acceptance_criteria:
+            - All eligible top-level Test* functions in internal/service call t.Parallel().
+            - Env-mutating files remain serial and are captured in the guardrail exception list.
+            - Service package tests remain green under go test and shuffle execution.
+        scope:
+            - internal/service
+      checkpoint:
+        at: "2026-03-01T00:41:49Z"
+        source: task_no_checkpoint
+    - id: 3
+      title: Parallelize eligible internal/cli top-level tests
+      status: done
+      contract:
+        intent: Adopt t.Parallel() across internal/cli tests except explicit env-mutating exceptions.
+        acceptance_criteria:
+            - All eligible top-level Test* functions in internal/cli call t.Parallel().
+            - CLI package tests remain green under go test and shuffle execution.
+            - Env-mutating files (output mode / HQ / PR-gate env-path tests) remain serial and explicitly listed as exceptions.
+        scope:
+            - internal/cli
+      checkpoint:
+        at: "2026-03-01T00:41:49Z"
+        source: task_no_checkpoint
+    - id: 4
+      title: Parallelize internal/gitx, store, and subpackage tests
+      status: done
+      contract:
+        intent: Adopt t.Parallel() across smaller supporting packages to complete repo-wide eligible coverage.
+        acceptance_criteria:
+            - No package-level shared-state regressions are introduced.
+            - Top-level Test* functions in internal/gitx, internal/store, internal/service/tasks, internal/service/policy, internal/service/trust, internal/cli/cr, and internal/cli/json call t.Parallel().
+        scope:
+            - internal/cli/cr
+            - internal/cli/json
+            - internal/gitx
+            - internal/service/policy
+            - internal/service/tasks
+            - internal/service/trust
+            - internal/store
+      checkpoint:
+        at: "2026-03-01T00:41:49Z"
+        source: task_no_checkpoint
+    - id: 5
+      title: Document serial exceptions and rationale
+      status: done
+      contract:
+        intent: Make intentional serial tests obvious so future refactors can remove blockers deliberately.
+        acceptance_criteria:
+            - Contributor-facing docs explain why t.Setenv/os.Setenv tests are excluded from parallel mode.
+            - Exception list explicitly names env-mutating files kept serial in this CR.
+            - Follow-up path for env-isolation refactor is documented.
+        scope:
+            - docs
+            - internal/cli
+            - internal/service
+      checkpoint:
+        at: "2026-03-01T00:42:03Z"
+        source: task_no_checkpoint
+    - id: 6
+      title: Wire parallel-adoption guardrail into CI
+      status: done
+      contract:
+        intent: Prevent regression by making parallel-eligibility checks part of pull-request validation.
+        acceptance_criteria:
+            - CI runs the guardrail command in the primary checks workflow.
+            - CI runtime impact is documented and remains within existing timeout budget.
+            - Guardrail failure blocks merge-ready status like other failing checks.
+        scope:
+            - .github/workflows
+            - scripts
+      checkpoint:
+        at: "2026-03-01T00:42:07Z"
+        source: task_no_checkpoint
+    - id: 7
+      title: Fix concurrency-exposed test coupling discovered during rollout
+      status: done
+      contract:
+        intent: Resolve newly exposed order/collision issues without rolling back broad t.Parallel adoption.
+        acceptance_criteria:
+            - All changed tests pass under repeated execution (count=3).
+            - Any failures introduced by parallel execution are fixed via test isolation updates (temp paths, unique fixtures, local state).
+            - No added retries or sleeps used as primary flake mitigation.
+        scope:
+            - internal/cli
+            - internal/gitx
+            - internal/service
+            - internal/store
+      checkpoint:
+        commit: aeed0c5e
+        at: "2026-03-01T00:41:41Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/blame_test.go
+            - internal/cli/cr/helpers_test.go
+            - internal/cli/cr_archive_test.go
+            - internal/cli/cr_contract_drift_cli_test.go
+            - internal/cli/cr_export_test.go
+            - internal/cli/cr_json_agent_batch_test.go
+            - internal/cli/cr_json_anchor_test.go
+            - internal/cli/cr_json_apply_test.go
+            - internal/cli/cr_json_branch_ops_test.go
+            - internal/cli/cr_json_check_test.go
+            - internal/cli/cr_json_chunk_test.go
+            - internal/cli/cr_json_collab_test.go
+            - internal/cli/cr_json_delegate_stack_test.go
+            - internal/cli/cr_json_diff_test.go
+            - internal/cli/cr_json_evidence_sample_test.go
+            - internal/cli/cr_json_evidence_test.go
+            - internal/cli/cr_json_guardrail_test.go
+            - internal/cli/cr_json_integrity_test.go
+            - internal/cli/cr_json_merge_recovery_test.go
+            - internal/cli/cr_json_pack_test.go
+            - internal/cli/cr_json_rangediff_test.go
+            - internal/cli/cr_json_read_context_test.go
+            - internal/cli/cr_json_risk_hint_test.go
+            - internal/cli/cr_json_task_done_test.go
+            - internal/cli/cr_json_task_reopen_test.go
+            - internal/cli/cr_json_test.go
+            - internal/cli/cr_json_trust_test.go
+            - internal/cli/cr_task_reopen_test.go
+            - internal/cli/json/helpers_test.go
+            - internal/cli/json_store_lock_test.go
+            - internal/cli/json_surface_expansion_test.go
+            - internal/cli/root_resolution_test.go
+            - internal/cli/version_test.go
+            - internal/gitx/git_blame_test.go
+            - internal/gitx/git_index_lock_test.go
+            - internal/gitx/git_repo_context_test.go
+            - internal/gitx/git_split_layout_test.go
+            - internal/gitx/git_split_seams_test.go
+            - internal/gitx/git_worktree_test.go
+            - internal/service/policy/helpers_test.go
+            - internal/service/service_archive_test.go
+            - internal/service/service_blame_test.go
+            - internal/service/service_checks_test.go
+            - internal/service/service_collab_test.go
+            - internal/service/service_contract_merge_review_test.go
+            - internal/service/service_contract_test.go
+            - internal/service/service_contract_validation_test.go
+            - internal/service/service_cr_add_switch_test.go
+            - internal/service/service_cr_contract_drift_test.go
+            - internal/service/service_cr_integrity_test.go
+            - internal/service/service_cr_refs_test.go
+            - internal/service/service_cr_search_test.go
+            - internal/service/service_cr_status_fallback_test.go
+            - internal/service/service_delegate_stack_test.go
+            - internal/service/service_diff_views_test.go
+            - internal/service/service_evidence_test.go
+            - internal/service/service_export_test.go
+            - internal/service/service_hq_intent_test.go
+            - internal/service/service_integrity_doctor_metadata_test.go
+            - internal/service/service_integrity_overlap_hook_test.go
+            - internal/service/service_integrity_repair_test.go
+            - internal/service/service_integrity_test.go
+            - internal/service/service_merge_recovery_test.go
+            - internal/service/service_metadata_migration_test.go
+            - internal/service/service_metadata_root_test.go
+            - internal/service/service_metadata_test.go
+            - internal/service/service_pack_test.go
+            - internal/service/service_plan_apply_test.go
+            - internal/service/service_policy_test.go
+            - internal/service/service_pr_gate_test.go
+            - internal/service/service_rangediff_test.go
+            - internal/service/service_refresh_test.go
+            - internal/service/service_runtime_harness_test.go
+            - internal/service/service_runtime_ports_integration_test.go
+            - internal/service/service_runtime_ports_test.go
+            - internal/service/service_selector_test.go
+            - internal/service/service_task_checkpoint_test.go
+            - internal/service/service_task_contract_drift_test.go
+            - internal/service/service_task_mutation_lock_test.go
+            - internal/service/service_task_reopen_integration_test.go
+            - internal/service/service_task_reopen_merge_test.go
+            - internal/service/service_task_reopen_test.go
+            - internal/service/service_task_runtime_test.go
+            - internal/service/service_test.go
+            - internal/service/service_trust_test.go
+            - internal/service/service_worktree_integration_test.go
+            - internal/service/tasks/checkpoint_test.go
+            - internal/service/tasks/contract_transition_test.go
+            - internal/service/trust/helpers_test.go
+            - internal/store/store.go
+            - internal/store/store_test.go
+    - id: 8
+      title: Record parallel-adoption validation evidence
+      status: done
+      contract:
+        intent: Provide clear proof that safe-first mass adoption is stable before merge handoff.
+        acceptance_criteria:
+            - CR review context includes explicit statement of serial exceptions retained.
+            - Coverage summary reports baseline vs post-change parallelized test counts.
+            - Validation captures go test, shuffle, and repeated-run results for the final diff.
+        scope:
+            - docs
+      checkpoint:
+        at: "2026-03-01T00:42:13Z"
+        source: task_no_checkpoint
+git_summary:
+    base_parent: 02f20f6177343fa0d95c237e7a1e51e329fd6c4e
+    cr_parent: 02f20f6177343fa0d95c237e7a1e51e329fd6c4e
+    files_changed: []
+    diffstat:
+        summary: 0 files changed, 0 insertions(+), 0 deletions(-)

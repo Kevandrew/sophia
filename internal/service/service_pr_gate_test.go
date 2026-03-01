@@ -12,6 +12,7 @@ import (
 )
 
 func TestMergeManagedPRBodyPreservesReviewerTextOutsideManagedBlock(t *testing.T) {
+	t.Parallel()
 	existing := strings.Join([]string{
 		"Reviewer context above",
 		"",
@@ -40,6 +41,7 @@ func TestMergeManagedPRBodyPreservesReviewerTextOutsideManagedBlock(t *testing.T
 }
 
 func TestMergeManagedPRBodyRejectsMarkerCorruption(t *testing.T) {
+	t.Parallel()
 	_, err := mergeManagedPRBody("<!-- sophia:managed:start -->\npartial only", "<!-- sophia:managed:start -->\nnew\n<!-- sophia:managed:end -->")
 	if err == nil {
 		t.Fatalf("expected marker corruption error")
@@ -50,6 +52,7 @@ func TestMergeManagedPRBodyRejectsMarkerCorruption(t *testing.T) {
 }
 
 func TestRenderManagedPRBlockIncludesBlastRadiusAndCRDrifts(t *testing.T) {
+	t.Parallel()
 	review := &Review{
 		CR: &model.CR{
 			Title:      "Feature rollout",
@@ -98,6 +101,7 @@ func TestRenderManagedPRBlockIncludesBlastRadiusAndCRDrifts(t *testing.T) {
 }
 
 func TestRenderCRContractDriftSectionOmitsAckReasonWhenEmpty(t *testing.T) {
+	t.Parallel()
 	b := &strings.Builder{}
 	renderCRContractDriftSection(b, []model.CRContractDrift{{
 		ID:           1,
@@ -113,6 +117,7 @@ func TestRenderCRContractDriftSectionOmitsAckReasonWhenEmpty(t *testing.T) {
 }
 
 func TestRenderCRContractDriftSectionSortsByTimeThenID(t *testing.T) {
+	t.Parallel()
 	b := &strings.Builder{}
 	renderCRContractDriftSection(b, []model.CRContractDrift{
 		{ID: 2, TS: "2026-03-01T10:00:00Z", Fields: []string{"scope"}, Reason: "second"},
@@ -135,6 +140,7 @@ func TestRenderCRContractDriftSectionSortsByTimeThenID(t *testing.T) {
 }
 
 func TestScopeDeltaAddedAndRemoved(t *testing.T) {
+	t.Parallel()
 	added, removed := scopeDelta(
 		[]string{"internal/cli", "internal/service", "internal/cli"},
 		[]string{"internal/service", "internal/store", "internal/store"},
@@ -148,6 +154,7 @@ func TestScopeDeltaAddedAndRemoved(t *testing.T) {
 }
 
 func TestScopeDeltaNoChanges(t *testing.T) {
+	t.Parallel()
 	added, removed := scopeDelta(
 		[]string{"internal/service", "internal/model"},
 		[]string{"internal/model", "internal/service"},
@@ -158,6 +165,7 @@ func TestScopeDeltaNoChanges(t *testing.T) {
 }
 
 func TestRenderCRContractDriftSectionRendersNoneForEmptyScopeDelta(t *testing.T) {
+	t.Parallel()
 	b := &strings.Builder{}
 	renderCRContractDriftSection(b, []model.CRContractDrift{{
 		ID:          1,
@@ -174,6 +182,7 @@ func TestRenderCRContractDriftSectionRendersNoneForEmptyScopeDelta(t *testing.T)
 }
 
 func TestRenderManagedPRBlockUsesTaskContractDriftsForScopeDriftSignal(t *testing.T) {
+	t.Parallel()
 	review := &Review{
 		CR: &model.CR{
 			Title:      "Task drift signal",
@@ -221,6 +230,7 @@ func TestRenderManagedPRBlockUsesTaskContractDriftsForScopeDriftSignal(t *testin
 }
 
 func TestRenderManagedPRBlockIncludesDiffBreakdownWithNumStats(t *testing.T) {
+	t.Parallel()
 	ins := 7
 	del := 3
 	review := &Review{
@@ -256,6 +266,7 @@ func TestRenderManagedPRBlockIncludesDiffBreakdownWithNumStats(t *testing.T) {
 }
 
 func TestPRApprovalRequiredErrorContracts(t *testing.T) {
+	t.Parallel()
 	err := &PRApprovalRequiredError{
 		CRID:   61,
 		Branch: "cr-61-test",
@@ -274,6 +285,7 @@ func TestPRApprovalRequiredErrorContracts(t *testing.T) {
 }
 
 func TestEvaluatePRGateHonorsPolicyRequirements(t *testing.T) {
+	t.Parallel()
 	policy := &model.RepoPolicy{
 		Merge: model.PolicyMerge{
 			RequiredApprovals:        intPtr(2),
@@ -298,6 +310,7 @@ func TestEvaluatePRGateHonorsPolicyRequirements(t *testing.T) {
 }
 
 func TestClassifyGHCommandErrorAuthRequired(t *testing.T) {
+	t.Parallel()
 	raw := errors.New("gh pr list failed: not logged into github.com. Run gh auth login")
 	err := classifyGHCommandError(raw, []string{"pr", "list"})
 	if !errors.Is(err, ErrGHAuthRequired) {
@@ -318,6 +331,7 @@ func TestClassifyGHCommandErrorAuthRequired(t *testing.T) {
 }
 
 func TestEvaluatePRGateBlocksWhenChecksRequiredButMissing(t *testing.T) {
+	t.Parallel()
 	policy := &model.RepoPolicy{
 		Merge: model.PolicyMerge{
 			RequirePassingChecks: boolPtr(true),
@@ -344,6 +358,7 @@ func TestEvaluatePRGateBlocksWhenChecksRequiredButMissing(t *testing.T) {
 }
 
 func TestParsePRNumberFromURL(t *testing.T) {
+	t.Parallel()
 	if got := parsePRNumberFromURL("https://github.com/acme/repo/pull/123"); got != 123 {
 		t.Fatalf("expected 123, got %d", got)
 	}
@@ -356,6 +371,7 @@ func TestParsePRNumberFromURL(t *testing.T) {
 }
 
 func TestBuildPRMergeArgsRespectsDeleteBranch(t *testing.T) {
+	t.Parallel()
 	withDelete := buildPRMergeArgs(42, true, "")
 	if strings.Join(withDelete, " ") != "pr merge 42 --merge --delete-branch" {
 		t.Fatalf("unexpected args with delete: %#v", withDelete)
@@ -367,6 +383,7 @@ func TestBuildPRMergeArgsRespectsDeleteBranch(t *testing.T) {
 }
 
 func TestBuildPRMergeArgsIncludesMatchHeadCommit(t *testing.T) {
+	t.Parallel()
 	args := buildPRMergeArgs(42, true, "abc123")
 	got := strings.Join(args, " ")
 	want := "pr merge 42 --merge --match-head-commit abc123 --delete-branch"
@@ -376,6 +393,7 @@ func TestBuildPRMergeArgsIncludesMatchHeadCommit(t *testing.T) {
 }
 
 func TestNormalizeCheckRollupStatePrefersStateField(t *testing.T) {
+	t.Parallel()
 	got := normalizeCheckRollupState("COMPLETED", "SUCCESS", "FAILURE")
 	if got != "FAILURE" {
 		t.Fatalf("expected FAILURE, got %q", got)
@@ -383,6 +401,7 @@ func TestNormalizeCheckRollupStatePrefersStateField(t *testing.T) {
 }
 
 func TestCheckRollupStatePassing(t *testing.T) {
+	t.Parallel()
 	if !checkRollupStatePassing("SUCCESS") {
 		t.Fatalf("expected SUCCESS to be passing")
 	}
@@ -395,6 +414,7 @@ func TestCheckRollupStatePassing(t *testing.T) {
 }
 
 func TestNormalizeGHRepoSelectorParsesCommonRemoteFormats(t *testing.T) {
+	t.Parallel()
 	cases := map[string]string{
 		"https://github.com/acme/repo.git":           "acme/repo",
 		"git@github.com:acme/repo.git":               "acme/repo",
@@ -410,12 +430,14 @@ func TestNormalizeGHRepoSelectorParsesCommonRemoteFormats(t *testing.T) {
 }
 
 func TestNormalizeGHRepoSelectorRejectsLocalRemotePath(t *testing.T) {
+	t.Parallel()
 	if got := normalizeGHRepoSelector("/tmp/origin.git"); got != "" {
 		t.Fatalf("expected empty selector for local path, got %q", got)
 	}
 }
 
 func TestParseRepoSelectorParts(t *testing.T) {
+	t.Parallel()
 	host, owner, repo, ok := parseRepoSelectorParts("acme/repo")
 	if !ok || host != "" || owner != "acme" || repo != "repo" {
 		t.Fatalf("unexpected parse for owner/repo: ok=%t host=%q owner=%q repo=%q", ok, host, owner, repo)
@@ -430,6 +452,7 @@ func TestParseRepoSelectorParts(t *testing.T) {
 }
 
 func TestIsGHProjectCardsSunsetError(t *testing.T) {
+	t.Parallel()
 	err := errors.New("GraphQL: Projects (classic) is being deprecated in favor of the new Projects experience. (repository.pullRequest.projectCards)")
 	if !isGHProjectCardsSunsetError(err) {
 		t.Fatalf("expected projectCards sunset error to be detected")
@@ -440,6 +463,7 @@ func TestIsGHProjectCardsSunsetError(t *testing.T) {
 }
 
 func TestRenderCheckpointSyncCommentFormat(t *testing.T) {
+	t.Parallel()
 	task := model.Subtask{
 		ID:    3,
 		Title: "Enable pr-gate merge mode",
@@ -471,6 +495,7 @@ func TestRenderCheckpointSyncCommentFormat(t *testing.T) {
 }
 
 func TestExtractCheckpointSyncCommentKey(t *testing.T) {
+	t.Parallel()
 	body := "hello\n\n<!-- sophia:checkpoint-sync:task:5:abc123 -->\n"
 	if got := extractCheckpointSyncCommentKey(body); got != "task:5:abc123" {
 		t.Fatalf("unexpected extracted key: %q", got)
@@ -481,6 +506,7 @@ func TestExtractCheckpointSyncCommentKey(t *testing.T) {
 }
 
 func TestIndexCheckpointSyncCommentsUsesMarkerKey(t *testing.T) {
+	t.Parallel()
 	comments := []ghIssueComment{
 		{ID: 11, Body: "a\n<!-- sophia:checkpoint-sync:task:1:a1 -->"},
 		{ID: 12, Body: "b\n<!-- sophia:checkpoint-sync:task:2:b2 -->"},
@@ -499,6 +525,7 @@ func TestIndexCheckpointSyncCommentsUsesMarkerKey(t *testing.T) {
 }
 
 func TestParseRevListOutput(t *testing.T) {
+	t.Parallel()
 	raw := "\nabc123\n\n  def456  \n"
 	got := parseRevListOutput(raw)
 	if len(got) != 2 || got[0] != "abc123" || got[1] != "def456" {
@@ -507,6 +534,7 @@ func TestParseRevListOutput(t *testing.T) {
 }
 
 func TestValidateCheckpointStrictOrderAllowsSequential(t *testing.T) {
+	t.Parallel()
 	missing := []string{"c1", "c2", "c3"}
 	pending := []checkpointSyncPending{
 		{TaskID: 1, Commit: "c1", MissingIndex: 0},
@@ -518,6 +546,7 @@ func TestValidateCheckpointStrictOrderAllowsSequential(t *testing.T) {
 }
 
 func TestValidateCheckpointStrictOrderRejectsMixed(t *testing.T) {
+	t.Parallel()
 	missing := []string{"extra", "checkpoint"}
 	pending := []checkpointSyncPending{
 		{TaskID: 2, Commit: "checkpoint", MissingIndex: 1},
@@ -532,6 +561,7 @@ func TestValidateCheckpointStrictOrderRejectsMixed(t *testing.T) {
 }
 
 func TestClassifyPushCommandErrorPermissionDenied(t *testing.T) {
+	t.Parallel()
 	raw := errors.New("git push failed: remote: Permission to repo denied")
 	err := classifyPushCommandError(raw, "cr-1-branch")
 	if !errors.Is(err, ErrPushPermissionDenied) {
@@ -552,6 +582,7 @@ func TestClassifyPushCommandErrorPermissionDenied(t *testing.T) {
 }
 
 func TestClassifyPushCommandErrorDoesNotMisclassifyNonPermissionFailures(t *testing.T) {
+	t.Parallel()
 	raw := errors.New("git push failed: failed to push some refs to origin")
 	err := classifyPushCommandError(raw, "cr-1-branch")
 	if errors.Is(err, ErrPushPermissionDenied) {
@@ -560,6 +591,7 @@ func TestClassifyPushCommandErrorDoesNotMisclassifyNonPermissionFailures(t *test
 }
 
 func TestStageArchiveForPRGateSkipsWhenArchiveDisabled(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -584,6 +616,7 @@ func TestStageArchiveForPRGateSkipsWhenArchiveDisabled(t *testing.T) {
 }
 
 func TestPushBranchIfNeededPushesLocalAheadCommit(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	runGit(t, dir, "init", "-b", "main")
 	runGit(t, dir, "config", "user.name", "Test User")
@@ -631,6 +664,7 @@ func TestPushBranchIfNeededPushesLocalAheadCommit(t *testing.T) {
 }
 
 func TestResolveCommitOIDExpandsShortSHA(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	runGit(t, dir, "init", "-b", "main")
 	runGit(t, dir, "config", "user.name", "Test User")

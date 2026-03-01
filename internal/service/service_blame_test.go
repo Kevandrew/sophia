@@ -8,6 +8,7 @@ import (
 )
 
 func TestBlameFileUsesSophiaFooterIntent(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -39,6 +40,7 @@ func TestBlameFileUsesSophiaFooterIntent(t *testing.T) {
 }
 
 func TestBlameFileFallsBackToCRMetadataIntent(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -77,6 +79,7 @@ func TestBlameFileFallsBackToCRMetadataIntent(t *testing.T) {
 }
 
 func TestBlameFileNonSophiaCommitFallsBackToCommitSummary(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -108,6 +111,7 @@ func TestBlameFileNonSophiaCommitFallsBackToCommitSummary(t *testing.T) {
 }
 
 func TestBlameFileIncludesUncommittedLines(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {

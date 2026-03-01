@@ -63,6 +63,7 @@ crs:
 `
 
 func TestCRApplyRequiresFileFlag(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := service.New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -76,6 +77,7 @@ func TestCRApplyRequiresFileFlag(t *testing.T) {
 }
 
 func TestCRApplyDryRunJSONDoesNotMutate(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := service.New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -110,6 +112,7 @@ func TestCRApplyDryRunJSONDoesNotMutate(t *testing.T) {
 }
 
 func TestCRApplyJSONConsumesByDefault(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := service.New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -144,6 +147,7 @@ func TestCRApplyJSONConsumesByDefault(t *testing.T) {
 }
 
 func TestCRApplyKeepFileFlagPreservesPlan(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := service.New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -168,6 +172,7 @@ func TestCRApplyKeepFileFlagPreservesPlan(t *testing.T) {
 }
 
 func TestCRApplyReportsParseErrors(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := service.New(dir)
 	if _, err := svc.Init("main", ""); err != nil {

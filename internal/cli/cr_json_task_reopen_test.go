@@ -9,6 +9,7 @@ import (
 )
 
 func TestCRTaskReopenJSONSuccess(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := service.New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -67,6 +68,7 @@ func TestCRTaskReopenJSONSuccess(t *testing.T) {
 }
 
 func TestCRTaskReopenJSONTaskNotDoneErrorCode(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := service.New(dir)
 	if _, err := svc.Init("main", ""); err != nil {

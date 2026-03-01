@@ -7,6 +7,7 @@ import (
 )
 
 func TestRefreshCRAutoRebaseForRootCR(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -55,6 +56,7 @@ func TestRefreshCRAutoRebaseForRootCR(t *testing.T) {
 }
 
 func TestRefreshCRAutoRestackForChildCR(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {

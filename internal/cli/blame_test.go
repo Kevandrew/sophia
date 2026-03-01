@@ -12,6 +12,7 @@ import (
 )
 
 func TestBlameCommandTextOutputIncludesIntentColumns(t *testing.T) {
+	t.Parallel()
 	dir, cr := setupBlameFixture(t)
 
 	out, _, err := runCLI(t, dir, "blame", "fixture.txt")
@@ -30,6 +31,7 @@ func TestBlameCommandTextOutputIncludesIntentColumns(t *testing.T) {
 }
 
 func TestBlameCommandJSONEnvelopeAndKeys(t *testing.T) {
+	t.Parallel()
 	dir, _ := setupBlameFixture(t)
 
 	out, _, err := runCLI(t, dir, "blame", "fixture.txt", "--json")
@@ -61,6 +63,7 @@ func TestBlameCommandJSONEnvelopeAndKeys(t *testing.T) {
 }
 
 func TestBlameCommandLineRangeFilter(t *testing.T) {
+	t.Parallel()
 	dir, _ := setupBlameFixture(t)
 
 	out, _, err := runCLI(t, dir, "blame", "fixture.txt", "-L", "2,2", "--json")
@@ -85,6 +88,7 @@ func TestBlameCommandLineRangeFilter(t *testing.T) {
 }
 
 func TestBlameCommandRejectsInvalidLineRange(t *testing.T) {
+	t.Parallel()
 	dir, _ := setupBlameFixture(t)
 
 	_, _, err := runCLI(t, dir, "blame", "fixture.txt", "-L", "two")

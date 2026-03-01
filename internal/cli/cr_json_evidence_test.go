@@ -9,6 +9,7 @@ import (
 )
 
 func TestCREvidenceAddAndShowJSON(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := service.New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -61,6 +62,7 @@ func TestCREvidenceAddAndShowJSON(t *testing.T) {
 }
 
 func TestCRReviewJSONIncludesEvidence(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := service.New(dir)
 	if _, err := svc.Init("main", ""); err != nil {

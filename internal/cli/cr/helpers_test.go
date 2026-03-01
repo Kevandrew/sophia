@@ -3,6 +3,7 @@ package cr
 import "testing"
 
 func TestBuildAddCROptionsNormalizesInputs(t *testing.T) {
+	t.Parallel()
 	opts := BuildAddCROptions(AddOptionsInput{
 		BaseRef:        "  origin/main  ",
 		ParentCRID:     7,
@@ -27,6 +28,7 @@ func TestBuildAddCROptionsNormalizesInputs(t *testing.T) {
 }
 
 func TestValidateTaskDoneFlagsRejectsInvalidCombinations(t *testing.T) {
+	t.Parallel()
 	err := ValidateTaskDoneFlags(TaskDoneFlags{
 		NoCheckpoint: true,
 		FromContract: true,
@@ -44,6 +46,7 @@ func TestValidateTaskDoneFlagsRejectsInvalidCombinations(t *testing.T) {
 }
 
 func TestTaskDoneScopeModeAndCheckpointSource(t *testing.T) {
+	t.Parallel()
 	flags := TaskDoneFlags{
 		NoCheckpoint: true,
 	}

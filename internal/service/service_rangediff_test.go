@@ -8,6 +8,7 @@ import (
 )
 
 func TestRangeDiffCRFromToAnchors(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -50,6 +51,7 @@ func TestRangeDiffCRFromToAnchors(t *testing.T) {
 }
 
 func TestRangeDiffCRSinceLastCheckpointUsesLatestDoneTask(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -99,6 +101,7 @@ func TestRangeDiffCRSinceLastCheckpointUsesLatestDoneTask(t *testing.T) {
 }
 
 func TestRangeDiffCRSinceLastCheckpointRequiresDoneCheckpoint(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
@@ -117,6 +120,7 @@ func TestRangeDiffCRSinceLastCheckpointRequiresDoneCheckpoint(t *testing.T) {
 }
 
 func TestRangeDiffCRMergedBranchFallbackUsesMergedCommit(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
