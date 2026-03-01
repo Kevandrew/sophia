@@ -40,6 +40,9 @@ func TestCRAddDefaultsToNoSwitchAndSupportsSwitchFlag(t *testing.T) {
 	if !strings.Contains(out, "Run: sophia cr switch 1") {
 		t.Fatalf("expected switch guidance in output, got %q", out)
 	}
+	if strings.Contains(out, "Bootstrapped local Sophia metadata") {
+		t.Fatalf("did not expect bootstrap notice in initialized repo output, got %q", out)
+	}
 	current := runGit(t, dir, "branch", "--show-current")
 	if current != "main" {
 		t.Fatalf("expected to remain on main, got %q", current)
@@ -69,6 +72,28 @@ func TestCRAddDefaultsToNoSwitchAndSupportsSwitchFlag(t *testing.T) {
 	current = runGit(t, dir, "branch", "--show-current")
 	if current != activeBranch {
 		t.Fatalf("expected switched branch %q, got %q", activeBranch, current)
+	}
+}
+
+func TestCRAddNoInitShowsBootstrapNoticeOnce(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	runGit(t, dir, "init", "-b", "main")
+
+	firstOut, _, firstErr := runCLI(t, dir, "cr", "add", "No init first")
+	if firstErr != nil {
+		t.Fatalf("first cr add error = %v\noutput=%s", firstErr, firstOut)
+	}
+	if !strings.Contains(firstOut, "Bootstrapped local Sophia metadata") {
+		t.Fatalf("expected bootstrap notice in first output, got %q", firstOut)
+	}
+
+	secondOut, _, secondErr := runCLI(t, dir, "cr", "add", "No init second")
+	if secondErr != nil {
+		t.Fatalf("second cr add error = %v\noutput=%s", secondErr, secondOut)
+	}
+	if strings.Contains(secondOut, "Bootstrapped local Sophia metadata") {
+		t.Fatalf("did not expect bootstrap notice in second output, got %q", secondOut)
 	}
 }
 

@@ -70,6 +70,9 @@ sophia cr task add [<cr-id>|<cr-uid>] "<task>"
 sophia cr task contract set [<cr-id>|<cr-uid>] <task-id> --intent "..." --acceptance "..." --scope <prefix>
 ```
 
+`sophia cr add` supports no-init entry. In an uninitialized Git repository, it lazily bootstraps local metadata and proceeds.
+Use `sophia init` for explicit setup and tracked metadata workflows.
+
 Implementation and checkpoints:
 
 ```bash
