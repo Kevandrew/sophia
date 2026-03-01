@@ -1,0 +1,164 @@
+schema_version: sophia.cr_archive.v1
+notice: Historical archive snapshot. Corrections are append-only revisions.
+archived_at: "2026-03-01T12:38:50Z"
+revision: 1
+cr:
+    id: 97
+    uid: cr_17a48a12-0358-4e42-98fa-822af9c650a1
+    title: Checkpoint-native commit classification
+    description: Checkpoint commits currently default to chore when task titles are not prefixed, which makes intent hard to scan in history and PR timelines. We need per-checkpoint commit classification so each checkpoint subject reflects the actual change type.
+    status: merged
+    base_branch: main
+    base_ref: main
+    base_commit: 1a6564d20503ccf01411e997e7f8d760fad60127
+    branch: cr-checkpoint-native-commit-classification-17a4
+    merged_at: "2026-03-01T12:38:50Z"
+    merged_by: Kevandrew <143258544+Kevandrew@users.noreply.github.com>
+contract:
+    why: |-
+        Sophia is agent-first in this repo, so checkpoint commit typing should be driven by the LLM agent at checkpoint time, not by implicit title parsing alone. The primary outcome is explicit per-checkpoint type control via CLI so agents can select the correct conventional prefix deterministically for each checkpoint.
+
+        Decision boundary: keep Sophia runtime deterministic and offline-capable. The CLI will not call an LLM internally. Instead, agents must pass explicit commit type via task-done flags and the Sophia skill will codify this behavior. Backward compatibility remains for manual users via existing fallback inference and chore fallback.
+    scope:
+        - .
+    non_goals:
+        - Do not add runtime/provider-coupled LLM API calls inside Sophia CLI.
+    invariants:
+        - Checkpoint commits remain deterministic for identical task inputs.
+        - Existing checkpoint metadata footers and scope semantics stay unchanged.
+        - Task completion guardrails and scope validation behavior remain intact.
+    blast_radius: Affects cr task done CLI flags/validation, service checkpoint message type resolution precedence, checkpoint-related CLI/service tests, and agent guidance docs (skills/sophia/SKILL.md plus workflow references).
+    risk_tier_hint: low
+    risk_rationale: Agent-selected explicit type improves semantic commit quality while preserving deterministic fallback behavior.
+    test_plan: go test ./internal/service/... && go test ./internal/cli/... && go test ./...
+    rollback_plan: Revert the [CR-97] merge commit to restore prior chore-default behavior.
+tasks:
+    - id: 1
+      title: Define checkpoint commit-type resolution order
+      status: done
+      contract:
+        intent: Define deterministic commit-type precedence for checkpoint commit subjects.
+        acceptance_criteria:
+            - Resolution order is explicit and documented in code comments/tests.
+            - Type tokens are constrained to supported conventional commit types.
+            - When no explicit or inferable type exists, fallback remains chore for compatibility.
+        scope:
+            - internal/service/service_messages.go
+            - internal/service/service_task_checkpoint.go
+      checkpoint:
+        commit: 6194c6ff
+        at: "2026-03-01T12:37:24Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_messages.go
+    - id: 2
+      title: Add task-done commit-type override flag
+      status: done
+      contract:
+        intent: Add explicit checkpoint commit type control to cr task done for agent-selected typing.
+        acceptance_criteria:
+            - No internal LLM/network call is introduced in CLI/service runtime.
+            - When --commit-type is provided, it takes precedence over title/intent inference.
+            - cr task done accepts --commit-type and validates against supported conventional types.
+        scope:
+            - internal/cli/cr/helpers.go
+            - internal/cli/cr_cmd_task.go
+            - internal/service/service_messages.go
+            - internal/service/service_task_checkpoint.go
+            - internal/service/service_task_domain.go
+      checkpoint:
+        commit: 5117c74b
+        at: "2026-03-01T12:37:29Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/cr/helpers.go
+            - internal/cli/cr_cmd_task.go
+            - internal/service/service_task_checkpoint.go
+            - internal/service/service_task_domain.go
+    - id: 3
+      title: Implement fallback classification from task contract intent
+      status: done
+      contract:
+        intent: Preserve deterministic non-agent fallback behavior when explicit commit type is absent.
+        acceptance_criteria:
+            - If --commit-type is missing, type resolution uses task title prefix first, then task contract intent, then chore.
+            - Inference remains deterministic and case-insensitive.
+            - No-checkpoint and reopen flows remain unchanged.
+        scope:
+            - internal/service/service_messages.go
+            - internal/service/service_task_checkpoint_test.go
+      checkpoint:
+        commit: 6b45704f
+        at: "2026-03-01T12:37:33Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_task_checkpoint_test.go
+    - id: 4
+      title: Expand checkpoint subject tests for typed commits
+      status: done
+      contract:
+        intent: Add regression coverage for override, fallback, and compatibility behavior.
+        acceptance_criteria:
+            - CLI tests cover invalid commit-type rejection.
+            - Tests assert checkpoint subject formats across first-attempt and reopen-attempt suffixes.
+            - Tests cover explicit override precedence, task-title prefix precedence, contract-intent fallback, and chore fallback.
+        scope:
+            - internal/cli/arg_error_ux_test.go
+            - internal/cli/cr/helpers_test.go
+            - internal/cli/help_output_test.go
+            - internal/cli/json_surface_expansion_test.go
+            - internal/service/service_task_checkpoint_test.go
+      checkpoint:
+        commit: 9e83c9de
+        at: "2026-03-01T12:37:37Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/arg_error_ux_test.go
+            - internal/cli/cr/helpers_test.go
+            - internal/cli/help_output_test.go
+            - internal/cli/json_surface_expansion_test.go
+    - id: 5
+      title: Document per-checkpoint commit typing workflow
+      status: done
+      contract:
+        intent: Document explicit commit-type usage in operator and agent-facing workflow docs.
+        acceptance_criteria:
+            - Docs clarify that agent workflows should explicitly pass --commit-type for each checkpoint.
+            - Workflow/getting-started/CLI docs include --commit-type examples and precedence behavior.
+        scope:
+            - AGENTS.md
+            - docs/cli-reference.md
+            - docs/getting-started.md
+            - docs/workflow.md
+      checkpoint:
+        commit: f742f7c5
+        at: "2026-03-01T12:37:42Z"
+        source: task_checkpoint
+        scope:
+            - AGENTS.md
+            - docs/cli-reference.md
+            - docs/getting-started.md
+            - docs/workflow.md
+    - id: 6
+      title: Codify agent commit-type requirement in Sophia skill
+      status: done
+      contract:
+        intent: Update Sophia skill guidance so agents always pass --commit-type for checkpoint commits.
+        acceptance_criteria:
+            - Examples include task done with --commit-type plus normal scope flags.
+            - Skill includes concise mapping rubric for type selection (feat/fix/refactor/test/docs/chore/etc.).
+            - skills/sophia/SKILL.md states agent requirement to provide --commit-type on every checkpoint task done.
+        scope:
+            - skills/sophia/SKILL.md
+      checkpoint:
+        commit: f5dff25e
+        at: "2026-03-01T12:37:48Z"
+        source: task_checkpoint
+        scope:
+            - skills/sophia/SKILL.md
+git_summary:
+    base_parent: 1a6564d20503ccf01411e997e7f8d760fad60127
+    cr_parent: f5dff25e6c7c77a8ed8e46047dfb47bfdb26b2eb
+    files_changed: []
+    diffstat:
+        summary: 0 files changed, 0 insertions(+), 0 deletions(-)

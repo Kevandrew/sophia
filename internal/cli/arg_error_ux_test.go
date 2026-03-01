@@ -3,6 +3,8 @@ package cli
 import (
 	"strings"
 	"testing"
+
+	"sophia/internal/service"
 )
 
 func TestMissingArgTextErrorShowsUsageAndExample(t *testing.T) {
@@ -72,5 +74,41 @@ func TestRuntimeTextErrorsDoNotDumpUsageNoise(t *testing.T) {
 	}
 	if strings.Contains(stderr, "Usage:") {
 		t.Fatalf("did not expect usage dump for runtime error, got %q", stderr)
+	}
+}
+
+func TestTaskDoneRejectsInvalidCommitType(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	svc := service.New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	cr, err := svc.AddCR("Invalid commit type", "validation")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	task, err := svc.AddTask(cr.ID, "Unprefixed task")
+	if err != nil {
+		t.Fatalf("AddTask() error = %v", err)
+	}
+	intent := "Implement"
+	acceptance := []string{"done"}
+	scope := []string{"."}
+	if _, err := svc.SetTaskContract(cr.ID, task.ID, service.TaskContractPatch{
+		Intent:             &intent,
+		AcceptanceCriteria: &acceptance,
+		Scope:              &scope,
+	}); err != nil {
+		t.Fatalf("SetTaskContract() error = %v", err)
+	}
+
+	stdout, stderr, runErr := runCLI(t, dir, "cr", "task", "done", "1", "1", "--all", "--commit-type", "invalidtype")
+	if runErr == nil {
+		t.Fatalf("expected invalid commit type to fail")
+	}
+	combined := stdout + "\n" + stderr + "\n" + runErr.Error()
+	if !strings.Contains(combined, "invalid --commit-type") {
+		t.Fatalf("expected invalid commit type error, got stdout=%q stderr=%q err=%v", stdout, stderr, runErr)
 	}
 }

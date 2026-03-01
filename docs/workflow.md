@@ -44,10 +44,16 @@ Use exactly one completion scope mode per `task done` call:
 - `--all` only when full stage is intentionally required.
 - `--no-checkpoint` only for metadata-only completion (must include reason).
 
+Commit typing:
+
+- Prefer explicit `--commit-type <type>` for checkpoint commits (`feat|fix|docs|refactor|test|chore|perf|build|ci|style|revert`).
+- Resolution order when omitted: task title prefix -> task contract intent prefix -> `chore`.
+
 Examples:
 
 ```bash
 sophia cr task done [<cr-id>|<cr-uid>] <task-id> \
+  --commit-type fix \
   --path internal/service/retry.go \
   --path internal/service/retry_test.go
 

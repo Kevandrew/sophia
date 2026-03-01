@@ -509,7 +509,7 @@ func (d *taskLifecycleDomain) applyTaskCheckpointForDone(gitProvider taskLifecyc
 		return "", fmt.Errorf("%w: no staged changes after applying scope", ErrNoTaskChanges)
 	}
 
-	commitMessage := buildTaskCheckpointMessage(cr, task, scopeMode, len(checkpointChunks))
+	commitMessage := buildTaskCheckpointMessage(cr, task, strings.TrimSpace(opts.CommitType), scopeMode, len(checkpointChunks))
 	if err := gitProvider.Commit(commitMessage); err != nil {
 		return "", err
 	}

@@ -43,6 +43,22 @@ func TestValidateTaskDoneFlagsRejectsInvalidCombinations(t *testing.T) {
 	if err == nil {
 		t.Fatalf("expected reason requirement for --no-checkpoint")
 	}
+
+	err = ValidateTaskDoneFlags(TaskDoneFlags{
+		NoCheckpoint: true,
+		CommitType:   "fix",
+	})
+	if err == nil {
+		t.Fatalf("expected conflict error for --no-checkpoint + --commit-type")
+	}
+
+	err = ValidateTaskDoneFlags(TaskDoneFlags{
+		StageAll:   true,
+		CommitType: "unknown",
+	})
+	if err == nil {
+		t.Fatalf("expected invalid commit type error")
+	}
 }
 
 func TestTaskDoneScopeModeAndCheckpointSource(t *testing.T) {

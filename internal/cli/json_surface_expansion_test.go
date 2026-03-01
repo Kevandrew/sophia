@@ -496,3 +496,67 @@ func TestCRMutationCommandsSupportJSON(t *testing.T) {
 		t.Fatalf("expected export output file at %s: %v", outPath, err)
 	}
 }
+
+func TestCRTaskDoneJSONIncludesCommitType(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	svc := service.New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	if _, err := svc.AddCR("Task done commit type", "json commit type"); err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	out, _, runErr := runCLI(t, dir, "cr", "switch", "1", "--json")
+	if runErr != nil {
+		t.Fatalf("cr switch --json error = %v\noutput=%s", runErr, out)
+	}
+	env := decodeEnvelope(t, out)
+	if !env.OK {
+		t.Fatalf("expected ok envelope from switch --json, got %#v", env)
+	}
+
+	out, _, runErr = runCLI(t, dir, "cr", "task", "add", "1", "Unprefixed task title", "--json")
+	if runErr != nil {
+		t.Fatalf("cr task add --json error = %v\noutput=%s", runErr, out)
+	}
+	env = decodeEnvelope(t, out)
+	if !env.OK {
+		t.Fatalf("expected ok envelope from task add --json, got %#v", env)
+	}
+	taskMap, ok := env.Data["task"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected task payload object, got %#v", env.Data["task"])
+	}
+	taskIDFloat, ok := taskMap["id"].(float64)
+	if !ok {
+		t.Fatalf("expected numeric task id, got %#v", taskMap["id"])
+	}
+	taskID := int(taskIDFloat)
+
+	out, _, runErr = runCLI(t, dir, "cr", "task", "contract", "set", "1", strconv.Itoa(taskID), "--intent", "Implement task checkpoint", "--acceptance", "done", "--scope", ".", "--json")
+	if runErr != nil {
+		t.Fatalf("cr task contract set --json error = %v\noutput=%s", runErr, out)
+	}
+	env = decodeEnvelope(t, out)
+	if !env.OK {
+		t.Fatalf("expected ok envelope from task contract set --json, got %#v", env)
+	}
+
+	if err := os.WriteFile(filepath.Join(dir, "commit_type.json"), []byte("checkpoint\n"), 0o644); err != nil {
+		t.Fatalf("write commit type fixture: %v", err)
+	}
+
+	out, _, runErr = runCLI(t, dir, "cr", "task", "done", "1", strconv.Itoa(taskID), "--all", "--commit-type", "fix", "--json")
+	if runErr != nil {
+		t.Fatalf("cr task done --json error = %v\noutput=%s", runErr, out)
+	}
+	env = decodeEnvelope(t, out)
+	if !env.OK {
+		t.Fatalf("expected ok envelope from task done --json, got %#v", env)
+	}
+	if commitType, ok := env.Data["commit_type"].(string); !ok || commitType != "fix" {
+		t.Fatalf("expected commit_type fix, got %#v", env.Data["commit_type"])
+	}
+}

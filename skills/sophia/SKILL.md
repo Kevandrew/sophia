@@ -41,13 +41,21 @@ After `sophia cr add`:
 
 After implementation is complete:
 1. Complete each finished task with an explicit checkpoint scope:
-   - chunk-scoped: inspect with `sophia cr task chunk list <id> <task-id>` and checkpoint via `sophia cr task done <id> <task-id> --patch-file <patch-file>`
-   - file-scoped: `sophia cr task done <id> <task-id> --path <file> [--path <file>]`
-   - contract-scoped fallback: `sophia cr task done <id> <task-id> --from-contract`
+   - chunk-scoped: inspect with `sophia cr task chunk list <id> <task-id>` and checkpoint via `sophia cr task done <id> <task-id> --commit-type <type> --patch-file <patch-file>`
+   - file-scoped: `sophia cr task done <id> <task-id> --commit-type <type> --path <file> [--path <file>]`
+   - contract-scoped fallback: `sophia cr task done <id> <task-id> --commit-type <type> --from-contract`
    - metadata-only exception: `sophia cr task done <id> <task-id> --no-checkpoint --no-checkpoint-reason "<why no checkpoint>"`
 2. Run `sophia cr validate <id>` (use `--record` when an audit validation event is desired).
 3. Run `sophia cr review <id>`.
 4. Check `sophia cr status <id>` / `--json` and `sophia cr check status <id> --json` as needed, then merge.
+
+Checkpoint type rubric for agents:
+- `feat`: user-visible capability additions.
+- `fix`: behavior/bug corrections.
+- `refactor`: internal restructuring without intended behavior change.
+- `test`: test-only changes.
+- `docs`: documentation-only changes.
+- `chore`: maintenance or workflow changes that do not fit the above.
 
 ## PR-First Vs Local-Merge Workflow (LLM Decision Guide)
 Always choose lifecycle behavior from repository policy first.
@@ -481,16 +489,16 @@ sophia cr evidence show <cr-id> [--json]
 3. Execute task checkpoints:
 ```bash
 # preferred: task-contract scoped checkpoint
-sophia cr task done <cr-id> <task-id> --from-contract
+sophia cr task done <cr-id> <task-id> --commit-type <type> --from-contract
 
 # explicit file-scoped checkpoint
-sophia cr task done <cr-id> <task-id> --path <file> --path <file>
+sophia cr task done <cr-id> <task-id> --commit-type <type> --path <file> --path <file>
 
 # explicit stage-all fallback
-sophia cr task done <cr-id> <task-id> --all
+sophia cr task done <cr-id> <task-id> --commit-type <type> --all
 
 # patch-manifest checkpoint (hunk-scoped)
-sophia cr task done <cr-id> <task-id> --patch-file <patch-file>
+sophia cr task done <cr-id> <task-id> --commit-type <type> --patch-file <patch-file>
 
 # metadata-only completion
 sophia cr task done <cr-id> <task-id> --no-checkpoint --no-checkpoint-reason "<why no checkpoint>"
@@ -569,6 +577,7 @@ sophia cr merge abort <cr-id> [--json]
 - Add or split tasks as soon as new surfaces appear; do not defer task correction until merge time.
 - Set task contracts before `task done`; completion is blocked when task contract is incomplete.
 - In checkpoint mode, always provide explicit scope mode (`--from-contract`, `--path`, `--patch-file`, or `--all`).
+- In agent workflows, always provide explicit checkpoint type via `--commit-type <feat|fix|docs|refactor|test|chore|perf|build|ci|style|revert>`.
 - Prefer `--from-contract` when task contract scope is defined.
 - Pre-staged index changes should be cleared before scoped checkpoints.
 - Always run `cr validate` before `cr merge`; override only for explicit emergencies.

@@ -64,6 +64,7 @@ Recommended daily flow (intent-first):
 - Use contract and risk commands (`cr contract`, `cr impact`, `cr validate`) before merge.
 - Set task contracts (`cr task contract`) before task completion; `task done` is blocked if missing.
 - Task completion creates checkpoint commits via `sophia cr task done` and requires explicit scope mode (`--from-contract`, `--path`, `--patch-file`, or `--all`).
+- For agent-driven checkpoints, always set `--commit-type <type>` (`feat|fix|docs|refactor|test|chore|perf|build|ci|style|revert`) instead of relying on fallback inference.
 - Prefer `--from-contract` to keep staging aligned with task scope declarations.
 - Use `--no-checkpoint --no-checkpoint-reason "<why>"` for metadata-only completion; use `--all` only when full-stage behavior is intended.
 - Pre-staged index changes are rejected before checkpointing to prevent accidental scope drift.

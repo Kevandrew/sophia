@@ -64,6 +64,7 @@ Expected outcome:
 
 ```bash
 sophia cr task done [<cr-id>|<cr-uid>] <task-id> \
+  --commit-type feat \
   --path internal/service/retry.go \
   --path internal/service/retry_test.go
 ```
@@ -79,6 +80,7 @@ sophia cr task done [<cr-id>|<cr-uid>] <task-id> --patch-file task.patch
 Expected outcome:
 - a checkpoint commit is created,
 - scope is explicit and auditable.
+- commit type is explicit and agent-reviewable in history.
 
 ## 6) Attach evidence when contracts call for specific checks
 
