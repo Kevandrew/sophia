@@ -1,0 +1,119 @@
+schema_version: sophia.cr_archive.v1
+notice: Historical archive snapshot. Corrections are append-only revisions.
+archived_at: "2026-03-02T19:56:35Z"
+revision: 1
+cr:
+    id: 114
+    uid: cr_07ba6809-8cc9-4007-a7d8-e61dc24aef25
+    title: Add read-only CR show browser view
+    description: Provide a read-only command that renders the selected/current CR as a human-friendly single-file HTML page and opens it in a browser for demo/review workflows.
+    status: merged
+    base_branch: main
+    base_ref: main
+    base_commit: 24b3f037f5e5c11cddd3b49226296f8a77d2ec71
+    branch: cr-add-read-only-cr-show-browser-view-07ba
+    merged_at: "2026-03-02T19:56:35Z"
+    merged_by: Kevandrew <143258544+Kevandrew@users.noreply.github.com>
+contract:
+    why: Reviewers and demo audiences need a human-friendly CR view they can open instantly from the CLI without parsing dense terminal output. Add a read-only `sophia cr show` command that resolves the selected/current CR, renders key CR context (intent, contract, tasks, validation, trust, evidence, and timeline), and opens a local browser tab for fast review.
+    scope:
+        - docs
+        - internal/cli
+    non_goals:
+        - No in-browser editing or write-back of CR metadata.
+        - No remote server dependency; output must stay local and read-only.
+    invariants:
+        - Command remains read-only and must not mutate CR/store state.
+        - Generated page is a single self-contained .html file (HTML+CSS+JS).
+    blast_radius: CLI navigation surface plus local viewer output for CR context rendering.
+    risk_tier_hint: medium
+    risk_rationale: Adds a new operator-facing command with browser-launch behavior across platforms.
+    test_plan: go test ./... && go vet ./...
+    rollback_plan: Revert the CR merge commit.
+tasks:
+    - id: 1
+      title: Add `sophia cr show [id|uid]` CLI command and selector resolution
+      status: done
+      contract:
+        intent: Expose a new `cr show` read-only command that accepts optional CR selector and defaults to current branch CR context.
+        acceptance_criteria:
+            - Command remains non-mutating and surfaces clear errors when no CR context exists.
+            - Command supports `sophia cr show [id|uid]` and uses active CR when selector is omitted.
+        scope:
+            - internal/cli
+            - internal/service
+      checkpoint:
+        commit: 0a7ade0a
+        at: "2026-03-02T19:35:51Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/cr.go
+            - internal/cli/cr_cmd_show.go
+            - internal/cli/cr_optional_selector_test.go
+            - internal/cli/cr_show_test.go
+            - internal/cli/templates/cr_show.html
+    - id: 2
+      title: Render a single self-contained HTML report from CR pack data
+      status: done
+      contract:
+        intent: Generate a single-file HTML report (inline CSS/JS) that presents CR intent, contract, tasks, evidence, trust, validation, and recent timeline.
+        acceptance_criteria:
+            - Produced artifact is one `.html` file with no external CSS/JS dependencies.
+            - Report content is driven by CR data and readable for demo/reviewer audiences.
+        scope:
+            - internal/cli
+      checkpoint:
+        commit: 99b3b387
+        at: "2026-03-02T19:45:10Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/templates/cr_show.html
+    - id: 3
+      title: Implement cross-platform browser open behavior with safe fallback output path
+      status: done
+      contract:
+        intent: Open generated report in default browser cross-platform, with robust fallback to printed file path when opening fails.
+        acceptance_criteria:
+            - Command prints deterministic local file path regardless of browser launch success.
+            - macOS/Linux/Windows open strategies are attempted according to host OS.
+        scope:
+            - internal/cli
+      checkpoint:
+        at: "2026-03-02T19:45:23Z"
+        source: task_no_checkpoint
+    - id: 4
+      title: Add tests for show command JSON/text behavior and HTML generation invariants
+      status: done
+      contract:
+        intent: Cover show command behavior with tests for selector handling, JSON output, and HTML invariants.
+        acceptance_criteria:
+            - Tests assert HTML remains single-file and includes core sections.
+            - Tests cover no-active-context and selector-based flows.
+        scope:
+            - internal/cli
+            - internal/service
+      checkpoint:
+        at: "2026-03-02T19:45:27Z"
+        source: task_no_checkpoint
+    - id: 5
+      title: Document reviewer usage for read-only browser show flow
+      status: done
+      contract:
+        intent: Document how reviewers use `sophia cr show` for read-only browser review.
+        acceptance_criteria:
+            - Docs include command examples and clarify that view is read-only.
+        scope:
+            - docs
+      checkpoint:
+        commit: 8670edd5
+        at: "2026-03-02T19:45:16Z"
+        source: task_checkpoint
+        scope:
+            - docs/cli-reference.md
+            - docs/reviewer-workflow.md
+git_summary:
+    base_parent: 24b3f037f5e5c11cddd3b49226296f8a77d2ec71
+    cr_parent: 8670edd5b71287964b2415a30dcea23ea11fb9aa
+    files_changed: []
+    diffstat:
+        summary: 0 files changed, 0 insertions(+), 0 deletions(-)
