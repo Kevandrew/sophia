@@ -46,27 +46,30 @@
       padding: 0 20px; display: flex; align-items: center; gap: 10px;
       height: var(--topbar-h); min-width: 0;
     }
-    .topbar-brand { display: inline-flex; align-items: center; gap: 8px; flex-shrink: 0; min-width: 0; }
-    .brand-mark {
-      width: 22px; height: 22px; border-radius: 6px;
-      display: inline-flex; align-items: center; justify-content: center;
-      background: linear-gradient(135deg, #111827 0%, #2563eb 100%);
-      color: #ffffff; font-family: var(--mono); font-size: 11px; font-weight: 700;
-      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.22);
-      flex-shrink: 0;
+    .topbar-brand { display: inline-flex; align-items: center; gap: 9px; flex-shrink: 0; min-width: 0; text-decoration: none; }
+    .brand-logo { width: 22px; height: 22px; display: block; flex-shrink: 0; }
+    .brand-text {
+      font-family: var(--mono);
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--ink);
+      white-space: nowrap;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      line-height: 1;
     }
-    .brand-text { font-family: var(--mono); font-size: 12px; font-weight: 600; color: var(--ink); white-space: nowrap; letter-spacing: 0.02em; }
     .topbar-nav { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; min-width: 0; }
     .nav-item {
       height: 26px; padding: 0 10px; border-radius: 6px;
-      border: 1px solid var(--border); background: var(--bg);
-      color: var(--ink-3); text-decoration: none;
+      border: 1px solid var(--border); background: var(--bg-subtle);
+      color: var(--ink-3); text-decoration: none; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.7);
       display: inline-flex; align-items: center;
-      font-size: 11px; font-weight: 600; letter-spacing: 0.02em;
+      font-size: 10.5px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
       white-space: nowrap; transition: background 0.1s, border-color 0.1s, color 0.1s;
     }
     .nav-item:hover { background: var(--bg-hover); border-color: var(--ink-4); color: var(--ink-2); }
     .nav-item.active { background: var(--blue-bg); border-color: var(--blue-border); color: var(--blue); }
+    .nav-item.disabled { opacity: 0.55; pointer-events: none; }
     .topbar-sep { width: 1px; height: 16px; background: var(--border-strong); flex-shrink: 0; }
     .topbar-filters { display: flex; gap: 5px; flex: 1; min-width: 0; overflow: hidden; }
     .topbar-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
@@ -310,13 +313,17 @@
 <body>
 
 <header class="topbar">
-  <div class="topbar-brand">
-    <span class="brand-mark">S</span>
-    <span class="brand-text">sophia</span>
-  </div>
+  <a class="topbar-brand" href="/" aria-label="Sophia dashboard">
+    <svg class="brand-logo" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" aria-hidden="true" focusable="false">
+      <rect width="100" height="100" rx="18" fill="#000000" />
+      <path d="M15 20h20l30 30-30 30H15l30-30-30-30Z" fill="#FFFFFF" />
+      <path d="M75 20h15v60H75z" fill="#FFFFFF" />
+    </svg>
+    <span class="brand-text">SOPHIA</span>
+  </a>
   <nav class="topbar-nav">
     <a class="nav-item active" href="/">Dashboard</a>
-    <a class="nav-item" href="/" id="nav-selected-link">CR —</a>
+    <a class="nav-item disabled" href="/" id="nav-selected-link">CR —</a>
   </nav>
   <div class="topbar-sep"></div>
   <div class="topbar-filters" id="topbar-filters"></div>
@@ -620,9 +627,11 @@
       if (cr && cr.id) {
         navSelected.textContent = "CR-" + text(cr.id, "—");
         navSelected.setAttribute("href", "/" + text(cr.id, ""));
+        navSelected.classList.remove("disabled");
       } else {
         navSelected.textContent = "CR —";
         navSelected.setAttribute("href", "/");
+        navSelected.classList.add("disabled");
       }
     }
     if (!cr || !cr.id) {
