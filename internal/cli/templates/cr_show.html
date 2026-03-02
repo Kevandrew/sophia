@@ -83,13 +83,70 @@
       height: 48px;
     }
 
-    .topbar-id {
+    .topbar-brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 9px;
+      flex-shrink: 0;
+      min-width: 0;
+      text-decoration: none;
+    }
+
+    .brand-logo {
+      width: 22px;
+      height: 22px;
+      display: block;
+      flex-shrink: 0;
+    }
+
+    .brand-text {
       font-family: var(--mono);
-      font-size: 11px;
-      font-weight: 500;
-      color: var(--ink-3);
-      letter-spacing: 0.04em;
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--ink);
       white-space: nowrap;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      line-height: 1;
+    }
+
+    .topbar-nav {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      flex-shrink: 0;
+      min-width: 0;
+    }
+
+    .nav-item {
+      height: 26px;
+      padding: 0 10px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: var(--bg-subtle);
+      color: var(--ink-3);
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      font-size: 10.5px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.7);
+      white-space: nowrap;
+      transition: background 0.1s, border-color 0.1s, color 0.1s;
+    }
+
+    .nav-item:hover {
+      background: var(--bg-hover);
+      border-color: var(--ink-4);
+      color: var(--ink-2);
+    }
+
+    .nav-item.active {
+      background: var(--blue-bg);
+      border-color: #bfdbfe;
+      color: var(--blue);
     }
 
     .topbar-sep {
@@ -192,6 +249,10 @@
       align-items: center;
       gap: 5px;
       transition: background 0.12s, border-color 0.12s;
+    }
+
+    .btn-close.link {
+      text-decoration: none;
     }
 
     .btn-close:hover {
@@ -787,6 +848,19 @@
     }
 
     @media (max-width: 860px) {
+      .topbar {
+        padding: 0 14px;
+        gap: 8px;
+      }
+
+      .topbar-title {
+        display: none;
+      }
+
+      .nav-item {
+        padding: 0 8px;
+      }
+
       .layout {
         grid-template-columns: 1fr;
       }
@@ -806,7 +880,18 @@
 
   <!-- TOP BAR -->
   <header class="topbar">
-    <span class="topbar-id mono" id="hero-id">CR-</span>
+    <a class="topbar-brand" href="/" aria-label="Sophia dashboard">
+      <svg class="brand-logo" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" aria-hidden="true" focusable="false">
+        <rect width="100" height="100" rx="18" fill="#000000" />
+        <path d="M15 20h20l30 30-30 30H15l30-30-30-30Z" fill="#FFFFFF" />
+        <path d="M75 20h15v60H75z" fill="#FFFFFF" />
+      </svg>
+      <span class="brand-text">SOPHIA</span>
+    </a>
+    <nav class="topbar-nav">
+      <a class="nav-item" href="/" id="all-crs-btn">Dashboard</a>
+      <span class="nav-item active mono" id="hero-id">CR-</span>
+    </nav>
     <div class="topbar-sep"></div>
     <span class="topbar-title" id="topbar-title">Loading...</span>
     <div class="topbar-actions">

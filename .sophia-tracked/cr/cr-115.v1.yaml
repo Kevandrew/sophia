@@ -1,0 +1,181 @@
+schema_version: sophia.cr_archive.v1
+notice: Historical archive snapshot. Corrections are append-only revisions.
+archived_at: "2026-03-02T21:06:58Z"
+revision: 1
+cr:
+    id: 115
+    uid: cr_cb79c7b6-3785-49da-a28c-d21de34fda61
+    title: Add dashboard mode to sophia cr show for CR list and global history
+    description: Add a read-only localhost dashboard fallback for sophia cr show that lists CRs and displays global CR timeline/history while preserving per-CR show behavior when ID or active CR context is present.
+    status: merged
+    base_branch: main
+    base_ref: main
+    base_commit: e07f5e08b511f19aaf667d9a2b8318d019c0dd02
+    branch: cr-add-dashboard-mode-to-sophia-cr-show-for-cr-list-cb79
+    merged_at: "2026-03-02T21:06:58Z"
+    merged_by: Kevandrew <143258544+Kevandrew@users.noreply.github.com>
+contract:
+    why: Enable sophia cr show to render a human-friendly dashboard when no active CR context is available, so reviewers can inspect all CRs and global change history in one read-only localhost view. Preserve existing per-CR report behavior for explicit IDs and active CR branches while sharing the same visual design language used by the current CR show page.
+    scope:
+        - internal/cli/cr_cmd_show.go
+        - internal/cli/cr_optional_selector_test.go
+        - internal/cli/cr_show_test.go
+        - internal/cli/templates/cr_list.html
+        - internal/cli/templates/cr_show.html
+    non_goals:
+        - No behavior changes to sophia cr history command semantics.
+        - No in-browser editing of CR metadata, tasks, or contract fields.
+        - No mutating actions from the dashboard UI.
+    invariants:
+        - Dashboard template remains single-file HTML with inline CSS and JS.
+        - Preview remains localhost-only, read-only, and closable via the UI close endpoint.
+        - sophia cr show <id> keeps existing per-CR report behavior and JSON surface.
+    blast_radius: Touches CR show command routing, localhost preview payload/schema for dashboard mode, new dashboard template rendering, and CLI tests around show fallback/flags/template invariants.
+    risk_critical_scopes:
+        - internal/cli/cr_cmd_show.go
+    risk_tier_hint: medium
+    risk_rationale: Routing and payload changes affect operator UX and automation consumers of cr show JSON mode.
+    test_plan: go test ./internal/cli -run TestCRShow && go test ./...
+    rollback_plan: Revert the merge commit for CR 115 to restore previous cr show behavior.
+tasks:
+    - id: 1
+      title: Add show-mode resolver (explicit ID, forced dashboard, active-context fallback)
+      status: done
+      contract:
+        intent: Resolve sophia cr show mode deterministically across explicit ID, forced dashboard, active context, and no-context fallback.
+        acceptance_criteria:
+            - When id is provided, show always renders per-CR report mode.
+            - When no id is provided and no active CR context exists, show routes to dashboard mode instead of failing.
+        scope:
+            - internal/cli/cr_cmd_show.go
+      checkpoint:
+        commit: 3d22157e
+        at: "2026-03-02T20:28:44Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/cr_cmd_show.go
+    - id: 2
+      title: Build dashboard snapshot payload (CR list + selected CR + global timeline)
+      status: done
+      contract:
+        intent: Assemble dashboard payload containing filtered CR list, selected CR summary, and global event timeline.
+        acceptance_criteria:
+            - Payload includes dashboard metadata, crs entries, selected_cr, and timeline sorted newest-first.
+            - Timeline entries include CR identity fields for cross-CR history rendering.
+        scope:
+            - internal/cli/cr_cmd_show.go
+      checkpoint:
+        at: "2026-03-02T20:13:28Z"
+        source: task_no_checkpoint
+    - id: 3
+      title: Create cr_list.html using cr_show design language
+      status: done
+      contract:
+        intent: Create a dedicated dashboard template that matches the existing CR show design language.
+        acceptance_criteria:
+            - Template uses same token palette, typography, section chrome, tags, and preview close behavior.
+            - Timeline section is collapsible and collapsed by default.
+        scope:
+            - internal/cli/templates/cr_list.html
+            - internal/cli/templates/cr_show.html
+      checkpoint:
+        commit: 4218d0cc
+        at: "2026-03-02T21:02:11Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/templates/cr_list.html
+            - internal/cli/templates/cr_show.html
+    - id: 4
+      title: Wire dashboard template embed and HTML document builder
+      status: done
+      contract:
+        intent: Wire dashboard template embedding and document rendering into the localhost preview server path.
+        acceptance_criteria:
+            - Per-request render remains fresh and close endpoint behavior is preserved.
+            - cr show dashboard mode renders embedded cr_list.html with injected payload JSON and generated timestamp.
+        scope:
+            - internal/cli/cr_cmd_show.go
+      checkpoint:
+        at: "2026-03-02T20:28:44Z"
+        source: task_no_checkpoint
+    - id: 5
+      title: Add dashboard flags and normalize filter validation
+      status: done
+      contract:
+        intent: Expose dashboard-specific filter and limit flags and normalize search/text compatibility.
+        acceptance_criteria:
+            - Dashboard flags status/risk-tier/scope/search/text/list-limit/timeline-limit are parsed and validated.
+            - Invalid filter combinations return deterministic command errors.
+        scope:
+            - internal/cli/cr_cmd_show.go
+      checkpoint:
+        at: "2026-03-02T20:13:29Z"
+        source: task_no_checkpoint
+    - id: 6
+      title: Extend cr show JSON envelope for dashboard mode
+      status: done
+      contract:
+        intent: Extend cr show JSON output for dashboard mode while keeping per-CR JSON schema stable.
+        acceptance_criteria:
+            - Dashboard JSON includes view_mode localhost_dashboard, cr_list template source, selected_cr_id, filters, and counts.
+            - Existing per-CR JSON keys and values remain unchanged for per-CR mode.
+        scope:
+            - internal/cli/cr_cmd_show.go
+            - internal/cli/cr_json_mappers.go
+      checkpoint:
+        at: "2026-03-02T20:13:29Z"
+        source: task_no_checkpoint
+    - id: 7
+      title: Add tests for fallback routing and forced dashboard behavior
+      status: done
+      contract:
+        intent: Add CLI tests for fallback routing and forced dashboard behavior without regressions to per-CR show.
+        acceptance_criteria:
+            - Forced dashboard mode and explicit-id per-CR mode are both covered by tests.
+            - No-context cr show --json --no-open succeeds in dashboard mode.
+        scope:
+            - internal/cli/cr_optional_selector_test.go
+            - internal/cli/cr_show_test.go
+      checkpoint:
+        commit: 10560a61
+        at: "2026-03-02T20:28:45Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/cr_show_test.go
+    - id: 8
+      title: Add template contract tests for single-file inline assets
+      status: done
+      contract:
+        intent: Add template contract tests for dashboard template inline asset and close-preview guarantees.
+        acceptance_criteria:
+            - Generated dashboard HTML includes inline style/script payload and close preview button.
+            - Template contains no remote script dependency.
+        scope:
+            - internal/cli/cr_show_test.go
+            - internal/cli/templates/cr_list.html
+      checkpoint:
+        at: "2026-03-02T20:28:45Z"
+        source: task_no_checkpoint
+    - id: 9
+      title: Run test suite and finalize CR proof
+      status: done
+      contract:
+        intent: Validate implementation with targeted and full test runs and ensure CR is merge-ready.
+        acceptance_criteria:
+            - go test ./... passes and required trust checks can be satisfied.
+            - go test ./internal/cli -run TestCRShow passes.
+        scope:
+            - internal/cli
+            - internal/service
+        acceptance_checks:
+            - go_vet
+            - unit_tests
+      checkpoint:
+        at: "2026-03-02T20:13:29Z"
+        source: task_no_checkpoint
+git_summary:
+    base_parent: e07f5e08b511f19aaf667d9a2b8318d019c0dd02
+    cr_parent: 4218d0cc8fc4cf01745418efdf2719f227594ac7
+    files_changed: []
+    diffstat:
+        summary: 0 files changed, 0 insertions(+), 0 deletions(-)
