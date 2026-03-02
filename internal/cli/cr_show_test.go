@@ -51,6 +51,60 @@ func TestCRShowJSONUsesLocalhostPreview(t *testing.T) {
 	}
 }
 
+func TestCRShowJSONWithoutContextFallsBackToDashboard(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	svc := service.New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	if _, _, err := svc.AddCRWithOptionsWithWarnings("Dashboard report", "dashboard fallback fixture", service.AddCROptions{NoSwitch: true}); err != nil {
+		t.Fatalf("AddCRWithOptionsWithWarnings() error = %v", err)
+	}
+
+	out, _, runErr := runCLI(t, dir, "cr", "show", "--json", "--no-open")
+	if runErr != nil {
+		t.Fatalf("cr show --json --no-open error = %v\noutput=%s", runErr, out)
+	}
+	env := decodeEnvelope(t, out)
+	if !env.OK {
+		t.Fatalf("expected ok envelope, got %#v", env)
+	}
+	if got, _ := env.Data["view_mode"].(string); got != "localhost_dashboard" {
+		t.Fatalf("expected localhost_dashboard view_mode, got %#v", env.Data["view_mode"])
+	}
+	if got, _ := env.Data["template_source"].(string); got != "embedded:internal/cli/templates/cr_list.html" {
+		t.Fatalf("expected cr_list template source, got %#v", env.Data["template_source"])
+	}
+	if _, exists := env.Data["selected_cr_id"]; !exists {
+		t.Fatalf("expected selected_cr_id in dashboard envelope, got %#v", env.Data)
+	}
+}
+
+func TestCRShowJSONDashboardFlagForcesDashboardMode(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	svc := service.New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	if _, _, err := svc.AddCRWithOptionsWithWarnings("Dashboard report", "dashboard forced fixture", service.AddCROptions{Switch: true}); err != nil {
+		t.Fatalf("AddCRWithOptionsWithWarnings() error = %v", err)
+	}
+
+	out, _, runErr := runCLI(t, dir, "cr", "show", "--dashboard", "--json", "--no-open")
+	if runErr != nil {
+		t.Fatalf("cr show --dashboard --json --no-open error = %v\noutput=%s", runErr, out)
+	}
+	env := decodeEnvelope(t, out)
+	if !env.OK {
+		t.Fatalf("expected ok envelope, got %#v", env)
+	}
+	if got, _ := env.Data["view_mode"].(string); got != "localhost_dashboard" {
+		t.Fatalf("expected localhost_dashboard view_mode, got %#v", env.Data["view_mode"])
+	}
+}
+
 func TestCRShowTemplateIsSingleFileWithInlineAssets(t *testing.T) {
 	t.Parallel()
 	doc, err := buildCRShowHTMLDocument(embeddedCRShowHTMLTemplate, map[string]any{
@@ -67,6 +121,43 @@ func TestCRShowTemplateIsSingleFileWithInlineAssets(t *testing.T) {
 	for _, required := range []string{
 		"<style>",
 		"<script id=\"cr-show-data\" type=\"application/json\">",
+		"Raw JSON Payload",
+		"read-only local report",
+		"id=\"close-preview-btn\"",
+	} {
+		if !strings.Contains(doc, required) {
+			t.Fatalf("expected generated html to contain %q", required)
+		}
+	}
+	for _, forbidden := range []string{
+		"<script src=\"http://",
+		"<script src=\"https://",
+	} {
+		if strings.Contains(doc, forbidden) {
+			t.Fatalf("expected no remote script dependency in template; found %q", forbidden)
+		}
+	}
+}
+
+func TestCRListTemplateIsSingleFileWithInlineAssets(t *testing.T) {
+	t.Parallel()
+	doc, err := buildCRListHTMLDocument(embeddedCRListHTMLTemplate, map[string]any{
+		"generated_at": "2026-03-03T00:00:00Z",
+		"dashboard": map[string]any{
+			"selected_cr_id": 101,
+		},
+		"selected_cr": map[string]any{
+			"id":    101,
+			"title": "Dashboard template test",
+		},
+	})
+	if err != nil {
+		t.Fatalf("buildCRListHTMLDocument() error = %v", err)
+	}
+
+	for _, required := range []string{
+		"<style>",
+		"<script id=\"cr-list-data\" type=\"application/json\">",
 		"Raw JSON Payload",
 		"read-only local report",
 		"id=\"close-preview-btn\"",

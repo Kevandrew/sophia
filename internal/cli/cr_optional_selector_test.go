@@ -158,7 +158,6 @@ func TestCoreReadOnlyCommandsWithoutSelectorReturnNoActiveCRContext(t *testing.T
 		{name: "validate", args: []string{"cr", "validate", "--json"}},
 		{name: "review", args: []string{"cr", "review", "--json"}},
 		{name: "doctor", args: []string{"cr", "doctor", "--json"}},
-		{name: "show", args: []string{"cr", "show", "--json", "--no-open"}},
 		{name: "check status", args: []string{"cr", "check", "status", "--json"}},
 	}
 
