@@ -84,6 +84,20 @@ func TestCoreReadOnlyCommandsResolveActiveCRWhenSelectorOmitted(t *testing.T) {
 			},
 		},
 		{
+			name: "show",
+			args: []string{"cr", "show", "--json", "--no-open"},
+			assert: func(t *testing.T, env envelope, wantID int) {
+				t.Helper()
+				got := int(jsonNumberField(t, env.Data, "cr_id"))
+				if got != wantID {
+					t.Fatalf("expected cr_id %d, got %d", wantID, got)
+				}
+				if opened, ok := env.Data["opened"].(bool); !ok || opened {
+					t.Fatalf("expected opened=false with --no-open, got %#v", env.Data["opened"])
+				}
+			},
+		},
+		{
 			name: "doctor",
 			args: []string{"cr", "doctor", "--json"},
 			assert: func(t *testing.T, env envelope, wantID int) {
@@ -144,6 +158,7 @@ func TestCoreReadOnlyCommandsWithoutSelectorReturnNoActiveCRContext(t *testing.T
 		{name: "validate", args: []string{"cr", "validate", "--json"}},
 		{name: "review", args: []string{"cr", "review", "--json"}},
 		{name: "doctor", args: []string{"cr", "doctor", "--json"}},
+		{name: "show", args: []string{"cr", "show", "--json", "--no-open"}},
 		{name: "check status", args: []string{"cr", "check", "status", "--json"}},
 	}
 

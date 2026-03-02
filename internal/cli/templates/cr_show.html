@@ -1,0 +1,1356 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>__TITLE__</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,400&family=JetBrains+Mono:wght@400;500&display=swap"
+    rel="stylesheet">
+  <style>
+    :root {
+      --bg: #ffffff;
+      --bg-subtle: #f8f9fa;
+      --bg-hover: #f3f4f6;
+      --ink: #0a0a0a;
+      --ink-2: #374151;
+      --ink-3: #6b7280;
+      --ink-4: #9ca3af;
+      --border: #e5e7eb;
+      --border-strong: #d1d5db;
+
+      --pass-bg: #f0fdf4;
+      --pass-border: #bbf7d0;
+      --pass-ink: #15803d;
+      --pass-dot: #22c55e;
+
+      --warn-bg: #fffbeb;
+      --warn-border: #fde68a;
+      --warn-ink: #92400e;
+      --warn-dot: #f59e0b;
+
+      --fail-bg: #fff1f2;
+      --fail-border: #fecdd3;
+      --fail-ink: #be123c;
+      --fail-dot: #f43f5e;
+
+      --neutral-bg: #f3f4f6;
+      --neutral-ink: #374151;
+
+      --blue: #2563eb;
+      --blue-bg: #eff6ff;
+
+      --font: "DM Sans", system-ui, sans-serif;
+      --mono: "JetBrains Mono", ui-monospace, monospace;
+    }
+
+    *,
+    *::before,
+    *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html {
+      font-size: 14px;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--ink);
+      font-family: var(--font);
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ── TOP BAR ─────────────────────────────────── */
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: rgba(255, 255, 255, 0.92);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+      padding: 0 28px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      height: 48px;
+    }
+
+    .topbar-id {
+      font-family: var(--mono);
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--ink-3);
+      letter-spacing: 0.04em;
+      white-space: nowrap;
+    }
+
+    .topbar-sep {
+      width: 1px;
+      height: 16px;
+      background: var(--border-strong);
+      flex-shrink: 0;
+    }
+
+    .topbar-title {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--ink);
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .topbar-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      border-radius: 5px;
+      padding: 2px 8px;
+      font-size: 11px;
+      font-weight: 500;
+      border: 1px solid transparent;
+      letter-spacing: 0.01em;
+      white-space: nowrap;
+    }
+
+    .tag .dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .tag.pass {
+      background: var(--pass-bg);
+      border-color: var(--pass-border);
+      color: var(--pass-ink);
+    }
+
+    .tag.pass .dot {
+      background: var(--pass-dot);
+    }
+
+    .tag.warn {
+      background: var(--warn-bg);
+      border-color: var(--warn-border);
+      color: var(--warn-ink);
+    }
+
+    .tag.warn .dot {
+      background: var(--warn-dot);
+    }
+
+    .tag.fail {
+      background: var(--fail-bg);
+      border-color: var(--fail-border);
+      color: var(--fail-ink);
+    }
+
+    .tag.fail .dot {
+      background: var(--fail-dot);
+    }
+
+    .tag.neutral {
+      background: var(--neutral-bg);
+      color: var(--neutral-ink);
+    }
+
+    .tag.blue {
+      background: var(--blue-bg);
+      border-color: #bfdbfe;
+      color: var(--blue);
+    }
+
+    .btn-close {
+      height: 28px;
+      padding: 0 12px;
+      border-radius: 6px;
+      border: 1px solid var(--border-strong);
+      background: var(--bg);
+      color: var(--ink-2);
+      font-family: var(--font);
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      transition: background 0.12s, border-color 0.12s;
+    }
+
+    .btn-close:hover {
+      background: var(--bg-hover);
+      border-color: var(--ink-4);
+    }
+
+    .btn-close:disabled {
+      opacity: .5;
+      cursor: wait;
+    }
+
+    /* ── LAYOUT ──────────────────────────────────── */
+    .layout {
+      display: grid;
+      grid-template-columns: 1fr 280px;
+      grid-template-rows: auto 1fr;
+      min-height: calc(100vh - 48px);
+    }
+
+    /* ── HERO ────────────────────────────────────── */
+    .hero {
+      grid-column: 1 / -1;
+      padding: 32px 28px 24px;
+      border-bottom: 1px solid var(--border);
+      display: grid;
+      gap: 10px;
+    }
+
+    .hero-meta {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .hero-title {
+      font-size: 22px;
+      font-weight: 600;
+      color: var(--ink);
+      line-height: 1.25;
+      letter-spacing: -0.02em;
+    }
+
+    .hero-intent {
+      font-size: 14px;
+      color: var(--ink-3);
+      max-width: 720px;
+      line-height: 1.6;
+    }
+
+    /* ── MAIN CONTENT ────────────────────────────── */
+    .main {
+      padding: 0;
+      border-right: 1px solid var(--border);
+      min-width: 0;
+    }
+
+    /* ── SIDEBAR ─────────────────────────────────── */
+    .sidebar {
+      padding: 0;
+    }
+
+    /* ── SECTION ─────────────────────────────────── */
+    .section {
+      border-bottom: 1px solid var(--border);
+    }
+
+    .section-header {
+      padding: 14px 28px 0;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+
+    .sidebar .section-header {
+      padding: 14px 20px 0;
+    }
+
+    .section-label {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--ink-4);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .section-body {
+      padding: 0 28px 20px;
+    }
+
+    .sidebar .section-body {
+      padding: 0 20px 20px;
+    }
+
+    /* ── FIELD ROWS ──────────────────────────────── */
+    .field-grid {
+      display: grid;
+      gap: 0;
+    }
+
+    .field-row {
+      display: grid;
+      grid-template-columns: 120px 1fr;
+      gap: 12px;
+      align-items: baseline;
+      padding: 8px 0;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .field-row:last-child {
+      border-bottom: none;
+    }
+
+    .field-key {
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--ink-3);
+      white-space: nowrap;
+    }
+
+    .field-val {
+      font-size: 13px;
+      color: var(--ink-2);
+      line-height: 1.55;
+    }
+
+    .field-mono {
+      font-family: var(--mono);
+      font-size: 11.5px;
+      color: var(--ink-2);
+      background: var(--bg-subtle);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 2px 6px;
+      display: inline-block;
+    }
+
+    /* ── LISTS ───────────────────────────────────── */
+    .item-list {
+      list-style: none;
+      display: grid;
+      gap: 4px;
+    }
+
+    .item-list li {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      font-size: 13px;
+      color: var(--ink-2);
+      line-height: 1.5;
+    }
+
+    .item-list li::before {
+      content: "";
+      width: 4px;
+      height: 4px;
+      border-radius: 50%;
+      background: var(--ink-4);
+      flex-shrink: 0;
+      margin-top: 7px;
+    }
+
+    .item-list li.empty {
+      color: var(--ink-4);
+      font-style: italic;
+    }
+
+    .item-list li.empty::before {
+      display: none;
+    }
+
+    /* ── STAT PILLS (sidebar) ────────────────────── */
+    .stat-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 0;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .stat-row:last-child {
+      border-bottom: none;
+    }
+
+    .stat-row .label {
+      font-size: 12px;
+      color: var(--ink-3);
+      font-weight: 500;
+    }
+
+    .stat-row .value {
+      font-size: 12px;
+      color: var(--ink);
+      font-weight: 600;
+      font-family: var(--mono);
+    }
+
+    /* ── VERDICT BLOCK ───────────────────────────── */
+    .verdict-block {
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      padding: 14px 16px;
+      display: grid;
+      gap: 6px;
+      margin-bottom: 12px;
+    }
+
+    .verdict-block.pass {
+      background: var(--pass-bg);
+      border-color: var(--pass-border);
+    }
+
+    .verdict-block.fail {
+      background: var(--fail-bg);
+      border-color: var(--fail-border);
+    }
+
+    .verdict-block.warn {
+      background: var(--warn-bg);
+      border-color: var(--warn-border);
+    }
+
+    .verdict-label {
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      opacity: 0.7;
+    }
+
+    .verdict-value {
+      font-size: 16px;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+    }
+
+    .verdict-block.pass .verdict-label,
+    .verdict-block.pass .verdict-value {
+      color: var(--pass-ink);
+    }
+
+    .verdict-block.fail .verdict-label,
+    .verdict-block.fail .verdict-value {
+      color: var(--fail-ink);
+    }
+
+    .verdict-block.warn .verdict-label,
+    .verdict-block.warn .verdict-value {
+      color: var(--warn-ink);
+    }
+
+    /* ── TASK CARDS ──────────────────────────────── */
+    .task-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .task-card {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px 14px;
+      display: grid;
+      gap: 6px;
+      background: var(--bg);
+      transition: border-color 0.12s, box-shadow 0.12s;
+    }
+
+    .task-card:hover {
+      border-color: var(--border-strong);
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+    }
+
+    .task-top {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .task-id {
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--ink-4);
+      font-weight: 500;
+    }
+
+    .task-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--ink);
+      line-height: 1.35;
+    }
+
+    .task-intent {
+      font-size: 12px;
+      color: var(--ink-3);
+      line-height: 1.5;
+    }
+
+    .task-scope {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      margin-top: 2px;
+    }
+
+    .scope-chip {
+      font-family: var(--mono);
+      font-size: 10px;
+      background: var(--bg-subtle);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 1px 6px;
+      color: var(--ink-3);
+    }
+
+    .task-subsection {
+      display: grid;
+      gap: 4px;
+      margin-top: 2px;
+    }
+
+    .task-subtitle {
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--ink-4);
+    }
+
+    .task-criteria {
+      list-style: none;
+      display: grid;
+      gap: 3px;
+    }
+
+    .task-criteria li {
+      font-size: 12px;
+      color: var(--ink-2);
+      display: flex;
+      align-items: baseline;
+      gap: 7px;
+      line-height: 1.45;
+    }
+
+    .task-criteria li::before {
+      content: "•";
+      color: var(--ink-4);
+      font-size: 12px;
+      flex-shrink: 0;
+    }
+
+    .task-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 2px;
+    }
+
+    .meta-chip {
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--ink-4);
+      background: var(--bg-subtle);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 1px 6px;
+    }
+
+    /* ── EVIDENCE / EVENTS ───────────────────────── */
+    .event-list {
+      display: grid;
+      gap: 0;
+    }
+
+    .event-item {
+      display: grid;
+      grid-template-columns: 14px 1fr;
+      gap: 10px;
+      padding: 10px 0;
+      border-bottom: 1px solid var(--border);
+      position: relative;
+    }
+
+    .event-item:last-child {
+      border-bottom: none;
+    }
+
+    .event-line {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding-top: 5px;
+    }
+
+    .event-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--border-strong);
+      border: 2px solid var(--bg);
+      flex-shrink: 0;
+      outline: 1px solid var(--border-strong);
+    }
+
+    .event-content {
+      display: grid;
+      gap: 2px;
+    }
+
+    .event-type {
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--ink-4);
+    }
+
+    .event-summary {
+      font-size: 12px;
+      color: var(--ink-2);
+      line-height: 1.5;
+    }
+
+    .event-meta {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 1px;
+    }
+
+    .event-meta-item {
+      font-size: 11px;
+      color: var(--ink-4);
+      font-family: var(--mono);
+    }
+
+    /* ── ACTIONS LIST ────────────────────────────── */
+    .action-list {
+      display: grid;
+      gap: 6px;
+    }
+
+    .action-item {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      font-size: 12px;
+      color: var(--ink-2);
+      padding: 6px 8px;
+      border-radius: 6px;
+      background: var(--bg-subtle);
+      border: 1px solid var(--border);
+      line-height: 1.45;
+    }
+
+    .action-item.required {
+      background: var(--fail-bg);
+      border-color: var(--fail-border);
+      color: var(--fail-ink);
+    }
+
+    .action-item.attention {
+      background: var(--warn-bg);
+      border-color: var(--warn-border);
+      color: var(--warn-ink);
+    }
+
+    .action-icon {
+      flex-shrink: 0;
+      font-size: 11px;
+    }
+
+    /* ── COLLAPSIBLE SECTION ─────────────────────── */
+    .section-collapsible>summary {
+      list-style: none;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .section-collapsible>summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .section-toggle-caret {
+      font-size: 11px;
+      color: var(--ink-4);
+      transition: transform 0.16s ease;
+      transform-origin: center;
+      margin-right: 2px;
+    }
+
+    .section-collapsible[open] .section-toggle-caret {
+      transform: rotate(90deg);
+    }
+
+    .section-toggle-hint {
+      margin-left: auto;
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--ink-4);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+
+    /* ── RAW JSON ────────────────────────────────── */
+    details.raw {
+      border-top: 1px solid var(--border);
+    }
+
+    details.raw summary {
+      padding: 12px 28px;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--ink-4);
+      cursor: pointer;
+      list-style: none;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--bg-subtle);
+      border-bottom: 1px solid var(--border);
+      user-select: none;
+    }
+
+    details.raw summary:hover {
+      background: var(--bg-hover);
+    }
+
+    details.raw summary::before {
+      content: "▶";
+      font-size: 9px;
+      transition: transform 0.15s;
+    }
+
+    details.raw[open] summary::before {
+      transform: rotate(90deg);
+    }
+
+    pre.raw-json {
+      margin: 0;
+      padding: 20px 28px;
+      overflow: auto;
+      font-family: var(--mono);
+      font-size: 11px;
+      line-height: 1.65;
+      background: #0d1117;
+      color: #c9d1d9;
+      tab-size: 2;
+    }
+
+    /* ── FOOTER ──────────────────────────────────── */
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 12px 28px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--bg-subtle);
+    }
+
+    footer .footer-text {
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--ink-4);
+    }
+
+    /* ── EMPTY ───────────────────────────────────── */
+    .empty-state {
+      font-size: 12px;
+      color: var(--ink-4);
+      font-style: italic;
+      padding: 4px 0;
+    }
+
+    /* ── SCROLLBAR ───────────────────────────────── */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: var(--border-strong);
+      border-radius: 3px;
+    }
+
+    @media (max-width: 860px) {
+      .layout {
+        grid-template-columns: 1fr;
+      }
+
+      .main {
+        border-right: none;
+      }
+
+      .sidebar {
+        border-top: 1px solid var(--border);
+      }
+    }
+  </style>
+</head>
+
+<body>
+
+  <!-- TOP BAR -->
+  <header class="topbar">
+    <span class="topbar-id mono" id="hero-id">CR-</span>
+    <div class="topbar-sep"></div>
+    <span class="topbar-title" id="topbar-title">Loading...</span>
+    <div class="topbar-actions">
+      <span class="tag neutral" id="hero-status">—</span>
+      <span class="tag" id="hero-risk">—</span>
+      <button type="button" class="btn-close" id="close-preview-btn">
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M1 1L9 9M9 1L1 9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+        </svg>
+        Close preview
+      </button>
+    </div>
+  </header>
+
+  <!-- HERO -->
+  <div class="layout">
+
+    <section class="hero">
+      <div class="hero-meta" id="hero-meta-tags"></div>
+      <h1 class="hero-title" id="hero-title">Loading CR...</h1>
+      <p class="hero-intent" id="hero-intent"></p>
+    </section>
+
+    <!-- MAIN -->
+    <main class="main">
+
+      <!-- INTENT -->
+      <div class="section">
+        <div class="section-header">
+          <span class="section-label">Intent</span>
+        </div>
+        <div class="section-body">
+          <div class="field-grid">
+            <div class="field-row">
+              <span class="field-key">Why</span>
+              <span class="field-val" id="intent-why">—</span>
+            </div>
+            <div class="field-row">
+              <span class="field-key">Branch</span>
+              <span class="field-val"><code class="field-mono" id="intent-branch">—</code></span>
+            </div>
+            <div class="field-row">
+              <span class="field-key">Base</span>
+              <span class="field-val"><code class="field-mono" id="intent-base">—</code></span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- CONTRACT -->
+      <div class="section">
+        <div class="section-header">
+          <span class="section-label">Contract</span>
+        </div>
+        <div class="section-body">
+          <div class="field-grid">
+            <div class="field-row">
+              <span class="field-key">Scope</span>
+              <span class="field-val">
+                <ul id="contract-scope" class="item-list"></ul>
+              </span>
+            </div>
+            <div class="field-row">
+              <span class="field-key">Non-Goals</span>
+              <span class="field-val">
+                <ul id="contract-non-goals" class="item-list"></ul>
+              </span>
+            </div>
+            <div class="field-row">
+              <span class="field-key">Invariants</span>
+              <span class="field-val">
+                <ul id="contract-invariants" class="item-list"></ul>
+              </span>
+            </div>
+            <div class="field-row">
+              <span class="field-key">Blast Radius</span>
+              <span class="field-val" id="contract-blast">—</span>
+            </div>
+            <div class="field-row">
+              <span class="field-key">Test Plan</span>
+              <span class="field-val" id="contract-test">—</span>
+            </div>
+            <div class="field-row">
+              <span class="field-key">Rollback</span>
+              <span class="field-val" id="contract-rollback">—</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- TASKS -->
+      <div class="section">
+        <div class="section-header">
+          <span class="section-label">Tasks</span>
+          <span class="tag neutral" id="task-count-tag">0 / 0</span>
+        </div>
+        <div class="section-body">
+          <div class="task-list" id="tasks-list">
+            <div class="empty-state">No tasks</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- EVIDENCE -->
+      <div class="section">
+        <div class="section-header">
+          <span class="section-label">Evidence</span>
+        </div>
+        <div class="section-body">
+          <div class="event-list" id="evidence-list">
+            <div class="empty-state">No evidence</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- TIMELINE -->
+      <details class="section section-collapsible" id="timeline-section">
+        <summary class="section-header">
+          <span class="section-toggle-caret">▶</span>
+          <span class="section-label">Timeline</span>
+          <span class="tag neutral" id="timeline-count-tag">0</span>
+          <span class="section-toggle-hint">Expand</span>
+        </summary>
+        <div class="section-body">
+          <div class="event-list" id="events-list">
+            <div class="empty-state">No events</div>
+          </div>
+        </div>
+      </details>
+
+    </main>
+
+    <!-- SIDEBAR -->
+    <aside class="sidebar">
+
+      <!-- TRUST VERDICT -->
+      <div class="section">
+        <div class="section-header">
+          <span class="section-label">Trust</span>
+        </div>
+        <div class="section-body">
+          <div class="verdict-block" id="trust-verdict-block">
+            <span class="verdict-label">Verdict</span>
+            <span class="verdict-value" id="stat-trust">—</span>
+          </div>
+          <div class="action-list" id="trust-required-actions"></div>
+        </div>
+      </div>
+
+      <!-- VALIDATION -->
+      <div class="section">
+        <div class="section-header">
+          <span class="section-label">Validation</span>
+        </div>
+        <div class="section-body">
+          <div class="verdict-block" id="validation-verdict-block">
+            <span class="verdict-label">Status</span>
+            <span class="verdict-value" id="stat-validation">—</span>
+          </div>
+          <div class="action-list" id="trust-attention-actions"></div>
+        </div>
+      </div>
+
+      <!-- ADVISORIES -->
+      <div class="section">
+        <div class="section-header">
+          <span class="section-label">Advisories</span>
+        </div>
+        <div class="section-body">
+          <div class="action-list" id="trust-advisories"></div>
+        </div>
+      </div>
+
+      <!-- STATS -->
+      <div class="section">
+        <div class="section-header">
+          <span class="section-label">Details</span>
+        </div>
+        <div class="section-body">
+          <div class="field-grid">
+            <div class="stat-row">
+              <span class="label">Files Changed</span>
+              <span class="value" id="stat-files">0</span>
+            </div>
+            <div class="stat-row">
+              <span class="label">Generated</span>
+              <span class="value mono" id="stat-generated">__GENERATED_AT__</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </aside>
+
+  </div>
+
+  <!-- RAW JSON -->
+  <details class="raw">
+    <summary>Raw JSON Payload</summary>
+    <pre class="raw-json" id="raw-json"></pre>
+  </details>
+
+  <footer>
+    <span class="footer-text">Generated by <strong>sophia cr show</strong> · read-only local report</span>
+  </footer>
+
+  <script id="cr-show-data" type="application/json">__PAYLOAD_JSON__</script>
+  <script>
+    (function () {
+      function asArray(v) { return Array.isArray(v) ? v : []; }
+      function asObject(v) { return v && typeof v === "object" && !Array.isArray(v) ? v : {}; }
+      function text(v, fallback) {
+        if (v === null || v === undefined || v === "") return fallback || "—";
+        return String(v);
+      }
+      function esc(v) {
+        return text(v, "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      }
+      function setText(id, v, fallback) {
+        var n = document.getElementById(id);
+        if (n) n.textContent = text(v, fallback || "—");
+      }
+      function parseTime(v) {
+        if (v === null || v === undefined || v === "") return null;
+        var d = new Date(String(v));
+        if (isNaN(d.getTime())) return null;
+        return d;
+      }
+      function formatAbsoluteLocal(v) {
+        var d = parseTime(v);
+        if (!d) return text(v, "—");
+        return d.toLocaleString();
+      }
+      function formatRelativeLocal(v) {
+        var d = parseTime(v);
+        if (!d) return text(v, "—");
+        var diffSeconds = Math.round((d.getTime() - Date.now()) / 1000);
+        var abs = Math.abs(diffSeconds);
+        var unit = "second";
+        var value = diffSeconds;
+        if (abs >= 60) {
+          var diffMinutes = Math.round(diffSeconds / 60);
+          unit = "minute";
+          value = diffMinutes;
+          if (Math.abs(diffMinutes) >= 60) {
+            var diffHours = Math.round(diffMinutes / 60);
+            unit = "hour";
+            value = diffHours;
+            if (Math.abs(diffHours) >= 24) {
+              var diffDays = Math.round(diffHours / 24);
+              unit = "day";
+              value = diffDays;
+              if (Math.abs(diffDays) >= 7) {
+                var diffWeeks = Math.round(diffDays / 7);
+                unit = "week";
+                value = diffWeeks;
+              }
+            }
+          }
+        }
+        if (typeof Intl !== "undefined" && Intl.RelativeTimeFormat) {
+          var rtf = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
+          return rtf.format(value, unit);
+        }
+        if (value === 0) return "just now";
+        var direction = value < 0 ? "ago" : "from now";
+        var count = Math.abs(value);
+        return String(count) + " " + unit + (count === 1 ? "" : "s") + " " + direction;
+      }
+
+      function renderList(id, values) {
+        var n = document.getElementById(id);
+        if (!n) return;
+        var list = asArray(values);
+        if (!list.length) {
+          n.innerHTML = "<li class='empty'>None</li>";
+          return;
+        }
+        n.innerHTML = list.map(function (i) { return "<li>" + esc(i) + "</li>"; }).join("");
+      }
+
+      function verdictClass(v) {
+        v = String(v || "").toLowerCase();
+        if (v === "trusted" || v === "pass" || v === "valid" || v === "true") return "pass";
+        if (v === "needs_attention" || v === "warn") return "warn";
+        if (v === "untrusted" || v === "fail" || v === "false" || v === "failing") return "fail";
+        return "neutral";
+      }
+
+      function tagHTML(text, cls) {
+        return '<span class="tag ' + (cls || "neutral") + '">' + esc(text) + '</span>';
+      }
+
+      function closePreview() {
+        var btn = document.getElementById("close-preview-btn");
+        if (btn) { btn.disabled = true; btn.textContent = "Closing…"; }
+        fetch("/__sophia_close", { method: "POST" }).finally(function () {
+          setTimeout(function () { window.close(); }, 160);
+        });
+      }
+
+      // Parse payload
+      var source = document.getElementById("cr-show-data");
+      var payload = {};
+      try { payload = JSON.parse(source ? source.textContent : "{}"); } catch (e) { }
+
+      document.getElementById("close-preview-btn").addEventListener("click", closePreview);
+
+      var cr = asObject(payload.cr);
+      var contract = asObject(payload.contract);
+      var status = asObject(payload.status);
+      var validation = asObject(payload.validation);
+      var trust = asObject(payload.trust);
+      var tasks = asArray(payload.tasks);
+
+      // Title
+      document.title = text(cr.title, "CR Report") + " · Sophia";
+
+      // Topbar
+      setText("hero-id", "CR-" + text(cr.id, "-"));
+      setText("topbar-title", cr.title, "Untitled CR");
+
+      var crStatus = text(cr.status, "unknown");
+      var statusEl = document.getElementById("hero-status");
+      if (statusEl) { statusEl.textContent = crStatus; statusEl.className = "tag " + verdictClass(crStatus); }
+
+      var riskTier = text(asObject(asObject(status.validation).risk).tier, cr.risk || "-");
+      var riskEl = document.getElementById("hero-risk");
+      if (riskEl) {
+        riskEl.textContent = "risk · " + riskTier;
+        riskEl.className = "tag " + (riskTier === "high" ? "fail" : riskTier === "medium" ? "warn" : riskTier === "low" ? "pass" : "neutral");
+      }
+
+      // Hero
+      setText("hero-title", cr.title, "Untitled CR");
+      setText("hero-intent", cr.description, "No description provided.");
+
+      // Hero meta tags
+      var heroMeta = document.getElementById("hero-meta-tags");
+      if (heroMeta) {
+        var tags = [];
+        if (cr.author) tags.push(tagHTML(cr.author));
+        if (cr.created_at) tags.push(tagHTML(formatRelativeLocal(cr.created_at), "neutral"));
+        heroMeta.innerHTML = tags.join("");
+      }
+
+      // Intent
+      setText("intent-why", contract.why, cr.description);
+      setText("intent-branch", cr.branch, "—");
+      var base = text(cr.base_ref, text(cr.base_branch, "—"));
+      var commit = text(cr.base_commit, "");
+      document.getElementById("intent-base").textContent = base + (commit ? " @ " + commit.slice(0, 8) : "");
+
+      // Contract
+      renderList("contract-scope", contract.scope);
+      renderList("contract-non-goals", contract.non_goals);
+      renderList("contract-invariants", contract.invariants);
+      setText("contract-blast", contract.blast_radius);
+      setText("contract-test", contract.test_plan);
+      setText("contract-rollback", contract.rollback_plan);
+
+      // Tasks
+      var done = tasks.filter(function (t) { return text(t.status, "") === "done"; }).length;
+      var taskCountTag = document.getElementById("task-count-tag");
+      if (taskCountTag) taskCountTag.textContent = done + " / " + tasks.length + " done";
+
+      var tasksEl = document.getElementById("tasks-list");
+      if (tasksEl) {
+        if (!tasks.length) {
+          tasksEl.innerHTML = "<div class='empty-state'>No tasks defined</div>";
+        } else {
+          tasksEl.innerHTML = tasks.map(function (t) {
+            var tc = asObject(t.contract);
+            var isDone = text(t.status, "") === "done";
+            var acceptanceCriteria = asArray(tc.acceptance_criteria);
+            var acceptanceChecks = asArray(tc.acceptance_checks);
+            var contractDrifts = asArray(t.contract_drifts);
+            var scopeChips = asArray(tc.scope).slice(0, 6).map(function (s) {
+              return "<span class='scope-chip'>" + esc(s) + "</span>";
+            }).join("");
+            var criteriaList = acceptanceCriteria.length
+              ? "<ul class='task-criteria'>" + acceptanceCriteria.map(function (item) { return "<li>" + esc(item) + "</li>"; }).join("") + "</ul>"
+              : "<div class='empty-state'>No acceptance criteria set</div>";
+            var checksLine = acceptanceChecks.length
+              ? "<div class='task-meta'>" + acceptanceChecks.map(function (check) { return "<span class='meta-chip'>check:" + esc(check) + "</span>"; }).join("") + "</div>"
+              : "";
+            var taskMeta = [];
+            if (t.checkpoint_commit) taskMeta.push("<span class='meta-chip'>commit:" + esc(String(t.checkpoint_commit).slice(0, 8)) + "</span>");
+            if (t.checkpoint_at) taskMeta.push("<span class='meta-chip' title='" + esc(formatAbsoluteLocal(t.checkpoint_at)) + "'>checkpoint:" + esc(formatRelativeLocal(t.checkpoint_at)) + "</span>");
+            if (t.checkpoint_source) taskMeta.push("<span class='meta-chip'>source:" + esc(String(t.checkpoint_source)) + "</span>");
+            if (contractDrifts.length) taskMeta.push("<span class='meta-chip'>drifts:" + esc(String(contractDrifts.length)) + "</span>");
+            return [
+              "<article class='task-card'>",
+              "<div class='task-top'>",
+              "<span class='tag " + (isDone ? "pass" : "warn") + "'><span class='dot'></span>" + (isDone ? "Done" : "In Progress") + "</span>",
+              "<span class='task-id'>" + esc(t.id) + "</span>",
+              "</div>",
+              "<div class='task-title'>" + esc(t.title) + "</div>",
+              tc.intent ? "<div class='task-intent'>" + esc(tc.intent) + "</div>" : "",
+              scopeChips ? "<div class='task-scope'>" + scopeChips + "</div>" : "",
+              "<div class='task-subsection'><div class='task-subtitle'>Acceptance Criteria</div>" + criteriaList + "</div>",
+              checksLine,
+              taskMeta.length ? "<div class='task-meta'>" + taskMeta.join("") + "</div>" : "",
+              "</article>"
+            ].join("");
+          }).join("");
+        }
+      }
+
+      // Trust
+      var verdict = text(trust.verdict, "unknown");
+      var verdictCls = verdictClass(verdict);
+      var trustBlock = document.getElementById("trust-verdict-block");
+      if (trustBlock) trustBlock.className = "verdict-block " + verdictCls;
+      setText("stat-trust", verdict.replace(/_/g, " "));
+
+      var requiredActions = asArray(trust.required_actions);
+      var requiredEl = document.getElementById("trust-required-actions");
+      if (requiredEl) {
+        if (!requiredActions.length) {
+          requiredEl.innerHTML = "";
+        } else {
+          requiredEl.innerHTML = requiredActions.map(function (a) {
+            return "<div class='action-item required'><span class='action-icon'>⚠</span>" + esc(a) + "</div>";
+          }).join("");
+        }
+      }
+
+      // Validation
+      var validationOk = Boolean(validation.valid);
+      var errCount = asArray(validation.errors).length;
+      var warnCount = asArray(validation.warnings).length;
+      var valStatus = validationOk ? "Passing" : "Failing";
+      var valCls = validationOk ? "pass" : (errCount > 0 ? "fail" : "warn");
+      var valBlock = document.getElementById("validation-verdict-block");
+      if (valBlock) valBlock.className = "verdict-block " + valCls;
+      var valEl = document.getElementById("stat-validation");
+      if (valEl) {
+        var errWord = errCount === 1 ? "error" : "errors";
+        var warnWord = warnCount === 1 ? "warning" : "warnings";
+        valEl.textContent = valStatus + " (" + errCount + " " + errWord + ", " + warnCount + " " + warnWord + ")";
+      }
+
+      var attentionActions = asArray(trust.attention_actions);
+      var attentionEl = document.getElementById("trust-attention-actions");
+      if (attentionEl) {
+        if (!attentionActions.length) {
+          attentionEl.innerHTML = "";
+        } else {
+          attentionEl.innerHTML = attentionActions.map(function (a) {
+            return "<div class='action-item attention'><span class='action-icon'>◆</span>" + esc(a) + "</div>";
+          }).join("");
+        }
+      }
+
+      // Advisories
+      var advisories = asArray(trust.advisories);
+      var advisoriesEl = document.getElementById("trust-advisories");
+      if (advisoriesEl) {
+        if (!advisories.length) {
+          advisoriesEl.innerHTML = "<div class='empty-state'>No advisories</div>";
+        } else {
+          advisoriesEl.innerHTML = advisories.map(function (a) {
+            return "<div class='action-item'><span class='action-icon'>ℹ</span>" + esc(a) + "</div>";
+          }).join("");
+        }
+      }
+
+      // Stats
+      setText("stat-files", String(asArray(payload.files_changed).length));
+      var generatedEl = document.getElementById("stat-generated");
+      if (generatedEl) {
+        var generatedRaw = text(payload.generated_at, generatedEl.textContent);
+        generatedEl.textContent = formatRelativeLocal(generatedRaw);
+        generatedEl.title = formatAbsoluteLocal(generatedRaw);
+      }
+
+      // Evidence
+      var evidence = asArray(cr.evidence);
+      var evidenceEl = document.getElementById("evidence-list");
+      if (evidenceEl) {
+        if (!evidence.length) {
+          evidenceEl.innerHTML = "<div class='empty-state'>No evidence recorded</div>";
+        } else {
+          evidenceEl.innerHTML = evidence.map(function (e) {
+            return [
+              "<div class='event-item'>",
+              "<div class='event-line'><div class='event-dot'></div></div>",
+              "<div class='event-content'>",
+              "<span class='event-type'>" + esc(e.type || "evidence") + "</span>",
+              "<div class='event-summary'>" + esc(e.summary || "(no summary)") + "</div>",
+              "<div class='event-meta'>",
+              e.ts ? "<span class='event-meta-item' title='" + esc(formatAbsoluteLocal(e.ts)) + "'>" + esc(formatRelativeLocal(e.ts)) + "</span>" : "",
+              e.command ? "<span class='event-meta-item'>" + esc(e.command) + "</span>" : "",
+              "</div>",
+              "</div>",
+              "</div>"
+            ].join("");
+          }).join("");
+        }
+      }
+
+      // Timeline
+      var events = asArray(cr.events);
+      var eventsEl = document.getElementById("events-list");
+      var timelineCountTag = document.getElementById("timeline-count-tag");
+      if (timelineCountTag) timelineCountTag.textContent = String(events.length);
+      var timelineSection = document.getElementById("timeline-section");
+      var timelineHint = timelineSection ? timelineSection.querySelector(".section-toggle-hint") : null;
+      function syncTimelineHint() {
+        if (!timelineSection || !timelineHint) return;
+        timelineHint.textContent = timelineSection.open ? "Collapse" : "Expand";
+      }
+      if (timelineSection) {
+        syncTimelineHint();
+        timelineSection.addEventListener("toggle", syncTimelineHint);
+      }
+      if (eventsEl) {
+        if (!events.length) {
+          eventsEl.innerHTML = "<div class='empty-state'>No events recorded</div>";
+        } else {
+          eventsEl.innerHTML = events.slice().reverse().map(function (e) {
+            return [
+              "<div class='event-item'>",
+              "<div class='event-line'><div class='event-dot'></div></div>",
+              "<div class='event-content'>",
+              "<span class='event-type'>" + esc(e.type || "event") + "</span>",
+              "<div class='event-summary'>" + esc(e.summary || "(no summary)") + "</div>",
+              "<div class='event-meta'>",
+              e.ts ? "<span class='event-meta-item' title='" + esc(formatAbsoluteLocal(e.ts)) + "'>" + esc(formatRelativeLocal(e.ts)) + "</span>" : "",
+              e.actor ? "<span class='event-meta-item'>" + esc(e.actor) + "</span>" : "",
+              "</div>",
+              "</div>",
+              "</div>"
+            ].join("");
+          }).join("");
+        }
+      }
+
+      // Raw JSON
+      var rawEl = document.getElementById("raw-json");
+      if (rawEl) rawEl.textContent = JSON.stringify(payload, null, 2);
+    })();
+  </script>
+</body>
+
+</html>

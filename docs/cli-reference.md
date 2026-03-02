@@ -62,12 +62,25 @@ Navigation:
 
 ```bash
 sophia cr current
+sophia cr show [<cr-id>|<cr-uid>]
 sophia cr switch <cr-id>
 sophia cr list
 sophia cr search "<query>"
 sophia cr status [<cr-id>|<cr-uid>]
 sophia cr status [<cr-id>|<cr-uid>] --hq --json
 ```
+
+Read-only browser report:
+
+```bash
+sophia cr show [<cr-id>|<cr-uid>]
+sophia cr show [<cr-id>|<cr-uid>] --no-open
+sophia cr show [<cr-id>|<cr-uid>] --json
+```
+
+`sophia cr show` serves a local preview (`http://127.0.0.1:<port>`) from an HTML template and opens that URL in your default browser. The preview stays up until you click the page's `Close Preview` button or stop the command (`Ctrl+C`).
+
+Template source: `internal/cli/templates/cr_show.html` (edit this file directly when iterating before PR).
 
 Planning:
 
