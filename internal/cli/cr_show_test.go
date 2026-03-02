@@ -253,3 +253,57 @@ func TestCRShowServerRendersFreshDocumentPerRequest(t *testing.T) {
 		t.Fatalf("unexpected render bodies: bodyOne=%q bodyTwo=%q", bodyOne, bodyTwo)
 	}
 }
+
+func TestCRShowServerSupportsDashboardAndCRRoutes(t *testing.T) {
+	t.Parallel()
+	server, err := startCRShowServerWithRoutes(
+		func() (string, error) {
+			return "<!doctype html><html><body>dashboard</body></html>", nil
+		},
+		func(id int) (string, error) {
+			return fmt.Sprintf("<!doctype html><html><body>cr-%d</body></html>", id), nil
+		},
+	)
+	if err != nil {
+		t.Fatalf("startCRShowServerWithRoutes() error = %v", err)
+	}
+	defer server.Shutdown()
+
+	respDashboard, err := http.Get(server.URL + "/")
+	if err != nil {
+		t.Fatalf("GET / error = %v", err)
+	}
+	bodyDashboardRaw, _ := io.ReadAll(respDashboard.Body)
+	_ = respDashboard.Body.Close()
+	if respDashboard.StatusCode != http.StatusOK {
+		t.Fatalf("expected dashboard status 200, got %d", respDashboard.StatusCode)
+	}
+	bodyDashboard := string(bodyDashboardRaw)
+	if !strings.Contains(bodyDashboard, "dashboard") {
+		t.Fatalf("expected dashboard body, got %q", bodyDashboard)
+	}
+
+	respCR, err := http.Get(server.URL + "/42")
+	if err != nil {
+		t.Fatalf("GET /42 error = %v", err)
+	}
+	bodyCRRaw, _ := io.ReadAll(respCR.Body)
+	_ = respCR.Body.Close()
+	if respCR.StatusCode != http.StatusOK {
+		t.Fatalf("expected /42 status 200, got %d", respCR.StatusCode)
+	}
+	bodyCR := string(bodyCRRaw)
+	if !strings.Contains(bodyCR, "cr-42") {
+		t.Fatalf("expected cr route body, got %q", bodyCR)
+	}
+
+	respMissing, err := http.Get(server.URL + "/bad-route")
+	if err != nil {
+		t.Fatalf("GET /bad-route error = %v", err)
+	}
+	_, _ = io.ReadAll(respMissing.Body)
+	_ = respMissing.Body.Close()
+	if respMissing.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected /bad-route status 404, got %d", respMissing.StatusCode)
+	}
+}
