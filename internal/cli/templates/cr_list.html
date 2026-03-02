@@ -46,8 +46,27 @@
       padding: 0 20px; display: flex; align-items: center; gap: 10px;
       height: var(--topbar-h); min-width: 0;
     }
-    .topbar-wordmark { font-family: var(--mono); font-size: 12px; font-weight: 500; color: var(--ink); white-space: nowrap; flex-shrink: 0; }
-    .topbar-wordmark span { color: var(--ink-4); }
+    .topbar-brand { display: inline-flex; align-items: center; gap: 8px; flex-shrink: 0; min-width: 0; }
+    .brand-mark {
+      width: 22px; height: 22px; border-radius: 6px;
+      display: inline-flex; align-items: center; justify-content: center;
+      background: linear-gradient(135deg, #111827 0%, #2563eb 100%);
+      color: #ffffff; font-family: var(--mono); font-size: 11px; font-weight: 700;
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.22);
+      flex-shrink: 0;
+    }
+    .brand-text { font-family: var(--mono); font-size: 12px; font-weight: 600; color: var(--ink); white-space: nowrap; letter-spacing: 0.02em; }
+    .topbar-nav { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; min-width: 0; }
+    .nav-item {
+      height: 26px; padding: 0 10px; border-radius: 6px;
+      border: 1px solid var(--border); background: var(--bg);
+      color: var(--ink-3); text-decoration: none;
+      display: inline-flex; align-items: center;
+      font-size: 11px; font-weight: 600; letter-spacing: 0.02em;
+      white-space: nowrap; transition: background 0.1s, border-color 0.1s, color 0.1s;
+    }
+    .nav-item:hover { background: var(--bg-hover); border-color: var(--ink-4); color: var(--ink-2); }
+    .nav-item.active { background: var(--blue-bg); border-color: var(--blue-border); color: var(--blue); }
     .topbar-sep { width: 1px; height: 16px; background: var(--border-strong); flex-shrink: 0; }
     .topbar-filters { display: flex; gap: 5px; flex: 1; min-width: 0; overflow: hidden; }
     .topbar-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
@@ -279,6 +298,9 @@
     ::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 3px; }
 
     @media (max-width: 860px) {
+      .topbar { padding: 0 12px; gap: 8px; }
+      .topbar-filters { display: none; }
+      .nav-item { padding: 0 8px; }
       .layout { grid-template-columns: 1fr; }
       .main { border-right: none; }
       .sidebar { position: static; max-height: none; border-top: 1px solid var(--border); }
@@ -288,7 +310,14 @@
 <body>
 
 <header class="topbar">
-  <span class="topbar-wordmark">sophia <span>/ cr list</span></span>
+  <div class="topbar-brand">
+    <span class="brand-mark">S</span>
+    <span class="brand-text">sophia</span>
+  </div>
+  <nav class="topbar-nav">
+    <a class="nav-item active" href="/">Dashboard</a>
+    <a class="nav-item" href="/" id="nav-selected-link">CR —</a>
+  </nav>
   <div class="topbar-sep"></div>
   <div class="topbar-filters" id="topbar-filters"></div>
   <div class="topbar-actions">
@@ -586,6 +615,16 @@
   function renderDetail(cr) {
     var emptyEl = document.getElementById("sidebar-empty");
     var panelEl = document.getElementById("detail-panel");
+    var navSelected = document.getElementById("nav-selected-link");
+    if (navSelected) {
+      if (cr && cr.id) {
+        navSelected.textContent = "CR-" + text(cr.id, "—");
+        navSelected.setAttribute("href", "/" + text(cr.id, ""));
+      } else {
+        navSelected.textContent = "CR —";
+        navSelected.setAttribute("href", "/");
+      }
+    }
     if (!cr || !cr.id) {
       if (emptyEl) emptyEl.style.display = "";
       if (panelEl) { panelEl.style.display = "none"; panelEl.innerHTML = ""; }
