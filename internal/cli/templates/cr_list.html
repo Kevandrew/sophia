@@ -132,6 +132,10 @@
       white-space: nowrap;
     }
 
+    a.tag {
+      text-decoration: none;
+    }
+
     .tag .dot {
       width: 6px;
       height: 6px;
@@ -404,6 +408,15 @@
       background: var(--bg-subtle);
     }
 
+    a.scope-chip {
+      text-decoration: none;
+    }
+
+    a.scope-chip:hover {
+      border-color: var(--ink-4);
+      background: var(--bg-hover);
+    }
+
     .item-list {
       list-style: none;
       display: grid;
@@ -597,7 +610,7 @@
     <span class="topbar-title" id="topbar-title">Loading dashboard...</span>
     <div class="topbar-actions">
       <span class="tag blue">read-only</span>
-      <span class="tag neutral" id="selected-chip">selected: none</span>
+      <a class="tag neutral" id="selected-chip" href="/">selected: none</a>
       <button type="button" class="btn-close" id="close-preview-btn">
         <svg width="10" height="10" viewBox="0 0 10 10" fill="none" xmlns="http://www.w3.org/2000/svg">
           <path d="M1 1L9 9M9 1L1 9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
@@ -854,7 +867,10 @@
       function renderSelection(cr) {
         var chip = document.getElementById("selected-chip");
         if (!cr || !cr.id) {
-          if (chip) chip.textContent = "selected: none";
+          if (chip) {
+            chip.textContent = "selected: none";
+            chip.setAttribute("href", "/");
+          }
           var summaryEmpty = document.getElementById("selected-summary");
           if (summaryEmpty) summaryEmpty.innerHTML = "<div class='empty-state'>No CR selected</div>";
           var whyEmpty = document.getElementById("selected-why");
@@ -863,7 +879,10 @@
           return;
         }
 
-        if (chip) chip.textContent = "selected: CR-" + cr.id;
+        if (chip) {
+          chip.textContent = "selected: CR-" + cr.id;
+          chip.setAttribute("href", "/" + String(cr.id));
+        }
 
         var summary = document.getElementById("selected-summary");
         if (summary) {
@@ -895,7 +914,7 @@
             var tasks = asObject(cr.tasks);
             var selectedClass = String(cr.id) === String(selectedId) ? " selected" : "";
             return [
-              "<button type='button' class='cr-row" + selectedClass + "' data-cr-id='" + esc(cr.id) + "'>",
+              "<article class='cr-row" + selectedClass + "' data-cr-id='" + esc(cr.id) + "'>",
               "<div class='cr-row-top'>",
               "<span class='cr-id'>CR-" + esc(cr.id) + "</span>",
               "<span class='tag " + statusClass + "'><span class='dot'></span>" + esc(text(cr.status, "-")) + "</span>",
@@ -906,8 +925,9 @@
               "<div class='chipline'>",
               "<span class='scope-chip'>tasks " + esc(text(tasks.done, 0)) + "/" + esc(text(tasks.total, 0)) + " done</span>",
               "<span class='scope-chip'>open " + esc(text(tasks.open, 0)) + "</span>",
+              "<a class='scope-chip' href='/" + esc(cr.id) + "'>Open CR</a>",
               "</div>",
-              "</button>"
+              "</article>"
             ].join("");
           }).join("");
 
