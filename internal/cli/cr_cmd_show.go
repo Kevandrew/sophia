@@ -29,10 +29,12 @@ import (
 type crShowMode string
 
 const (
-	crShowModePerCR        crShowMode = "per_cr"
-	crShowModeDashboard    crShowMode = "dashboard"
-	defaultCRListLimit                = 200
-	defaultCRTimelineLimit            = 200
+	crShowModePerCR               crShowMode = "per_cr"
+	crShowModeDashboard           crShowMode = "dashboard"
+	defaultCRListLimit                       = 200
+	defaultCRTimelineLimit                   = 200
+	defaultCRShowEventsLimit                 = 20
+	defaultCRShowCheckpointsLimit            = 10
 )
 
 func newCRShowCmd() *cobra.Command {
@@ -80,14 +82,14 @@ func newCRShowCmd() *cobra.Command {
 			if err != nil {
 				return commandError(cmd, asJSON, err)
 			}
-			return runCRShowDashboard(cmd, asJSON, noOpen, svc, query, listLimit, timelineLimit, selectedHint)
+			return runCRShowDashboard(cmd, asJSON, noOpen, svc, query, listLimit, timelineLimit, eventsLimit, checkpointsLimit, selectedHint)
 		},
 	}
 
 	cmd.Flags().BoolVar(&asJSON, "json", false, "Output in JSON format")
 	cmd.Flags().BoolVar(&noOpen, "no-open", false, "Render report without opening a browser tab")
-	cmd.Flags().IntVar(&eventsLimit, "events-limit", 20, "Maximum recent CR events to include")
-	cmd.Flags().IntVar(&checkpointsLimit, "checkpoints-limit", 10, "Maximum recent task checkpoints to include")
+	cmd.Flags().IntVar(&eventsLimit, "events-limit", defaultCRShowEventsLimit, "Maximum recent CR events to include")
+	cmd.Flags().IntVar(&checkpointsLimit, "checkpoints-limit", defaultCRShowCheckpointsLimit, "Maximum recent task checkpoints to include")
 	cmd.Flags().BoolVar(&forceDashboard, "dashboard", false, "Force dashboard mode instead of per-CR mode")
 	cmd.Flags().StringVar(&statusFilter, "status", "", "Dashboard filter by status (in_progress, merged)")
 	cmd.Flags().StringVar(&scopeFilter, "scope", "", "Dashboard filter by contract scope prefix")
@@ -140,19 +142,29 @@ func runCRShowPerCR(cmd *cobra.Command, asJSON bool, noOpen bool, svc *service.S
 	closeReason := ""
 	var server *crShowServer
 	if openAttempted {
-		server, err = startCRShowServer(func() (string, error) {
-			_, livePayload, snapshotErr := buildCRShowSnapshot(svc, id, eventsLimit, checkpointsLimit)
-			if snapshotErr != nil {
-				return "", snapshotErr
-			}
-			return buildCRShowHTMLDocument(embeddedCRShowHTMLTemplate, livePayload)
-		})
+		server, err = startCRShowServerWithRoutes(
+			func() (string, error) {
+				livePayload, _, snapshotErr := buildCRDashboardSnapshot(svc, model.CRSearchQuery{}, defaultCRListLimit, defaultCRTimelineLimit, id)
+				if snapshotErr != nil {
+					return "", snapshotErr
+				}
+				return buildCRListHTMLDocument(embeddedCRListHTMLTemplate, livePayload)
+			},
+			func(routeCRID int) (string, error) {
+				_, livePayload, snapshotErr := buildCRShowSnapshot(svc, routeCRID, eventsLimit, checkpointsLimit)
+				if snapshotErr != nil {
+					return "", snapshotErr
+				}
+				return buildCRShowHTMLDocument(embeddedCRShowHTMLTemplate, livePayload)
+			},
+		)
 		if err != nil {
 			return commandError(cmd, asJSON, fmt.Errorf("start localhost preview: %w", err))
 		}
 		defer server.Shutdown()
 		viewURL = server.URL
-		if err := openCRShowInBrowser(viewURL); err != nil {
+		openTarget := fmt.Sprintf("%s/%d", strings.TrimRight(viewURL, "/"), id)
+		if err := openCRShowInBrowser(openTarget); err != nil {
 			openErr = err.Error()
 		} else {
 			opened = true
@@ -201,7 +213,7 @@ func runCRShowPerCR(cmd *cobra.Command, asJSON bool, noOpen bool, svc *service.S
 	return nil
 }
 
-func runCRShowDashboard(cmd *cobra.Command, asJSON bool, noOpen bool, svc *service.Service, query model.CRSearchQuery, listLimit int, timelineLimit int, selectedHint int) error {
+func runCRShowDashboard(cmd *cobra.Command, asJSON bool, noOpen bool, svc *service.Service, query model.CRSearchQuery, listLimit int, timelineLimit int, eventsLimit int, checkpointsLimit int, selectedHint int) error {
 	payload, selectedCRID, err := buildCRDashboardSnapshot(svc, query, listLimit, timelineLimit, selectedHint)
 	if err != nil {
 		return commandError(cmd, asJSON, err)
@@ -216,19 +228,29 @@ func runCRShowDashboard(cmd *cobra.Command, asJSON bool, noOpen bool, svc *servi
 	closeReason := ""
 	var server *crShowServer
 	if openAttempted {
-		server, err = startCRShowServer(func() (string, error) {
-			livePayload, _, snapshotErr := buildCRDashboardSnapshot(svc, query, listLimit, timelineLimit, selectedHint)
-			if snapshotErr != nil {
-				return "", snapshotErr
-			}
-			return buildCRListHTMLDocument(embeddedCRListHTMLTemplate, livePayload)
-		})
+		server, err = startCRShowServerWithRoutes(
+			func() (string, error) {
+				livePayload, _, snapshotErr := buildCRDashboardSnapshot(svc, query, listLimit, timelineLimit, selectedHint)
+				if snapshotErr != nil {
+					return "", snapshotErr
+				}
+				return buildCRListHTMLDocument(embeddedCRListHTMLTemplate, livePayload)
+			},
+			func(routeCRID int) (string, error) {
+				_, livePayload, snapshotErr := buildCRShowSnapshot(svc, routeCRID, eventsLimit, checkpointsLimit)
+				if snapshotErr != nil {
+					return "", snapshotErr
+				}
+				return buildCRShowHTMLDocument(embeddedCRShowHTMLTemplate, livePayload)
+			},
+		)
 		if err != nil {
 			return commandError(cmd, asJSON, fmt.Errorf("start localhost preview: %w", err))
 		}
 		defer server.Shutdown()
 		viewURL = server.URL
-		if err := openCRShowInBrowser(viewURL); err != nil {
+		openTarget := strings.TrimRight(viewURL, "/") + "/"
+		if err := openCRShowInBrowser(openTarget); err != nil {
 			openErr = err.Error()
 		} else {
 			opened = true
@@ -550,7 +572,11 @@ type crShowServer struct {
 }
 
 func startCRShowServer(render func() (string, error)) (*crShowServer, error) {
-	if render == nil {
+	return startCRShowServerWithRoutes(render, nil)
+}
+
+func startCRShowServerWithRoutes(renderRoot func() (string, error), renderCR func(id int) (string, error)) (*crShowServer, error) {
+	if renderRoot == nil {
 		return nil, fmt.Errorf("render callback is required")
 	}
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -567,6 +593,22 @@ func startCRShowServer(render func() (string, error)) (*crShowServer, error) {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		path := strings.Trim(strings.TrimSpace(r.URL.Path), "/")
+		render := renderRoot
+		if path != "" {
+			if renderCR == nil {
+				http.NotFound(w, r)
+				return
+			}
+			id, parseErr := strconv.Atoi(path)
+			if parseErr != nil || id <= 0 {
+				http.NotFound(w, r)
+				return
+			}
+			render = func() (string, error) {
+				return renderCR(id)
+			}
+		}
 		htmlDoc, renderErr := render()
 		if renderErr != nil {
 			http.Error(w, fmt.Sprintf("render preview: %v", renderErr), http.StatusInternalServerError)
