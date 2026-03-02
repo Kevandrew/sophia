@@ -10,6 +10,12 @@ Review Sophia changes by intent and evidence first, then inspect diffs where nee
 sophia cr status [<cr-id>|<cr-uid>]
 ```
 
+Optional: open a read-only browser report for the same CR context.
+
+```bash
+sophia cr show [<cr-id>|<cr-uid>]
+```
+
 2. Verify policy/contract validity.
 
 ```bash
