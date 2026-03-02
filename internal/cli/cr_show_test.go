@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -86,7 +87,9 @@ func TestCRShowTemplateIsSingleFileWithInlineAssets(t *testing.T) {
 
 func TestCRShowServerSupportsCloseEndpoint(t *testing.T) {
 	t.Parallel()
-	server, err := startCRShowServer("<!doctype html><html><body>ok</body></html>")
+	server, err := startCRShowServer(func() (string, error) {
+		return "<!doctype html><html><body>ok</body></html>", nil
+	})
 	if err != nil {
 		t.Fatalf("startCRShowServer() error = %v", err)
 	}
@@ -121,5 +124,41 @@ func TestCRShowServerSupportsCloseEndpoint(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatalf("timed out waiting for close signal")
+	}
+}
+
+func TestCRShowServerRendersFreshDocumentPerRequest(t *testing.T) {
+	t.Parallel()
+	renderCount := 0
+	server, err := startCRShowServer(func() (string, error) {
+		renderCount++
+		return fmt.Sprintf("<!doctype html><html><body>render-%d</body></html>", renderCount), nil
+	})
+	if err != nil {
+		t.Fatalf("startCRShowServer() error = %v", err)
+	}
+	defer server.Shutdown()
+
+	respOne, err := http.Get(server.URL + "/")
+	if err != nil {
+		t.Fatalf("GET #1 error = %v", err)
+	}
+	bodyOneRaw, _ := io.ReadAll(respOne.Body)
+	_ = respOne.Body.Close()
+	bodyOne := string(bodyOneRaw)
+
+	respTwo, err := http.Get(server.URL + "/")
+	if err != nil {
+		t.Fatalf("GET #2 error = %v", err)
+	}
+	bodyTwoRaw, _ := io.ReadAll(respTwo.Body)
+	_ = respTwo.Body.Close()
+	bodyTwo := string(bodyTwoRaw)
+
+	if bodyOne == bodyTwo {
+		t.Fatalf("expected fresh document per request, got identical body %q", bodyOne)
+	}
+	if !strings.Contains(bodyOne, "render-1") || !strings.Contains(bodyTwo, "render-2") {
+		t.Fatalf("unexpected render bodies: bodyOne=%q bodyTwo=%q", bodyOne, bodyTwo)
 	}
 }

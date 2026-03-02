@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"html"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -37,25 +38,11 @@ func newCRShowCmd() *cobra.Command {
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return withOptionalCRIDAndService(cmd, asJSON, args, "id", func(id int, svc *service.Service) error {
-				view, err := svc.PackCR(id, service.PackOptions{
-					EventsLimit:      eventsLimit,
-					CheckpointsLimit: checkpointsLimit,
-				})
+				view, payload, err := buildCRShowSnapshot(svc, id, eventsLimit, checkpointsLimit)
 				if err != nil {
 					return commandError(cmd, asJSON, err)
 				}
-				if view == nil || view.CR == nil {
-					return commandError(cmd, asJSON, fmt.Errorf("cr %d is unavailable", id))
-				}
-
-				payload := crPackToJSONMap(view)
-				payload["cr"] = crToJSONMap(view.CR)
-				payload["generated_at"] = time.Now().UTC().Format(time.RFC3339)
 				const templateSource = "embedded:internal/cli/templates/cr_show.html"
-				htmlDoc, err := buildCRShowHTMLDocument(embeddedCRShowHTMLTemplate, payload)
-				if err != nil {
-					return commandError(cmd, asJSON, fmt.Errorf("build CR show HTML: %w", err))
-				}
 
 				openAttempted := !noOpen
 				opened := false
@@ -65,7 +52,13 @@ func newCRShowCmd() *cobra.Command {
 				closeReason := ""
 				var server *crShowServer
 				if openAttempted {
-					server, err = startCRShowServer(htmlDoc)
+					server, err = startCRShowServer(func() (string, error) {
+						_, livePayload, snapshotErr := buildCRShowSnapshot(svc, id, eventsLimit, checkpointsLimit)
+						if snapshotErr != nil {
+							return "", snapshotErr
+						}
+						return buildCRShowHTMLDocument(embeddedCRShowHTMLTemplate, livePayload)
+					})
 					if err != nil {
 						return commandError(cmd, asJSON, fmt.Errorf("start localhost preview: %w", err))
 					}
@@ -129,6 +122,23 @@ func newCRShowCmd() *cobra.Command {
 	return cmd
 }
 
+func buildCRShowSnapshot(svc *service.Service, id int, eventsLimit int, checkpointsLimit int) (*service.CRPackView, map[string]any, error) {
+	view, err := svc.PackCR(id, service.PackOptions{
+		EventsLimit:      eventsLimit,
+		CheckpointsLimit: checkpointsLimit,
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	if view == nil || view.CR == nil {
+		return nil, nil, fmt.Errorf("cr %d is unavailable", id)
+	}
+	payload := crPackToJSONMap(view)
+	payload["cr"] = crToJSONMap(view.CR)
+	payload["generated_at"] = time.Now().UTC().Format(time.RFC3339)
+	return view, payload, nil
+}
+
 type crShowServer struct {
 	URL        string
 	renderedCh chan struct{}
@@ -139,7 +149,10 @@ type crShowServer struct {
 	listener   net.Listener
 }
 
-func startCRShowServer(htmlDoc string) (*crShowServer, error) {
+func startCRShowServer(render func() (string, error)) (*crShowServer, error) {
+	if render == nil {
+		return nil, fmt.Errorf("render callback is required")
+	}
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return nil, err
@@ -154,8 +167,15 @@ func startCRShowServer(htmlDoc string) (*crShowServer, error) {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		htmlDoc, renderErr := render()
+		if renderErr != nil {
+			http.Error(w, fmt.Sprintf("render preview: %v", renderErr), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Cache-Control", "no-store, max-age=0")
+		w.Header().Set("Pragma", "no-cache")
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_, _ = w.Write([]byte(htmlDoc))
+		_, _ = io.WriteString(w, htmlDoc)
 		srv.once.Do(func() {
 			srv.renderedCh <- struct{}{}
 			close(srv.renderedCh)

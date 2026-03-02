@@ -1029,6 +1029,53 @@
         var n = document.getElementById(id);
         if (n) n.textContent = text(v, fallback || "—");
       }
+      function parseTime(v) {
+        if (v === null || v === undefined || v === "") return null;
+        var d = new Date(String(v));
+        if (isNaN(d.getTime())) return null;
+        return d;
+      }
+      function formatAbsoluteLocal(v) {
+        var d = parseTime(v);
+        if (!d) return text(v, "—");
+        return d.toLocaleString();
+      }
+      function formatRelativeLocal(v) {
+        var d = parseTime(v);
+        if (!d) return text(v, "—");
+        var diffSeconds = Math.round((d.getTime() - Date.now()) / 1000);
+        var abs = Math.abs(diffSeconds);
+        var unit = "second";
+        var value = diffSeconds;
+        if (abs >= 60) {
+          var diffMinutes = Math.round(diffSeconds / 60);
+          unit = "minute";
+          value = diffMinutes;
+          if (Math.abs(diffMinutes) >= 60) {
+            var diffHours = Math.round(diffMinutes / 60);
+            unit = "hour";
+            value = diffHours;
+            if (Math.abs(diffHours) >= 24) {
+              var diffDays = Math.round(diffHours / 24);
+              unit = "day";
+              value = diffDays;
+              if (Math.abs(diffDays) >= 7) {
+                var diffWeeks = Math.round(diffDays / 7);
+                unit = "week";
+                value = diffWeeks;
+              }
+            }
+          }
+        }
+        if (typeof Intl !== "undefined" && Intl.RelativeTimeFormat) {
+          var rtf = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
+          return rtf.format(value, unit);
+        }
+        if (value === 0) return "just now";
+        var direction = value < 0 ? "ago" : "from now";
+        var count = Math.abs(value);
+        return String(count) + " " + unit + (count === 1 ? "" : "s") + " " + direction;
+      }
 
       function renderList(id, values) {
         var n = document.getElementById(id);
@@ -1102,7 +1149,7 @@
       if (heroMeta) {
         var tags = [];
         if (cr.author) tags.push(tagHTML(cr.author));
-        if (cr.created_at) tags.push(tagHTML(text(cr.created_at, "").slice(0, 10), "neutral"));
+        if (cr.created_at) tags.push(tagHTML(formatRelativeLocal(cr.created_at), "neutral"));
         heroMeta.innerHTML = tags.join("");
       }
 
@@ -1148,7 +1195,7 @@
               : "";
             var taskMeta = [];
             if (t.checkpoint_commit) taskMeta.push("<span class='meta-chip'>commit:" + esc(String(t.checkpoint_commit).slice(0, 8)) + "</span>");
-            if (t.checkpoint_at) taskMeta.push("<span class='meta-chip'>checkpoint:" + esc(String(t.checkpoint_at)) + "</span>");
+            if (t.checkpoint_at) taskMeta.push("<span class='meta-chip' title='" + esc(formatAbsoluteLocal(t.checkpoint_at)) + "'>checkpoint:" + esc(formatRelativeLocal(t.checkpoint_at)) + "</span>");
             if (t.checkpoint_source) taskMeta.push("<span class='meta-chip'>source:" + esc(String(t.checkpoint_source)) + "</span>");
             if (contractDrifts.length) taskMeta.push("<span class='meta-chip'>drifts:" + esc(String(contractDrifts.length)) + "</span>");
             return [
@@ -1197,7 +1244,11 @@
       var valBlock = document.getElementById("validation-verdict-block");
       if (valBlock) valBlock.className = "verdict-block " + valCls;
       var valEl = document.getElementById("stat-validation");
-      if (valEl) valEl.textContent = valStatus + (errCount || warnCount ? " · " + errCount + "e " + warnCount + "w" : "");
+      if (valEl) {
+        var errWord = errCount === 1 ? "error" : "errors";
+        var warnWord = warnCount === 1 ? "warning" : "warnings";
+        valEl.textContent = valStatus + " (" + errCount + " " + errWord + ", " + warnCount + " " + warnWord + ")";
+      }
 
       var attentionActions = asArray(trust.attention_actions);
       var attentionEl = document.getElementById("trust-attention-actions");
@@ -1226,6 +1277,12 @@
 
       // Stats
       setText("stat-files", String(asArray(payload.files_changed).length));
+      var generatedEl = document.getElementById("stat-generated");
+      if (generatedEl) {
+        var generatedRaw = text(payload.generated_at, generatedEl.textContent);
+        generatedEl.textContent = formatRelativeLocal(generatedRaw);
+        generatedEl.title = formatAbsoluteLocal(generatedRaw);
+      }
 
       // Evidence
       var evidence = asArray(cr.evidence);
@@ -1242,7 +1299,7 @@
               "<span class='event-type'>" + esc(e.type || "evidence") + "</span>",
               "<div class='event-summary'>" + esc(e.summary || "(no summary)") + "</div>",
               "<div class='event-meta'>",
-              e.ts ? "<span class='event-meta-item'>" + esc(e.ts) + "</span>" : "",
+              e.ts ? "<span class='event-meta-item' title='" + esc(formatAbsoluteLocal(e.ts)) + "'>" + esc(formatRelativeLocal(e.ts)) + "</span>" : "",
               e.command ? "<span class='event-meta-item'>" + esc(e.command) + "</span>" : "",
               "</div>",
               "</div>",
@@ -1279,7 +1336,7 @@
               "<span class='event-type'>" + esc(e.type || "event") + "</span>",
               "<div class='event-summary'>" + esc(e.summary || "(no summary)") + "</div>",
               "<div class='event-meta'>",
-              e.ts ? "<span class='event-meta-item'>" + esc(e.ts) + "</span>" : "",
+              e.ts ? "<span class='event-meta-item' title='" + esc(formatAbsoluteLocal(e.ts)) + "'>" + esc(formatRelativeLocal(e.ts)) + "</span>" : "",
               e.actor ? "<span class='event-meta-item'>" + esc(e.actor) + "</span>" : "",
               "</div>",
               "</div>",
