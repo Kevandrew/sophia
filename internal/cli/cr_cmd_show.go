@@ -603,11 +603,23 @@ func startCRShowServerWithRoutes(renderRoot func() (string, error), renderCR fun
 			id, parseErr := strconv.Atoi(path)
 			if parseErr != nil || id <= 0 {
 				http.NotFound(w, r)
+type crShowSnapshotRenderer func() (map[string]any, error)
+type crShowCRSnapshotRenderer func(id int) (map[string]any, error)
+
 				return
 			}
 			render = func() (string, error) {
 				return renderCR(id)
 			}
+	return startCRShowServerWithLiveRoutes(renderRoot, renderCR, nil, nil)
+}
+
+func startCRShowServerWithLiveRoutes(
+	renderRoot func() (string, error),
+	renderCR func(id int) (string, error),
+	snapshotRoot crShowSnapshotRenderer,
+	snapshotCR crShowCRSnapshotRenderer,
+) (*crShowServer, error) {
 		}
 		htmlDoc, renderErr := render()
 		if renderErr != nil {
@@ -661,6 +673,107 @@ func (s *crShowServer) WaitForFirstRender(timeout time.Duration) bool {
 func (s *crShowServer) Shutdown() {
 	if s == nil || s.server == nil {
 		return
+	mux.HandleFunc("/__sophia_events", func(w http.ResponseWriter, r *http.Request) {
+		if snapshotRoot == nil && snapshotCR == nil {
+			http.NotFound(w, r)
+			return
+		}
+		if r.Method != http.MethodGet {
+			w.Header().Set("Allow", http.MethodGet)
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			http.Error(w, "streaming unsupported", http.StatusInternalServerError)
+			return
+		}
+
+		streamSnapshot, streamErr := resolveCRShowSnapshotRenderer(r, snapshotRoot, snapshotCR)
+		if streamErr != nil {
+			http.Error(w, streamErr.Error(), http.StatusBadRequest)
+			return
+		}
+
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate")
+		w.Header().Set("Pragma", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+		w.WriteHeader(http.StatusOK)
+		flusher.Flush()
+
+		sendStreamError := func(err error) error {
+			if err == nil {
+				return nil
+			}
+			payload, marshalErr := json.Marshal(map[string]any{
+				"message": strings.TrimSpace(err.Error()),
+			})
+			if marshalErr != nil {
+				return marshalErr
+			}
+			if writeErr := writeSSEEvent(w, "error", payload); writeErr != nil {
+				return writeErr
+			}
+			flusher.Flush()
+			return nil
+		}
+
+		lastHash := ""
+		sendSnapshotIfChanged := func() error {
+			payload, snapshotErr := streamSnapshot()
+			if snapshotErr != nil {
+				return snapshotErr
+			}
+			payloadJSON, marshalErr := json.Marshal(payload)
+			if marshalErr != nil {
+				return marshalErr
+			}
+			hash, hashErr := snapshotHash(payload)
+			if hashErr != nil {
+				return hashErr
+			}
+			if lastHash == hash {
+				return nil
+			}
+			if writeErr := writeSSEEvent(w, "snapshot", payloadJSON); writeErr != nil {
+				return writeErr
+			}
+			flusher.Flush()
+			lastHash = hash
+			return nil
+		}
+
+		if err := sendSnapshotIfChanged(); err != nil {
+			if streamErr := sendStreamError(err); streamErr != nil {
+				return
+			}
+		}
+
+		pollTicker := time.NewTicker(defaultCRShowSSEPollInterval)
+		keepaliveTicker := time.NewTicker(defaultCRShowSSEKeepaliveInterval)
+		defer pollTicker.Stop()
+		defer keepaliveTicker.Stop()
+
+		for {
+			select {
+			case <-r.Context().Done():
+				return
+			case <-pollTicker.C:
+				if err := sendSnapshotIfChanged(); err != nil {
+					if streamErr := sendStreamError(err); streamErr != nil {
+						return
+					}
+				}
+			case <-keepaliveTicker.C:
+				if _, err := io.WriteString(w, ": keepalive\n\n"); err != nil {
+					return
+				}
+				flusher.Flush()
+			}
+		}
+	})
 	}
 	s.signalClose("server_shutdown")
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -675,6 +788,78 @@ func (s *crShowServer) signalClose(reason string) {
 	s.closeOnce.Do(func() {
 		s.closedCh <- nonEmpty(strings.TrimSpace(reason), "closed")
 		close(s.closedCh)
+func resolveCRShowSnapshotRenderer(
+	r *http.Request,
+	snapshotRoot crShowSnapshotRenderer,
+	snapshotCR crShowCRSnapshotRenderer,
+) (crShowSnapshotRenderer, error) {
+	if r == nil {
+		return nil, fmt.Errorf("request is required")
+	}
+	mode := strings.TrimSpace(r.URL.Query().Get("mode"))
+	switch mode {
+	case "dashboard":
+		if snapshotRoot == nil {
+			return nil, fmt.Errorf("dashboard stream is unavailable")
+		}
+		return snapshotRoot, nil
+	case "cr":
+		if snapshotCR == nil {
+			return nil, fmt.Errorf("cr stream is unavailable")
+		}
+		id, err := strconv.Atoi(strings.TrimSpace(r.URL.Query().Get("id")))
+		if err != nil || id <= 0 {
+			return nil, fmt.Errorf("cr stream requires a valid id")
+		}
+		return func() (map[string]any, error) {
+			return snapshotCR(id)
+		}, nil
+	default:
+		return nil, fmt.Errorf("invalid stream mode")
+	}
+}
+
+func normalizeSnapshotForCompare(payload map[string]any) (map[string]any, error) {
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+	var normalized map[string]any
+	if err := json.Unmarshal(encoded, &normalized); err != nil {
+		return nil, err
+	}
+	delete(normalized, "generated_at")
+	return normalized, nil
+}
+
+func snapshotHash(payload map[string]any) (string, error) {
+	normalized, err := normalizeSnapshotForCompare(payload)
+	if err != nil {
+		return "", err
+	}
+	encoded, err := json.Marshal(normalized)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(encoded)
+	return hex.EncodeToString(sum[:]), nil
+}
+
+func writeSSEEvent(w io.Writer, event string, payload []byte) error {
+	if strings.TrimSpace(event) != "" {
+		if _, err := io.WriteString(w, "event: "+strings.TrimSpace(event)+"\n"); err != nil {
+			return err
+		}
+	}
+	for _, line := range bytes.Split(payload, []byte("\n")) {
+		if _, err := io.WriteString(w, "data: "+string(line)+"\n"); err != nil {
+			return err
+		}
+	}
+	_, err := io.WriteString(w, "\n")
+	return err
+}
+
 	})
 }
 
