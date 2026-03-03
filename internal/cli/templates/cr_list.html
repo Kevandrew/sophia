@@ -187,6 +187,16 @@
       flex-shrink: 0;
     }
 
+    .control-status-meta {
+      font-size: 10px;
+      color: var(--ink-4);
+      max-width: 260px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+
     .control-status.running {
       color: var(--blue);
     }
@@ -405,6 +415,7 @@
       .topbar { padding: 0 12px; gap: 8px; }
       .controlbar { padding: 0 12px; }
       .control-status { display: none; }
+      .control-status-meta { display: none; }
       .topbar-filters { display: none; }
       .nav-item { padding: 0 8px; }
       .layout { grid-template-columns: 1fr; }
@@ -451,6 +462,7 @@
     <button type="button" class="control-btn" data-control-action="pull">Pull</button>
   </div>
   <div class="control-status" id="control-status">Ready for control actions.</div>
+  <div class="control-status-meta" id="control-status-meta"></div>
 </section>
 
 <div class="statbar">
@@ -624,11 +636,16 @@
     hintEl.textContent = value ? (" · " + value) : "";
   }
 
-  function setControlStatus(state, message) {
+  function setControlStatus(state, message, meta) {
     var statusEl = document.getElementById("control-status");
     if (!statusEl) return;
     statusEl.className = "control-status" + (state ? (" " + state) : "");
     statusEl.textContent = text(message, "Ready for control actions.");
+    var metaEl = document.getElementById("control-status-meta");
+    if (metaEl) {
+      metaEl.textContent = text(meta, "");
+      metaEl.title = text(meta, "");
+    }
   }
 
   function setActionBusy(action, busy) {
@@ -719,7 +736,7 @@
     if (actionBusy) return;
     var crID = parseInt(text(selectedId, "0"), 10) || 0;
     if (actionNeedsCR(action) && crID <= 0) {
-      setControlStatus("error", actionLabel(action) + " requires selecting a CR first.");
+      setControlStatus("error", actionLabel(action) + " requires selecting a CR first.", "Choose a CR row then retry.");
       return;
     }
 
@@ -728,7 +745,8 @@
     if (action === "pull") payload.pull_mode = crID > 0 ? "metadata" : "ff_only";
 
     setActionBusy(action, true);
-    setControlStatus("running", "Running " + actionLabel(action) + "...");
+    var modeMeta = action === "pull" ? ("mode=" + payload.pull_mode) : "Awaiting response from local control endpoint.";
+    setControlStatus("running", "Running " + actionLabel(action) + "...", modeMeta);
 
     var runPromise = Promise.resolve();
     if (isRiskyAction(action)) {
@@ -736,7 +754,7 @@
         if (preflightResponse && preflightResponse.requires_confirmation) {
           var confirmed = window.confirm(buildPreflightMessage(action, preflightResponse.preflight));
           if (!confirmed) {
-            setControlStatus("warn", actionLabel(action) + " cancelled.");
+            setControlStatus("warn", actionLabel(action) + " cancelled.", "No mutation executed.");
             return null;
           }
           payload.confirm = true;
@@ -753,14 +771,14 @@
       if (response.ok && response.__http_ok) {
         var summary = text(response.summary, actionLabel(action) + " completed.");
         if (response.pull_mode) summary += " (" + response.pull_mode + ")";
-        setControlStatus("success", summary);
+        setControlStatus("success", summary, "Result captured. Live snapshot updates will follow.");
         return;
       }
       var message = text(response.error, text(response.summary, actionLabel(action) + " failed."));
       if (response.hint) message += " " + response.hint;
-      setControlStatus("error", message);
+      setControlStatus("error", message, "Use terminal command output for deeper troubleshooting.");
     }).catch(function (err) {
-      setControlStatus("error", actionLabel(action) + " failed: " + text(err && err.message, "request error"));
+      setControlStatus("error", actionLabel(action) + " failed: " + text(err && err.message, "request error"), "Local preview endpoint did not complete request.");
     }).finally(function () {
       setActionBusy(action, false);
     });
@@ -1066,7 +1084,7 @@
   }
 
   bindControlActions();
-  setControlStatus("", "Ready for control actions.");
+  setControlStatus("", "Ready for control actions.", "Select a CR to target CR-scoped actions.");
   applyDashboardPayload(parseBootstrapPayload(), false);
   startLiveStreamDashboard();
 })();

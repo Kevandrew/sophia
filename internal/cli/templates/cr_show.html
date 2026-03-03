@@ -351,6 +351,16 @@
       flex-shrink: 0;
     }
 
+    .control-status-meta {
+      font-size: 10px;
+      color: var(--ink-4);
+      max-width: 260px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+
     .control-status.running {
       color: var(--blue);
     }
@@ -963,6 +973,10 @@
         display: none;
       }
 
+      .control-status-meta {
+        display: none;
+      }
+
       .topbar-title {
         display: none;
       }
@@ -1027,6 +1041,7 @@
       <button type="button" class="control-btn" data-control-action="pull">Pull</button>
     </div>
     <div class="control-status" id="control-status">Ready for control actions.</div>
+    <div class="control-status-meta" id="control-status-meta"></div>
   </section>
 
   <!-- HERO -->
@@ -1325,11 +1340,16 @@
         hintEl.textContent = value ? (" · " + value) : "";
       }
 
-      function setControlStatus(state, message) {
+      function setControlStatus(state, message, meta) {
         var statusEl = document.getElementById("control-status");
         if (!statusEl) return;
         statusEl.className = "control-status" + (state ? (" " + state) : "");
         statusEl.textContent = text(message, "Ready for control actions.");
+        var metaEl = document.getElementById("control-status-meta");
+        if (metaEl) {
+          metaEl.textContent = text(meta, "");
+          metaEl.title = text(meta, "");
+        }
       }
 
       function setActionBusy(action, busy) {
@@ -1421,7 +1441,7 @@
         if (actionBusy) return;
         var crID = Number(currentCRID) || 0;
         if (actionNeedsCR(action, crID) && crID <= 0) {
-          setControlStatus("error", actionLabel(action) + " requires an active CR context.");
+          setControlStatus("error", actionLabel(action) + " requires an active CR context.", "Select a CR route and retry.");
           return;
         }
         var payload = { action: action };
@@ -1429,7 +1449,7 @@
         if (action === "pull") payload.pull_mode = crID > 0 ? "metadata" : "ff_only";
 
         setActionBusy(action, true);
-        setControlStatus("running", "Running " + actionLabel(action) + "...");
+        setControlStatus("running", "Running " + actionLabel(action) + "...", "Awaiting response from local control endpoint.");
 
         var runPromise = Promise.resolve();
         if (isRiskyAction(action)) {
@@ -1437,7 +1457,7 @@
             if (preflightResponse && preflightResponse.requires_confirmation) {
               var confirmed = window.confirm(buildPreflightMessage(action, preflightResponse.preflight));
               if (!confirmed) {
-                setControlStatus("warn", actionLabel(action) + " cancelled.");
+                setControlStatus("warn", actionLabel(action) + " cancelled.", "No mutation executed.");
                 return null;
               }
               payload.confirm = true;
@@ -1454,14 +1474,14 @@
           if (response.ok && response.__http_ok) {
             var summary = text(response.summary, actionLabel(action) + " completed.");
             if (response.pull_mode) summary += " (" + response.pull_mode + ")";
-            setControlStatus("success", summary);
+            setControlStatus("success", summary, "Result captured. Live snapshot updates will follow.");
             return;
           }
           var message = text(response.error, text(response.summary, actionLabel(action) + " failed."));
           if (response.hint) message += " " + response.hint;
-          setControlStatus("error", message);
+          setControlStatus("error", message, "Use terminal command output for deeper troubleshooting.");
         }).catch(function (err) {
-          setControlStatus("error", actionLabel(action) + " failed: " + text(err && err.message, "request error"));
+          setControlStatus("error", actionLabel(action) + " failed: " + text(err && err.message, "request error"), "Local preview endpoint did not complete request.");
         }).finally(function () {
           setActionBusy(action, false);
         });
@@ -1757,7 +1777,7 @@
 
       var initialPayload = parseBootstrapPayload();
       bindControlActions();
-      setControlStatus("", "Ready for control actions.");
+      setControlStatus("", "Ready for control actions.", "Use controls to steer current CR from this page.");
       renderCR(initialPayload);
       var initialCR = asObject(initialPayload.cr);
       var initialCRID = text(initialCR.id, "");
