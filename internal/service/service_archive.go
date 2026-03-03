@@ -191,7 +191,11 @@ func (s *Service) WriteCRArchive(id int, opts CRArchiveWriteOptions) (*CRArchive
 	if err != nil {
 		return nil, err
 	}
-	archive := buildCRArchiveDocument(cr, revision, strings.TrimSpace(opts.Reason), s.timestamp(), gitSummary)
+	fullDiff, err := s.buildArchiveFullDiffFromMergeCommit(mergedCommit, gitSummary.FilesChanged, archivePolicyIncludeFullDiffs(config))
+	if err != nil {
+		return nil, err
+	}
+	archive := buildCRArchiveDocument(cr, revision, strings.TrimSpace(opts.Reason), s.timestamp(), config, gitSummary, fullDiff)
 	payload, err := marshalCRArchiveYAML(archive)
 	if err != nil {
 		return nil, err
@@ -288,7 +292,11 @@ func (s *Service) BackfillCRArchives(opts CRArchiveBackfillOptions) (*CRArchiveB
 		if summaryErr != nil {
 			return nil, summaryErr
 		}
-		archive := buildCRArchiveDocument(&cr, 1, "", s.timestamp(), gitSummary)
+		fullDiff, diffErr := s.buildArchiveFullDiffFromMergeCommit(cr.MergedCommit, gitSummary.FilesChanged, archivePolicyIncludeFullDiffs(config))
+		if diffErr != nil {
+			return nil, diffErr
+		}
+		archive := buildCRArchiveDocument(&cr, 1, "", s.timestamp(), config, gitSummary, fullDiff)
 		payload, marshalErr := marshalCRArchiveYAML(archive)
 		if marshalErr != nil {
 			return nil, marshalErr
@@ -549,6 +557,28 @@ func (s *Service) buildArchiveGitSummaryFromMergeCommit(mergeCommit string) (mod
 		return model.CRArchiveGitSummary{}, err
 	}
 	return buildArchiveGitSummary(changes, numStats, parents[0], parents[1]), nil
+}
+
+func (s *Service) buildArchiveFullDiffFromMergeCommit(mergeCommit string, paths []string, include bool) (*model.CRArchiveFullDiff, error) {
+	if !include {
+		return nil, nil
+	}
+	mergeCommit = strings.TrimSpace(mergeCommit)
+	if mergeCommit == "" {
+		return nil, fmt.Errorf("merge commit is required for archive full diff")
+	}
+	parents, err := s.git.CommitParents(mergeCommit)
+	if err != nil {
+		return nil, err
+	}
+	if len(parents) < 2 {
+		return nil, fmt.Errorf("commit %s is not a merge commit", shortHash(mergeCommit))
+	}
+	patch, err := s.git.DiffPatchBetween(strings.TrimSpace(parents[0]), mergeCommit, append([]string(nil), paths...), archiveFullDiffUnified)
+	if err != nil {
+		return nil, err
+	}
+	return buildArchiveFullDiffFromPatch(patch)
 }
 
 type archiveCachedDiffGit interface {

@@ -487,6 +487,8 @@ type fakeMergeGit struct {
 	diffCachedErr error
 	diffNumStat   []gitx.DiffNumStat
 	diffNumErr    error
+	diffPatch     string
+	diffPatchErr  error
 	recentCommits []gitx.Commit
 	recentErr     error
 	trackedFiles  []string
@@ -589,6 +591,14 @@ func (g *fakeMergeGit) DiffNumStatCached() ([]gitx.DiffNumStat, error) {
 		return nil, g.diffNumErr
 	}
 	return append([]gitx.DiffNumStat(nil), g.diffNumStat...), nil
+}
+
+func (g *fakeMergeGit) DiffPatchCached(paths []string, unified int) (string, error) {
+	g.counter.hit("DiffPatchCached")
+	if g.diffPatchErr != nil {
+		return "", g.diffPatchErr
+	}
+	return g.diffPatch, nil
 }
 
 func (g *fakeMergeGit) HeadShortSHA() (string, error) {
@@ -720,6 +730,8 @@ func (g *fakeMergeGit) clone() *fakeMergeGit {
 		statusErr:     g.statusErr,
 		diffCachedErr: g.diffCachedErr,
 		diffNumErr:    g.diffNumErr,
+		diffPatch:     g.diffPatch,
+		diffPatchErr:  g.diffPatchErr,
 		recentErr:     g.recentErr,
 		trackedErr:    g.trackedErr,
 		mergeInProg:   g.mergeInProg,

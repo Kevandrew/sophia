@@ -422,11 +422,15 @@ func (d *mergeDomain) writeAutomaticCRArchiveForMerge(mergeGit mergeRuntimeGit, 
 	if summaryErr != nil {
 		return summaryErr
 	}
+	fullDiff, diffErr := buildArchiveFullDiffFromCachedDiff(mergeGit, gitSummary.FilesChanged, archivePolicyIncludeFullDiffs(archiveConfig))
+	if diffErr != nil {
+		return diffErr
+	}
 	archiveCR := *cr
 	archiveCR.Status = model.StatusMerged
 	archiveCR.MergedAt = mergedAt
 	archiveCR.MergedBy = actor
-	archive := buildCRArchiveDocument(&archiveCR, 1, "", mergedAt, gitSummary)
+	archive := buildCRArchiveDocument(&archiveCR, 1, "", mergedAt, archiveConfig, gitSummary, fullDiff)
 	payload, payloadErr := marshalCRArchiveYAML(archive)
 	if payloadErr != nil {
 		return payloadErr
