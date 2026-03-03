@@ -19,6 +19,7 @@ func newCRPRCmd() *cobra.Command {
 	cmd.AddCommand(newCRPROpenCmd())
 	cmd.AddCommand(newCRPRSyncCmd())
 	cmd.AddCommand(newCRPRStatusCmd())
+	cmd.AddCommand(newCRPRReconcileCmd())
 	cmd.AddCommand(newCRPRReadyCmd())
 	return cmd
 }
@@ -159,12 +160,54 @@ func newCRPRStatusCmd() *cobra.Command {
 				}
 				fmt.Fprintf(cmd.OutOrStdout(), "PR #%d: %s\n", status.Number, nonEmpty(status.URL, "(none)"))
 				fmt.Fprintf(cmd.OutOrStdout(), "State: %s\n", nonEmpty(status.State, "-"))
+				fmt.Fprintf(cmd.OutOrStdout(), "Linkage State: %s\n", nonEmpty(status.LinkageState, "-"))
 				fmt.Fprintf(cmd.OutOrStdout(), "Gate Blocked: %t\n", status.GateBlocked)
 				printListSection(cmd, "Gate Reasons", status.GateReasons)
+				if strings.TrimSpace(status.ActionRequired) != "" {
+					fmt.Fprintf(cmd.OutOrStdout(), "Action Required: %s\n", status.ActionRequired)
+					fmt.Fprintf(cmd.OutOrStdout(), "Action Reason: %s\n", nonEmpty(status.ActionReason, "-"))
+					printListSection(cmd, "Suggested Commands", status.SuggestedCommands)
+				}
 				return nil
 			})
 		},
 	}
+	cmd.Flags().BoolVar(&asJSON, "json", false, "Output in JSON format")
+	return cmd
+}
+
+func newCRPRReconcileCmd() *cobra.Command {
+	var asJSON bool
+	var mode string
+	cmd := &cobra.Command{
+		Use:   "reconcile [id]",
+		Short: "Explicitly reconcile stale PR linkage for a CR",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return withOptionalCRIDAndService(cmd, asJSON, args, "id", func(id int, svc *service.Service) error {
+				mode = strings.TrimSpace(mode)
+				if mode == "" {
+					return commandError(cmd, asJSON, fmt.Errorf("invalid --mode: required (relink|reopen|create)"))
+				}
+				view, err := svc.PRReconcile(id, mode)
+				if err != nil {
+					return commandError(cmd, asJSON, err)
+				}
+				if asJSON {
+					return writeJSONSuccess(cmd, prReconcileToJSONMap(view))
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "Reconcile mode: %s\n", view.Mode)
+				fmt.Fprintf(cmd.OutOrStdout(), "Action: %s\n", nonEmpty(view.Action, "-"))
+				fmt.Fprintf(cmd.OutOrStdout(), "Reason: %s\n", nonEmpty(view.ActionReason, "-"))
+				fmt.Fprintf(cmd.OutOrStdout(), "Mutated: %t\n", view.Mutated)
+				fmt.Fprintf(cmd.OutOrStdout(), "PR: %d -> %d\n", view.BeforePRNumber, view.AfterPRNumber)
+				fmt.Fprintf(cmd.OutOrStdout(), "Linkage: %s -> %s\n", nonEmpty(view.BeforeLinkage, "-"), nonEmpty(view.AfterLinkage, "-"))
+				printListSection(cmd, "Suggested Commands", view.SuggestedCommands)
+				return nil
+			})
+		},
+	}
+	cmd.Flags().StringVar(&mode, "mode", "", "Reconcile mode: relink, reopen, or create")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "Output in JSON format")
 	return cmd
 }
@@ -212,12 +255,36 @@ func prStatusToJSONMap(status *service.PRStatusView) map[string]any {
 		"merged_commit":        status.MergedCommit,
 		"checks_passing":       status.ChecksPassing,
 		"checks_observed":      status.ChecksObserved,
+		"head_ref_name":        status.HeadRefName,
+		"base_ref_name":        status.BaseRefName,
 		"approvals":            status.Approvals,
 		"non_author_approvals": status.NonAuthorApprovals,
 		"gate_blocked":         status.GateBlocked,
 		"gate_reasons":         stringSliceOrEmpty(status.GateReasons),
+		"linkage_state":        status.LinkageState,
 		"action_required":      status.ActionRequired,
 		"action_reason":        status.ActionReason,
+		"suggested_commands":   stringSliceOrEmpty(status.SuggestedCommands),
 		"warnings":             stringSliceOrEmpty(status.Warnings),
+	}
+}
+
+func prReconcileToJSONMap(view *service.PRReconcileView) map[string]any {
+	if view == nil {
+		return map[string]any{}
+	}
+	return map[string]any{
+		"cr_id":              view.CRID,
+		"cr_uid":             view.CRUID,
+		"mode":               view.Mode,
+		"mutated":            view.Mutated,
+		"action":             view.Action,
+		"action_reason":      view.ActionReason,
+		"before_pr_number":   view.BeforePRNumber,
+		"after_pr_number":    view.AfterPRNumber,
+		"before_linkage":     view.BeforeLinkage,
+		"after_linkage":      view.AfterLinkage,
+		"suggested_commands": stringSliceOrEmpty(view.SuggestedCommands),
+		"warnings":           stringSliceOrEmpty(view.Warnings),
 	}
 }
