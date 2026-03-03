@@ -80,7 +80,7 @@ sophia cr show [<cr-id>|<cr-uid>] --json
 
 `sophia cr show` serves a local preview (`http://127.0.0.1:<port>`) from an HTML template and opens that URL in your default browser. The preview stays up until you click the page's `Close Preview` button or stop the command (`Ctrl+C`).
 
-When an in-progress CR branch is missing, `sophia cr show` now falls back to a metadata-only preview anchor (`head=base`) and includes explicit warnings in JSON/UI. This read-only fallback does not recreate branches; use `sophia cr switch <cr-id>` to recreate and continue implementation.
+When an in-progress or abandoned CR branch is missing, `sophia cr show` falls back to a metadata-only preview anchor (`head=base`) and includes explicit warnings in JSON/UI. This read-only fallback does not recreate branches; use `sophia cr switch <cr-id>` to recreate and continue implementation.
 
 Template source: `internal/cli/templates/cr_show.html` (edit this file directly when iterating before PR).
 
