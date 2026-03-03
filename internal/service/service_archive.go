@@ -473,6 +473,10 @@ func buildCRArchiveDocument(cr *model.CR, revision int, reason, archivedAt strin
 	sort.Slice(tasks, func(i, j int) bool {
 		return tasks[i].ID < tasks[j].ID
 	})
+	schemaVersion := model.CRArchiveSchemaV1
+	if archivePolicyIncludeFullDiffs(config) {
+		schemaVersion = model.CRArchiveSchemaV2
+	}
 	return model.CRArchive{
 		SchemaVersion: schemaVersion,
 		Notice:        model.CRArchiveNotice,
@@ -483,10 +487,6 @@ func buildCRArchiveDocument(cr *model.CR, revision int, reason, archivedAt strin
 			ID:          cr.ID,
 			UID:         strings.TrimSpace(cr.UID),
 			Title:       strings.TrimSpace(cr.Title),
-	schemaVersion := model.CRArchiveSchemaV1
-	if archivePolicyIncludeFullDiffs(config) {
-		schemaVersion = model.CRArchiveSchemaV2
-	}
 			Description: strings.TrimSpace(cr.Description),
 			Status:      strings.TrimSpace(cr.Status),
 			BaseBranch:  strings.TrimSpace(cr.BaseBranch),
@@ -510,6 +510,7 @@ func buildCRArchiveDocument(cr *model.CR, revision int, reason, archivedAt strin
 		},
 		Tasks:      tasks,
 		GitSummary: gitSummary,
+		FullDiff:   fullDiff,
 	}
 }
 
@@ -520,7 +521,6 @@ func sortedStringCopy(values []string) []string {
 	out := make([]string, 0, len(values))
 	seen := map[string]struct{}{}
 	for _, value := range values {
-		FullDiff:   fullDiff,
 		trimmed := strings.TrimSpace(value)
 		if trimmed == "" {
 			continue
@@ -584,6 +584,7 @@ func (s *Service) buildArchiveFullDiffFromMergeCommit(mergeCommit string, paths 
 type archiveCachedDiffGit interface {
 	DiffNameStatusCached() ([]gitx.FileChange, error)
 	DiffNumStatCached() ([]gitx.DiffNumStat, error)
+	DiffPatchCached(paths []string, unified int) (string, error)
 }
 
 func buildArchiveGitSummaryFromCachedDiff(gitClient archiveCachedDiffGit, baseParent, crParent string) (model.CRArchiveGitSummary, error) {
@@ -601,37 +602,6 @@ func buildArchiveGitSummaryFromCachedDiff(gitClient archiveCachedDiffGit, basePa
 	return buildArchiveGitSummary(changes, numStats, baseParent, crParent), nil
 }
 
-func buildArchiveGitSummary(changes []gitx.FileChange, numStats []gitx.DiffNumStat, baseParent, crParent string) model.CRArchiveGitSummary {
-	files := make([]string, 0, len(changes))
-	fileSeen := map[string]struct{}{}
-	for _, change := range changes {
-		path := normalizeArchiveSummaryPath(change.Path)
-		if path == "" || isArchiveTrackedPath(path) {
-			continue
-		}
-		if _, ok := fileSeen[path]; ok {
-			continue
-		}
-		fileSeen[path] = struct{}{}
-		files = append(files, path)
-	DiffPatchCached(paths []string, unified int) (string, error)
-	}
-	sort.Strings(files)
-
-	diffRows := make([]model.CRArchiveDiffStatRow, 0, len(numStats))
-	totalInsertions := 0
-	totalDeletions := 0
-	for _, row := range numStats {
-		path := normalizeArchiveSummaryPath(row.Path)
-		if path == "" || isArchiveTrackedPath(path) {
-			continue
-		}
-		item := model.CRArchiveDiffStatRow{
-			Path:   path,
-			Binary: row.Binary,
-		}
-		if row.Insertions != nil {
-			insertions := *row.Insertions
 func buildArchiveFullDiffFromCachedDiff(gitClient archiveCachedDiffGit, paths []string, include bool) (*model.CRArchiveFullDiff, error) {
 	if !include {
 		return nil, nil
@@ -659,6 +629,36 @@ func buildArchiveFullDiffFromPatch(rawPatch string) (*model.CRArchiveFullDiff, e
 	}, nil
 }
 
+func buildArchiveGitSummary(changes []gitx.FileChange, numStats []gitx.DiffNumStat, baseParent, crParent string) model.CRArchiveGitSummary {
+	files := make([]string, 0, len(changes))
+	fileSeen := map[string]struct{}{}
+	for _, change := range changes {
+		path := normalizeArchiveSummaryPath(change.Path)
+		if path == "" || isArchiveTrackedPath(path) {
+			continue
+		}
+		if _, ok := fileSeen[path]; ok {
+			continue
+		}
+		fileSeen[path] = struct{}{}
+		files = append(files, path)
+	}
+	sort.Strings(files)
+
+	diffRows := make([]model.CRArchiveDiffStatRow, 0, len(numStats))
+	totalInsertions := 0
+	totalDeletions := 0
+	for _, row := range numStats {
+		path := normalizeArchiveSummaryPath(row.Path)
+		if path == "" || isArchiveTrackedPath(path) {
+			continue
+		}
+		item := model.CRArchiveDiffStatRow{
+			Path:   path,
+			Binary: row.Binary,
+		}
+		if row.Insertions != nil {
+			insertions := *row.Insertions
 			item.Insertions = &insertions
 			totalInsertions += insertions
 		}
@@ -703,9 +703,6 @@ func normalizeArchiveSummaryPath(path string) string {
 	return strings.TrimSpace(strings.ReplaceAll(path, "\\", "/"))
 }
 
-func isArchiveTrackedPath(path string) bool {
-	return pathMatchesScopePrefix(normalizeArchiveSummaryPath(path), archiveTrackedPrefix)
-}
 func normalizeArchivePatch(patch string) string {
 	normalized := strings.ReplaceAll(patch, "\r\n", "\n")
 	normalized = strings.ReplaceAll(normalized, "\r", "\n")
@@ -716,3 +713,6 @@ func normalizeArchivePatch(patch string) string {
 	return normalized + "\n"
 }
 
+func isArchiveTrackedPath(path string) bool {
+	return pathMatchesScopePrefix(normalizeArchiveSummaryPath(path), archiveTrackedPrefix)
+}
