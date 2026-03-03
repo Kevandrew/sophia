@@ -75,6 +75,9 @@ func (s *Service) PackCR(id int, opts PackOptions) (*CRPackView, error) {
 	if err != nil {
 		return nil, err
 	}
+	if status != nil {
+		status.LifecycleState = nonEmptyTrimmed(status.LifecycleState, strings.TrimSpace(review.CR.Status))
+	}
 
 	events, eventsMeta := selectRecentEvents(review.CR.Events, eventsLimit)
 	checkpoints, checkpointsMeta := selectRecentCheckpoints(review.CR.Subtasks, checkpointsLimit)

@@ -614,6 +614,21 @@ func newCRStatusCmd() *cobra.Command {
 						fmt.Fprintf(cmd.OutOrStdout(), "- %s\n", blocker)
 					}
 				}
+				if strings.TrimSpace(status.PRLinkageState) != "" {
+					fmt.Fprintf(cmd.OutOrStdout(), "PR Linkage State: %s\n", status.PRLinkageState)
+				}
+				if strings.TrimSpace(status.ActionRequired) != "" {
+					fmt.Fprintf(cmd.OutOrStdout(), "Action Required: %s\n", status.ActionRequired)
+					fmt.Fprintf(cmd.OutOrStdout(), "Action Reason: %s\n", nonEmpty(status.ActionReason, "-"))
+					if len(status.SuggestedCommands) == 0 {
+						fmt.Fprintln(cmd.OutOrStdout(), "Suggested Commands: (none)")
+					} else {
+						fmt.Fprintln(cmd.OutOrStdout(), "Suggested Commands:")
+						for _, suggested := range status.SuggestedCommands {
+							fmt.Fprintf(cmd.OutOrStdout(), "- %s\n", suggested)
+						}
+					}
+				}
 				if includeHQ && hqStatus != nil {
 					fmt.Fprintln(cmd.OutOrStdout(), "\nHQ Sync:")
 					fmt.Fprintf(cmd.OutOrStdout(), "- configured: %t\n", hqStatus.Configured)
