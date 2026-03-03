@@ -1,0 +1,160 @@
+schema_version: sophia.cr_archive.v1
+notice: Historical archive snapshot. Corrections are append-only revisions.
+archived_at: "2026-03-03T11:53:48Z"
+revision: 1
+cr:
+    id: 109
+    uid: cr_ae130226-1af0-4efc-8f42-8231a66f9af3
+    title: Add merge mode for CR bundle import
+    description: Extend CR bundle import from create|replace to include merge semantics with deterministic conflict reporting and a preview surface, reducing all-or-nothing replacement behavior for collaboration sync.
+    status: merged
+    base_branch: main
+    base_ref: main
+    base_commit: 7b25c08ee03322677443d8d045ade033f8898709
+    branch: cr-add-merge-mode-for-cr-bundle-import-ae13
+    merged_at: "2026-03-03T11:53:48Z"
+    merged_by: Kevandrew <143258544+Kevandrew@users.noreply.github.com>
+contract:
+    why: Add merge import mode so shared CR bundles can be reconciled safely without choosing only create or full replace. Done means field and task reconciliation is deterministic, conflicts are explicit, and users can preview merge outcomes before mutation.
+    scope:
+        - docs/cli-reference.md
+        - docs/collaboration.md
+        - internal/cli/cr_cmd_import_patch.go
+        - internal/cli/cr_json_collab_test.go
+        - internal/cli/json.go
+        - internal/model
+        - internal/service/service_collab.go
+        - internal/service/service_collab_test.go
+        - internal/service/service_import_helpers.go
+    non_goals:
+        - No changes to Git branch or checkpoint commits during import merge.
+        - No implicit force overwrite when conflicts exist.
+        - No schema-breaking changes for existing create and replace paths.
+        - No server side merge coordination in this CR.
+    invariants:
+        - Create and replace modes retain existing behavior.
+        - Import merge never silently drops existing local task or contract data.
+        - Merge mode reports deterministic conflict structures for identical inputs.
+        - Preview and apply share the same merge classification logic.
+    blast_radius: CR bundle import mode semantics, conflict/result payload shape, CLI import contract, and collaboration docs. Failure modes include silent overwrites, unstable conflict classification, and inconsistent preview/apply outcomes.
+    risk_critical_scopes:
+        - internal/service/service_collab.go
+    risk_tier_hint: high
+    risk_rationale: Import paths mutate canonical CR metadata, so merge-rule mistakes can corrupt intent history across collaboration workflows.
+    test_plan: go test ./internal/service -run 'Import|Bundle|Collab' -count=1 && go test ./internal/cli -run 'Import|Collab' -count=1 && go test ./... -count=1 && go vet ./...
+    rollback_plan: Revert the [CR-109] merge commit and restore import behavior to create|replace only.
+tasks:
+    - id: 1
+      title: Introduce merge import mode contract and result schema
+      status: done
+      contract:
+        intent: Define merge as a first-class import mode with explicit result metadata and conflict shape.
+        acceptance_criteria:
+            - cr import accepts mode merge in addition to create and replace.
+            - merge mode returns deterministic change and conflict summary fields.
+        scope:
+            - internal/model
+            - internal/service/service_collab.go
+            - internal/service/service_import_helpers.go
+      checkpoint:
+        commit: 1fabb2a6
+        at: "2026-03-03T11:29:26Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_collab.go
+            - internal/service/service_import_helpers.go
+    - id: 2
+      title: Implement CR-level field merge rules
+      status: done
+      contract:
+        intent: Implement deterministic field-level merge behavior for CR metadata and contract surfaces.
+        acceptance_criteria:
+            - incompatible updates are recorded as explicit conflicts instead of silent overwrite.
+            - title description notes and contract fields reconcile by explicit merge rules.
+        scope:
+            - internal/service/service_collab.go
+      checkpoint:
+        commit: 0b13e34e
+        at: "2026-03-03T11:51:21Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_collab.go
+            - internal/service/service_collab_test.go
+    - id: 3
+      title: Implement task merge reconciliation strategy
+      status: done
+      contract:
+        intent: Merge task-level changes predictably without breaking existing task identity.
+        acceptance_criteria:
+            - task additions and updates reconcile without reassigning existing task ids.
+            - task conflicts are surfaced with task-scoped conflict records.
+        scope:
+            - internal/model
+            - internal/service/service_collab.go
+      checkpoint:
+        at: "2026-03-03T11:51:29Z"
+        source: task_no_checkpoint
+    - id: 4
+      title: Add non-mutating preview path for merge import
+      status: done
+      contract:
+        intent: Provide a preview path that shows merge outcomes and conflicts without metadata writes.
+        acceptance_criteria:
+            - preview and apply use identical merge classification logic.
+            - preview mode returns merge outcome and conflicts without mutating local CR metadata.
+        scope:
+            - internal/cli/cr_cmd_import_patch.go
+            - internal/service/service_collab.go
+      checkpoint:
+        commit: 5921164a
+        at: "2026-03-03T11:51:33Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/cr_cmd_import_patch.go
+    - id: 5
+      title: Wire CLI and JSON surfaces for mode merge
+      status: done
+      contract:
+        intent: Expose merge mode in CLI with stable JSON fields for automation consumers.
+        acceptance_criteria:
+            - CLI help and mode validation include merge semantics clearly.
+            - JSON output includes deterministic fields for created replaced merged and conflict summary.
+        scope:
+            - internal/cli/cr_cmd_import_patch.go
+            - internal/cli/json.go
+      checkpoint:
+        commit: b9b13be5
+        at: "2026-03-03T11:29:53Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/json.go
+    - id: 6
+      title: Add merge import tests and documentation
+      status: done
+      contract:
+        intent: Cover new merge mode behavior and document collaboration workflow updates.
+        acceptance_criteria:
+            - documentation describes merge mode workflow and conflict remediation steps.
+            - tests cover create replace merge success and merge conflict scenarios.
+        scope:
+            - docs/cli-reference.md
+            - docs/collaboration.md
+            - internal/cli
+            - internal/service
+        acceptance_checks:
+            - go_vet
+            - unit_tests
+      checkpoint:
+        commit: 830a5335
+        at: "2026-03-03T11:51:38Z"
+        source: task_checkpoint
+        scope:
+            - docs/cli-reference.md
+            - docs/collaboration.md
+            - internal/cli/cr_json_collab_test.go
+git_summary:
+    base_parent: 7b25c08ee03322677443d8d045ade033f8898709
+    cr_parent: 830a533511e26462f0b087ad9b2d87d836db339b
+    files_changed: []
+    diffstat:
+        summary: 0 files changed, 0 insertions(+), 0 deletions(-)
