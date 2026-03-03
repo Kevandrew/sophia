@@ -186,3 +186,78 @@ func TestPackCRInProgressMissingBranchUsesMetadataOnlyFallback(t *testing.T) {
 		t.Fatalf("expected metadata-only fallback warning, got %#v", view.Warnings)
 	}
 }
+
+func TestPackCRAbandonedMissingBranchUsesMetadataOnlyFallback(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	runGit(t, dir, "config", "user.name", "Test User")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+
+	cr, err := svc.AddCR("Pack abandoned metadata-only", "allow show/pack fallback when abandoned branch is missing")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	if _, err := svc.AbandonCR(cr.ID, CRAbandonOptions{Reason: "testing"}); err != nil {
+		t.Fatalf("AbandonCR() error = %v", err)
+	}
+	if svc.git.BranchExists(cr.Branch) {
+		t.Fatalf("expected abandoned CR branch %q to be removed", cr.Branch)
+	}
+
+	view, err := svc.PackCR(cr.ID, PackOptions{})
+	if err != nil {
+		t.Fatalf("PackCR() error = %v", err)
+	}
+	if view == nil || view.Anchors == nil {
+		t.Fatalf("expected pack anchors in metadata-only fallback")
+	}
+	if view.Anchors.Base != view.Anchors.Head {
+		t.Fatalf("expected metadata-only fallback head==base, got base=%q head=%q", view.Anchors.Base, view.Anchors.Head)
+	}
+	if !containsStringCaseInsensitive(view.Warnings, "metadata-only") {
+		t.Fatalf("expected metadata-only warning, got %#v", view.Warnings)
+	}
+}
+
+func TestPackCRMetadataFallbackWarnsWhenCheckpointCommitsExist(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	runGit(t, dir, "config", "user.name", "Test User")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+
+	cr, err := svc.AddCR("Pack checkpoint warning", "warn when fallback may hide orphaned commits")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	setValidContract(t, svc, cr.ID)
+	task, err := svc.AddTask(cr.ID, "checkpoint task")
+	if err != nil {
+		t.Fatalf("AddTask() error = %v", err)
+	}
+	mustSetTaskContractForDiff(t, svc, cr.ID, task.ID, []string{"pack-checkpoint-warning.txt"})
+	if err := os.WriteFile(filepath.Join(dir, "pack-checkpoint-warning.txt"), []byte("checkpoint\n"), 0o644); err != nil {
+		t.Fatalf("write pack-checkpoint-warning.txt: %v", err)
+	}
+	if _, err := svc.DoneTaskWithCheckpoint(cr.ID, task.ID, DoneTaskOptions{Checkpoint: true, FromContract: true}); err != nil {
+		t.Fatalf("DoneTaskWithCheckpoint() error = %v", err)
+	}
+
+	runGit(t, dir, "checkout", "main")
+	runGit(t, dir, "branch", "-D", cr.Branch)
+
+	view, err := svc.PackCR(cr.ID, PackOptions{})
+	if err != nil {
+		t.Fatalf("PackCR() error = %v", err)
+	}
+	if !containsStringCaseInsensitive(view.Warnings, "orphaned implementation commits") {
+		t.Fatalf("expected orphaned implementation warning, got %#v", view.Warnings)
+	}
+}
