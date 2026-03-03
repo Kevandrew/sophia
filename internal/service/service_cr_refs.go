@@ -19,6 +19,10 @@ type crAnchorResolution struct {
 	warnings   []string
 }
 
+type CRAnchorResolveOptions struct {
+	AllowMetadataOnlyHeadFallback bool
+}
+
 func crRefName(id int) string {
 	return fmt.Sprintf("%s%d", crRefPrefix, id)
 }
@@ -171,6 +175,10 @@ func normalizeCRAnchorKind(kind string) (string, error) {
 }
 
 func (s *Service) resolveCRAnchors(cr *model.CR) (*crAnchorResolution, error) {
+	return s.resolveCRAnchorsWithOptions(cr, CRAnchorResolveOptions{})
+}
+
+func (s *Service) resolveCRAnchorsWithOptions(cr *model.CR, opts CRAnchorResolveOptions) (*crAnchorResolution, error) {
 	if cr == nil {
 		return nil, fmt.Errorf("cr is required")
 	}
@@ -181,7 +189,13 @@ func (s *Service) resolveCRAnchors(cr *model.CR) (*crAnchorResolution, error) {
 		baseRef: strings.TrimSpace(nonEmptyTrimmed(cr.BaseRef, cr.BaseBranch)),
 	}
 
-	if strings.TrimSpace(cr.BaseCommit) != "" {
+	if opts.AllowMetadataOnlyHeadFallback {
+		resolvedBase, err := s.resolveCRBaseAnchor(cr)
+		if err != nil {
+			return nil, fmt.Errorf("resolve base anchor for CR %d: %w", cr.ID, err)
+		}
+		res.baseCommit = strings.TrimSpace(resolvedBase)
+	} else if strings.TrimSpace(cr.BaseCommit) != "" {
 		res.baseCommit = strings.TrimSpace(cr.BaseCommit)
 	} else {
 		if res.baseRef == "" {
@@ -225,6 +239,17 @@ func (s *Service) resolveCRAnchors(cr *model.CR) (*crAnchorResolution, error) {
 		res.headRef = merged
 		res.headCommit = merged
 		res.warnings = append(res.warnings, "CR branch is unavailable; using merged commit as head anchor")
+	}
+
+	if strings.TrimSpace(res.headCommit) == "" && opts.AllowMetadataOnlyHeadFallback && cr.Status == model.StatusInProgress {
+		if strings.TrimSpace(res.baseCommit) != "" {
+			res.headRef = strings.TrimSpace(res.baseCommit)
+			res.headCommit = strings.TrimSpace(res.baseCommit)
+			res.warnings = append(res.warnings,
+				"CR branch is unavailable; using base anchor as metadata-only head preview",
+				fmt.Sprintf("Run `sophia cr switch %d` to recreate the branch from base", cr.ID),
+			)
+		}
 	}
 
 	if strings.TrimSpace(res.headCommit) == "" {
