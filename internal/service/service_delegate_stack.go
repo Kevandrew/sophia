@@ -356,6 +356,10 @@ func (s *Service) mergeBlockersForCR(cr *model.CR, validation *ValidationReport)
 		return []string{"unknown CR"}
 	}
 	blockers := make([]string, 0)
+	if cr.Status == model.StatusAbandoned {
+		blockers = append(blockers, fmt.Sprintf("CR %d is abandoned; run `sophia cr reopen %d` to resume", cr.ID, cr.ID))
+		return dedupeStrings(blockers)
+	}
 	if validation != nil {
 		for _, validationErr := range validation.Errors {
 			blockers = append(blockers, fmt.Sprintf("validation: %s", validationErr))
@@ -383,6 +387,13 @@ func (s *Service) mergeBlockersForCR(cr *model.CR, validation *ValidationReport)
 	crDrift := summarizeCRContractDrift(cr.ContractDrifts)
 	if crDrift.Unacknowledged > 0 {
 		blockers = append(blockers, fmt.Sprintf("CR contract drift has %d unacknowledged record(s): %s", crDrift.Unacknowledged, formatDriftIDList(crDrift.UnacknowledgedDriftIDs)))
+	}
+	if policy, policyErr := s.repoPolicy(); policyErr == nil && policyMergeMode(policy) == "pr_gate" && cr.Status == model.StatusInProgress {
+		if prStatus, statusErr := s.PRStatus(cr.ID); statusErr == nil && prStatus != nil && prStatus.GateBlocked {
+			for _, reason := range prStatus.GateReasons {
+				blockers = append(blockers, fmt.Sprintf("pr gate: %s", strings.TrimSpace(reason)))
+			}
+		}
 	}
 	return dedupeStrings(blockers)
 }

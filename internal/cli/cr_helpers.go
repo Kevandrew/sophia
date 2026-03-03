@@ -339,10 +339,10 @@ func normalizeCRStatusFilter(raw string) (string, error) {
 		return "", nil
 	}
 	switch value {
-	case model.StatusInProgress, model.StatusMerged:
+	case model.StatusInProgress, model.StatusMerged, model.StatusAbandoned:
 		return value, nil
 	default:
-		return "", fmt.Errorf("invalid --status %q (expected %s or %s)", raw, model.StatusInProgress, model.StatusMerged)
+		return "", fmt.Errorf("invalid --status %q (expected %s, %s, or %s)", raw, model.StatusInProgress, model.StatusMerged, model.StatusAbandoned)
 	}
 }
 
