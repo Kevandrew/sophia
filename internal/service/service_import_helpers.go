@@ -10,8 +10,8 @@ func normalizeImportMode(raw string) (string, error) {
 	if mode == "" {
 		mode = importModeCreate
 	}
-	if mode != importModeCreate && mode != importModeReplace {
-		return "", fmt.Errorf("invalid import mode %q (expected create or replace)", mode)
+	if mode != importModeCreate && mode != importModeReplace && mode != importModeMerge {
+		return "", fmt.Errorf("invalid import mode %q (expected create, replace, or merge)", mode)
 	}
 	return mode, nil
 }
