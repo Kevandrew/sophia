@@ -87,7 +87,12 @@ Invalid `merge.mode` values return deterministic `policy_invalid` failures.
   - Archive file format. Current supported value: `yaml`.
   - Default: `yaml`.
 - `archive.include_full_diffs`
-  - Parsed for forward compatibility, but full diff embedding is not implemented in v1 archive generation.
+  - Enables archive v2 full diff snapshots in generated archive documents.
+  - When `true`, Sophia emits `schema_version: sophia.cr_archive.v2` and includes `full_diff` with:
+    - `encoding: git_unified_patch`
+    - `bytes`: normalized patch size
+    - `patch`: deterministic unified diff payload
+  - Guardrail: full diff payloads over `8 MiB` fail archive generation with a deterministic error and no partial archive write.
   - Default: `false`.
 
 Archive semantics:
@@ -95,7 +100,8 @@ Archive semantics:
 - Archives are append-only snapshots named `cr-<id>.vN.yaml`.
 - Existing revisions are never rewritten; corrections are new revisions.
 - Archives are intended for historical lookback and automation-friendly records.
-- In `merge.mode=pr_gate`, `v1` archive artifact is staged/committed to the CR branch before PR sync so final review includes archive output.
+- In `merge.mode=pr_gate`, an archive artifact is staged/committed to the CR branch before PR sync so final review includes archive output.
+- Archive revision filenames remain `cr-<id>.vN.yaml`; schema version inside the document indicates v1 vs v2 payload structure.
 
 ## Trust Policy
 
