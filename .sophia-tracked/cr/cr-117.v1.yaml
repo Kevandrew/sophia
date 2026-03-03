@@ -1,0 +1,160 @@
+schema_version: sophia.cr_archive.v1
+notice: Historical archive snapshot. Corrections are append-only revisions.
+archived_at: "2026-03-03T00:57:56Z"
+revision: 1
+cr:
+    id: 117
+    uid: cr_6406dd23-e2f8-4b3b-8b02-f191c0e782a5
+    title: Add CR show control action sub-navbar
+    description: Add a cohesive secondary control-panel navbar under the main navbar in cr show/dashboard for PR publish/sync, refresh, validate, review, merge, and pull actions.
+    status: merged
+    base_branch: main
+    base_ref: main
+    base_commit: 17ae5fd3d27af3759986bdba9a75dfa07c82b262
+    branch: cr-add-cr-show-control-action-sub-navbar-6406
+    merged_at: "2026-03-03T00:57:56Z"
+    merged_by: Kevandrew <143258544+Kevandrew@users.noreply.github.com>
+contract:
+    why: |-
+        The current cr show UI requires terminal-centric operation for core lifecycle controls. This CR adds an in-page control action bar so operators can steer agent work without leaving the dashboard context. The goal is faster steering and fewer context switches while preserving Sophia as the source of truth and audit trail.
+
+        The control panel will be a secondary sticky navbar directly beneath the existing top navbar, matching the local control-plane visual language. Actions are weighted by importance rather than identical button emphasis, so merge/publish/sync remain visually distinct from lower-risk controls. Mobile behavior will preserve usability via horizontal overflow or compact wrapping rather than forced equal-width 7-up buttons.
+
+        Success criteria: operators can invoke publish PR, PR sync, refresh, validate, review, merge, and pull actions from the page; each action has clear preflight/confirmation where needed; command execution status and errors are visible inline; and UI styling remains cohesive with the current cr show/dashboard design system.
+    scope:
+        - internal/cli/cr_cmd_show.go
+        - internal/cli/cr_show_test.go
+        - internal/cli/templates/cr_list.html
+        - internal/cli/templates/cr_show.html
+    non_goals:
+        - No full in-browser terminal or arbitrary command runner.
+        - No replacement of Sophia CLI semantics or merge policy enforcement.
+        - No unrelated visual redesign outside control-bar integration.
+    invariants:
+        - All control actions map to explicit Sophia/Git commands with visible outcomes.
+        - Control bar remains visually cohesive with existing local flow and sticky navbar structure.
+        - Risky actions require confirmation and must not execute silently.
+    blast_radius: Adds mutating control actions to localhost preview UI, new command invocation endpoints in cr show server path, and additional UI state for action progress/error/confirmation across per-CR and dashboard modes.
+    test_plan: go test ./internal/cli -run TestCRShow -count=1 && go test ./internal/cli -run TestCRListTemplate -count=1 && go test ./internal/cli -run TestCRShowTemplate -count=1
+    rollback_plan: Revert CR 117 merge commit to remove control actions and restore read-only cr show behavior.
+tasks:
+    - id: 1
+      title: Add sticky secondary control-navbar under main navbar
+      status: done
+      contract:
+        intent: Introduce a cohesive control-panel bar beneath the top navbar for CR steering actions.
+        acceptance_criteria:
+            - Actions are weighted by priority, not seven identical visual buttons.
+            - Per-CR and dashboard templates render a secondary sticky action bar under the existing navbar.
+            - The bar visually matches current typography, spacing, and color system.
+        scope:
+            - internal/cli/templates/cr_list.html
+            - internal/cli/templates/cr_show.html
+      checkpoint:
+        commit: 87df8100
+        at: "2026-03-03T00:38:56Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/templates/cr_list.html
+            - internal/cli/templates/cr_show.html
+    - id: 2
+      title: Wire control actions to Sophia command handlers in show server
+      status: done
+      contract:
+        intent: Expose server-side action endpoints that execute the allowed control-plane commands for the active CR.
+        acceptance_criteria:
+            - Endpoints exist for publish PR, PR sync, refresh, validate, review, merge, and pull operations.
+            - Execution scope is limited to intended commands only.
+            - Per-action responses include success/failure status, command summary, and actionable error text.
+        scope:
+            - internal/cli/cr_cmd_show.go
+      checkpoint:
+        commit: 7a1364f2
+        at: "2026-03-03T00:42:11Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/cr_cmd_show.go
+    - id: 3
+      title: Add confirmation and preflight gating for risky actions
+      status: done
+      contract:
+        intent: Protect risky controls from accidental execution and surface blockers before running.
+        acceptance_criteria:
+            - Merge and publish actions require explicit confirmation in UI.
+            - No silent mutations occur from accidental clicks.
+            - Preflight checks surface blocking state (dirty tree, missing checks, gate failures) before execution.
+        scope:
+            - internal/cli/cr_cmd_show.go
+            - internal/cli/templates/cr_list.html
+            - internal/cli/templates/cr_show.html
+      checkpoint:
+        commit: a88f10d6
+        at: "2026-03-03T00:44:28Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/templates/cr_list.html
+            - internal/cli/templates/cr_show.html
+    - id: 4
+      title: Show action run status and errors inline in control panel
+      status: done
+      contract:
+        intent: Provide immediate operator feedback for control actions without leaving page context.
+        acceptance_criteria:
+            - Failure output is concise and includes next-step guidance where possible.
+            - Recent action results remain visible until superseded.
+            - UI displays in-progress, success, and failure states per action.
+        scope:
+            - internal/cli/templates/cr_list.html
+            - internal/cli/templates/cr_show.html
+      checkpoint:
+        commit: c7a985cf
+        at: "2026-03-03T00:57:16Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/templates/cr_show.html
+    - id: 5
+      title: Implement pull action semantics for control plane
+      status: done
+      contract:
+        intent: Support explicit pull/update action from dashboard with deterministic command behavior.
+        acceptance_criteria:
+            - Action supports metadata pull (sophia cr pull <id>) and local main ff-only update path per selected context.
+            - Non-fast-forward or branch conflicts are surfaced as explicit errors.
+            - UI clearly indicates which pull mode was executed.
+        scope:
+            - internal/cli/cr_cmd_show.go
+            - internal/cli/templates/cr_list.html
+            - internal/cli/templates/cr_show.html
+      checkpoint:
+        commit: d61d9b52
+        at: "2026-03-03T00:46:18Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/cr_cmd_show.go
+    - id: 6
+      title: Add regression and action-endpoint tests for control panel
+      status: done
+      contract:
+        intent: Protect existing cr show behavior while validating new control-plane mutations.
+        acceptance_criteria:
+            - Existing show template and server route tests remain green.
+            - New tests cover action endpoints success/failure and confirmation requirements.
+            - Tests verify secondary navbar presence in both templates.
+        scope:
+            - internal/cli/cr_cmd_show.go
+            - internal/cli/cr_show_test.go
+            - internal/cli/templates/cr_list.html
+            - internal/cli/templates/cr_show.html
+      checkpoint:
+        commit: 6e5cc77e
+        at: "2026-03-03T00:56:34Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/cr_show_test.go
+            - internal/cli/templates/cr_list.html
+git_summary:
+    base_parent: 17ae5fd3d27af3759986bdba9a75dfa07c82b262
+    cr_parent: c7a985cf70726ec2a5821ae5fc08355bb567bf2f
+    files_changed: []
+    diffstat:
+        summary: 0 files changed, 0 insertions(+), 0 deletions(-)
