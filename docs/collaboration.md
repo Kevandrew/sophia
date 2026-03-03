@@ -93,6 +93,8 @@ Preview merge reconciliation without mutating local CR metadata:
 sophia cr import --file cr.bundle.json --mode merge --preview --json
 ```
 
+When merge preview targets a CR UID that does not exist locally (create path), `local_cr_id` remains `0` because preview does not reserve or persist IDs.
+
 ## Flow B: Suggestion patch with preview/apply
 
 Preview first:

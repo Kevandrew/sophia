@@ -172,6 +172,8 @@ sophia cr pull [<id|uid>] [--force]
 sophia cr sync [<id|uid>] [--force]
 ```
 
+`cr import --mode merge --preview` never writes metadata; if the CR UID is new locally, JSON output returns `local_cr_id: 0` until a non-preview import persists the CR.
+
 Patch compatibility notes:
 
 - `sophia.cr_patch.v1`: `set_field`, `set_contract`, `add_note`, `add_task`, `update_task`

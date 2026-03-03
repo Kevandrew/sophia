@@ -238,6 +238,67 @@ func TestCRImportMergeJSONIncludesDeterministicSummary(t *testing.T) {
 	}
 }
 
+func TestCRImportMergePreviewCreateJSONLeavesIDUnset(t *testing.T) {
+	t.Parallel()
+	sourceDir := t.TempDir()
+	sourceSvc := service.New(sourceDir)
+	if _, err := sourceSvc.Init("main", ""); err != nil {
+		t.Fatalf("Init(source) error = %v", err)
+	}
+	sourceCR, err := sourceSvc.AddCR("CLI merge preview create", "source")
+	if err != nil {
+		t.Fatalf("AddCR(source) error = %v", err)
+	}
+	setServiceContract(t, sourceSvc, sourceCR.ID)
+	_, payload, err := sourceSvc.ExportCRBundle(sourceCR.ID, service.ExportCROptions{Format: "json"})
+	if err != nil {
+		t.Fatalf("ExportCRBundle(source) error = %v", err)
+	}
+
+	targetDir := t.TempDir()
+	targetSvc := service.New(targetDir)
+	if _, err := targetSvc.Init("main", ""); err != nil {
+		t.Fatalf("Init(target) error = %v", err)
+	}
+	bundlePath := filepath.Join(targetDir, "bundle.json")
+	if err := os.WriteFile(bundlePath, payload, 0o644); err != nil {
+		t.Fatalf("write bundle: %v", err)
+	}
+
+	previewOut, _, previewErr := runCLI(t, targetDir, "cr", "import", "--file", bundlePath, "--mode", "merge", "--preview", "--json")
+	if previewErr != nil {
+		t.Fatalf("cr import merge --preview --json error = %v\nout=%s", previewErr, previewOut)
+	}
+	previewEnv := decodeEnvelope(t, previewOut)
+	if !previewEnv.OK {
+		t.Fatalf("expected preview ok envelope, got %#v", previewEnv)
+	}
+	if preview, _ := previewEnv.Data["preview"].(bool); !preview {
+		t.Fatalf("expected preview=true, got %#v", previewEnv.Data["preview"])
+	}
+	if created, _ := previewEnv.Data["created"].(bool); !created {
+		t.Fatalf("expected created=true on preview create, got %#v", previewEnv.Data["created"])
+	}
+	if localID, _ := previewEnv.Data["local_cr_id"].(float64); int(localID) != 0 {
+		t.Fatalf("expected local_cr_id=0 on preview create, got %#v", previewEnv.Data["local_cr_id"])
+	}
+	if applied, _ := previewEnv.Data["applied"].(bool); applied {
+		t.Fatalf("expected applied=false on preview create, got %#v", previewEnv.Data["applied"])
+	}
+
+	createOut, _, createErr := runCLI(t, targetDir, "cr", "import", "--file", bundlePath, "--mode", "create", "--json")
+	if createErr != nil {
+		t.Fatalf("expected create import to succeed after preview, err=%v out=%s", createErr, createOut)
+	}
+	createEnv := decodeEnvelope(t, createOut)
+	if !createEnv.OK {
+		t.Fatalf("expected create ok envelope, got %#v", createEnv)
+	}
+	if localID, _ := createEnv.Data["local_cr_id"].(float64); int(localID) != 1 {
+		t.Fatalf("expected first persisted id to be 1, got %#v", createEnv.Data["local_cr_id"])
+	}
+}
+
 func TestCRImportMergeJSONConflictIncludesStructuredDetails(t *testing.T) {
 	t.Parallel()
 	sourceDir := t.TempDir()
