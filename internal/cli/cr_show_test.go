@@ -3,6 +3,7 @@ package cli
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -127,6 +128,8 @@ func TestCRShowTemplateIsSingleFileWithInlineAssets(t *testing.T) {
 		"Raw JSON Payload",
 		"read-only local report",
 		"id=\"close-preview-btn\"",
+		"id=\"control-actions-bar\"",
+		"data-control-action=\"merge\"",
 		"EventSource",
 		"/__sophia_events?mode=cr&id=",
 	} {
@@ -166,6 +169,8 @@ func TestCRListTemplateIsSingleFileWithInlineAssets(t *testing.T) {
 		"Raw JSON Payload",
 		"read-only local report",
 		"id=\"close-preview-btn\"",
+		"id=\"control-actions-bar\"",
+		"data-control-action=\"merge\"",
 		"EventSource",
 		"/__sophia_events?mode=dashboard",
 	} {
@@ -312,6 +317,105 @@ func TestCRShowServerSupportsDashboardAndCRRoutes(t *testing.T) {
 	_ = respMissing.Body.Close()
 	if respMissing.StatusCode != http.StatusNotFound {
 		t.Fatalf("expected /bad-route status 404, got %d", respMissing.StatusCode)
+	}
+}
+
+func TestCRShowServerControlActionEndpointSuccess(t *testing.T) {
+	t.Parallel()
+	server, err := startCRShowServerWithLiveRoutesAndActions(
+		func() (string, error) { return "<!doctype html><html><body>dashboard</body></html>", nil },
+		nil,
+		nil,
+		nil,
+		func(_ context.Context, req crShowControlActionRequest) (int, map[string]any) {
+			return http.StatusOK, map[string]any{
+				"ok":      true,
+				"action":  req.Action,
+				"summary": "action completed",
+			}
+		},
+	)
+	if err != nil {
+		t.Fatalf("startCRShowServerWithLiveRoutesAndActions() error = %v", err)
+	}
+	defer server.Shutdown()
+
+	resp, body := postCRShowAction(t, server.URL, `{"action":"refresh","cr_id":7}`)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected status 200, got %d body=%v", resp.StatusCode, body)
+	}
+	if got, _ := body["ok"].(bool); !got {
+		t.Fatalf("expected ok=true, got %#v", body["ok"])
+	}
+	if got, _ := body["summary"].(string); got != "action completed" {
+		t.Fatalf("expected summary action completed, got %#v", body["summary"])
+	}
+}
+
+func TestCRShowServerControlActionEndpointFailure(t *testing.T) {
+	t.Parallel()
+	server, err := startCRShowServerWithLiveRoutesAndActions(
+		func() (string, error) { return "<!doctype html><html><body>dashboard</body></html>", nil },
+		nil,
+		nil,
+		nil,
+		func(_ context.Context, req crShowControlActionRequest) (int, map[string]any) {
+			return http.StatusConflict, map[string]any{
+				"ok":     false,
+				"action": req.Action,
+				"error":  "blocked by test",
+			}
+		},
+	)
+	if err != nil {
+		t.Fatalf("startCRShowServerWithLiveRoutesAndActions() error = %v", err)
+	}
+	defer server.Shutdown()
+
+	resp, body := postCRShowAction(t, server.URL, `{"action":"merge","cr_id":7}`)
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("expected status 409, got %d body=%v", resp.StatusCode, body)
+	}
+	if got, _ := body["ok"].(bool); got {
+		t.Fatalf("expected ok=false, got %#v", body["ok"])
+	}
+	if got, _ := body["error"].(string); got != "blocked by test" {
+		t.Fatalf("expected blocked-by-test error, got %#v", body["error"])
+	}
+}
+
+func TestCRShowServerControlActionRequiresConfirmation(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	svc := service.New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	if _, _, err := svc.AddCRWithOptionsWithWarnings("Control action test", "confirmation preflight", service.AddCROptions{NoSwitch: true}); err != nil {
+		t.Fatalf("AddCRWithOptionsWithWarnings() error = %v", err)
+	}
+
+	server, err := startCRShowServerWithLiveRoutesAndActions(
+		func() (string, error) { return "<!doctype html><html><body>dashboard</body></html>", nil },
+		nil,
+		nil,
+		nil,
+		newCRShowControlActionHandler(svc),
+	)
+	if err != nil {
+		t.Fatalf("startCRShowServerWithLiveRoutesAndActions() error = %v", err)
+	}
+	defer server.Shutdown()
+
+	resp, body := postCRShowAction(t, server.URL, `{"action":"merge","cr_id":1}`)
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("expected status 409, got %d body=%v", resp.StatusCode, body)
+	}
+	if got, _ := body["requires_confirmation"].(bool); !got {
+		t.Fatalf("expected requires_confirmation=true, got %#v", body["requires_confirmation"])
+	}
+	if _, ok := body["preflight"].(map[string]any); !ok {
+		t.Fatalf("expected preflight payload, got %#v", body["preflight"])
 	}
 }
 
@@ -566,4 +670,29 @@ func readSSEEvent(reader *bufio.Reader) (string, string, error) {
 			dataLines = append(dataLines, strings.TrimSpace(strings.TrimPrefix(trimmed, "data:")))
 		}
 	}
+}
+
+func postCRShowAction(t *testing.T, serverURL string, payload string) (*http.Response, map[string]any) {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodPost, strings.TrimRight(serverURL, "/")+"/__sophia_action", strings.NewReader(payload))
+	if err != nil {
+		t.Fatalf("NewRequest() error = %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("POST /__sophia_action error = %v", err)
+	}
+	t.Cleanup(func() { _ = resp.Body.Close() })
+	raw, readErr := io.ReadAll(resp.Body)
+	if readErr != nil {
+		t.Fatalf("ReadAll() error = %v", readErr)
+	}
+	var body map[string]any
+	if len(raw) == 0 {
+		body = map[string]any{}
+	} else if err := json.Unmarshal(raw, &body); err != nil {
+		t.Fatalf("Unmarshal() error = %v raw=%q", err, string(raw))
+	}
+	return resp, body
 }
