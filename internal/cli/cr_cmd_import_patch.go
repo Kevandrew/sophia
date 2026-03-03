@@ -186,7 +186,11 @@ func printCRImportResult(cmd *cobra.Command, result *service.ImportCRBundleResul
 	case result.Merged:
 		action = "merged"
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "Imported CR %d (%s) from bundle (%s)\n", result.LocalCRID, result.CRUID, action)
+	if result.LocalCRID > 0 {
+		fmt.Fprintf(cmd.OutOrStdout(), "Imported CR %d (%s) from bundle (%s)\n", result.LocalCRID, result.CRUID, action)
+	} else {
+		fmt.Fprintf(cmd.OutOrStdout(), "Imported CR (pending local id) (%s) from bundle (%s)\n", result.CRUID, action)
+	}
 	if result.Merged || result.Preview {
 		fmt.Fprintf(cmd.OutOrStdout(), "Changed fields: %d\n", len(result.ChangedFields))
 		fmt.Fprintf(cmd.OutOrStdout(), "Conflicts: %d\n", result.ConflictCount)
