@@ -146,7 +146,7 @@ func runCRShowPerCR(cmd *cobra.Command, asJSON bool, noOpen bool, svc *service.S
 	closeReason := ""
 	var server *crShowServer
 	if openAttempted {
-		server, err = startCRShowServerWithRoutes(
+		server, err = startCRShowServerWithLiveRoutes(
 			func() (string, error) {
 				livePayload, _, snapshotErr := buildCRDashboardSnapshot(svc, model.CRSearchQuery{}, defaultCRListLimit, defaultCRTimelineLimit, id)
 				if snapshotErr != nil {
@@ -160,6 +160,20 @@ func runCRShowPerCR(cmd *cobra.Command, asJSON bool, noOpen bool, svc *service.S
 					return "", snapshotErr
 				}
 				return buildCRShowHTMLDocument(embeddedCRShowHTMLTemplate, livePayload)
+			},
+			func() (map[string]any, error) {
+				livePayload, _, snapshotErr := buildCRDashboardSnapshot(svc, model.CRSearchQuery{}, defaultCRListLimit, defaultCRTimelineLimit, id)
+				if snapshotErr != nil {
+					return nil, snapshotErr
+				}
+				return livePayload, nil
+			},
+			func(routeCRID int) (map[string]any, error) {
+				_, livePayload, snapshotErr := buildCRShowSnapshot(svc, routeCRID, eventsLimit, checkpointsLimit)
+				if snapshotErr != nil {
+					return nil, snapshotErr
+				}
+				return livePayload, nil
 			},
 		)
 		if err != nil {
@@ -232,7 +246,7 @@ func runCRShowDashboard(cmd *cobra.Command, asJSON bool, noOpen bool, svc *servi
 	closeReason := ""
 	var server *crShowServer
 	if openAttempted {
-		server, err = startCRShowServerWithRoutes(
+		server, err = startCRShowServerWithLiveRoutes(
 			func() (string, error) {
 				livePayload, _, snapshotErr := buildCRDashboardSnapshot(svc, query, listLimit, timelineLimit, selectedHint)
 				if snapshotErr != nil {
@@ -246,6 +260,20 @@ func runCRShowDashboard(cmd *cobra.Command, asJSON bool, noOpen bool, svc *servi
 					return "", snapshotErr
 				}
 				return buildCRShowHTMLDocument(embeddedCRShowHTMLTemplate, livePayload)
+			},
+			func() (map[string]any, error) {
+				livePayload, _, snapshotErr := buildCRDashboardSnapshot(svc, query, listLimit, timelineLimit, selectedHint)
+				if snapshotErr != nil {
+					return nil, snapshotErr
+				}
+				return livePayload, nil
+			},
+			func(routeCRID int) (map[string]any, error) {
+				_, livePayload, snapshotErr := buildCRShowSnapshot(svc, routeCRID, eventsLimit, checkpointsLimit)
+				if snapshotErr != nil {
+					return nil, snapshotErr
+				}
+				return livePayload, nil
 			},
 		)
 		if err != nil {
@@ -575,11 +603,23 @@ type crShowServer struct {
 	listener   net.Listener
 }
 
+type crShowSnapshotRenderer func() (map[string]any, error)
+type crShowCRSnapshotRenderer func(id int) (map[string]any, error)
+
 func startCRShowServer(render func() (string, error)) (*crShowServer, error) {
 	return startCRShowServerWithRoutes(render, nil)
 }
 
 func startCRShowServerWithRoutes(renderRoot func() (string, error), renderCR func(id int) (string, error)) (*crShowServer, error) {
+	return startCRShowServerWithLiveRoutes(renderRoot, renderCR, nil, nil)
+}
+
+func startCRShowServerWithLiveRoutes(
+	renderRoot func() (string, error),
+	renderCR func(id int) (string, error),
+	snapshotRoot crShowSnapshotRenderer,
+	snapshotCR crShowCRSnapshotRenderer,
+) (*crShowServer, error) {
 	if renderRoot == nil {
 		return nil, fmt.Errorf("render callback is required")
 	}
@@ -607,23 +647,11 @@ func startCRShowServerWithRoutes(renderRoot func() (string, error), renderCR fun
 			id, parseErr := strconv.Atoi(path)
 			if parseErr != nil || id <= 0 {
 				http.NotFound(w, r)
-type crShowSnapshotRenderer func() (map[string]any, error)
-type crShowCRSnapshotRenderer func(id int) (map[string]any, error)
-
 				return
 			}
 			render = func() (string, error) {
 				return renderCR(id)
 			}
-	return startCRShowServerWithLiveRoutes(renderRoot, renderCR, nil, nil)
-}
-
-func startCRShowServerWithLiveRoutes(
-	renderRoot func() (string, error),
-	renderCR func(id int) (string, error),
-	snapshotRoot crShowSnapshotRenderer,
-	snapshotCR crShowCRSnapshotRenderer,
-) (*crShowServer, error) {
 		}
 		htmlDoc, renderErr := render()
 		if renderErr != nil {
@@ -645,38 +673,6 @@ func startCRShowServerWithLiveRoutes(
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"ok":true}`))
 	})
-	mux.HandleFunc("/favicon.ico", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusNoContent)
-	})
-	srv.server = &http.Server{
-		Handler:           mux,
-		ReadHeaderTimeout: 5 * time.Second,
-	}
-
-	go func() {
-		_ = srv.server.Serve(listener)
-	}()
-	return srv, nil
-}
-
-func (s *crShowServer) WaitForFirstRender(timeout time.Duration) bool {
-	if s == nil {
-		return false
-	}
-	if timeout <= 0 {
-		timeout = 10 * time.Second
-	}
-	select {
-	case <-s.renderedCh:
-		return true
-	case <-time.After(timeout):
-		return false
-	}
-}
-
-func (s *crShowServer) Shutdown() {
-	if s == nil || s.server == nil {
-		return
 	mux.HandleFunc("/__sophia_events", func(w http.ResponseWriter, r *http.Request) {
 		if snapshotRoot == nil && snapshotCR == nil {
 			http.NotFound(w, r)
@@ -778,20 +774,20 @@ func (s *crShowServer) Shutdown() {
 			}
 		}
 	})
+	mux.HandleFunc("/favicon.ico", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})
+	srv.server = &http.Server{
+		Handler:           mux,
+		ReadHeaderTimeout: 5 * time.Second,
 	}
-	s.signalClose("server_shutdown")
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	_ = s.server.Shutdown(ctx)
+
+	go func() {
+		_ = srv.server.Serve(listener)
+	}()
+	return srv, nil
 }
 
-func (s *crShowServer) signalClose(reason string) {
-	if s == nil {
-		return
-	}
-	s.closeOnce.Do(func() {
-		s.closedCh <- nonEmpty(strings.TrimSpace(reason), "closed")
-		close(s.closedCh)
 func resolveCRShowSnapshotRenderer(
 	r *http.Request,
 	snapshotRoot crShowSnapshotRenderer,
@@ -864,6 +860,38 @@ func writeSSEEvent(w io.Writer, event string, payload []byte) error {
 	return err
 }
 
+func (s *crShowServer) WaitForFirstRender(timeout time.Duration) bool {
+	if s == nil {
+		return false
+	}
+	if timeout <= 0 {
+		timeout = 10 * time.Second
+	}
+	select {
+	case <-s.renderedCh:
+		return true
+	case <-time.After(timeout):
+		return false
+	}
+}
+
+func (s *crShowServer) Shutdown() {
+	if s == nil || s.server == nil {
+		return
+	}
+	s.signalClose("server_shutdown")
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	_ = s.server.Shutdown(ctx)
+}
+
+func (s *crShowServer) signalClose(reason string) {
+	if s == nil {
+		return
+	}
+	s.closeOnce.Do(func() {
+		s.closedCh <- nonEmpty(strings.TrimSpace(reason), "closed")
+		close(s.closedCh)
 	})
 }
 
