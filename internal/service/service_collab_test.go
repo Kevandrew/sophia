@@ -50,6 +50,129 @@ func TestExportIncludesFingerprintDeterministic(t *testing.T) {
 	}
 }
 
+func TestImportCRBundleAutoDetectYAMLAndNDJSON(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name   string
+		format string
+		ext    string
+	}{
+		{name: "yaml", format: "yaml", ext: ".yaml"},
+		{name: "ndjson", format: "ndjson", ext: ".ndjson"},
+	} {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			sourceDir := t.TempDir()
+			sourceSvc := New(sourceDir)
+			if _, err := sourceSvc.Init("main", ""); err != nil {
+				t.Fatalf("Init(source) error = %v", err)
+			}
+
+			sourceCR, err := sourceSvc.AddCR("Collab import "+tc.name, "multi-format import")
+			if err != nil {
+				t.Fatalf("AddCR(source) error = %v", err)
+			}
+			setValidContract(t, sourceSvc, sourceCR.ID)
+			if err := sourceSvc.AddNote(sourceCR.ID, "seed-note"); err != nil {
+				t.Fatalf("AddNote(source) error = %v", err)
+			}
+
+			_, payload, err := sourceSvc.ExportCRBundle(sourceCR.ID, ExportCROptions{Format: tc.format})
+			if err != nil {
+				t.Fatalf("ExportCRBundle(source) error = %v", err)
+			}
+
+			targetDir := t.TempDir()
+			targetSvc := New(targetDir)
+			if _, err := targetSvc.Init("main", ""); err != nil {
+				t.Fatalf("Init(target) error = %v", err)
+			}
+
+			bundlePath := filepath.Join(targetDir, "bundle"+tc.ext)
+			if err := os.WriteFile(bundlePath, payload, 0o644); err != nil {
+				t.Fatalf("write bundle: %v", err)
+			}
+
+			createResult, err := targetSvc.ImportCRBundle(ImportCRBundleOptions{
+				FilePath: bundlePath,
+				Mode:     "create",
+				Format:   "auto",
+			})
+			if err != nil {
+				t.Fatalf("ImportCRBundle(create %s auto) error = %v", tc.name, err)
+			}
+			if !createResult.Created || !createResult.Applied {
+				t.Fatalf("expected created+applied import result, got %#v", createResult)
+			}
+
+			if err := sourceSvc.AddNote(sourceCR.ID, "remote-update"); err != nil {
+				t.Fatalf("AddNote(source update) error = %v", err)
+			}
+			_, updatedPayload, err := sourceSvc.ExportCRBundle(sourceCR.ID, ExportCROptions{Format: tc.format})
+			if err != nil {
+				t.Fatalf("ExportCRBundle(updated source) error = %v", err)
+			}
+			if err := os.WriteFile(bundlePath, updatedPayload, 0o644); err != nil {
+				t.Fatalf("rewrite bundle: %v", err)
+			}
+
+			mergeResult, err := targetSvc.ImportCRBundle(ImportCRBundleOptions{
+				FilePath: bundlePath,
+				Mode:     "merge",
+				Format:   "auto",
+			})
+			if err != nil {
+				t.Fatalf("ImportCRBundle(merge %s auto) error = %v", tc.name, err)
+			}
+			if !mergeResult.Merged || !mergeResult.Applied {
+				t.Fatalf("expected merged+applied merge result, got %#v", mergeResult)
+			}
+			if mergeResult.ConflictCount != 0 {
+				t.Fatalf("expected zero merge conflicts, got %#v", mergeResult)
+			}
+		})
+	}
+}
+
+func TestImportCRBundleRejectsExplicitFormatMismatch(t *testing.T) {
+	t.Parallel()
+	sourceDir := t.TempDir()
+	sourceSvc := New(sourceDir)
+	if _, err := sourceSvc.Init("main", ""); err != nil {
+		t.Fatalf("Init(source) error = %v", err)
+	}
+
+	sourceCR, err := sourceSvc.AddCR("Collab import mismatch", "explicit format mismatch")
+	if err != nil {
+		t.Fatalf("AddCR(source) error = %v", err)
+	}
+	setValidContract(t, sourceSvc, sourceCR.ID)
+
+	_, payload, err := sourceSvc.ExportCRBundle(sourceCR.ID, ExportCROptions{Format: "yaml"})
+	if err != nil {
+		t.Fatalf("ExportCRBundle(source yaml) error = %v", err)
+	}
+
+	targetDir := t.TempDir()
+	targetSvc := New(targetDir)
+	if _, err := targetSvc.Init("main", ""); err != nil {
+		t.Fatalf("Init(target) error = %v", err)
+	}
+	bundlePath := filepath.Join(targetDir, "bundle.yaml")
+	if err := os.WriteFile(bundlePath, payload, 0o644); err != nil {
+		t.Fatalf("write bundle: %v", err)
+	}
+
+	if _, err := targetSvc.ImportCRBundle(ImportCRBundleOptions{
+		FilePath: bundlePath,
+		Mode:     "create",
+		Format:   "json",
+	}); err == nil {
+		t.Fatalf("expected explicit format mismatch error")
+	}
+}
+
 func TestPatchApplyNonOverlappingChangesAutoMerge(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()

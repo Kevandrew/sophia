@@ -2,10 +2,13 @@ package service
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 func TestExportCRBundleDeterministicJSON(t *testing.T) {
@@ -139,5 +142,174 @@ func TestExportCRBundleRejectsInvalidInclude(t *testing.T) {
 
 	if _, _, err := svc.ExportCRBundle(cr.ID, ExportCROptions{Format: "json", Include: []string{"unknown"}}); err == nil {
 		t.Fatalf("expected invalid include error")
+	}
+}
+
+func TestExportCRBundleSupportsYAMLAndNDJSONDeterministic(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	runGit(t, dir, "config", "user.name", "Test User")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+
+	cr, err := svc.AddCR("Export formats", "yaml and ndjson")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	setValidContract(t, svc, cr.ID)
+
+	task, err := svc.AddTask(cr.ID, "feat: format export fixture")
+	if err != nil {
+		t.Fatalf("AddTask() error = %v", err)
+	}
+	intent := "Create checkpoint commit for multi-format export."
+	acceptance := []string{"checkpoint exists"}
+	scope := []string{"formats.txt"}
+	if _, err := svc.SetTaskContract(cr.ID, task.ID, TaskContractPatch{
+		Intent:             &intent,
+		AcceptanceCriteria: &acceptance,
+		Scope:              &scope,
+	}); err != nil {
+		t.Fatalf("SetTaskContract() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "formats.txt"), []byte("formats\n"), 0o644); err != nil {
+		t.Fatalf("write formats.txt: %v", err)
+	}
+	if _, err := svc.DoneTaskWithCheckpoint(cr.ID, task.ID, DoneTaskOptions{Checkpoint: true, FromContract: true}); err != nil {
+		t.Fatalf("DoneTaskWithCheckpoint() error = %v", err)
+	}
+
+	for _, format := range []string{"yaml", "ndjson"} {
+		_, payloadA, err := svc.ExportCRBundle(cr.ID, ExportCROptions{Format: format, Include: []string{"diffs"}})
+		if err != nil {
+			t.Fatalf("ExportCRBundle(%s A) error = %v", format, err)
+		}
+		_, payloadB, err := svc.ExportCRBundle(cr.ID, ExportCROptions{Format: format, Include: []string{"diffs"}})
+		if err != nil {
+			t.Fatalf("ExportCRBundle(%s B) error = %v", format, err)
+		}
+		if !bytes.Equal(payloadA, payloadB) {
+			t.Fatalf("expected deterministic %s payload bytes", format)
+		}
+		if len(payloadA) == 0 {
+			t.Fatalf("expected non-empty %s payload", format)
+		}
+		if format == "yaml" {
+			var decoded map[string]any
+			if err := yaml.Unmarshal(payloadA, &decoded); err != nil {
+				t.Fatalf("decode yaml export: %v", err)
+			}
+			if got, _ := decoded["schema_version"].(string); got != exportSchemaV1 {
+				t.Fatalf("expected schema %q, got %#v", exportSchemaV1, decoded["schema_version"])
+			}
+		}
+		if format == "ndjson" {
+			lines := strings.Split(strings.TrimSpace(string(payloadA)), "\n")
+			if len(lines) < 2 {
+				t.Fatalf("expected multiple ndjson records, got %d", len(lines))
+			}
+			var first map[string]any
+			if err := json.Unmarshal([]byte(lines[0]), &first); err != nil {
+				t.Fatalf("decode ndjson meta line: %v", err)
+			}
+			if got, _ := first["type"].(string); got != "meta" {
+				t.Fatalf("expected first ndjson record type meta, got %#v", first["type"])
+			}
+		}
+	}
+}
+
+func TestExportCRBundleRichIncludesPopulateSections(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	runGit(t, dir, "config", "user.name", "Test User")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+
+	cr, err := svc.AddCR("Export includes", "rich include sections")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	setValidContract(t, svc, cr.ID)
+	if _, err := svc.AddEvidence(cr.ID, AddEvidenceOptions{
+		Type:    "manual_note",
+		Summary: "evidence note",
+	}); err != nil {
+		t.Fatalf("AddEvidence() error = %v", err)
+	}
+
+	task, err := svc.AddTask(cr.ID, "feat: include fixture")
+	if err != nil {
+		t.Fatalf("AddTask() error = %v", err)
+	}
+	intent := "Create checkpoint for include projection."
+	acceptance := []string{"checkpoint exists"}
+	scope := []string{"include.txt"}
+	if _, err := svc.SetTaskContract(cr.ID, task.ID, TaskContractPatch{
+		Intent:             &intent,
+		AcceptanceCriteria: &acceptance,
+		Scope:              &scope,
+	}); err != nil {
+		t.Fatalf("SetTaskContract() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "include.txt"), []byte("include\n"), 0o644); err != nil {
+		t.Fatalf("write include.txt: %v", err)
+	}
+	if _, err := svc.DoneTaskWithCheckpoint(cr.ID, task.ID, DoneTaskOptions{Checkpoint: true, FromContract: true}); err != nil {
+		t.Fatalf("DoneTaskWithCheckpoint() error = %v", err)
+	}
+
+	include := []string{"diffs", "evidence", "events", "anchors", "checkpoints", "trust", "validation"}
+	bundle, _, err := svc.ExportCRBundle(cr.ID, ExportCROptions{Format: "json", Include: include})
+	if err != nil {
+		t.Fatalf("ExportCRBundle() error = %v", err)
+	}
+	if bundle.Sections == nil {
+		t.Fatalf("expected sections projection for rich includes")
+	}
+	if len(bundle.Sections.TaskDiffs) == 0 {
+		t.Fatalf("expected sections.task_diffs")
+	}
+	if len(bundle.Sections.Evidence) == 0 {
+		t.Fatalf("expected sections.evidence")
+	}
+	if len(bundle.Sections.Events) == 0 {
+		t.Fatalf("expected sections.events")
+	}
+	if bundle.Sections.Anchors == nil {
+		t.Fatalf("expected sections.anchors")
+	}
+	if len(bundle.Sections.Checkpoints) == 0 {
+		t.Fatalf("expected sections.checkpoints")
+	}
+	if bundle.Sections.Trust == nil {
+		t.Fatalf("expected sections.trust")
+	}
+	if bundle.Sections.Validation == nil {
+		t.Fatalf("expected sections.validation")
+	}
+}
+
+func TestExportCRBundleRejectsInvalidFormat(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	cr, err := svc.AddCR("Export invalid format", "invalid format")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	setValidContract(t, svc, cr.ID)
+
+	if _, _, err := svc.ExportCRBundle(cr.ID, ExportCROptions{Format: "toml"}); err == nil {
+		t.Fatalf("expected invalid format error")
 	}
 }

@@ -101,6 +101,95 @@ func TestCRImportAndPatchJSONCommands(t *testing.T) {
 	}
 }
 
+func TestCRImportAutoDetectYAMLAndNDJSONFormats(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name   string
+		format string
+		ext    string
+	}{
+		{name: "yaml", format: "yaml", ext: ".yaml"},
+		{name: "ndjson", format: "ndjson", ext: ".ndjson"},
+	} {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			sourceDir := t.TempDir()
+			sourceSvc := service.New(sourceDir)
+			if _, err := sourceSvc.Init("main", ""); err != nil {
+				t.Fatalf("Init(source) error = %v", err)
+			}
+
+			sourceCR, err := sourceSvc.AddCR("CLI collab "+tc.name, "source")
+			if err != nil {
+				t.Fatalf("AddCR(source) error = %v", err)
+			}
+			setServiceContract(t, sourceSvc, sourceCR.ID)
+			_, payload, err := sourceSvc.ExportCRBundle(sourceCR.ID, service.ExportCROptions{Format: tc.format})
+			if err != nil {
+				t.Fatalf("ExportCRBundle(%s) error = %v", tc.name, err)
+			}
+
+			targetDir := t.TempDir()
+			targetSvc := service.New(targetDir)
+			if _, err := targetSvc.Init("main", ""); err != nil {
+				t.Fatalf("Init(target) error = %v", err)
+			}
+
+			bundlePath := filepath.Join(targetDir, "bundle"+tc.ext)
+			if err := os.WriteFile(bundlePath, payload, 0o644); err != nil {
+				t.Fatalf("write bundle: %v", err)
+			}
+
+			importOut, _, importErr := runCLI(t, targetDir, "cr", "import", "--file", bundlePath, "--mode", "create", "--format", "auto", "--json")
+			if importErr != nil {
+				t.Fatalf("cr import %s --format auto --json error = %v\nout=%s", tc.name, importErr, importOut)
+			}
+			importEnv := decodeEnvelope(t, importOut)
+			if !importEnv.OK {
+				t.Fatalf("expected import ok envelope, got %#v", importEnv)
+			}
+			if created, _ := importEnv.Data["created"].(bool); !created {
+				t.Fatalf("expected created=true, got %#v", importEnv.Data["created"])
+			}
+		})
+	}
+}
+
+func TestCRImportExplicitFormatMismatchFails(t *testing.T) {
+	t.Parallel()
+	sourceDir := t.TempDir()
+	sourceSvc := service.New(sourceDir)
+	if _, err := sourceSvc.Init("main", ""); err != nil {
+		t.Fatalf("Init(source) error = %v", err)
+	}
+
+	sourceCR, err := sourceSvc.AddCR("CLI collab mismatch", "source")
+	if err != nil {
+		t.Fatalf("AddCR(source) error = %v", err)
+	}
+	setServiceContract(t, sourceSvc, sourceCR.ID)
+	_, payload, err := sourceSvc.ExportCRBundle(sourceCR.ID, service.ExportCROptions{Format: "yaml"})
+	if err != nil {
+		t.Fatalf("ExportCRBundle(yaml) error = %v", err)
+	}
+
+	targetDir := t.TempDir()
+	targetSvc := service.New(targetDir)
+	if _, err := targetSvc.Init("main", ""); err != nil {
+		t.Fatalf("Init(target) error = %v", err)
+	}
+
+	bundlePath := filepath.Join(targetDir, "bundle.yaml")
+	if err := os.WriteFile(bundlePath, payload, 0o644); err != nil {
+		t.Fatalf("write bundle: %v", err)
+	}
+
+	if _, _, importErr := runCLI(t, targetDir, "cr", "import", "--file", bundlePath, "--mode", "create", "--format", "json", "--json"); importErr == nil {
+		t.Fatalf("expected explicit format mismatch error")
+	}
+}
+
 func TestCRPatchPreviewJSONIncludesV2ConflictDetails(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
