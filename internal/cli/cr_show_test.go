@@ -169,8 +169,6 @@ func TestCRListTemplateIsSingleFileWithInlineAssets(t *testing.T) {
 		"Raw JSON Payload",
 		"read-only local report",
 		"id=\"close-preview-btn\"",
-		"id=\"control-actions-bar\"",
-		"data-control-action=\"merge\"",
 		"EventSource",
 		"/__sophia_events?mode=dashboard",
 	} {

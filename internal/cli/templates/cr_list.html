@@ -26,7 +26,6 @@
       --font: "DM Sans", system-ui, sans-serif;
       --mono: "JetBrains Mono", ui-monospace, monospace;
       --topbar-h: 48px;
-      --controlbar-h: 44px;
       --statbar-h: 52px;
     }
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -103,116 +102,6 @@
     .btn:hover { background: var(--bg-hover); border-color: var(--ink-4); }
     .btn:disabled { opacity: .5; cursor: wait; }
 
-    .controlbar {
-      position: sticky;
-      top: var(--topbar-h);
-      z-index: 95;
-      width: 100%;
-      border-bottom: 1px solid var(--border);
-      background: rgba(255,255,255,0.95);
-      backdrop-filter: blur(8px);
-      -webkit-backdrop-filter: blur(8px);
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      padding: 0 20px;
-      min-height: var(--controlbar-h);
-    }
-
-    .control-actions {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      flex: 1;
-      min-width: 0;
-      overflow-x: auto;
-      padding: 6px 0;
-    }
-
-    .control-btn {
-      border: 1px solid var(--border-strong);
-      border-radius: 6px;
-      background: var(--bg);
-      color: var(--ink-2);
-      font-family: var(--font);
-      font-size: 11px;
-      font-weight: 600;
-      letter-spacing: 0.04em;
-      text-transform: uppercase;
-      white-space: nowrap;
-      padding: 0 11px;
-      height: 28px;
-      cursor: pointer;
-      transition: background 0.12s, border-color 0.12s, color 0.12s;
-    }
-
-    .control-btn:hover {
-      background: var(--bg-hover);
-      border-color: var(--ink-4);
-    }
-
-    .control-btn:disabled {
-      opacity: 0.55;
-      cursor: wait;
-    }
-
-    .control-btn.is-running {
-      box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
-    }
-
-    .control-btn.major {
-      border-color: var(--blue-border);
-      background: var(--blue-bg);
-      color: var(--blue);
-      font-weight: 700;
-    }
-
-    .control-btn.safe {
-      border-color: var(--pass-border);
-      background: var(--pass-bg);
-      color: var(--pass-ink);
-    }
-
-    .control-btn.danger {
-      border-color: var(--fail-border);
-      background: var(--fail-bg);
-      color: var(--fail-ink);
-    }
-
-    .control-status {
-      font-family: var(--mono);
-      font-size: 10.5px;
-      color: var(--ink-4);
-      white-space: nowrap;
-      flex-shrink: 0;
-    }
-
-    .control-status-meta {
-      font-size: 10px;
-      color: var(--ink-4);
-      max-width: 260px;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-      flex-shrink: 0;
-    }
-
-    .control-status.running {
-      color: var(--blue);
-    }
-
-    .control-status.success {
-      color: var(--pass-ink);
-    }
-
-    .control-status.error {
-      color: var(--fail-ink);
-    }
-
-    .control-status.warn {
-      color: var(--warn-ink);
-    }
-
     /* STAT BAR */
     .statbar {
       width: 100%; border-bottom: 1px solid var(--border); padding: 0 20px;
@@ -234,7 +123,7 @@
     /* LAYOUT */
     .layout {
       display: grid; grid-template-columns: 1fr 288px;
-      width: 100%; min-height: calc(100vh - var(--topbar-h) - var(--controlbar-h) - var(--statbar-h));
+      width: 100%; min-height: calc(100vh - var(--topbar-h) - var(--statbar-h));
       align-items: start;
     }
 
@@ -245,7 +134,7 @@
     .list-toolbar {
       padding: 9px 16px; border-bottom: 1px solid var(--border);
       display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-      position: sticky; top: calc(var(--topbar-h) + var(--controlbar-h));
+      position: sticky; top: var(--topbar-h);
       background: rgba(255,255,255,0.96); backdrop-filter: blur(8px); z-index: 10;
     }
     .list-toolbar-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; color: var(--ink-3); flex: 1; min-width: 60px; }
@@ -358,8 +247,8 @@
 
     /* SIDEBAR */
     .sidebar {
-      position: sticky; top: calc(var(--topbar-h) + var(--controlbar-h) + var(--statbar-h)); align-self: start;
-      max-height: calc(100vh - var(--topbar-h) - var(--controlbar-h) - var(--statbar-h));
+      position: sticky; top: calc(var(--topbar-h) + var(--statbar-h)); align-self: start;
+      max-height: calc(100vh - var(--topbar-h) - var(--statbar-h));
       overflow-y: auto; width: 100%; min-width: 0;
     }
     .sidebar-empty { padding: 40px 20px; text-align: center; }
@@ -413,9 +302,6 @@
 
     @media (max-width: 860px) {
       .topbar { padding: 0 12px; gap: 8px; }
-      .controlbar { padding: 0 12px; }
-      .control-status { display: none; }
-      .control-status-meta { display: none; }
       .topbar-filters { display: none; }
       .nav-item { padding: 0 8px; }
       .layout { grid-template-columns: 1fr; }
@@ -450,20 +336,6 @@
     </button>
   </div>
 </header>
-
-<section class="controlbar" id="control-actions-bar" aria-label="Dashboard control actions">
-  <div class="control-actions">
-    <button type="button" class="control-btn major" data-control-action="publish_pr">Publish PR</button>
-    <button type="button" class="control-btn" data-control-action="pr_sync">PR Sync</button>
-    <button type="button" class="control-btn" data-control-action="refresh">Refresh</button>
-    <button type="button" class="control-btn safe" data-control-action="validate">Validate</button>
-    <button type="button" class="control-btn" data-control-action="review">Review</button>
-    <button type="button" class="control-btn danger" data-control-action="merge">Merge</button>
-    <button type="button" class="control-btn" data-control-action="pull">Pull</button>
-  </div>
-  <div class="control-status" id="control-status">Ready for control actions.</div>
-  <div class="control-status-meta" id="control-status-meta"></div>
-</section>
 
 <div class="statbar">
   <div class="stat-item">
@@ -620,7 +492,6 @@
   var mergedCRs = [];
   var byID = {};
   var liveSource = null;
-  var actionBusy = false;
 
   function parseBootstrapPayload() {
     var source = document.getElementById("cr-list-data");
@@ -634,165 +505,6 @@
     if (!hintEl) return;
     var value = text(state, "").trim();
     hintEl.textContent = value ? (" · " + value) : "";
-  }
-
-  function setControlStatus(state, message, meta) {
-    var statusEl = document.getElementById("control-status");
-    if (!statusEl) return;
-    statusEl.className = "control-status" + (state ? (" " + state) : "");
-    statusEl.textContent = text(message, "Ready for control actions.");
-    var metaEl = document.getElementById("control-status-meta");
-    if (metaEl) {
-      metaEl.textContent = text(meta, "");
-      metaEl.title = text(meta, "");
-    }
-  }
-
-  function setActionBusy(action, busy) {
-    actionBusy = Boolean(busy);
-    var buttons = document.querySelectorAll("[data-control-action]");
-    buttons.forEach(function (btn) {
-      btn.disabled = actionBusy;
-      if (actionBusy && btn.getAttribute("data-control-action") === action) {
-        btn.classList.add("is-running");
-      } else {
-        btn.classList.remove("is-running");
-      }
-    });
-  }
-
-  function isRiskyAction(action) {
-    return action === "publish_pr" || action === "merge";
-  }
-
-  function actionNeedsCR(action) {
-    return action !== "pull";
-  }
-
-  function actionLabel(action) {
-    var labels = {
-      publish_pr: "Publish PR",
-      pr_sync: "PR Sync",
-      refresh: "Refresh",
-      validate: "Validate",
-      review: "Review",
-      merge: "Merge",
-      pull: "Pull"
-    };
-    return labels[action] || action;
-  }
-
-  function sendControlAction(payload) {
-    return fetch("/__sophia_action", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload || {})
-    }).then(function (res) {
-      return res.text().then(function (raw) {
-        var data = {};
-        try {
-          data = JSON.parse(raw || "{}");
-        } catch (_err) {
-          data = {};
-        }
-        data.__http_ok = res.ok;
-        data.__http_status = res.status;
-        return data;
-      });
-    });
-  }
-
-  function buildPreflightMessage(action, preflight) {
-    var pf = asObject(preflight);
-    var lines = [];
-    var status = asObject(pf.status);
-    var workingTree = asObject(status.working_tree);
-    if (workingTree.dirty) lines.push("- Working tree is dirty.");
-    if (status.merge_blocked) {
-      lines.push("- Merge is currently blocked.");
-      asArray(status.merge_blockers).forEach(function (blocker) {
-        lines.push("  - " + blocker);
-      });
-    }
-    var validation = asObject(pf.validation);
-    if (validation.valid === false) {
-      lines.push("- Validation is failing.");
-      asArray(validation.errors).slice(0, 3).forEach(function (item) {
-        lines.push("  - " + item);
-      });
-    }
-    var pr = asObject(pf.pr);
-    if (pr.gate_blocked) {
-      lines.push("- PR gate is blocked.");
-      asArray(pr.gate_reasons).slice(0, 3).forEach(function (reason) {
-        lines.push("  - " + reason);
-      });
-    }
-    if (!lines.length) lines.push("- No immediate blockers reported.");
-    return "Confirm " + actionLabel(action) + "?\n\nPreflight:\n" + lines.join("\n");
-  }
-
-  function runControlAction(action) {
-    if (actionBusy) return;
-    var crID = parseInt(text(selectedId, "0"), 10) || 0;
-    if (actionNeedsCR(action) && crID <= 0) {
-      setControlStatus("error", actionLabel(action) + " requires selecting a CR first.", "Choose a CR row then retry.");
-      return;
-    }
-
-    var payload = { action: action };
-    if (crID > 0) payload.cr_id = crID;
-    if (action === "pull") payload.pull_mode = crID > 0 ? "metadata" : "ff_only";
-
-    setActionBusy(action, true);
-    var modeMeta = action === "pull" ? ("mode=" + payload.pull_mode) : "Awaiting response from local control endpoint.";
-    setControlStatus("running", "Running " + actionLabel(action) + "...", modeMeta);
-
-    var runPromise = Promise.resolve();
-    if (isRiskyAction(action)) {
-      runPromise = sendControlAction(payload).then(function (preflightResponse) {
-        if (preflightResponse && preflightResponse.requires_confirmation) {
-          var confirmed = window.confirm(buildPreflightMessage(action, preflightResponse.preflight));
-          if (!confirmed) {
-            setControlStatus("warn", actionLabel(action) + " cancelled.", "No mutation executed.");
-            return null;
-          }
-          payload.confirm = true;
-          return sendControlAction(payload);
-        }
-        return preflightResponse;
-      });
-    } else {
-      runPromise = sendControlAction(payload);
-    }
-
-    runPromise.then(function (response) {
-      if (!response) return;
-      if (response.ok && response.__http_ok) {
-        var summary = text(response.summary, actionLabel(action) + " completed.");
-        if (response.pull_mode) summary += " (" + response.pull_mode + ")";
-        setControlStatus("success", summary, "Result captured. Live snapshot updates will follow.");
-        return;
-      }
-      var message = text(response.error, text(response.summary, actionLabel(action) + " failed."));
-      if (response.hint) message += " " + response.hint;
-      setControlStatus("error", message, "Use terminal command output for deeper troubleshooting.");
-    }).catch(function (err) {
-      setControlStatus("error", actionLabel(action) + " failed: " + text(err && err.message, "request error"), "Local preview endpoint did not complete request.");
-    }).finally(function () {
-      setActionBusy(action, false);
-    });
-  }
-
-  function bindControlActions() {
-    var buttons = document.querySelectorAll("[data-control-action]");
-    buttons.forEach(function (btn) {
-      if (btn.__sophiaControlBound) return;
-      btn.addEventListener("click", function () {
-        runControlAction(String(btn.getAttribute("data-control-action") || ""));
-      });
-      btn.__sophiaControlBound = true;
-    });
   }
 
   /* close */
@@ -1083,8 +795,6 @@
     };
   }
 
-  bindControlActions();
-  setControlStatus("", "Ready for control actions.", "Select a CR to target CR-scoped actions.");
   applyDashboardPayload(parseBootstrapPayload(), false);
   startLiveStreamDashboard();
 })();
