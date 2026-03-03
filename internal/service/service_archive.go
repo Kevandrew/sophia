@@ -424,7 +424,7 @@ func archiveFileExists(path string) (bool, error) {
 	}
 }
 
-func buildCRArchiveDocument(cr *model.CR, revision int, reason, archivedAt string, gitSummary model.CRArchiveGitSummary) model.CRArchive {
+func buildCRArchiveDocument(cr *model.CR, revision int, reason, archivedAt string, config model.PolicyArchive, gitSummary model.CRArchiveGitSummary, fullDiff *model.CRArchiveFullDiff) model.CRArchive {
 	tasks := make([]model.CRArchiveTask, 0, len(cr.Subtasks))
 	for _, task := range cr.Subtasks {
 		delegated := make([]model.CRArchiveTaskDelegated, 0, len(task.Delegations))
@@ -464,7 +464,7 @@ func buildCRArchiveDocument(cr *model.CR, revision int, reason, archivedAt strin
 		return tasks[i].ID < tasks[j].ID
 	})
 	return model.CRArchive{
-		SchemaVersion: model.CRArchiveSchemaV1,
+		SchemaVersion: schemaVersion,
 		Notice:        model.CRArchiveNotice,
 		ArchivedAt:    strings.TrimSpace(archivedAt),
 		Revision:      revision,
@@ -473,6 +473,10 @@ func buildCRArchiveDocument(cr *model.CR, revision int, reason, archivedAt strin
 			ID:          cr.ID,
 			UID:         strings.TrimSpace(cr.UID),
 			Title:       strings.TrimSpace(cr.Title),
+	schemaVersion := model.CRArchiveSchemaV1
+	if archivePolicyIncludeFullDiffs(config) {
+		schemaVersion = model.CRArchiveSchemaV2
+	}
 			Description: strings.TrimSpace(cr.Description),
 			Status:      strings.TrimSpace(cr.Status),
 			BaseBranch:  strings.TrimSpace(cr.BaseBranch),
@@ -506,6 +510,7 @@ func sortedStringCopy(values []string) []string {
 	out := make([]string, 0, len(values))
 	seen := map[string]struct{}{}
 	for _, value := range values {
+		FullDiff:   fullDiff,
 		trimmed := strings.TrimSpace(value)
 		if trimmed == "" {
 			continue
