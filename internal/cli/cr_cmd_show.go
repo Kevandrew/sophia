@@ -3,7 +3,9 @@ package cli
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	_ "embed"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"html"
@@ -29,12 +31,14 @@ import (
 type crShowMode string
 
 const (
-	crShowModePerCR               crShowMode = "per_cr"
-	crShowModeDashboard           crShowMode = "dashboard"
-	defaultCRListLimit                       = 200
-	defaultCRTimelineLimit                   = 200
-	defaultCRShowEventsLimit                 = 20
-	defaultCRShowCheckpointsLimit            = 10
+	crShowModePerCR                   crShowMode = "per_cr"
+	crShowModeDashboard               crShowMode = "dashboard"
+	defaultCRListLimit                           = 200
+	defaultCRTimelineLimit                       = 200
+	defaultCRShowEventsLimit                     = 20
+	defaultCRShowCheckpointsLimit                = 10
+	defaultCRShowSSEPollInterval                 = 2 * time.Second
+	defaultCRShowSSEKeepaliveInterval            = 15 * time.Second
 )
 
 func newCRShowCmd() *cobra.Command {
@@ -142,7 +146,7 @@ func runCRShowPerCR(cmd *cobra.Command, asJSON bool, noOpen bool, svc *service.S
 	closeReason := ""
 	var server *crShowServer
 	if openAttempted {
-		server, err = startCRShowServerWithRoutes(
+		server, err = startCRShowServerWithLiveRoutes(
 			func() (string, error) {
 				livePayload, _, snapshotErr := buildCRDashboardSnapshot(svc, model.CRSearchQuery{}, defaultCRListLimit, defaultCRTimelineLimit, id)
 				if snapshotErr != nil {
@@ -156,6 +160,20 @@ func runCRShowPerCR(cmd *cobra.Command, asJSON bool, noOpen bool, svc *service.S
 					return "", snapshotErr
 				}
 				return buildCRShowHTMLDocument(embeddedCRShowHTMLTemplate, livePayload)
+			},
+			func() (map[string]any, error) {
+				livePayload, _, snapshotErr := buildCRDashboardSnapshot(svc, model.CRSearchQuery{}, defaultCRListLimit, defaultCRTimelineLimit, id)
+				if snapshotErr != nil {
+					return nil, snapshotErr
+				}
+				return livePayload, nil
+			},
+			func(routeCRID int) (map[string]any, error) {
+				_, livePayload, snapshotErr := buildCRShowSnapshot(svc, routeCRID, eventsLimit, checkpointsLimit)
+				if snapshotErr != nil {
+					return nil, snapshotErr
+				}
+				return livePayload, nil
 			},
 		)
 		if err != nil {
@@ -228,7 +246,7 @@ func runCRShowDashboard(cmd *cobra.Command, asJSON bool, noOpen bool, svc *servi
 	closeReason := ""
 	var server *crShowServer
 	if openAttempted {
-		server, err = startCRShowServerWithRoutes(
+		server, err = startCRShowServerWithLiveRoutes(
 			func() (string, error) {
 				livePayload, _, snapshotErr := buildCRDashboardSnapshot(svc, query, listLimit, timelineLimit, selectedHint)
 				if snapshotErr != nil {
@@ -242,6 +260,20 @@ func runCRShowDashboard(cmd *cobra.Command, asJSON bool, noOpen bool, svc *servi
 					return "", snapshotErr
 				}
 				return buildCRShowHTMLDocument(embeddedCRShowHTMLTemplate, livePayload)
+			},
+			func() (map[string]any, error) {
+				livePayload, _, snapshotErr := buildCRDashboardSnapshot(svc, query, listLimit, timelineLimit, selectedHint)
+				if snapshotErr != nil {
+					return nil, snapshotErr
+				}
+				return livePayload, nil
+			},
+			func(routeCRID int) (map[string]any, error) {
+				_, livePayload, snapshotErr := buildCRShowSnapshot(svc, routeCRID, eventsLimit, checkpointsLimit)
+				if snapshotErr != nil {
+					return nil, snapshotErr
+				}
+				return livePayload, nil
 			},
 		)
 		if err != nil {
@@ -571,11 +603,23 @@ type crShowServer struct {
 	listener   net.Listener
 }
 
+type crShowSnapshotRenderer func() (map[string]any, error)
+type crShowCRSnapshotRenderer func(id int) (map[string]any, error)
+
 func startCRShowServer(render func() (string, error)) (*crShowServer, error) {
 	return startCRShowServerWithRoutes(render, nil)
 }
 
 func startCRShowServerWithRoutes(renderRoot func() (string, error), renderCR func(id int) (string, error)) (*crShowServer, error) {
+	return startCRShowServerWithLiveRoutes(renderRoot, renderCR, nil, nil)
+}
+
+func startCRShowServerWithLiveRoutes(
+	renderRoot func() (string, error),
+	renderCR func(id int) (string, error),
+	snapshotRoot crShowSnapshotRenderer,
+	snapshotCR crShowCRSnapshotRenderer,
+) (*crShowServer, error) {
 	if renderRoot == nil {
 		return nil, fmt.Errorf("render callback is required")
 	}
@@ -629,6 +673,107 @@ func startCRShowServerWithRoutes(renderRoot func() (string, error), renderCR fun
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"ok":true}`))
 	})
+	mux.HandleFunc("/__sophia_events", func(w http.ResponseWriter, r *http.Request) {
+		if snapshotRoot == nil && snapshotCR == nil {
+			http.NotFound(w, r)
+			return
+		}
+		if r.Method != http.MethodGet {
+			w.Header().Set("Allow", http.MethodGet)
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			http.Error(w, "streaming unsupported", http.StatusInternalServerError)
+			return
+		}
+
+		streamSnapshot, streamErr := resolveCRShowSnapshotRenderer(r, snapshotRoot, snapshotCR)
+		if streamErr != nil {
+			http.Error(w, streamErr.Error(), http.StatusBadRequest)
+			return
+		}
+
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate")
+		w.Header().Set("Pragma", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+		w.WriteHeader(http.StatusOK)
+		flusher.Flush()
+
+		sendStreamError := func(err error) error {
+			if err == nil {
+				return nil
+			}
+			payload, marshalErr := json.Marshal(map[string]any{
+				"message": strings.TrimSpace(err.Error()),
+			})
+			if marshalErr != nil {
+				return marshalErr
+			}
+			if writeErr := writeSSEEvent(w, "error", payload); writeErr != nil {
+				return writeErr
+			}
+			flusher.Flush()
+			return nil
+		}
+
+		lastHash := ""
+		sendSnapshotIfChanged := func() error {
+			payload, snapshotErr := streamSnapshot()
+			if snapshotErr != nil {
+				return snapshotErr
+			}
+			payloadJSON, marshalErr := json.Marshal(payload)
+			if marshalErr != nil {
+				return marshalErr
+			}
+			hash, hashErr := snapshotHash(payload)
+			if hashErr != nil {
+				return hashErr
+			}
+			if lastHash == hash {
+				return nil
+			}
+			if writeErr := writeSSEEvent(w, "snapshot", payloadJSON); writeErr != nil {
+				return writeErr
+			}
+			flusher.Flush()
+			lastHash = hash
+			return nil
+		}
+
+		if err := sendSnapshotIfChanged(); err != nil {
+			if streamErr := sendStreamError(err); streamErr != nil {
+				return
+			}
+		}
+
+		pollTicker := time.NewTicker(defaultCRShowSSEPollInterval)
+		keepaliveTicker := time.NewTicker(defaultCRShowSSEKeepaliveInterval)
+		defer pollTicker.Stop()
+		defer keepaliveTicker.Stop()
+
+		for {
+			select {
+			case <-r.Context().Done():
+				return
+			case <-pollTicker.C:
+				if err := sendSnapshotIfChanged(); err != nil {
+					if streamErr := sendStreamError(err); streamErr != nil {
+						return
+					}
+				}
+			case <-keepaliveTicker.C:
+				if _, err := io.WriteString(w, ": keepalive\n\n"); err != nil {
+					return
+				}
+				flusher.Flush()
+			}
+		}
+	})
 	mux.HandleFunc("/favicon.ico", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	})
@@ -641,6 +786,78 @@ func startCRShowServerWithRoutes(renderRoot func() (string, error), renderCR fun
 		_ = srv.server.Serve(listener)
 	}()
 	return srv, nil
+}
+
+func resolveCRShowSnapshotRenderer(
+	r *http.Request,
+	snapshotRoot crShowSnapshotRenderer,
+	snapshotCR crShowCRSnapshotRenderer,
+) (crShowSnapshotRenderer, error) {
+	if r == nil {
+		return nil, fmt.Errorf("request is required")
+	}
+	mode := strings.TrimSpace(r.URL.Query().Get("mode"))
+	switch mode {
+	case "dashboard":
+		if snapshotRoot == nil {
+			return nil, fmt.Errorf("dashboard stream is unavailable")
+		}
+		return snapshotRoot, nil
+	case "cr":
+		if snapshotCR == nil {
+			return nil, fmt.Errorf("cr stream is unavailable")
+		}
+		id, err := strconv.Atoi(strings.TrimSpace(r.URL.Query().Get("id")))
+		if err != nil || id <= 0 {
+			return nil, fmt.Errorf("cr stream requires a valid id")
+		}
+		return func() (map[string]any, error) {
+			return snapshotCR(id)
+		}, nil
+	default:
+		return nil, fmt.Errorf("invalid stream mode")
+	}
+}
+
+func normalizeSnapshotForCompare(payload map[string]any) (map[string]any, error) {
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+	var normalized map[string]any
+	if err := json.Unmarshal(encoded, &normalized); err != nil {
+		return nil, err
+	}
+	delete(normalized, "generated_at")
+	return normalized, nil
+}
+
+func snapshotHash(payload map[string]any) (string, error) {
+	normalized, err := normalizeSnapshotForCompare(payload)
+	if err != nil {
+		return "", err
+	}
+	encoded, err := json.Marshal(normalized)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(encoded)
+	return hex.EncodeToString(sum[:]), nil
+}
+
+func writeSSEEvent(w io.Writer, event string, payload []byte) error {
+	if strings.TrimSpace(event) != "" {
+		if _, err := io.WriteString(w, "event: "+strings.TrimSpace(event)+"\n"); err != nil {
+			return err
+		}
+	}
+	for _, line := range bytes.Split(payload, []byte("\n")) {
+		if _, err := io.WriteString(w, "data: "+string(line)+"\n"); err != nil {
+			return err
+		}
+	}
+	_, err := io.WriteString(w, "\n")
+	return err
 }
 
 func (s *crShowServer) WaitForFirstRender(timeout time.Duration) bool {

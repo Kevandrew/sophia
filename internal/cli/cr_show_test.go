@@ -1,10 +1,13 @@
 package cli
 
 import (
+	"bufio"
+	"context"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -124,6 +127,8 @@ func TestCRShowTemplateIsSingleFileWithInlineAssets(t *testing.T) {
 		"Raw JSON Payload",
 		"read-only local report",
 		"id=\"close-preview-btn\"",
+		"EventSource",
+		"/__sophia_events?mode=cr&id=",
 	} {
 		if !strings.Contains(doc, required) {
 			t.Fatalf("expected generated html to contain %q", required)
@@ -161,6 +166,8 @@ func TestCRListTemplateIsSingleFileWithInlineAssets(t *testing.T) {
 		"Raw JSON Payload",
 		"read-only local report",
 		"id=\"close-preview-btn\"",
+		"EventSource",
+		"/__sophia_events?mode=dashboard",
 	} {
 		if !strings.Contains(doc, required) {
 			t.Fatalf("expected generated html to contain %q", required)
@@ -305,5 +312,258 @@ func TestCRShowServerSupportsDashboardAndCRRoutes(t *testing.T) {
 	_ = respMissing.Body.Close()
 	if respMissing.StatusCode != http.StatusNotFound {
 		t.Fatalf("expected /bad-route status 404, got %d", respMissing.StatusCode)
+	}
+}
+
+func TestCRShowServerSSEInitialSnapshot(t *testing.T) {
+	t.Parallel()
+	server, err := startCRShowServerWithLiveRoutes(
+		func() (string, error) { return "<!doctype html><html><body>dashboard</body></html>", nil },
+		func(id int) (string, error) {
+			return fmt.Sprintf("<!doctype html><html><body>cr-%d</body></html>", id), nil
+		},
+		func() (map[string]any, error) {
+			return map[string]any{"mode": "dashboard", "generated_at": "2026-03-03T00:00:00Z"}, nil
+		},
+		func(id int) (map[string]any, error) {
+			return map[string]any{"mode": "cr", "cr_id": id, "generated_at": "2026-03-03T00:00:00Z"}, nil
+		},
+	)
+	if err != nil {
+		t.Fatalf("startCRShowServerWithLiveRoutes() error = %v", err)
+	}
+	defer server.Shutdown()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, server.URL+"/__sophia_events?mode=dashboard", nil)
+	if err != nil {
+		t.Fatalf("NewRequestWithContext() error = %v", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("GET /__sophia_events error = %v", err)
+	}
+	defer resp.Body.Close()
+
+	if got := resp.Header.Get("Content-Type"); !strings.Contains(got, "text/event-stream") {
+		t.Fatalf("expected text/event-stream, got %q", got)
+	}
+
+	eventName, eventData, readErr := readSSEEvent(bufio.NewReader(resp.Body))
+	if readErr != nil {
+		t.Fatalf("readSSEEvent() error = %v", readErr)
+	}
+	if eventName != "snapshot" {
+		t.Fatalf("expected snapshot event, got %q", eventName)
+	}
+	if !strings.Contains(eventData, "\"mode\":\"dashboard\"") {
+		t.Fatalf("expected dashboard payload, got %q", eventData)
+	}
+}
+
+func TestCRShowServerSSEUsesCRRouteSnapshot(t *testing.T) {
+	t.Parallel()
+	server, err := startCRShowServerWithLiveRoutes(
+		func() (string, error) { return "<!doctype html><html><body>dashboard</body></html>", nil },
+		func(id int) (string, error) {
+			return fmt.Sprintf("<!doctype html><html><body>cr-%d</body></html>", id), nil
+		},
+		func() (map[string]any, error) {
+			return map[string]any{"mode": "dashboard", "generated_at": "2026-03-03T00:00:00Z"}, nil
+		},
+		func(id int) (map[string]any, error) {
+			return map[string]any{"mode": "cr", "cr_id": id, "generated_at": "2026-03-03T00:00:00Z"}, nil
+		},
+	)
+	if err != nil {
+		t.Fatalf("startCRShowServerWithLiveRoutes() error = %v", err)
+	}
+	defer server.Shutdown()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, server.URL+"/__sophia_events?mode=cr&id=42", nil)
+	if err != nil {
+		t.Fatalf("NewRequestWithContext() error = %v", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("GET /__sophia_events?mode=cr&id=42 error = %v", err)
+	}
+	defer resp.Body.Close()
+
+	eventName, eventData, readErr := readSSEEvent(bufio.NewReader(resp.Body))
+	if readErr != nil {
+		t.Fatalf("readSSEEvent() error = %v", readErr)
+	}
+	if eventName != "snapshot" {
+		t.Fatalf("expected snapshot event, got %q", eventName)
+	}
+	if !strings.Contains(eventData, "\"cr_id\":42") {
+		t.Fatalf("expected cr_id 42 payload, got %q", eventData)
+	}
+}
+
+func TestCRShowServerSSENoChangeNoDuplicate(t *testing.T) {
+	t.Parallel()
+	server, err := startCRShowServerWithLiveRoutes(
+		func() (string, error) { return "<!doctype html><html><body>dashboard</body></html>", nil },
+		nil,
+		func() (map[string]any, error) {
+			return map[string]any{"stable": true, "generated_at": "2026-03-03T00:00:00Z"}, nil
+		},
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("startCRShowServerWithLiveRoutes() error = %v", err)
+	}
+	defer server.Shutdown()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, server.URL+"/__sophia_events?mode=dashboard", nil)
+	if err != nil {
+		t.Fatalf("NewRequestWithContext() error = %v", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("GET /__sophia_events error = %v", err)
+	}
+	defer resp.Body.Close()
+
+	reader := bufio.NewReader(resp.Body)
+	if _, _, readErr := readSSEEvent(reader); readErr != nil {
+		t.Fatalf("readSSEEvent(first) error = %v", readErr)
+	}
+	if _, _, readErr := readSSEEvent(reader); readErr == nil {
+		t.Fatalf("expected no duplicate snapshot before poll interval")
+	}
+}
+
+func TestCRShowServerSSEEmitsOnChange(t *testing.T) {
+	t.Parallel()
+	var calls int32
+	server, err := startCRShowServerWithLiveRoutes(
+		func() (string, error) { return "<!doctype html><html><body>dashboard</body></html>", nil },
+		nil,
+		func() (map[string]any, error) {
+			n := atomic.AddInt32(&calls, 1)
+			version := "v1"
+			if n >= 2 {
+				version = "v2"
+			}
+			return map[string]any{
+				"version":      version,
+				"generated_at": fmt.Sprintf("2026-03-03T00:00:%02dZ", n),
+			}, nil
+		},
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("startCRShowServerWithLiveRoutes() error = %v", err)
+	}
+	defer server.Shutdown()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, server.URL+"/__sophia_events?mode=dashboard", nil)
+	if err != nil {
+		t.Fatalf("NewRequestWithContext() error = %v", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("GET /__sophia_events error = %v", err)
+	}
+	defer resp.Body.Close()
+
+	reader := bufio.NewReader(resp.Body)
+	_, firstData, firstErr := readSSEEvent(reader)
+	if firstErr != nil {
+		t.Fatalf("readSSEEvent(first) error = %v", firstErr)
+	}
+	if !strings.Contains(firstData, "\"version\":\"v1\"") {
+		t.Fatalf("expected initial v1 payload, got %q", firstData)
+	}
+
+	_, secondData, secondErr := readSSEEvent(reader)
+	if secondErr != nil {
+		t.Fatalf("readSSEEvent(second) error = %v", secondErr)
+	}
+	if !strings.Contains(secondData, "\"version\":\"v2\"") {
+		t.Fatalf("expected changed v2 payload, got %q", secondData)
+	}
+}
+
+func TestCRShowServerSSEIgnoresGeneratedAt(t *testing.T) {
+	t.Parallel()
+	var calls int32
+	server, err := startCRShowServerWithLiveRoutes(
+		func() (string, error) { return "<!doctype html><html><body>dashboard</body></html>", nil },
+		nil,
+		func() (map[string]any, error) {
+			n := atomic.AddInt32(&calls, 1)
+			return map[string]any{
+				"stable_key":   "same-value",
+				"generated_at": fmt.Sprintf("2026-03-03T00:00:%02dZ", n),
+			}, nil
+		},
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("startCRShowServerWithLiveRoutes() error = %v", err)
+	}
+	defer server.Shutdown()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2500*time.Millisecond)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, server.URL+"/__sophia_events?mode=dashboard", nil)
+	if err != nil {
+		t.Fatalf("NewRequestWithContext() error = %v", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("GET /__sophia_events error = %v", err)
+	}
+	defer resp.Body.Close()
+
+	reader := bufio.NewReader(resp.Body)
+	if _, _, readErr := readSSEEvent(reader); readErr != nil {
+		t.Fatalf("readSSEEvent(first) error = %v", readErr)
+	}
+	if _, _, readErr := readSSEEvent(reader); readErr == nil {
+		t.Fatalf("expected no second snapshot when only generated_at changes")
+	}
+}
+
+func readSSEEvent(reader *bufio.Reader) (string, string, error) {
+	if reader == nil {
+		return "", "", fmt.Errorf("reader is required")
+	}
+	eventName := ""
+	dataLines := make([]string, 0)
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			return "", "", err
+		}
+		trimmed := strings.TrimRight(line, "\r\n")
+		if trimmed == "" {
+			if eventName == "" && len(dataLines) == 0 {
+				continue
+			}
+			return eventName, strings.Join(dataLines, "\n"), nil
+		}
+		if strings.HasPrefix(trimmed, ":") {
+			continue
+		}
+		if strings.HasPrefix(trimmed, "event:") {
+			eventName = strings.TrimSpace(strings.TrimPrefix(trimmed, "event:"))
+			continue
+		}
+		if strings.HasPrefix(trimmed, "data:") {
+			dataLines = append(dataLines, strings.TrimSpace(strings.TrimPrefix(trimmed, "data:")))
+		}
 	}
 }
