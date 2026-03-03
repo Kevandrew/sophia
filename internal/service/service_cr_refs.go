@@ -241,7 +241,7 @@ func (s *Service) resolveCRAnchorsWithOptions(cr *model.CR, opts CRAnchorResolve
 		res.warnings = append(res.warnings, "CR branch is unavailable; using merged commit as head anchor")
 	}
 
-	if strings.TrimSpace(res.headCommit) == "" && opts.AllowMetadataOnlyHeadFallback && cr.Status == model.StatusInProgress {
+	if strings.TrimSpace(res.headCommit) == "" && opts.AllowMetadataOnlyHeadFallback && shouldAllowMetadataOnlyHeadFallback(cr.Status) {
 		if strings.TrimSpace(res.baseCommit) != "" {
 			res.headRef = strings.TrimSpace(res.baseCommit)
 			res.headCommit = strings.TrimSpace(res.baseCommit)
@@ -249,6 +249,9 @@ func (s *Service) resolveCRAnchorsWithOptions(cr *model.CR, opts CRAnchorResolve
 				"CR branch is unavailable; using base anchor as metadata-only head preview",
 				fmt.Sprintf("Run `sophia cr switch %d` to recreate the branch from base", cr.ID),
 			)
+			if checkpointCount := countTaskCheckpointCommits(cr.Subtasks); checkpointCount > 0 {
+				res.warnings = append(res.warnings, fmt.Sprintf("CR has %d task checkpoint commit(s) but branch is unavailable; preview diff may omit orphaned implementation commits", checkpointCount))
+			}
 		}
 	}
 
@@ -262,6 +265,26 @@ func (s *Service) resolveCRAnchorsWithOptions(cr *model.CR, opts CRAnchorResolve
 	}
 	res.mergeBase = strings.TrimSpace(mergeBase)
 	return res, nil
+}
+
+func shouldAllowMetadataOnlyHeadFallback(status string) bool {
+	switch strings.TrimSpace(status) {
+	case model.StatusInProgress, model.StatusAbandoned:
+		return true
+	default:
+		return false
+	}
+}
+
+func countTaskCheckpointCommits(tasks []model.Subtask) int {
+	count := 0
+	for _, task := range tasks {
+		if strings.TrimSpace(task.CheckpointCommit) == "" {
+			continue
+		}
+		count++
+	}
+	return count
 }
 
 func (s *Service) RangeCR(id int) (*CRRangeAnchorsView, error) {
