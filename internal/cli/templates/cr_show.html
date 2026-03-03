@@ -941,6 +941,16 @@
         </div>
       </div>
 
+      <!-- PREVIEW MODE -->
+      <div class="section" id="preview-mode-section" hidden>
+        <div class="section-header">
+          <span class="section-label">Preview Mode</span>
+        </div>
+        <div class="section-body">
+          <div class="action-list" id="preview-warning-list"></div>
+        </div>
+      </div>
+
       <!-- CONTRACT -->
       <div class="section">
         <div class="section-header">
@@ -1185,6 +1195,18 @@
         return '<span class="tag ' + (cls || "neutral") + '">' + esc(text) + '</span>';
       }
 
+      function dedupeStringList(values) {
+        var out = [];
+        var seen = Object.create(null);
+        asArray(values).forEach(function (item) {
+          var value = text(item, "").trim();
+          if (!value || seen[value]) return;
+          seen[value] = true;
+          out.push(value);
+        });
+        return out;
+      }
+
       function parseBootstrapPayload() {
         var source = document.getElementById("cr-show-data");
         var payload = {};
@@ -1260,6 +1282,23 @@
         var base = text(cr.base_ref, text(cr.base_branch, "—"));
         var commit = text(cr.base_commit, "");
         document.getElementById("intent-base").textContent = base + (commit ? " @ " + commit.slice(0, 8) : "");
+
+        var previewWarnings = dedupeStringList(
+          asArray(payload.warnings).concat(asArray(asObject(payload.anchors).warnings))
+        );
+        var previewSection = document.getElementById("preview-mode-section");
+        var previewWarningsEl = document.getElementById("preview-warning-list");
+        if (previewSection && previewWarningsEl) {
+          if (!previewWarnings.length) {
+            previewSection.hidden = true;
+            previewWarningsEl.innerHTML = "";
+          } else {
+            previewSection.hidden = false;
+            previewWarningsEl.innerHTML = previewWarnings.map(function (warning) {
+              return "<div class='action-item attention'><span class='action-icon'>◆</span>" + esc(warning) + "</div>";
+            }).join("");
+          }
+        }
 
         // Contract
         renderList("contract-scope", contract.scope);

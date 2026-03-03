@@ -200,6 +200,7 @@ func runCRShowPerCR(cmd *cobra.Command, asJSON bool, noOpen bool, svc *service.S
 			"view_mode":       "localhost_ephemeral",
 			"url":             viewURL,
 			"template_source": templateSource,
+			"warnings":        stringSliceOrEmpty(view.Warnings),
 			"open_attempted":  openAttempted,
 			"opened":          opened,
 			"page_served":     pageServed,
@@ -214,6 +215,12 @@ func runCRShowPerCR(cmd *cobra.Command, asJSON bool, noOpen bool, svc *service.S
 		fmt.Fprintf(cmd.OutOrStdout(), "Preview URL: %s\n", viewURL)
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "Template source: %s\n", templateSource)
+	if len(view.Warnings) > 0 {
+		fmt.Fprintln(cmd.OutOrStdout(), "Warnings:")
+		for _, warning := range view.Warnings {
+			fmt.Fprintf(cmd.OutOrStdout(), "- %s\n", warning)
+		}
+	}
 	if noOpen {
 		fmt.Fprintln(cmd.OutOrStdout(), "Browser open skipped (--no-open).")
 	} else if opened && pageServed {
