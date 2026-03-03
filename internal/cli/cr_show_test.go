@@ -127,6 +127,8 @@ func TestCRShowTemplateIsSingleFileWithInlineAssets(t *testing.T) {
 		"Raw JSON Payload",
 		"read-only local report",
 		"id=\"close-preview-btn\"",
+		"EventSource",
+		"/__sophia_events?mode=cr&id=",
 	} {
 		if !strings.Contains(doc, required) {
 			t.Fatalf("expected generated html to contain %q", required)
