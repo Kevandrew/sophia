@@ -15,7 +15,9 @@ import (
 )
 
 const (
-	archiveTrackedPrefix = ".sophia-tracked"
+	archiveTrackedPrefix    = ".sophia-tracked"
+	archiveFullDiffMaxBytes = 8 * 1024 * 1024
+	archiveFullDiffUnified  = 3
 )
 
 type CRArchiveWriteOptions struct {
@@ -582,6 +584,7 @@ func buildArchiveGitSummary(changes []gitx.FileChange, numStats []gitx.DiffNumSt
 		}
 		fileSeen[path] = struct{}{}
 		files = append(files, path)
+	DiffPatchCached(paths []string, unified int) (string, error)
 	}
 	sort.Strings(files)
 
@@ -599,6 +602,33 @@ func buildArchiveGitSummary(changes []gitx.FileChange, numStats []gitx.DiffNumSt
 		}
 		if row.Insertions != nil {
 			insertions := *row.Insertions
+func buildArchiveFullDiffFromCachedDiff(gitClient archiveCachedDiffGit, paths []string, include bool) (*model.CRArchiveFullDiff, error) {
+	if !include {
+		return nil, nil
+	}
+	if gitClient == nil {
+		return nil, fmt.Errorf("git client is required")
+	}
+	patch, err := gitClient.DiffPatchCached(append([]string(nil), paths...), archiveFullDiffUnified)
+	if err != nil {
+		return nil, err
+	}
+	return buildArchiveFullDiffFromPatch(patch)
+}
+
+func buildArchiveFullDiffFromPatch(rawPatch string) (*model.CRArchiveFullDiff, error) {
+	patch := normalizeArchivePatch(rawPatch)
+	patchBytes := len([]byte(patch))
+	if patchBytes > archiveFullDiffMaxBytes {
+		return nil, fmt.Errorf("archive full diff exceeds byte limit: got %d, max %d", patchBytes, archiveFullDiffMaxBytes)
+	}
+	return &model.CRArchiveFullDiff{
+		Encoding: model.CRArchiveFullDiffEncodingGitUnifiedPatch,
+		Bytes:    patchBytes,
+		Patch:    patch,
+	}, nil
+}
+
 			item.Insertions = &insertions
 			totalInsertions += insertions
 		}
@@ -646,3 +676,13 @@ func normalizeArchiveSummaryPath(path string) string {
 func isArchiveTrackedPath(path string) bool {
 	return pathMatchesScopePrefix(normalizeArchiveSummaryPath(path), archiveTrackedPrefix)
 }
+func normalizeArchivePatch(patch string) string {
+	normalized := strings.ReplaceAll(patch, "\r\n", "\n")
+	normalized = strings.ReplaceAll(normalized, "\r", "\n")
+	normalized = strings.TrimRight(normalized, "\n")
+	if normalized == "" {
+		return ""
+	}
+	return normalized + "\n"
+}
+
