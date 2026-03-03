@@ -15,9 +15,18 @@ import (
 )
 
 const (
-	patchSchemaV1     = model.CRPatchSchemaV1
-	importModeCreate  = "create"
-	importModeReplace = "replace"
+	patchSchemaV1      = model.CRPatchSchemaV1
+	patchSchemaV2      = model.CRPatchSchemaV2
+	patchOpSetField    = model.CRPatchOpSetField
+	patchOpSetContract = model.CRPatchOpSetContract
+	patchOpAddNote     = model.CRPatchOpAddNote
+	patchOpDeleteNote  = model.CRPatchOpDeleteNote
+	patchOpAddTask     = model.CRPatchOpAddTask
+	patchOpDeleteTask  = model.CRPatchOpDeleteTask
+	patchOpUpdateTask  = model.CRPatchOpUpdateTask
+	patchOpReorderTask = model.CRPatchOpReorderTask
+	importModeCreate   = "create"
+	importModeReplace  = "replace"
 )
 
 type ImportCRBundleOptions struct {
@@ -33,28 +42,13 @@ type ImportCRBundleResult struct {
 	Replaced      bool   `json:"replaced"`
 }
 
-type CRPatch struct {
-	SchemaVersion string            `json:"schema_version"`
-	Target        CRPatchTarget     `json:"target"`
-	Base          CRPatchBase       `json:"base"`
-	Ops           []json.RawMessage `json:"ops"`
-	Meta          CRPatchMeta       `json:"meta,omitempty"`
-}
+type CRPatch = model.CRPatch
 
-type CRPatchTarget struct {
-	CRUID string `json:"cr_uid"`
-}
+type CRPatchTarget = model.CRPatchTarget
 
-type CRPatchBase struct {
-	CRFingerprint string `json:"cr_fingerprint"`
-	ExportedAt    string `json:"exported_at,omitempty"`
-}
+type CRPatchBase = model.CRPatchBase
 
-type CRPatchMeta struct {
-	Author  string `json:"author,omitempty"`
-	Tool    string `json:"tool,omitempty"`
-	Message string `json:"message,omitempty"`
-}
+type CRPatchMeta = model.CRPatchMeta
 
 type CRPatchApplyResult struct {
 	CRID            int               `json:"cr_id"`
@@ -121,6 +115,12 @@ type patchAddNoteOp struct {
 	Text string `json:"text"`
 }
 
+type patchDeleteNoteOp struct {
+	Op       string           `json:"op"`
+	NoteHash string           `json:"note_hash,omitempty"`
+	Before   *json.RawMessage `json:"before,omitempty"`
+}
+
 type patchAddTaskOp struct {
 	Op            string `json:"op"`
 	Title         string `json:"title"`
@@ -149,6 +149,18 @@ type patchUpdateTaskOp struct {
 	Op      string                 `json:"op"`
 	TaskID  int                    `json:"task_id"`
 	Changes patchUpdateTaskChanges `json:"changes"`
+}
+
+type patchDeleteTaskOp struct {
+	Op     string           `json:"op"`
+	TaskID int              `json:"task_id"`
+	Before *json.RawMessage `json:"before,omitempty"`
+}
+
+type patchReorderTaskOp struct {
+	Op      string           `json:"op"`
+	TaskIDs []int            `json:"task_ids"`
+	Before  *json.RawMessage `json:"before,omitempty"`
 }
 
 type patchSetContractChanges struct {
@@ -451,13 +463,66 @@ func parseCRPatch(payload []byte) (*CRPatch, error) {
 	if err := json.Unmarshal(payload, &patch); err != nil {
 		return nil, fmt.Errorf("decode patch: %w", err)
 	}
-	if strings.TrimSpace(patch.SchemaVersion) != patchSchemaV1 {
-		return nil, fmt.Errorf("invalid patch schema_version %q (expected %s)", strings.TrimSpace(patch.SchemaVersion), patchSchemaV1)
+	schemaVersion := strings.TrimSpace(patch.SchemaVersion)
+	if !isSupportedPatchSchemaVersion(schemaVersion) {
+		return nil, fmt.Errorf("invalid patch schema_version %q (expected one of %s, %s)", schemaVersion, patchSchemaV1, patchSchemaV2)
 	}
+	patch.SchemaVersion = schemaVersion
 	if len(patch.Ops) == 0 {
 		return nil, fmt.Errorf("patch must include at least one op")
 	}
+	for idx, raw := range patch.Ops {
+		opName, err := decodePatchOpName(raw, idx+1)
+		if err != nil {
+			return nil, err
+		}
+		if !isPatchOpSupportedForSchema(schemaVersion, opName) {
+			return nil, fmt.Errorf("patch schema_version %q does not support op %q at index %d", schemaVersion, opName, idx+1)
+		}
+	}
 	return &patch, nil
+}
+
+func isSupportedPatchSchemaVersion(version string) bool {
+	switch strings.TrimSpace(version) {
+	case patchSchemaV1, patchSchemaV2:
+		return true
+	default:
+		return false
+	}
+}
+
+func decodePatchOpName(raw json.RawMessage, opIndex int) (string, error) {
+	var header rawPatchOp
+	if err := json.Unmarshal(raw, &header); err != nil {
+		return "", fmt.Errorf("decode patch op #%d: %w", opIndex, err)
+	}
+	opName := strings.TrimSpace(header.Op)
+	if opName == "" {
+		return "", fmt.Errorf("patch op #%d missing op", opIndex)
+	}
+	return opName, nil
+}
+
+func isPatchOpSupportedForSchema(schemaVersion string, opName string) bool {
+	switch strings.TrimSpace(schemaVersion) {
+	case patchSchemaV1:
+		switch opName {
+		case patchOpSetField, patchOpSetContract, patchOpAddNote, patchOpAddTask, patchOpUpdateTask:
+			return true
+		default:
+			return false
+		}
+	case patchSchemaV2:
+		switch opName {
+		case patchOpSetField, patchOpSetContract, patchOpAddNote, patchOpDeleteNote, patchOpAddTask, patchOpDeleteTask, patchOpUpdateTask, patchOpReorderTask:
+			return true
+		default:
+			return false
+		}
+	default:
+		return false
+	}
 }
 
 func (s *Service) resolvePatchTargetCR(selector string, target CRPatchTarget) (*model.CR, error) {
@@ -498,24 +563,26 @@ func addPatchConflict(out *[]CRPatchConflict, opIndex int, op, field, message st
 }
 
 func (s *Service) applySinglePatchOp(cr *model.CR, raw json.RawMessage, opIndex int, noteHashes map[string]struct{}, force bool) (bool, bool, []CRPatchConflict, []string, error) {
-	var header rawPatchOp
-	if err := json.Unmarshal(raw, &header); err != nil {
-		return false, false, nil, nil, fmt.Errorf("decode patch op #%d: %w", opIndex, err)
-	}
-	opName := strings.TrimSpace(header.Op)
-	if opName == "" {
-		return false, false, nil, nil, fmt.Errorf("patch op #%d missing op", opIndex)
+	opName, err := decodePatchOpName(raw, opIndex)
+	if err != nil {
+		return false, false, nil, nil, err
 	}
 	switch opName {
-	case "set_field":
+	case patchOpSetField:
 		return s.applyPatchSetField(cr, raw, opIndex, force)
-	case "add_note":
+	case patchOpAddNote:
 		return s.applyPatchAddNote(cr, raw, opIndex, noteHashes)
-	case "add_task":
+	case patchOpDeleteNote:
+		return s.applyPatchDeleteNote(cr, raw, opIndex, noteHashes, force)
+	case patchOpAddTask:
 		return s.applyPatchAddTask(cr, raw, opIndex)
-	case "update_task":
+	case patchOpDeleteTask:
+		return s.applyPatchDeleteTask(cr, raw, opIndex, force)
+	case patchOpUpdateTask:
 		return s.applyPatchUpdateTask(cr, raw, opIndex, force)
-	case "set_contract":
+	case patchOpReorderTask:
+		return s.applyPatchReorderTask(cr, raw, opIndex, force)
+	case patchOpSetContract:
 		return s.applyPatchSetContract(cr, raw, opIndex, force)
 	default:
 		return false, false, nil, nil, fmt.Errorf("unsupported patch op %q at index %d", opName, opIndex)
@@ -584,6 +651,56 @@ func (s *Service) applyPatchAddNote(cr *model.CR, raw json.RawMessage, opIndex i
 	return true, false, nil, nil, nil
 }
 
+func (s *Service) applyPatchDeleteNote(cr *model.CR, raw json.RawMessage, opIndex int, noteHashes map[string]struct{}, force bool) (bool, bool, []CRPatchConflict, []string, error) {
+	var op patchDeleteNoteOp
+	if err := json.Unmarshal(raw, &op); err != nil {
+		return false, false, nil, nil, fmt.Errorf("decode delete_note op #%d: %w", opIndex, err)
+	}
+	before, hasBefore, err := decodeStringChange(op.Before)
+	if err != nil {
+		return false, false, nil, nil, fmt.Errorf("delete_note op #%d before decode: %w", opIndex, err)
+	}
+	expectedHash := strings.TrimSpace(op.NoteHash)
+	if expectedHash == "" && hasBefore {
+		expectedHash = noteHash(before)
+	}
+	if expectedHash == "" {
+		return false, false, nil, nil, fmt.Errorf("delete_note op #%d requires note_hash or before", opIndex)
+	}
+
+	conflicts := []CRPatchConflict{}
+	warnings := []string{}
+	if !hasBefore && !force {
+		addPatchConflict(&conflicts, opIndex, op.Op, "before", "before is required unless --force is used", nil, nil)
+		return false, false, conflicts, warnings, nil
+	}
+
+	noteIdx := -1
+	current := ""
+	for i, note := range cr.Notes {
+		if noteHash(note) != expectedHash {
+			continue
+		}
+		noteIdx = i
+		current = strings.TrimSpace(note)
+		break
+	}
+	if noteIdx < 0 {
+		addPatchConflict(&conflicts, opIndex, op.Op, "note_hash", "note does not exist", expectedHash, nil)
+		return false, false, conflicts, warnings, nil
+	}
+	if hasBefore && strings.TrimSpace(before) != current {
+		if !force {
+			addPatchConflict(&conflicts, opIndex, op.Op, "before", "before does not match current value", before, current)
+			return false, false, conflicts, warnings, nil
+		}
+		warnings = append(warnings, fmt.Sprintf("op #%d delete_note: force applied despite before mismatch", opIndex))
+	}
+	cr.Notes = append(cr.Notes[:noteIdx], cr.Notes[noteIdx+1:]...)
+	delete(noteHashes, expectedHash)
+	return true, false, conflicts, warnings, nil
+}
+
 func (s *Service) applyPatchAddTask(cr *model.CR, raw json.RawMessage, opIndex int) (bool, bool, []CRPatchConflict, []string, error) {
 	var op patchAddTaskOp
 	if err := json.Unmarshal(raw, &op); err != nil {
@@ -605,6 +722,48 @@ func (s *Service) applyPatchAddTask(cr *model.CR, raw json.RawMessage, opIndex i
 	}
 	cr.Subtasks = append(cr.Subtasks, task)
 	return true, false, nil, nil, nil
+}
+
+func (s *Service) applyPatchDeleteTask(cr *model.CR, raw json.RawMessage, opIndex int, force bool) (bool, bool, []CRPatchConflict, []string, error) {
+	var op patchDeleteTaskOp
+	if err := json.Unmarshal(raw, &op); err != nil {
+		return false, false, nil, nil, fmt.Errorf("decode delete_task op #%d: %w", opIndex, err)
+	}
+	if op.TaskID <= 0 {
+		return false, false, nil, nil, fmt.Errorf("delete_task op #%d missing task_id", opIndex)
+	}
+	before, hasBefore, err := decodeStringChange(op.Before)
+	if err != nil {
+		return false, false, nil, nil, fmt.Errorf("delete_task op #%d before decode: %w", opIndex, err)
+	}
+	conflicts := []CRPatchConflict{}
+	warnings := []string{}
+	if !hasBefore && !force {
+		addPatchConflict(&conflicts, opIndex, op.Op, "before", "before is required unless --force is used", nil, nil)
+		return false, false, conflicts, warnings, nil
+	}
+
+	taskIdx := -1
+	for i := range cr.Subtasks {
+		if cr.Subtasks[i].ID == op.TaskID {
+			taskIdx = i
+			break
+		}
+	}
+	if taskIdx < 0 {
+		addPatchConflict(&conflicts, opIndex, op.Op, "task_id", "task does not exist", op.TaskID, nil)
+		return false, false, conflicts, warnings, nil
+	}
+	currentTitle := strings.TrimSpace(cr.Subtasks[taskIdx].Title)
+	if hasBefore && strings.TrimSpace(before) != currentTitle {
+		if !force {
+			addPatchConflict(&conflicts, opIndex, op.Op, "before", "before does not match current value", before, currentTitle)
+			return false, false, conflicts, warnings, nil
+		}
+		warnings = append(warnings, fmt.Sprintf("op #%d delete_task: force applied despite before mismatch", opIndex))
+	}
+	cr.Subtasks = append(cr.Subtasks[:taskIdx], cr.Subtasks[taskIdx+1:]...)
+	return true, false, conflicts, warnings, nil
 }
 
 func (s *Service) applyPatchUpdateTask(cr *model.CR, raw json.RawMessage, opIndex int, force bool) (bool, bool, []CRPatchConflict, []string, error) {
@@ -711,6 +870,102 @@ func (s *Service) applyPatchUpdateTask(cr *model.CR, raw json.RawMessage, opInde
 		return false, true, conflicts, warnings, nil
 	}
 	return applied, false, conflicts, warnings, nil
+}
+
+func (s *Service) applyPatchReorderTask(cr *model.CR, raw json.RawMessage, opIndex int, force bool) (bool, bool, []CRPatchConflict, []string, error) {
+	var op patchReorderTaskOp
+	if err := json.Unmarshal(raw, &op); err != nil {
+		return false, false, nil, nil, fmt.Errorf("decode reorder_task op #%d: %w", opIndex, err)
+	}
+	conflicts := []CRPatchConflict{}
+	warnings := []string{}
+	if len(cr.Subtasks) == 0 {
+		return false, true, conflicts, warnings, nil
+	}
+	before, hasBefore, err := decodeIntSliceChange(op.Before)
+	if err != nil {
+		return false, false, nil, nil, fmt.Errorf("reorder_task op #%d before decode: %w", opIndex, err)
+	}
+	currentOrder := currentTaskOrder(cr.Subtasks)
+	if !hasBefore && !force {
+		addPatchConflict(&conflicts, opIndex, op.Op, "before", "before is required unless --force is used", nil, currentOrder)
+		return false, false, conflicts, warnings, nil
+	}
+	if hasBefore && !reflect.DeepEqual(before, currentOrder) {
+		if !force {
+			addPatchConflict(&conflicts, opIndex, op.Op, "before", "before does not match current value", before, currentOrder)
+			return false, false, conflicts, warnings, nil
+		}
+		warnings = append(warnings, fmt.Sprintf("op #%d reorder_task: force applied despite before mismatch", opIndex))
+	}
+	if len(op.TaskIDs) == 0 {
+		addPatchConflict(&conflicts, opIndex, op.Op, "task_ids", "task_ids is required", nil, currentOrder)
+		return false, false, conflicts, warnings, nil
+	}
+	if len(op.TaskIDs) != len(currentOrder) {
+		addPatchConflict(&conflicts, opIndex, op.Op, "task_ids", "task_ids must include all existing tasks exactly once", currentOrder, op.TaskIDs)
+		return false, false, conflicts, warnings, nil
+	}
+
+	byID := map[int]model.Subtask{}
+	for _, task := range cr.Subtasks {
+		byID[task.ID] = task
+	}
+	seen := map[int]struct{}{}
+	next := make([]model.Subtask, 0, len(op.TaskIDs))
+	for _, id := range op.TaskIDs {
+		if id <= 0 {
+			addPatchConflict(&conflicts, opIndex, op.Op, "task_ids", "task_ids must contain positive integers", nil, op.TaskIDs)
+			return false, false, conflicts, warnings, nil
+		}
+		if _, duplicate := seen[id]; duplicate {
+			addPatchConflict(&conflicts, opIndex, op.Op, "task_ids", "task_ids must not contain duplicates", nil, op.TaskIDs)
+			return false, false, conflicts, warnings, nil
+		}
+		task, exists := byID[id]
+		if !exists {
+			addPatchConflict(&conflicts, opIndex, op.Op, "task_ids", "task_ids includes unknown task id", currentOrder, op.TaskIDs)
+			return false, false, conflicts, warnings, nil
+		}
+		seen[id] = struct{}{}
+		next = append(next, task)
+	}
+	if reflect.DeepEqual(currentOrder, op.TaskIDs) {
+		return false, true, conflicts, warnings, nil
+	}
+	now := s.timestamp()
+	for i := range next {
+		next[i].UpdatedAt = now
+	}
+	cr.Subtasks = next
+	return true, false, conflicts, warnings, nil
+}
+
+func currentTaskOrder(tasks []model.Subtask) []int {
+	order := make([]int, 0, len(tasks))
+	for _, task := range tasks {
+		order = append(order, task.ID)
+	}
+	return order
+}
+
+func decodeIntSliceChange(raw *json.RawMessage) ([]int, bool, error) {
+	if raw == nil {
+		return nil, false, nil
+	}
+	values, err := decodeIntSliceRaw(*raw)
+	return values, true, err
+}
+
+func decodeIntSliceRaw(raw json.RawMessage) ([]int, error) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return []int{}, nil
+	}
+	var values []int
+	if err := json.Unmarshal(raw, &values); err != nil {
+		return nil, err
+	}
+	return append([]int(nil), values...), nil
 }
 
 func (s *Service) applyPatchSetContract(cr *model.CR, raw json.RawMessage, opIndex int, force bool) (bool, bool, []CRPatchConflict, []string, error) {

@@ -168,6 +168,10 @@ func commandError(cmd *cobra.Command, asJSON bool, err error) error {
 }
 
 func jsonErrorCode(err error) string {
+	var patchConflict *service.PatchConflictError
+	if errors.As(err, &patchConflict) {
+		return "patch_conflict"
+	}
 	switch {
 	case errors.Is(err, service.ErrPolicyInvalid):
 		return "policy_invalid"

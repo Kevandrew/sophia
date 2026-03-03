@@ -4,7 +4,19 @@ import "encoding/json"
 
 const (
 	CRPatchSchemaV1 = "sophia.cr_patch.v1"
+	CRPatchSchemaV2 = "sophia.cr_patch.v2"
 	CRDocSchemaV1   = "sophia.cr_doc.v1"
+)
+
+const (
+	CRPatchOpSetField    = "set_field"
+	CRPatchOpSetContract = "set_contract"
+	CRPatchOpAddNote     = "add_note"
+	CRPatchOpDeleteNote  = "delete_note"
+	CRPatchOpAddTask     = "add_task"
+	CRPatchOpDeleteTask  = "delete_task"
+	CRPatchOpUpdateTask  = "update_task"
+	CRPatchOpReorderTask = "reorder_task"
 )
 
 type CRPatch struct {

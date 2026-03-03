@@ -101,6 +101,72 @@ func TestCRImportAndPatchJSONCommands(t *testing.T) {
 	}
 }
 
+func TestCRPatchPreviewJSONIncludesV2ConflictDetails(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	svc := service.New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	cr, err := svc.AddCR("CLI v2 conflict", "preview conflict details")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	setServiceContract(t, svc, cr.ID)
+	task, err := svc.AddTask(cr.ID, "task-one")
+	if err != nil {
+		t.Fatalf("AddTask() error = %v", err)
+	}
+
+	patchPayload := map[string]any{
+		"schema_version": "sophia.cr_patch.v2",
+		"target": map[string]any{
+			"cr_uid": cr.UID,
+		},
+		"ops": []any{
+			map[string]any{
+				"op":      "delete_task",
+				"task_id": task.ID,
+				"before":  "wrong-title",
+			},
+		},
+	}
+	rawPatch, err := json.Marshal(patchPayload)
+	if err != nil {
+		t.Fatalf("Marshal(patch) error = %v", err)
+	}
+	patchPath := filepath.Join(dir, "patch-v2-conflict.json")
+	if err := os.WriteFile(patchPath, rawPatch, 0o644); err != nil {
+		t.Fatalf("write patch: %v", err)
+	}
+
+	out, _, runErr := runCLI(t, dir, "cr", "patch", "preview", strconv.Itoa(cr.ID), "--file", patchPath, "--json")
+	if runErr == nil {
+		t.Fatalf("expected preview command to fail with conflict")
+	}
+	env := decodeEnvelope(t, out)
+	if env.OK {
+		t.Fatalf("expected non-ok envelope, got %#v", env)
+	}
+	if env.Error == nil || env.Error.Code != "patch_conflict" {
+		t.Fatalf("expected patch_conflict code, got %#v", env.Error)
+	}
+	conflicts, ok := env.Error.Details["conflicts"].([]any)
+	if !ok || len(conflicts) == 0 {
+		t.Fatalf("expected conflict details, got %#v", env.Error.Details)
+	}
+	first, ok := conflicts[0].(map[string]any)
+	if !ok {
+		t.Fatalf("expected conflict object, got %#v", conflicts[0])
+	}
+	if gotOp, _ := first["op"].(string); gotOp != "delete_task" {
+		t.Fatalf("expected delete_task conflict op, got %#v", first)
+	}
+	if gotField, _ := first["field"].(string); gotField != "before" {
+		t.Fatalf("expected before conflict field, got %#v", first)
+	}
+}
+
 func setServiceContract(t *testing.T, svc *service.Service, crID int) {
 	t.Helper()
 	why := "Contract"

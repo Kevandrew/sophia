@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -104,6 +105,18 @@ func newCRPatchApplyCmd(preview bool) *cobra.Command {
 				result, err = svc.ApplyCRPatch(selector, payload, force, false)
 			}
 			if err != nil {
+				if !asJSON && result != nil {
+					printCRPatchApplyResult(cmd, result, preview)
+					if len(result.Conflicts) > 0 {
+						var conflictErr *service.PatchConflictError
+						if errors.As(err, &conflictErr) {
+							fmt.Fprintln(cmd.OutOrStdout(), "\nConflicts:")
+							for _, conflict := range result.Conflicts {
+								fmt.Fprintf(cmd.OutOrStdout(), "- op #%d [%s] %s: %s\n", conflict.OpIndex, conflict.Op, conflict.Field, conflict.Message)
+							}
+						}
+					}
+				}
 				if asJSON && result != nil {
 					return writeJSONError(cmd, err)
 				}
@@ -112,20 +125,7 @@ func newCRPatchApplyCmd(preview bool) *cobra.Command {
 			if asJSON {
 				return writeJSONSuccess(cmd, crPatchApplyResultToJSON(result))
 			}
-			verb := "Applied"
-			if preview {
-				verb = "Previewed"
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "%s patch for CR %d (%s)\n", verb, result.CRID, result.CRUID)
-			fmt.Fprintf(cmd.OutOrStdout(), "Applied ops: %d\n", len(result.AppliedOps))
-			fmt.Fprintf(cmd.OutOrStdout(), "Skipped ops: %d\n", len(result.SkippedOps))
-			fmt.Fprintf(cmd.OutOrStdout(), "Conflicts: %d\n", len(result.Conflicts))
-			if len(result.Warnings) > 0 {
-				fmt.Fprintln(cmd.OutOrStdout(), "\nWarnings:")
-				for _, warning := range result.Warnings {
-					fmt.Fprintf(cmd.OutOrStdout(), "- %s\n", warning)
-				}
-			}
+			printCRPatchApplyResult(cmd, result, preview)
 			return nil
 		},
 	}
@@ -134,4 +134,24 @@ func newCRPatchApplyCmd(preview bool) *cobra.Command {
 	cmd.Flags().BoolVar(&force, "force", false, "Force apply even when before values mismatch")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "Output in JSON format")
 	return cmd
+}
+
+func printCRPatchApplyResult(cmd *cobra.Command, result *service.CRPatchApplyResult, preview bool) {
+	if result == nil {
+		return
+	}
+	verb := "Applied"
+	if preview {
+		verb = "Previewed"
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "%s patch for CR %d (%s)\n", verb, result.CRID, result.CRUID)
+	fmt.Fprintf(cmd.OutOrStdout(), "Applied ops: %d\n", len(result.AppliedOps))
+	fmt.Fprintf(cmd.OutOrStdout(), "Skipped ops: %d\n", len(result.SkippedOps))
+	fmt.Fprintf(cmd.OutOrStdout(), "Conflicts: %d\n", len(result.Conflicts))
+	if len(result.Warnings) > 0 {
+		fmt.Fprintln(cmd.OutOrStdout(), "\nWarnings:")
+		for _, warning := range result.Warnings {
+			fmt.Fprintf(cmd.OutOrStdout(), "- %s\n", warning)
+		}
+	}
 }

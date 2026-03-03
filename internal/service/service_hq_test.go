@@ -709,6 +709,254 @@ func TestPushCRToHQPublishesNewTaskWithUpdate(t *testing.T) {
 	}
 }
 
+func TestPushCRToHQEncodesTaskDeleteAndReorderWithSchemaV2(t *testing.T) {
+	dir := t.TempDir()
+	configHome := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	cr, err := svc.AddCR("push reorder delete", "local removes and reorders")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	if _, err := svc.AddTask(cr.ID, "task-1"); err != nil {
+		t.Fatalf("AddTask(1) error = %v", err)
+	}
+	if _, err := svc.AddTask(cr.ID, "task-2"); err != nil {
+		t.Fatalf("AddTask(2) error = %v", err)
+	}
+	if _, err := svc.AddTask(cr.ID, "task-3"); err != nil {
+		t.Fatalf("AddTask(3) error = %v", err)
+	}
+	loaded, err := svc.store.LoadCR(cr.ID)
+	if err != nil {
+		t.Fatalf("LoadCR() error = %v", err)
+	}
+	remote := cloneRemoteCR(loaded)
+	remoteFP, err := fingerprintHQIntentCR(remote)
+	if err != nil {
+		t.Fatalf("fingerprintHQIntentCR(remote) error = %v", err)
+	}
+
+	byID := map[int]model.Subtask{}
+	for _, task := range loaded.Subtasks {
+		byID[task.ID] = task
+	}
+	loaded.Subtasks = []model.Subtask{byID[3], byID[1]}
+	loaded.HQ.UpstreamFingerprint = remoteFP
+	if err := svc.store.SaveCR(loaded); err != nil {
+		t.Fatalf("SaveCR() error = %v", err)
+	}
+
+	var received model.HQPatchApplyRequest
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			respondRemoteCR(t, w, remote, remoteFP)
+			return
+		case http.MethodPost:
+			if err := json.NewDecoder(r.Body).Decode(&received); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"schema_version": "sophia.hq.v1",
+				"cr_uid":         strings.TrimSpace(remote.UID),
+				"cr_fingerprint": "fp_remote_after",
+			})
+			return
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+	}))
+	defer server.Close()
+
+	repoID := "repo-one"
+	baseURL := server.URL
+	if _, err := svc.SetHQConfig(HQConfigSetOptions{RepoID: &repoID, BaseURL: &baseURL}); err != nil {
+		t.Fatalf("SetHQConfig() error = %v", err)
+	}
+
+	if _, err := svc.PushCRToHQ(strconv.Itoa(cr.ID), false); err != nil {
+		t.Fatalf("PushCRToHQ() error = %v", err)
+	}
+	if received.Patch.SchemaVersion != model.CRPatchSchemaV2 {
+		t.Fatalf("expected patch schema %q, got %q", model.CRPatchSchemaV2, received.Patch.SchemaVersion)
+	}
+	foundDelete := false
+	foundReorder := false
+	for _, op := range received.Patch.Ops {
+		raw := string(op)
+		if strings.Contains(raw, "\"delete_task\"") {
+			foundDelete = true
+		}
+		if strings.Contains(raw, "\"reorder_task\"") {
+			foundReorder = true
+		}
+	}
+	if !foundDelete {
+		t.Fatalf("expected delete_task op, ops=%v", received.Patch.Ops)
+	}
+	if !foundReorder {
+		t.Fatalf("expected reorder_task op, ops=%v", received.Patch.Ops)
+	}
+}
+
+func TestPushCRToHQEncodesNoteDeleteWithSchemaV2(t *testing.T) {
+	dir := t.TempDir()
+	configHome := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	cr, err := svc.AddCR("push note delete", "local removes note")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	if err := svc.AddNote(cr.ID, "keep"); err != nil {
+		t.Fatalf("AddNote(keep) error = %v", err)
+	}
+	if err := svc.AddNote(cr.ID, "remove"); err != nil {
+		t.Fatalf("AddNote(remove) error = %v", err)
+	}
+	loaded, err := svc.store.LoadCR(cr.ID)
+	if err != nil {
+		t.Fatalf("LoadCR() error = %v", err)
+	}
+	remote := cloneRemoteCR(loaded)
+	remoteFP, err := fingerprintHQIntentCR(remote)
+	if err != nil {
+		t.Fatalf("fingerprintHQIntentCR(remote) error = %v", err)
+	}
+	loaded.Notes = []string{"keep"}
+	loaded.HQ.UpstreamFingerprint = remoteFP
+	if err := svc.store.SaveCR(loaded); err != nil {
+		t.Fatalf("SaveCR() error = %v", err)
+	}
+
+	var received model.HQPatchApplyRequest
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			respondRemoteCR(t, w, remote, remoteFP)
+			return
+		case http.MethodPost:
+			if err := json.NewDecoder(r.Body).Decode(&received); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"schema_version": "sophia.hq.v1",
+				"cr_uid":         strings.TrimSpace(remote.UID),
+				"cr_fingerprint": "fp_remote_after",
+			})
+			return
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+	}))
+	defer server.Close()
+
+	repoID := "repo-one"
+	baseURL := server.URL
+	if _, err := svc.SetHQConfig(HQConfigSetOptions{RepoID: &repoID, BaseURL: &baseURL}); err != nil {
+		t.Fatalf("SetHQConfig() error = %v", err)
+	}
+
+	if _, err := svc.PushCRToHQ(strconv.Itoa(cr.ID), false); err != nil {
+		t.Fatalf("PushCRToHQ() error = %v", err)
+	}
+	if received.Patch.SchemaVersion != model.CRPatchSchemaV2 {
+		t.Fatalf("expected patch schema %q, got %q", model.CRPatchSchemaV2, received.Patch.SchemaVersion)
+	}
+	foundDeleteNote := false
+	for _, op := range received.Patch.Ops {
+		if strings.Contains(string(op), "\"delete_note\"") {
+			foundDeleteNote = true
+			break
+		}
+	}
+	if !foundDeleteNote {
+		t.Fatalf("expected delete_note op, ops=%v", received.Patch.Ops)
+	}
+}
+
+func TestPushCRToHQReturnsDeterministicUnsupportedTaskSyncDetails(t *testing.T) {
+	dir := t.TempDir()
+	configHome := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	cr, err := svc.AddCR("push unsupported task sync", "non-contiguous local task ids")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	if _, err := svc.AddTask(cr.ID, "task-1"); err != nil {
+		t.Fatalf("AddTask(1) error = %v", err)
+	}
+	if _, err := svc.AddTask(cr.ID, "task-2"); err != nil {
+		t.Fatalf("AddTask(2) error = %v", err)
+	}
+	loaded, err := svc.store.LoadCR(cr.ID)
+	if err != nil {
+		t.Fatalf("LoadCR() error = %v", err)
+	}
+	remote := cloneRemoteCR(loaded)
+	remoteFP, err := fingerprintHQIntentCR(remote)
+	if err != nil {
+		t.Fatalf("fingerprintHQIntentCR(remote) error = %v", err)
+	}
+
+	loaded.Subtasks[1].ID = 4
+	loaded.HQ.UpstreamFingerprint = remoteFP
+	if err := svc.store.SaveCR(loaded); err != nil {
+		t.Fatalf("SaveCR() error = %v", err)
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		respondRemoteCR(t, w, remote, remoteFP)
+	}))
+	defer server.Close()
+
+	repoID := "repo-one"
+	baseURL := server.URL
+	if _, err := svc.SetHQConfig(HQConfigSetOptions{RepoID: &repoID, BaseURL: &baseURL}); err != nil {
+		t.Fatalf("SetHQConfig() error = %v", err)
+	}
+
+	_, err = svc.PushCRToHQ(strconv.Itoa(cr.ID), false)
+	if err == nil {
+		t.Fatalf("expected PushCRToHQ to fail with unsupported task sync")
+	}
+	if !errors.Is(err, ErrHQTaskSyncUnsupported) {
+		t.Fatalf("expected ErrHQTaskSyncUnsupported, got %T (%v)", err, err)
+	}
+	var unsupported *HQTaskSyncUnsupportedError
+	if !errors.As(err, &unsupported) {
+		t.Fatalf("expected HQTaskSyncUnsupportedError, got %T", err)
+	}
+	if unsupported.RemoteMaxTaskID != 2 {
+		t.Fatalf("expected remote max task id 2, got %d", unsupported.RemoteMaxTaskID)
+	}
+	if len(unsupported.MissingLocalTask) != 1 || unsupported.MissingLocalTask[0] != 4 {
+		t.Fatalf("expected missing local task ids [4], got %#v", unsupported.MissingLocalTask)
+	}
+}
+
 func TestPushCRToHQRefusesWhenUpstreamMoved(t *testing.T) {
 	dir := t.TempDir()
 	configHome := t.TempDir()

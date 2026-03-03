@@ -60,10 +60,22 @@ func ReadCRField(cr *model.CR, field string) (any, error) {
 		return cr.Title, nil
 	case "cr.description":
 		return cr.Description, nil
+	case "cr.status":
+		return cr.Status, nil
+	case "cr.branch":
+		return cr.Branch, nil
 	case "cr.base_branch":
 		return cr.BaseBranch, nil
 	case "cr.base_ref":
 		return cr.BaseRef, nil
+	case "cr.base_commit":
+		return cr.BaseCommit, nil
+	case "cr.merged_at":
+		return cr.MergedAt, nil
+	case "cr.merged_by":
+		return cr.MergedBy, nil
+	case "cr.merged_commit":
+		return cr.MergedCommit, nil
 	case "cr.parent_cr_id":
 		if cr.ParentCRID == 0 {
 			return nil, nil
@@ -79,7 +91,7 @@ func DecodeCRFieldValue(field string, raw *json.RawMessage) (any, bool, error) {
 		return nil, false, nil
 	}
 	switch strings.TrimSpace(field) {
-	case "cr.title", "cr.description", "cr.base_branch", "cr.base_ref":
+	case "cr.title", "cr.description", "cr.status", "cr.branch", "cr.base_branch", "cr.base_ref", "cr.base_commit", "cr.merged_at", "cr.merged_by", "cr.merged_commit":
 		value, err := DecodeStringRaw(*raw)
 		return value, true, err
 	case "cr.parent_cr_id":
@@ -113,6 +125,23 @@ func WriteCRField(cr *model.CR, field string, value any) error {
 			return fmt.Errorf("set_field %s expects string", field)
 		}
 		cr.Description = next
+	case "cr.status":
+		next, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("set_field %s expects string", field)
+		}
+		switch next {
+		case "", model.StatusInProgress, model.StatusMerged, model.StatusAbandoned:
+			cr.Status = next
+		default:
+			return fmt.Errorf("set_field %s invalid status %q", field, next)
+		}
+	case "cr.branch":
+		next, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("set_field %s expects string", field)
+		}
+		cr.Branch = next
 	case "cr.base_branch":
 		next, ok := value.(string)
 		if !ok {
@@ -125,6 +154,30 @@ func WriteCRField(cr *model.CR, field string, value any) error {
 			return fmt.Errorf("set_field %s expects string", field)
 		}
 		cr.BaseRef = next
+	case "cr.base_commit":
+		next, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("set_field %s expects string", field)
+		}
+		cr.BaseCommit = next
+	case "cr.merged_at":
+		next, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("set_field %s expects string", field)
+		}
+		cr.MergedAt = next
+	case "cr.merged_by":
+		next, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("set_field %s expects string", field)
+		}
+		cr.MergedBy = next
+	case "cr.merged_commit":
+		next, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("set_field %s expects string", field)
+		}
+		cr.MergedCommit = next
 	case "cr.parent_cr_id":
 		if value == nil {
 			cr.ParentCRID = 0

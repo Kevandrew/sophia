@@ -398,7 +398,7 @@ func (s *Service) PushCRToHQ(selector string, force bool) (*HQPushResult, error)
 	}
 
 	patch := model.CRPatch{
-		SchemaVersion: patchSchemaV1,
+		SchemaVersion: selectHQPatchSchemaVersion(ops),
 		Target: model.CRPatchTarget{
 			CRUID: uid,
 		},
@@ -785,11 +785,24 @@ func buildHQIntentPatchOps(remoteCR, localCR *model.CR) ([]json.RawMessage, []st
 	if err := validateHQMissingLocalTaskIDs(localCR, remoteTasks, localTasks, remoteMaxTaskID); err != nil {
 		return nil, nil, err
 	}
-	warnings := collectHQMissingRemoteTaskWarnings(remoteTasks, localTasks)
-	if err := addHQTaskPatchOps(&ops, remoteTasks, localTasks); err != nil {
+	if err := addHQTaskPatchOps(&ops, remoteTasks, localTasks, taskOrderIDs(remoteCR.Subtasks), taskOrderIDs(localCR.Subtasks)); err != nil {
 		return nil, nil, err
 	}
-	return ops, warnings, nil
+	return ops, []string{}, nil
+}
+
+func selectHQPatchSchemaVersion(ops []json.RawMessage) string {
+	for idx, raw := range ops {
+		opName, err := decodePatchOpName(raw, idx+1)
+		if err != nil {
+			continue
+		}
+		switch opName {
+		case patchOpDeleteNote, patchOpDeleteTask, patchOpReorderTask:
+			return patchSchemaV2
+		}
+	}
+	return patchSchemaV1
 }
 
 func addHQSetFieldOp(ops *[]json.RawMessage, field string, before, after any) error {
@@ -845,15 +858,38 @@ func addHQContractPatchOp(ops *[]json.RawMessage, remoteContract, localContract 
 }
 
 func addHQNotePatchOps(ops *[]json.RawMessage, remoteNotes, localNotes []string) error {
-	remoteByHash := map[string]struct{}{}
-	for _, note := range normalizeStringList(remoteNotes) {
-		remoteByHash[noteHash(note)] = struct{}{}
+	remoteNormalized := normalizeStringList(remoteNotes)
+	localNormalized := normalizeStringList(localNotes)
+
+	remoteByHash := map[string]string{}
+	for _, note := range remoteNormalized {
+		remoteByHash[noteHash(note)] = note
 	}
-	for _, note := range normalizeStringList(localNotes) {
+	localByHash := map[string]string{}
+	for _, note := range localNormalized {
+		localByHash[noteHash(note)] = note
+	}
+
+	for _, note := range localNormalized {
 		if _, ok := remoteByHash[noteHash(note)]; ok {
 			continue
 		}
-		payload, err := json.Marshal(patchAddNoteOp{Op: "add_note", Text: note})
+		payload, err := json.Marshal(patchAddNoteOp{Op: patchOpAddNote, Text: note})
+		if err != nil {
+			return err
+		}
+		*ops = append(*ops, payload)
+	}
+	for _, note := range remoteNormalized {
+		hash := noteHash(note)
+		if _, ok := localByHash[hash]; ok {
+			continue
+		}
+		payload, err := json.Marshal(map[string]any{
+			"op":        patchOpDeleteNote,
+			"note_hash": hash,
+			"before":    note,
+		})
 		if err != nil {
 			return err
 		}
@@ -906,18 +942,8 @@ func validateHQMissingLocalTaskIDs(localCR *model.CR, remoteTasks, localTasks ma
 	return nil
 }
 
-func collectHQMissingRemoteTaskWarnings(remoteTasks, localTasks map[int]model.Subtask) []string {
-	warnings := []string{}
-	for id := range remoteTasks {
-		if _, ok := localTasks[id]; ok {
-			continue
-		}
-		warnings = append(warnings, fmt.Sprintf("remote task %d exists but local task is missing; task deletion is not encoded in push patch", id))
-	}
-	return warnings
-}
-
-func addHQTaskPatchOps(ops *[]json.RawMessage, remoteTasks, localTasks map[int]model.Subtask) error {
+func addHQTaskPatchOps(ops *[]json.RawMessage, remoteTasks, localTasks map[int]model.Subtask, remoteOrder, localOrder []int) error {
+	addedIDs := make([]int, 0)
 	ids := make([]int, 0, len(localTasks))
 	for id := range localTasks {
 		ids = append(ids, id)
@@ -930,6 +956,7 @@ func addHQTaskPatchOps(ops *[]json.RawMessage, remoteTasks, localTasks map[int]m
 			if err := addHQAddTaskPatchOps(ops, id, localTask); err != nil {
 				return err
 			}
+			addedIDs = append(addedIDs, id)
 			continue
 		}
 		changes := buildHQExistingTaskChanges(remoteTask, localTask)
@@ -946,7 +973,55 @@ func addHQTaskPatchOps(ops *[]json.RawMessage, remoteTasks, localTasks map[int]m
 		}
 		*ops = append(*ops, payload)
 	}
+
+	for _, id := range remoteOrder {
+		if _, exists := localTasks[id]; exists {
+			continue
+		}
+		remoteTask, ok := remoteTasks[id]
+		if !ok {
+			continue
+		}
+		payload, err := json.Marshal(map[string]any{
+			"op":      patchOpDeleteTask,
+			"task_id": id,
+			"before":  strings.TrimSpace(remoteTask.Title),
+		})
+		if err != nil {
+			return err
+		}
+		*ops = append(*ops, payload)
+	}
+
+	projectedOrder := make([]int, 0, len(remoteOrder)+len(addedIDs))
+	for _, id := range remoteOrder {
+		if _, exists := localTasks[id]; !exists {
+			continue
+		}
+		projectedOrder = append(projectedOrder, id)
+	}
+	projectedOrder = append(projectedOrder, addedIDs...)
+	if !reflect.DeepEqual(projectedOrder, localOrder) {
+		payload, err := json.Marshal(map[string]any{
+			"op":       patchOpReorderTask,
+			"before":   projectedOrder,
+			"task_ids": localOrder,
+		})
+		if err != nil {
+			return err
+		}
+		*ops = append(*ops, payload)
+	}
+
 	return nil
+}
+
+func taskOrderIDs(tasks []model.Subtask) []int {
+	order := make([]int, 0, len(tasks))
+	for _, task := range tasks {
+		order = append(order, task.ID)
+	}
+	return order
 }
 
 func addHQAddTaskPatchOps(ops *[]json.RawMessage, id int, localTask model.Subtask) error {
