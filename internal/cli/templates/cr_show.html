@@ -42,9 +42,12 @@
 
       --blue: #2563eb;
       --blue-bg: #eff6ff;
+      --blue-border: #bfdbfe;
 
       --font: "DM Sans", system-ui, sans-serif;
       --mono: "JetBrains Mono", ui-monospace, monospace;
+      --topbar-h: 48px;
+      --controlbar-h: 44px;
     }
 
     *,
@@ -80,7 +83,7 @@
       display: flex;
       align-items: center;
       gap: 12px;
-      height: 48px;
+      height: var(--topbar-h);
     }
 
     .topbar-brand {
@@ -265,12 +268,86 @@
       cursor: wait;
     }
 
+    .controlbar {
+      position: sticky;
+      top: var(--topbar-h);
+      z-index: 95;
+      border-bottom: 1px solid var(--border);
+      background: rgba(255, 255, 255, 0.95);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 0 28px;
+      min-height: var(--controlbar-h);
+    }
+
+    .control-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex: 1;
+      min-width: 0;
+      overflow-x: auto;
+      padding: 6px 0;
+    }
+
+    .control-btn {
+      border: 1px solid var(--border-strong);
+      border-radius: 6px;
+      background: var(--bg);
+      color: var(--ink-2);
+      font-family: var(--font);
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      white-space: nowrap;
+      padding: 0 11px;
+      height: 28px;
+      cursor: pointer;
+      transition: background 0.12s, border-color 0.12s, color 0.12s;
+    }
+
+    .control-btn:hover {
+      background: var(--bg-hover);
+      border-color: var(--ink-4);
+    }
+
+    .control-btn.major {
+      border-color: var(--blue-border);
+      background: var(--blue-bg);
+      color: var(--blue);
+      font-weight: 700;
+    }
+
+    .control-btn.safe {
+      border-color: var(--pass-border);
+      background: var(--pass-bg);
+      color: var(--pass-ink);
+    }
+
+    .control-btn.danger {
+      border-color: var(--fail-border);
+      background: var(--fail-bg);
+      color: var(--fail-ink);
+    }
+
+    .control-status {
+      font-family: var(--mono);
+      font-size: 10.5px;
+      color: var(--ink-4);
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+
     /* ── LAYOUT ──────────────────────────────────── */
     .layout {
       display: grid;
       grid-template-columns: 1fr 280px;
       grid-template-rows: auto 1fr;
-      min-height: calc(100vh - 48px);
+      min-height: calc(100vh - var(--topbar-h) - var(--controlbar-h));
     }
 
     /* ── HERO ────────────────────────────────────── */
@@ -853,6 +930,14 @@
         gap: 8px;
       }
 
+      .controlbar {
+        padding: 0 14px;
+      }
+
+      .control-status {
+        display: none;
+      }
+
       .topbar-title {
         display: none;
       }
@@ -905,6 +990,19 @@
       </button>
     </div>
   </header>
+
+  <section class="controlbar" id="control-actions-bar" aria-label="CR control actions">
+    <div class="control-actions">
+      <button type="button" class="control-btn major" data-control-action="publish_pr">Publish PR</button>
+      <button type="button" class="control-btn" data-control-action="pr_sync">PR Sync</button>
+      <button type="button" class="control-btn" data-control-action="refresh">Refresh</button>
+      <button type="button" class="control-btn safe" data-control-action="validate">Validate</button>
+      <button type="button" class="control-btn" data-control-action="review">Review</button>
+      <button type="button" class="control-btn danger" data-control-action="merge">Merge</button>
+      <button type="button" class="control-btn" data-control-action="pull">Pull</button>
+    </div>
+    <div class="control-status" id="control-status">Ready for control actions.</div>
+  </section>
 
   <!-- HERO -->
   <div class="layout">
