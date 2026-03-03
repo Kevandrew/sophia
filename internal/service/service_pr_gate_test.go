@@ -947,6 +947,112 @@ func TestStageArchiveForPRGateSkipsWhenArchiveDisabled(t *testing.T) {
 	}
 }
 
+func TestStageArchiveForPRGateWritesV2ArchiveWhenFullDiffEnabled(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	svc := New(dir)
+	mergeGit := newFakeMergeGit("Test User <test@example.com>", "cr-61-test")
+	mergeGit.resolve["main"] = "base123"
+	mergeGit.resolve["cr-61-test"] = "head123"
+	mergeGit.diffCached = []gitx.FileChange{
+		{Path: "internal/service/archive.go"},
+	}
+	mergeGit.diffNumStat = []gitx.DiffNumStat{
+		{Path: "internal/service/archive.go", Insertions: intPtr(3), Deletions: intPtr(1)},
+	}
+	mergeGit.diffPatch = "diff --git a/internal/service/archive.go b/internal/service/archive.go\nindex 1111111..2222222 100644\n--- a/internal/service/archive.go\n+++ b/internal/service/archive.go\n@@ -1 +1 @@\n-old\n+new\n"
+	svc.overrideMergeRuntimeProvidersForTests(mergeGit, nil, nil)
+
+	policy := &model.RepoPolicy{
+		Merge: model.PolicyMerge{
+			Mode: "pr_gate",
+		},
+		Archive: model.PolicyArchive{
+			Enabled:          boolPtr(true),
+			Path:             ".sophia-tracked/cr",
+			Format:           "yaml",
+			IncludeFullDiffs: boolPtr(true),
+		},
+	}
+	cr := &model.CR{
+		ID:         61,
+		BaseBranch: "main",
+		Branch:     "cr-61-test",
+	}
+	if err := svc.stageArchiveForPRGate(cr, policy); err != nil {
+		t.Fatalf("stageArchiveForPRGate() error = %v", err)
+	}
+	archivePath := filepath.Join(dir, ".sophia-tracked", "cr", "cr-61.v1.yaml")
+	content, err := os.ReadFile(archivePath)
+	if err != nil {
+		t.Fatalf("read archive path %s: %v", archivePath, err)
+	}
+	body := string(content)
+	if !strings.Contains(body, "schema_version: sophia.cr_archive.v2") {
+		t.Fatalf("expected archive v2 schema in staged archive:\n%s", body)
+	}
+	if !strings.Contains(body, "full_diff:") {
+		t.Fatalf("expected full_diff payload in staged archive:\n%s", body)
+	}
+	if !strings.Contains(body, "encoding: git_unified_patch") {
+		t.Fatalf("expected full diff encoding in staged archive:\n%s", body)
+	}
+	if mergeGit.Calls("Commit") != 1 {
+		t.Fatalf("expected one archive staging commit, got %d", mergeGit.Calls("Commit"))
+	}
+}
+
+func TestStageArchiveForPRGateFullDiffGuardrailBlocksCommit(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	svc := New(dir)
+	mergeGit := newFakeMergeGit("Test User <test@example.com>", "cr-62-test")
+	mergeGit.resolve["main"] = "base123"
+	mergeGit.resolve["cr-62-test"] = "head123"
+	mergeGit.diffCached = []gitx.FileChange{
+		{Path: "oversize.txt"},
+	}
+	mergeGit.diffNumStat = []gitx.DiffNumStat{
+		{Path: "oversize.txt", Insertions: intPtr(1), Deletions: intPtr(0)},
+	}
+	mergeGit.diffPatch = strings.Repeat("x", archiveFullDiffMaxBytes+1024)
+	svc.overrideMergeRuntimeProvidersForTests(mergeGit, nil, nil)
+
+	policy := &model.RepoPolicy{
+		Merge: model.PolicyMerge{
+			Mode: "pr_gate",
+		},
+		Archive: model.PolicyArchive{
+			Enabled:          boolPtr(true),
+			Path:             ".sophia-tracked/cr",
+			Format:           "yaml",
+			IncludeFullDiffs: boolPtr(true),
+		},
+	}
+	cr := &model.CR{
+		ID:         62,
+		BaseBranch: "main",
+		Branch:     "cr-62-test",
+	}
+	err := svc.stageArchiveForPRGate(cr, policy)
+	if err == nil {
+		t.Fatalf("expected guardrail error")
+	}
+	if !strings.Contains(err.Error(), "archive full diff exceeds byte limit") {
+		t.Fatalf("expected deterministic guardrail error, got %v", err)
+	}
+	if mergeGit.Calls("StagePaths") != 0 {
+		t.Fatalf("expected no staged paths on guardrail failure, got %d", mergeGit.Calls("StagePaths"))
+	}
+	if mergeGit.Calls("Commit") != 0 {
+		t.Fatalf("expected no commit on guardrail failure, got %d", mergeGit.Calls("Commit"))
+	}
+	archivePath := filepath.Join(dir, ".sophia-tracked", "cr", "cr-62.v1.yaml")
+	if _, statErr := os.Stat(archivePath); !os.IsNotExist(statErr) {
+		t.Fatalf("expected no archive file on guardrail failure, stat err=%v", statErr)
+	}
+}
+
 func TestPushBranchIfNeededPushesLocalAheadCommit(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()

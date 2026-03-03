@@ -250,11 +250,21 @@ func archiveGitSummaryToJSONMap(summary model.CRArchiveGitSummary) map[string]an
 	}
 }
 
+func archiveFullDiffToJSONMap(fullDiff *model.CRArchiveFullDiff) map[string]any {
+	if fullDiff == nil {
+		return map[string]any{}
+	}
+	return map[string]any{
+		"encoding": fullDiff.Encoding,
+		"bytes":    fullDiff.Bytes,
+	}
+}
+
 func crArchiveWriteToJSONMap(view *service.CRArchiveWriteView) map[string]any {
 	if view == nil {
 		return map[string]any{}
 	}
-	return map[string]any{
+	out := map[string]any{
 		"cr_id":       view.CRID,
 		"cr_uid":      view.CRUID,
 		"revision":    view.Revision,
@@ -267,6 +277,10 @@ func crArchiveWriteToJSONMap(view *service.CRArchiveWriteView) map[string]any {
 		"archived_at": view.Archive.ArchivedAt,
 		"notice":      view.Archive.Notice,
 	}
+	if view.Archive.FullDiff != nil {
+		out["full_diff"] = archiveFullDiffToJSONMap(view.Archive.FullDiff)
+	}
+	return out
 }
 
 func crArchiveBackfillToJSONMap(view *service.CRArchiveBackfillView) map[string]any {
