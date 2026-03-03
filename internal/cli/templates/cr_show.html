@@ -315,6 +315,15 @@
       border-color: var(--ink-4);
     }
 
+    .control-btn:disabled {
+      opacity: 0.55;
+      cursor: wait;
+    }
+
+    .control-btn.is-running {
+      box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+    }
+
     .control-btn.major {
       border-color: var(--blue-border);
       background: var(--blue-bg);
@@ -340,6 +349,22 @@
       color: var(--ink-4);
       white-space: nowrap;
       flex-shrink: 0;
+    }
+
+    .control-status.running {
+      color: var(--blue);
+    }
+
+    .control-status.success {
+      color: var(--pass-ink);
+    }
+
+    .control-status.error {
+      color: var(--fail-ink);
+    }
+
+    .control-status.warn {
+      color: var(--warn-ink);
     }
 
     /* ── LAYOUT ──────────────────────────────────── */
@@ -1291,11 +1316,166 @@
       }
 
       var liveSource = null;
+      var actionBusy = false;
+      var currentCRID = 0;
       function setLiveHint(state) {
         var hintEl = document.getElementById("live-hint");
         if (!hintEl) return;
         var value = text(state, "").trim();
         hintEl.textContent = value ? (" · " + value) : "";
+      }
+
+      function setControlStatus(state, message) {
+        var statusEl = document.getElementById("control-status");
+        if (!statusEl) return;
+        statusEl.className = "control-status" + (state ? (" " + state) : "");
+        statusEl.textContent = text(message, "Ready for control actions.");
+      }
+
+      function setActionBusy(action, busy) {
+        actionBusy = Boolean(busy);
+        var buttons = document.querySelectorAll("[data-control-action]");
+        buttons.forEach(function (btn) {
+          btn.disabled = actionBusy;
+          if (actionBusy && btn.getAttribute("data-control-action") === action) {
+            btn.classList.add("is-running");
+          } else {
+            btn.classList.remove("is-running");
+          }
+        });
+      }
+
+      function isRiskyAction(action) {
+        return action === "publish_pr" || action === "merge";
+      }
+
+      function actionNeedsCR(action, crID) {
+        if (action === "pull") return crID > 0;
+        return true;
+      }
+
+      function actionLabel(action) {
+        var labels = {
+          publish_pr: "Publish PR",
+          pr_sync: "PR Sync",
+          refresh: "Refresh",
+          validate: "Validate",
+          review: "Review",
+          merge: "Merge",
+          pull: "Pull"
+        };
+        return labels[action] || action;
+      }
+
+      function sendControlAction(payload) {
+        return fetch("/__sophia_action", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload || {})
+        }).then(function (res) {
+          return res.text().then(function (raw) {
+            var data = {};
+            try {
+              data = JSON.parse(raw || "{}");
+            } catch (_err) {
+              data = {};
+            }
+            data.__http_ok = res.ok;
+            data.__http_status = res.status;
+            return data;
+          });
+        });
+      }
+
+      function buildPreflightMessage(action, preflight) {
+        var pf = asObject(preflight);
+        var lines = [];
+        var status = asObject(pf.status);
+        var workingTree = asObject(status.working_tree);
+        if (workingTree.dirty) lines.push("- Working tree is dirty.");
+        if (status.merge_blocked) {
+          lines.push("- Merge is currently blocked.");
+          asArray(status.merge_blockers).forEach(function (blocker) {
+            lines.push("  - " + blocker);
+          });
+        }
+        var validation = asObject(pf.validation);
+        if (validation.valid === false) {
+          lines.push("- Validation is failing.");
+          asArray(validation.errors).slice(0, 3).forEach(function (item) {
+            lines.push("  - " + item);
+          });
+        }
+        var pr = asObject(pf.pr);
+        if (pr.gate_blocked) {
+          lines.push("- PR gate is blocked.");
+          asArray(pr.gate_reasons).slice(0, 3).forEach(function (reason) {
+            lines.push("  - " + reason);
+          });
+        }
+        if (!lines.length) lines.push("- No immediate blockers reported.");
+        return "Confirm " + actionLabel(action) + "?\n\nPreflight:\n" + lines.join("\n");
+      }
+
+      function runControlAction(action) {
+        if (actionBusy) return;
+        var crID = Number(currentCRID) || 0;
+        if (actionNeedsCR(action, crID) && crID <= 0) {
+          setControlStatus("error", actionLabel(action) + " requires an active CR context.");
+          return;
+        }
+        var payload = { action: action };
+        if (crID > 0) payload.cr_id = crID;
+        if (action === "pull") payload.pull_mode = crID > 0 ? "metadata" : "ff_only";
+
+        setActionBusy(action, true);
+        setControlStatus("running", "Running " + actionLabel(action) + "...");
+
+        var runPromise = Promise.resolve();
+        if (isRiskyAction(action)) {
+          runPromise = sendControlAction(payload).then(function (preflightResponse) {
+            if (preflightResponse && preflightResponse.requires_confirmation) {
+              var confirmed = window.confirm(buildPreflightMessage(action, preflightResponse.preflight));
+              if (!confirmed) {
+                setControlStatus("warn", actionLabel(action) + " cancelled.");
+                return null;
+              }
+              payload.confirm = true;
+              return sendControlAction(payload);
+            }
+            return preflightResponse;
+          });
+        } else {
+          runPromise = sendControlAction(payload);
+        }
+
+        runPromise.then(function (response) {
+          if (!response) return;
+          if (response.ok && response.__http_ok) {
+            var summary = text(response.summary, actionLabel(action) + " completed.");
+            if (response.pull_mode) summary += " (" + response.pull_mode + ")";
+            setControlStatus("success", summary);
+            return;
+          }
+          var message = text(response.error, text(response.summary, actionLabel(action) + " failed."));
+          if (response.hint) message += " " + response.hint;
+          setControlStatus("error", message);
+        }).catch(function (err) {
+          setControlStatus("error", actionLabel(action) + " failed: " + text(err && err.message, "request error"));
+        }).finally(function () {
+          setActionBusy(action, false);
+        });
+      }
+
+      function bindControlActions() {
+        var buttons = document.querySelectorAll("[data-control-action]");
+        buttons.forEach(function (btn) {
+          if (btn.__sophiaControlBound) return;
+          btn.addEventListener("click", function () {
+            runControlAction(String(btn.getAttribute("data-control-action") || ""));
+          });
+          btn.__sophiaControlBound = true;
+        });
       }
 
       function closePreview() {
@@ -1323,6 +1503,7 @@
 
         // Title
         document.title = text(cr.title, "CR Report") + " · Sophia";
+        currentCRID = parseInt(text(cr.id, "0"), 10) || 0;
 
         // Topbar
         setText("hero-id", "CR-" + text(cr.id, "-"));
@@ -1575,6 +1756,8 @@
       }
 
       var initialPayload = parseBootstrapPayload();
+      bindControlActions();
+      setControlStatus("", "Ready for control actions.");
       renderCR(initialPayload);
       var initialCR = asObject(initialPayload.cr);
       var initialCRID = text(initialCR.id, "");
