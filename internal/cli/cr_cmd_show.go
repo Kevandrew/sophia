@@ -3,7 +3,9 @@ package cli
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	_ "embed"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"html"
@@ -29,12 +31,14 @@ import (
 type crShowMode string
 
 const (
-	crShowModePerCR               crShowMode = "per_cr"
-	crShowModeDashboard           crShowMode = "dashboard"
-	defaultCRListLimit                       = 200
-	defaultCRTimelineLimit                   = 200
-	defaultCRShowEventsLimit                 = 20
-	defaultCRShowCheckpointsLimit            = 10
+	crShowModePerCR                   crShowMode = "per_cr"
+	crShowModeDashboard               crShowMode = "dashboard"
+	defaultCRListLimit                           = 200
+	defaultCRTimelineLimit                       = 200
+	defaultCRShowEventsLimit                     = 20
+	defaultCRShowCheckpointsLimit                = 10
+	defaultCRShowSSEPollInterval                 = 2 * time.Second
+	defaultCRShowSSEKeepaliveInterval            = 15 * time.Second
 )
 
 func newCRShowCmd() *cobra.Command {
