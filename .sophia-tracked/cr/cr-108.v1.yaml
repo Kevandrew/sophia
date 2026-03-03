@@ -1,0 +1,175 @@
+schema_version: sophia.cr_archive.v1
+notice: Historical archive snapshot. Corrections are append-only revisions.
+archived_at: "2026-03-03T02:44:03Z"
+revision: 1
+cr:
+    id: 108
+    uid: cr_f03377d2-74a6-4e0f-badb-d13c56b5fe0e
+    title: Patch schema v2 with richer collaboration ops
+    description: Introduce patch schema v2 with expanded op support (task/note deletes, task reorder, richer set_field coverage, and structured conflict resolution payloads) while preserving backward compatibility for v1 patch consumers.
+    status: merged
+    base_branch: main
+    base_ref: main
+    base_commit: 4b9fd65799d4f6ad50d5d6345aed8261a58cc2d0
+    branch: cr-patch-schema-v2-with-richer-collaboration-ops-f033
+    merged_at: "2026-03-03T02:44:03Z"
+    merged_by: Kevandrew <143258544+Kevandrew@users.noreply.github.com>
+contract:
+    why: Enable patch schema v2 so collaboration edits can express structural intent such as deletes and reordering without manual metadata surgery. Keep preview and apply deterministic, conflict explicit, and fully backward compatible with v1 patch payloads. Done means supported v2 operations are machine validated, conflicts are reproducible, and existing v1 consumers remain stable.
+    scope:
+        - docs/cli-reference.md
+        - docs/collaboration.md
+        - internal/cli
+        - internal/cli/cr_cmd_import_patch.go
+        - internal/model
+        - internal/service/collab
+        - internal/service/service_collab.go
+        - internal/service/service_collab_test.go
+        - internal/service/service_hq_sync.go
+        - internal/service/service_hq_test.go
+    non_goals:
+        - No HQ server protocol redesign in this CR.
+        - No removal of v1 patch support.
+        - No silent conflict auto-resolution.
+        - No unrelated refactors outside collaboration surfaces.
+    invariants:
+        - Existing v1 patch payloads remain accepted with unchanged semantics.
+        - Patch apply performs no partial writes when conflicts are present.
+        - Preview and apply classify conflicts identically for the same payload and base state.
+        - Unknown ops and unsupported fields fail with deterministic structured errors.
+    blast_radius: Collaboration patch schema and apply pipeline, HQ patch synthesis, CLI import/preview surfaces, JSON error envelopes, and docs. Failure modes include incorrect conflict detection, accidental metadata mutation, and HQ sync divergence.
+    risk_critical_scopes:
+        - internal/service/service_collab.go
+        - internal/service/service_hq_sync.go
+    risk_tier_hint: high
+    risk_rationale: Touches core patch apply semantics and HQ synchronization behavior where incorrect merges can corrupt collaboration metadata.
+    test_plan: go test ./internal/service -run 'Patch|Collab|HQ' -count=1 && go test ./internal/cli -run 'Patch|Collab' -count=1 && go test ./... -count=1 && go vet ./...
+    rollback_plan: Revert the [CR-108] merge commit and continue emitting v1-only collaboration patches until v2 issues are resolved.
+tasks:
+    - id: 1
+      title: Define patch schema v2 envelope and compatibility guards
+      status: done
+      contract:
+        intent: Define v2 patch envelope, operation typing, and schema guards while preserving v1 compatibility.
+        acceptance_criteria:
+            - schema_version v2 is parsed and validated while v1 remains supported.
+            - unknown schema versions fail deterministically with actionable errors.
+        scope:
+            - internal/model
+            - internal/service/service_collab.go
+      checkpoint:
+        commit: d505c315
+        at: "2026-03-03T02:32:29Z"
+        source: task_checkpoint
+        scope:
+            - internal/model/patch_types.go
+            - internal/service/service_collab.go
+    - id: 2
+      title: Implement delete operations for notes and tasks
+      status: done
+      contract:
+        intent: Add explicit delete operations so collaboration edits can remove notes and tasks safely.
+        acceptance_criteria:
+            - delete_note removes the intended note using stable before matching and reports conflicts on mismatch.
+            - delete_task removes the intended task without partial metadata writes.
+        scope:
+            - internal/service/collab
+            - internal/service/service_collab.go
+      checkpoint:
+        at: "2026-03-03T02:32:36Z"
+        source: task_no_checkpoint
+    - id: 3
+      title: Implement task reorder operation with deterministic ordering
+      status: done
+      contract:
+        intent: Add task reorder semantics that preserve deterministic task ordering and integrity.
+        acceptance_criteria:
+            - invalid reorder payloads return structured conflicts and do not mutate metadata.
+            - reorder operation updates task ordering deterministically for identical payload and base state.
+        scope:
+            - internal/service/service_collab.go
+      checkpoint:
+        at: "2026-03-03T02:32:36Z"
+        source: task_no_checkpoint
+    - id: 4
+      title: Expand set_field coverage and value coercion safety
+      status: done
+      contract:
+        intent: Broaden set_field support needed by collaboration and HQ sync while keeping strict type validation.
+        acceptance_criteria:
+            - additional supported CR fields can be patched without manual metadata edits.
+            - type mismatches and unsupported fields return deterministic structured errors.
+        scope:
+            - internal/service/collab
+            - internal/service/service_collab.go
+      checkpoint:
+        commit: e07f3dc6
+        at: "2026-03-03T02:32:41Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/collab/helpers.go
+    - id: 5
+      title: Upgrade preview and apply conflict reporting for v2 ops
+      status: done
+      contract:
+        intent: Surface richer op-level conflicts for v2 operations in both preview and apply outputs.
+        acceptance_criteria:
+            - apply preserves no-partial-write behavior when any conflicts are present.
+            - preview includes op-indexed conflict details for new operations.
+        scope:
+            - internal/cli/cr_cmd_import_patch.go
+            - internal/service/service_collab.go
+      checkpoint:
+        at: "2026-03-03T02:32:36Z"
+        source: task_no_checkpoint
+    - id: 6
+      title: Align HQ patch synthesis with v2 capabilities
+      status: done
+      contract:
+        intent: Update HQ sync patch generation to express supported structural operations using v2 semantics.
+        acceptance_criteria:
+            - HQ push can encode reorder or delete semantics for supported cases.
+            - remaining unsupported sync cases are explicit and deterministic in error details.
+        scope:
+            - internal/service/service_collab.go
+            - internal/service/service_hq_sync.go
+      checkpoint:
+        commit: 6532e636
+        at: "2026-03-03T02:32:46Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_hq_sync.go
+    - id: 7
+      title: Add regression coverage and documentation for v1 and v2
+      status: done
+      contract:
+        intent: Lock in behavior with tests and document operational usage and migration expectations.
+        acceptance_criteria:
+            - docs include concrete v2 patch examples and migration guidance.
+            - service and CLI tests cover v1 compatibility plus v2 success and conflict paths.
+        scope:
+            - docs/cli-reference.md
+            - docs/collaboration.md
+            - internal/cli
+            - internal/service
+        acceptance_checks:
+            - go_vet
+            - unit_tests
+      checkpoint:
+        commit: 07d1bdea
+        at: "2026-03-03T02:33:07Z"
+        source: task_checkpoint
+        scope:
+            - docs/cli-reference.md
+            - docs/collaboration.md
+            - internal/cli/cr_cmd_import_patch.go
+            - internal/cli/cr_json_collab_test.go
+            - internal/cli/json.go
+            - internal/service/service_collab_test.go
+            - internal/service/service_hq_test.go
+git_summary:
+    base_parent: 4b9fd65799d4f6ad50d5d6345aed8261a58cc2d0
+    cr_parent: 07d1bdeaf007a2e98380ef8d5aff1fa695aef7b6
+    files_changed: []
+    diffstat:
+        summary: 0 files changed, 0 insertions(+), 0 deletions(-)
