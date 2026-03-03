@@ -130,3 +130,59 @@ func TestPackCRMergedFallbackUsesCanonicalRef(t *testing.T) {
 		t.Fatalf("expected canonical-ref fallback warning, got %#v", view.Warnings)
 	}
 }
+
+func TestPackCRInProgressMissingBranchUsesMetadataOnlyFallback(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	runGit(t, dir, "config", "user.name", "Test User")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+
+	result, err := svc.AddCRWithOptions("Pack metadata-only", "allow show/pack fallback when branch is missing", AddCROptions{NoSwitch: true})
+	if err != nil {
+		t.Fatalf("AddCRWithOptions() error = %v", err)
+	}
+	if result == nil || result.CR == nil {
+		t.Fatalf("expected CR payload")
+	}
+
+	cr, err := svc.store.LoadCR(result.CR.ID)
+	if err != nil {
+		t.Fatalf("LoadCR() error = %v", err)
+	}
+	cr.BaseRef = "refs/heads/missing-parent-ref"
+	cr.BaseCommit = ""
+	cr.UpdatedAt = svc.timestamp()
+	if err := svc.store.SaveCR(cr); err != nil {
+		t.Fatalf("SaveCR() error = %v", err)
+	}
+
+	runGit(t, dir, "branch", "-D", result.CR.Branch)
+
+	view, err := svc.PackCR(result.CR.ID, PackOptions{})
+	if err != nil {
+		t.Fatalf("PackCR() error = %v", err)
+	}
+	if view == nil || view.Anchors == nil {
+		t.Fatalf("expected pack anchors in metadata-only fallback")
+	}
+	if strings.TrimSpace(view.Anchors.Base) == "" || strings.TrimSpace(view.Anchors.Head) == "" {
+		t.Fatalf("expected non-empty anchors, got %#v", view.Anchors)
+	}
+	if view.Anchors.Base != view.Anchors.Head {
+		t.Fatalf("expected metadata-only fallback head==base, got base=%q head=%q", view.Anchors.Base, view.Anchors.Head)
+	}
+	foundMetadataOnly := false
+	for _, warning := range view.Warnings {
+		if strings.Contains(strings.ToLower(warning), "metadata-only") {
+			foundMetadataOnly = true
+			break
+		}
+	}
+	if !foundMetadataOnly {
+		t.Fatalf("expected metadata-only fallback warning, got %#v", view.Warnings)
+	}
+}

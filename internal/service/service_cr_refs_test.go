@@ -194,6 +194,68 @@ func TestRangeAndRevParseCR(t *testing.T) {
 	}
 }
 
+func TestRangeCRFailsButTolerantAnchorsSucceedWhenInProgressBranchMissing(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	runGit(t, dir, "config", "user.name", "Test User")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+
+	result, err := svc.AddCRWithOptions("Missing branch fallback", "tolerant anchors for metadata-only preview", AddCROptions{NoSwitch: true})
+	if err != nil {
+		t.Fatalf("AddCRWithOptions() error = %v", err)
+	}
+	cr := result.CR
+	if cr == nil {
+		t.Fatalf("expected CR payload")
+	}
+
+	stored, err := svc.store.LoadCR(cr.ID)
+	if err != nil {
+		t.Fatalf("LoadCR() error = %v", err)
+	}
+	stored.BaseRef = "refs/heads/missing-parent-ref"
+	stored.BaseCommit = ""
+	stored.UpdatedAt = svc.timestamp()
+	if err := svc.store.SaveCR(stored); err != nil {
+		t.Fatalf("SaveCR() error = %v", err)
+	}
+
+	runGit(t, dir, "branch", "-D", cr.Branch)
+
+	if _, err := svc.RangeCR(cr.ID); err == nil {
+		t.Fatalf("expected strict RangeCR() to fail when head anchor is missing")
+	}
+
+	reloaded, err := svc.store.LoadCR(cr.ID)
+	if err != nil {
+		t.Fatalf("LoadCR(reloaded) error = %v", err)
+	}
+	resolved, err := svc.resolveCRAnchorsWithOptions(reloaded, CRAnchorResolveOptions{AllowMetadataOnlyHeadFallback: true})
+	if err != nil {
+		t.Fatalf("resolveCRAnchorsWithOptions() error = %v", err)
+	}
+	if strings.TrimSpace(resolved.baseCommit) == "" {
+		t.Fatalf("expected non-empty base commit in tolerant mode")
+	}
+	if strings.TrimSpace(resolved.headCommit) != strings.TrimSpace(resolved.baseCommit) {
+		t.Fatalf("expected metadata-only head to match base commit, got base=%q head=%q", resolved.baseCommit, resolved.headCommit)
+	}
+	foundWarning := false
+	for _, warning := range resolved.warnings {
+		if strings.Contains(strings.ToLower(warning), "metadata-only") {
+			foundWarning = true
+			break
+		}
+	}
+	if !foundWarning {
+		t.Fatalf("expected metadata-only warning, got %#v", resolved.warnings)
+	}
+}
+
 func symbolicRefTarget(t *testing.T, dir, ref string) string {
 	t.Helper()
 	target, err := symbolicRefTargetE(dir, ref)
