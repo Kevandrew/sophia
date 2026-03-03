@@ -164,8 +164,12 @@ Collaboration artifacts:
 
 ```bash
 sophia cr export <cr-id> --format json --out cr.bundle.json
+sophia cr export <cr-id> --format yaml --out cr.bundle.yaml
+sophia cr export <cr-id> --format ndjson --out cr.bundle.ndjson
 sophia cr import --file cr.bundle.json --mode create
+sophia cr import --file cr.bundle.yaml --mode create --format auto
 sophia cr import --file cr.bundle.json --mode merge
+sophia cr import --file cr.bundle.ndjson --mode merge --format auto
 sophia cr import --file cr.bundle.json --mode merge --preview --json
 sophia cr patch preview <cr-id-or-uid> --file cr.patch.json --json
 sophia cr patch apply <cr-id-or-uid> --file cr.patch.json
@@ -175,6 +179,12 @@ sophia cr sync [<id|uid>] [--force]
 ```
 
 `cr import --mode merge --preview` never writes metadata; if the CR UID is new locally, JSON output returns `local_cr_id: 0` until a non-preview import persists the CR.
+
+Export/import format notes:
+
+- `cr export --format` supports `json`, `yaml`, and `ndjson`.
+- `cr import --format` supports `auto` (default), `json`, `yaml`, and `ndjson`.
+- Bundle schema remains `sophia.cr_bundle.v1`; include expansion is additive.
 
 Patch compatibility notes:
 

@@ -67,33 +67,56 @@ Author exports local CR state:
 
 ```bash
 sophia cr export <cr-id> --format json --out cr.bundle.json
+sophia cr export <cr-id> --format yaml --out cr.bundle.yaml
+sophia cr export <cr-id> --format ndjson --out cr.bundle.ndjson
 ```
 
 Reviewer imports locally:
 
 ```bash
 sophia cr import --file cr.bundle.json --mode create
+sophia cr import --file cr.bundle.yaml --mode create --format auto
+sophia cr import --file cr.bundle.ndjson --mode create --format auto
 ```
 
 If reviewer already has matching CR UID and wants upstream state replacement:
 
 ```bash
 sophia cr import --file cr.bundle.json --mode replace
+sophia cr import --file cr.bundle.yaml --mode replace --format auto
 ```
 
 If reviewer already has matching CR UID and wants deterministic reconciliation without full replacement:
 
 ```bash
 sophia cr import --file cr.bundle.json --mode merge
+sophia cr import --file cr.bundle.ndjson --mode merge --format auto
 ```
 
 Preview merge reconciliation without mutating local CR metadata:
 
 ```bash
 sophia cr import --file cr.bundle.json --mode merge --preview --json
+sophia cr import --file cr.bundle.yaml --mode merge --preview --format auto --json
 ```
 
 When merge preview targets a CR UID that does not exist locally (create path), `local_cr_id` remains `0` because preview does not reserve or persist IDs.
+
+Bundle formats:
+
+- `json`: canonical object payload.
+- `yaml`: YAML representation of the same v1 schema fields.
+- `ndjson`: section-stream records (`type`-keyed JSON objects, one per line).
+
+Import format selection:
+
+- `--format auto` (default): detect by extension/content.
+- Explicit override is available: `--format json|yaml|ndjson`.
+
+Schema compatibility:
+
+- Export/import remain on `sophia.cr_bundle.v1`.
+- Include expansion is additive: legacy top-level fields remain present for existing consumers.
 
 ## Flow B: Suggestion patch with preview/apply
 

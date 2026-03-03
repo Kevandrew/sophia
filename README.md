@@ -94,7 +94,8 @@ Sophia has a complete command-line interface for direct control. See the [CLI Re
 Sophia remains local-first and network-agnostic. Collaboration works through portable artifacts:
 
 - `sophia cr export <id>` emits a canonical bundle (`sophia.cr_bundle.v1`) including CR identity and fingerprint.
-- `sophia cr import --file <bundle.json> --mode create|replace` materializes shared CR state locally.
+- `sophia cr export --format json|yaml|ndjson` supports canonical object, YAML, and section-stream NDJSON payloads.
+- `sophia cr import --file <bundle> --format auto|json|yaml|ndjson --mode create|replace` materializes shared CR state locally.
 - `sophia cr patch apply <selector> --file <patch.json>` applies structured suggestions with conflict detection.
 - `sophia cr patch preview <selector> --file <patch.json> --json` checks patch compatibility without mutating state.
 
