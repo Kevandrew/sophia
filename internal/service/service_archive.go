@@ -84,9 +84,6 @@ func (s *Service) requireArchiveConfigSupported(config model.PolicyArchive) erro
 	if strings.TrimSpace(config.Format) != defaultArchiveFormat {
 		return fmt.Errorf("%w: archive.format %q is unsupported (expected yaml)", ErrPolicyInvalid, config.Format)
 	}
-	if archivePolicyIncludeFullDiffs(config) {
-		return fmt.Errorf("%w: archive.include_full_diffs=true is not implemented for archive generation", ErrPolicyInvalid)
-	}
 	return nil
 }
 
