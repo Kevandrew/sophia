@@ -13,6 +13,7 @@ import (
 func newCRImportCmd() *cobra.Command {
 	var filePath string
 	var mode string
+	var preview bool
 	var asJSON bool
 
 	cmd := &cobra.Command{
@@ -24,11 +25,16 @@ func newCRImportCmd() *cobra.Command {
 				return commandError(cmd, asJSON, err)
 			}
 			bundlePath := resolvePathForCmd(cmd, filePath)
-			result, err := svc.ImportCRBundle(service.ImportCRBundleOptions{
+			var result *service.ImportCRBundleResult
+			result, err = svc.ImportCRBundle(service.ImportCRBundleOptions{
 				FilePath: bundlePath,
 				Mode:     mode,
+				Preview:  preview,
 			})
 			if err != nil {
+				if !asJSON && result != nil {
+					printCRImportResult(cmd, result)
+				}
 				return commandError(cmd, asJSON, err)
 			}
 			if asJSON {
@@ -38,19 +44,28 @@ func newCRImportCmd() *cobra.Command {
 					"cr_fingerprint": result.CRFingerprint,
 					"created":        result.Created,
 					"replaced":       result.Replaced,
+					"merged":         result.Merged,
+					"preview":        result.Preview,
+					"applied":        result.Applied,
+					"conflict_count": result.ConflictCount,
+					"conflicts":      append([]service.ImportMergeConflict(nil), result.Conflicts...),
+					"changed_fields": append([]string(nil), result.ChangedFields...),
+					"task_summary": map[string]any{
+						"added":      result.TaskSummary.Added,
+						"updated":    result.TaskSummary.Updated,
+						"unchanged":  result.TaskSummary.Unchanged,
+						"conflicted": result.TaskSummary.Conflicted,
+					},
 				})
 			}
-			action := "created"
-			if result.Replaced {
-				action = "replaced"
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Imported CR %d (%s) from bundle (%s)\n", result.LocalCRID, result.CRUID, action)
+			printCRImportResult(cmd, result)
 			return nil
 		},
 	}
 
 	cmd.Flags().StringVar(&filePath, "file", "", "Path to exported CR bundle JSON file")
-	cmd.Flags().StringVar(&mode, "mode", "create", "Import mode: create or replace")
+	cmd.Flags().StringVar(&mode, "mode", "create", "Import mode: create, replace, or merge")
+	cmd.Flags().BoolVar(&preview, "preview", false, "Preview merge import outcome without writing CR metadata (requires --mode merge)")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "Output in JSON format")
 	return cmd
 }
@@ -152,6 +167,43 @@ func printCRPatchApplyResult(cmd *cobra.Command, result *service.CRPatchApplyRes
 		fmt.Fprintln(cmd.OutOrStdout(), "\nWarnings:")
 		for _, warning := range result.Warnings {
 			fmt.Fprintf(cmd.OutOrStdout(), "- %s\n", warning)
+		}
+	}
+}
+
+func printCRImportResult(cmd *cobra.Command, result *service.ImportCRBundleResult) {
+	if result == nil {
+		return
+	}
+	action := "imported"
+	switch {
+	case result.Preview:
+		action = "previewed"
+	case result.Created:
+		action = "created"
+	case result.Replaced:
+		action = "replaced"
+	case result.Merged:
+		action = "merged"
+	}
+	if result.LocalCRID > 0 {
+		fmt.Fprintf(cmd.OutOrStdout(), "Imported CR %d (%s) from bundle (%s)\n", result.LocalCRID, result.CRUID, action)
+	} else {
+		fmt.Fprintf(cmd.OutOrStdout(), "Imported CR (pending local id) (%s) from bundle (%s)\n", result.CRUID, action)
+	}
+	if result.Merged || result.Preview {
+		fmt.Fprintf(cmd.OutOrStdout(), "Changed fields: %d\n", len(result.ChangedFields))
+		fmt.Fprintf(cmd.OutOrStdout(), "Conflicts: %d\n", result.ConflictCount)
+		fmt.Fprintf(cmd.OutOrStdout(), "Task summary: added=%d updated=%d unchanged=%d conflicted=%d\n", result.TaskSummary.Added, result.TaskSummary.Updated, result.TaskSummary.Unchanged, result.TaskSummary.Conflicted)
+		if len(result.Conflicts) > 0 {
+			fmt.Fprintln(cmd.OutOrStdout(), "\nMerge conflicts:")
+			for _, conflict := range result.Conflicts {
+				if conflict.TaskID > 0 {
+					fmt.Fprintf(cmd.OutOrStdout(), "- task #%d %s: %s\n", conflict.TaskID, conflict.Field, conflict.Message)
+					continue
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "- %s: %s\n", conflict.Field, conflict.Message)
+			}
 		}
 	}
 }

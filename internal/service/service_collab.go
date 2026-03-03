@@ -27,19 +27,74 @@ const (
 	patchOpReorderTask = model.CRPatchOpReorderTask
 	importModeCreate   = "create"
 	importModeReplace  = "replace"
+	importModeMerge    = "merge"
 )
 
 type ImportCRBundleOptions struct {
 	FilePath string
 	Mode     string
+	Preview  bool
 }
 
 type ImportCRBundleResult struct {
-	LocalCRID     int    `json:"local_cr_id"`
-	CRUID         string `json:"cr_uid"`
-	CRFingerprint string `json:"cr_fingerprint"`
-	Created       bool   `json:"created"`
-	Replaced      bool   `json:"replaced"`
+	LocalCRID     int                    `json:"local_cr_id"`
+	CRUID         string                 `json:"cr_uid"`
+	CRFingerprint string                 `json:"cr_fingerprint"`
+	Created       bool                   `json:"created"`
+	Replaced      bool                   `json:"replaced"`
+	Merged        bool                   `json:"merged"`
+	Preview       bool                   `json:"preview"`
+	Applied       bool                   `json:"applied"`
+	ConflictCount int                    `json:"conflict_count"`
+	Conflicts     []ImportMergeConflict  `json:"conflicts"`
+	ChangedFields []string               `json:"changed_fields"`
+	TaskSummary   ImportMergeTaskSummary `json:"task_summary"`
+}
+
+type ImportMergeConflict struct {
+	Field    string `json:"field"`
+	Message  string `json:"message"`
+	TaskID   int    `json:"task_id,omitempty"`
+	Local    any    `json:"local,omitempty"`
+	Imported any    `json:"imported,omitempty"`
+}
+
+type ImportMergeTaskSummary struct {
+	Added      int `json:"added"`
+	Updated    int `json:"updated"`
+	Unchanged  int `json:"unchanged"`
+	Conflicted int `json:"conflicted"`
+}
+
+type ImportMergeConflictError struct {
+	Result *ImportCRBundleResult
+}
+
+func (e *ImportMergeConflictError) Error() string {
+	if e == nil || e.Result == nil {
+		return "import merge conflicts detected"
+	}
+	return fmt.Sprintf("import merge conflicts detected (%d conflict(s))", e.Result.ConflictCount)
+}
+
+func (e *ImportMergeConflictError) Details() map[string]any {
+	if e == nil || e.Result == nil {
+		return map[string]any{}
+	}
+	return map[string]any{
+		"local_cr_id":    e.Result.LocalCRID,
+		"cr_uid":         e.Result.CRUID,
+		"cr_fingerprint": e.Result.CRFingerprint,
+		"created":        e.Result.Created,
+		"replaced":       e.Result.Replaced,
+		"merged":         e.Result.Merged,
+		"preview":        e.Result.Preview,
+		"applied":        e.Result.Applied,
+		"conflict_count": e.Result.ConflictCount,
+		"conflicts":      append([]ImportMergeConflict(nil), e.Result.Conflicts...),
+		"changed_fields": append([]string(nil), e.Result.ChangedFields...),
+		"task_summary":   e.Result.TaskSummary,
+	}
 }
 
 type CRPatch = model.CRPatch
@@ -226,49 +281,434 @@ func (s *Service) importCRBundleUnlocked(opts ImportCRBundleOptions) (*ImportCRB
 	if modeErr != nil {
 		return nil, modeErr
 	}
+	if opts.Preview && mode != importModeMerge {
+		return nil, fmt.Errorf("--preview is supported only with --mode merge")
+	}
 
 	existing, existingErr := s.store.LoadCRByUID(uid)
-	created := false
-	replaced := false
+	result := &ImportCRBundleResult{
+		CRUID:         uid,
+		Created:       false,
+		Replaced:      false,
+		Merged:        false,
+		Preview:       opts.Preview,
+		Applied:       false,
+		ConflictCount: 0,
+		Conflicts:     []ImportMergeConflict{},
+		ChangedFields: []string{},
+		TaskSummary:   ImportMergeTaskSummary{},
+	}
+	var target *model.CR
+	shouldPersist := false
+
 	switch {
 	case existingErr == nil:
 		if mode == importModeCreate {
 			return nil, fmt.Errorf("cr uid %q already exists locally (id %d)", uid, existing.ID)
 		}
-		imported.ID = existing.ID
-		created = false
-		replaced = true
+		switch mode {
+		case importModeReplace:
+			imported.ID = existing.ID
+			result.Replaced = true
+			target = imported
+			shouldPersist = true
+		case importModeMerge:
+			result.Merged = true
+			classified := classifyCRImportMerge(existing, imported)
+			target = classified.CR
+			result.ChangedFields = append([]string(nil), classified.ChangedFields...)
+			result.Conflicts = append([]ImportMergeConflict(nil), classified.Conflicts...)
+			result.ConflictCount = len(result.Conflicts)
+			result.TaskSummary = classified.TaskSummary
+			if !opts.Preview && len(result.Conflicts) == 0 && len(result.ChangedFields) > 0 {
+				shouldPersist = true
+			}
+		default:
+			return nil, fmt.Errorf("unsupported import mode %q", mode)
+		}
 	case existingErr != nil:
 		if !errors.Is(existingErr, store.ErrNotFound) {
 			return nil, existingErr
 		}
-		newID, nextErr := s.store.NextCRID()
-		if nextErr != nil {
-			return nil, nextErr
+		if opts.Preview {
+			// Preview create does not reserve IDs; keep local_cr_id unset for deterministic previews.
+			imported.ID = 0
+			result.Created = true
+			target = imported
+		} else {
+			newID, idErr := s.store.NextCRID()
+			if idErr != nil {
+				return nil, idErr
+			}
+			imported.ID = newID
+			result.Created = true
+			target = imported
+			shouldPersist = true
 		}
-		imported.ID = newID
-		created = true
-		replaced = false
 	}
 
-	if err := s.store.SaveCR(imported); err != nil {
-		return nil, err
+	if target == nil {
+		return nil, fmt.Errorf("unable to resolve import target")
 	}
-	if err := s.syncCRRef(imported); err != nil {
-		return nil, err
+	result.LocalCRID = target.ID
+
+	if shouldPersist {
+		if err := s.store.SaveCR(target); err != nil {
+			return nil, err
+		}
+		if err := s.syncCRRef(target); err != nil {
+			return nil, err
+		}
+		result.Applied = true
 	}
-	doc := canonicalCRDoc(imported)
+	doc := canonicalCRDoc(target)
 	fingerprint, fpErr := fingerprintCRDoc(doc)
 	if fpErr != nil {
 		return nil, fpErr
 	}
-	return &ImportCRBundleResult{
-		LocalCRID:     imported.ID,
-		CRUID:         uid,
-		CRFingerprint: fingerprint,
-		Created:       created,
-		Replaced:      replaced,
-	}, nil
+	result.CRFingerprint = fingerprint
+	if len(result.Conflicts) > 0 {
+		return result, &ImportMergeConflictError{Result: result}
+	}
+	return result, nil
+}
+
+type importMergeClassification struct {
+	CR            *model.CR
+	Conflicts     []ImportMergeConflict
+	ChangedFields []string
+	TaskSummary   ImportMergeTaskSummary
+}
+
+func classifyCRImportMerge(localCR, importedCR *model.CR) importMergeClassification {
+	classification := importMergeClassification{
+		CR:            nil,
+		Conflicts:     []ImportMergeConflict{},
+		ChangedFields: []string{},
+		TaskSummary:   ImportMergeTaskSummary{},
+	}
+	if localCR == nil {
+		if importedCR == nil {
+			classification.CR = &model.CR{}
+			return classification
+		}
+		copyCR := *importedCR
+		classification.CR = &copyCR
+		return classification
+	}
+
+	merged := *localCR
+	merged.Notes = append([]string(nil), localCR.Notes...)
+	merged.Evidence = append([]model.EvidenceEntry(nil), localCR.Evidence...)
+	merged.Contract = cloneContract(localCR.Contract)
+	merged.Subtasks = cloneSubtasks(localCR.Subtasks)
+	merged.Events = append([]model.Event(nil), localCR.Events...)
+
+	changedSet := map[string]struct{}{}
+	addChangedField := func(field string) {
+		field = strings.TrimSpace(field)
+		if field == "" {
+			return
+		}
+		if _, ok := changedSet[field]; ok {
+			return
+		}
+		changedSet[field] = struct{}{}
+		classification.ChangedFields = append(classification.ChangedFields, field)
+	}
+	addConflict := func(conflict ImportMergeConflict) {
+		conflict.Field = strings.TrimSpace(conflict.Field)
+		conflict.Message = strings.TrimSpace(conflict.Message)
+		classification.Conflicts = append(classification.Conflicts, conflict)
+	}
+
+	mergeCRScalar := func(field string, localValue string, importedValue string, setter func(string), validator func(string) error) {
+		localValue = strings.TrimSpace(localValue)
+		importedValue = strings.TrimSpace(importedValue)
+		if importedValue == "" {
+			return
+		}
+		if validator != nil {
+			if err := validator(importedValue); err != nil {
+				addConflict(ImportMergeConflict{
+					Field:    field,
+					Message:  err.Error(),
+					Local:    localValue,
+					Imported: importedValue,
+				})
+				return
+			}
+		}
+		if localValue == "" {
+			setter(importedValue)
+			addChangedField(field)
+			return
+		}
+		if localValue == importedValue {
+			return
+		}
+		addConflict(ImportMergeConflict{
+			Field:    field,
+			Message:  "local and imported values differ",
+			Local:    localValue,
+			Imported: importedValue,
+		})
+	}
+
+	mergeList := func(field string, localValues []string, importedValues []string, setter func([]string)) {
+		next, changed := mergeStringListUnion(localValues, importedValues)
+		if !changed {
+			return
+		}
+		setter(next)
+		addChangedField(field)
+	}
+
+	if importedCR != nil {
+		mergeCRScalar("cr.title", merged.Title, importedCR.Title, func(v string) { merged.Title = v }, nil)
+		mergeCRScalar("cr.description", merged.Description, importedCR.Description, func(v string) { merged.Description = v }, nil)
+		mergeCRScalar("cr.status", merged.Status, importedCR.Status, func(v string) { merged.Status = v }, validateCRStatus)
+
+		mergeCRScalar("cr.contract.why", merged.Contract.Why, importedCR.Contract.Why, func(v string) { merged.Contract.Why = v }, nil)
+		mergeList("cr.contract.scope", merged.Contract.Scope, importedCR.Contract.Scope, func(v []string) { merged.Contract.Scope = v })
+		mergeList("cr.contract.non_goals", merged.Contract.NonGoals, importedCR.Contract.NonGoals, func(v []string) { merged.Contract.NonGoals = v })
+		mergeList("cr.contract.invariants", merged.Contract.Invariants, importedCR.Contract.Invariants, func(v []string) { merged.Contract.Invariants = v })
+		mergeCRScalar("cr.contract.blast_radius", merged.Contract.BlastRadius, importedCR.Contract.BlastRadius, func(v string) { merged.Contract.BlastRadius = v }, nil)
+		mergeList("cr.contract.risk_critical_scopes", merged.Contract.RiskCriticalScopes, importedCR.Contract.RiskCriticalScopes, func(v []string) { merged.Contract.RiskCriticalScopes = v })
+		mergeCRScalar("cr.contract.risk_tier_hint", merged.Contract.RiskTierHint, importedCR.Contract.RiskTierHint, func(v string) {
+			normalized, _ := normalizeRiskTierHint(v)
+			merged.Contract.RiskTierHint = normalized
+		}, func(v string) error {
+			_, err := normalizeRiskTierHint(v)
+			return err
+		})
+		mergeCRScalar("cr.contract.risk_rationale", merged.Contract.RiskRationale, importedCR.Contract.RiskRationale, func(v string) { merged.Contract.RiskRationale = v }, nil)
+		mergeCRScalar("cr.contract.test_plan", merged.Contract.TestPlan, importedCR.Contract.TestPlan, func(v string) { merged.Contract.TestPlan = v }, nil)
+		mergeCRScalar("cr.contract.rollback_plan", merged.Contract.RollbackPlan, importedCR.Contract.RollbackPlan, func(v string) { merged.Contract.RollbackPlan = v }, nil)
+		mergeList("cr.notes", merged.Notes, importedCR.Notes, func(v []string) { merged.Notes = v })
+	}
+
+	importedTasks := []model.Subtask{}
+	if importedCR != nil {
+		importedTasks = importedCR.Subtasks
+	}
+	merged.Subtasks, classification.TaskSummary = mergeImportTasks(merged.Subtasks, importedTasks, addChangedField, addConflict)
+	classification.CR = &merged
+	return classification
+}
+
+func mergeImportTasks(
+	localTasks []model.Subtask,
+	importedTasks []model.Subtask,
+	addChangedField func(string),
+	addConflict func(ImportMergeConflict),
+) ([]model.Subtask, ImportMergeTaskSummary) {
+	out := cloneSubtasks(localTasks)
+	summary := ImportMergeTaskSummary{}
+	if len(importedTasks) == 0 {
+		return out, summary
+	}
+
+	indexByID := map[int]int{}
+	for idx, task := range out {
+		indexByID[task.ID] = idx
+	}
+
+	sortedImported := append([]model.Subtask(nil), importedTasks...)
+	sort.Slice(sortedImported, func(i, j int) bool { return sortedImported[i].ID < sortedImported[j].ID })
+
+	for _, imported := range sortedImported {
+		taskID := imported.ID
+		if taskID <= 0 {
+			addConflict(ImportMergeConflict{
+				Field:    "cr.tasks.id",
+				Message:  "task id must be a positive integer",
+				Imported: taskID,
+			})
+			continue
+		}
+		localIdx, ok := indexByID[taskID]
+		if !ok {
+			sanitized := sanitizeImportedTaskForMerge(imported)
+			if sanitized.Status != "" {
+				if err := validateTaskStatus(sanitized.Status); err != nil {
+					addConflict(ImportMergeConflict{
+						Field:    fmt.Sprintf("cr.tasks.%d.status", taskID),
+						TaskID:   taskID,
+						Message:  err.Error(),
+						Imported: sanitized.Status,
+					})
+					summary.Conflicted++
+					continue
+				}
+			}
+			out = append(out, sanitized)
+			summary.Added++
+			addChangedField(fmt.Sprintf("cr.tasks.%d", taskID))
+			indexByID[taskID] = len(out) - 1
+			continue
+		}
+
+		task := out[localIdx]
+		taskChanged := false
+		taskConflicted := false
+
+		mergeTaskScalar := func(field string, localValue string, importedValue string, setter func(string), validator func(string) error) {
+			localValue = strings.TrimSpace(localValue)
+			importedValue = strings.TrimSpace(importedValue)
+			if importedValue == "" {
+				return
+			}
+			if validator != nil {
+				if err := validator(importedValue); err != nil {
+					taskConflicted = true
+					addConflict(ImportMergeConflict{
+						Field:    field,
+						TaskID:   taskID,
+						Message:  err.Error(),
+						Local:    localValue,
+						Imported: importedValue,
+					})
+					return
+				}
+			}
+			if localValue == "" {
+				setter(importedValue)
+				taskChanged = true
+				addChangedField(field)
+				return
+			}
+			if localValue == importedValue {
+				return
+			}
+			taskConflicted = true
+			addConflict(ImportMergeConflict{
+				Field:    field,
+				TaskID:   taskID,
+				Message:  "local and imported values differ",
+				Local:    localValue,
+				Imported: importedValue,
+			})
+		}
+
+		mergeTaskList := func(field string, localValues []string, importedValues []string, setter func([]string)) {
+			next, changed := mergeStringListUnion(localValues, importedValues)
+			if !changed {
+				return
+			}
+			setter(next)
+			taskChanged = true
+			addChangedField(field)
+		}
+
+		prefix := fmt.Sprintf("cr.tasks.%d", taskID)
+		mergeTaskScalar(prefix+".title", task.Title, imported.Title, func(v string) { task.Title = v }, nil)
+		mergeTaskScalar(prefix+".status", task.Status, imported.Status, func(v string) { task.Status = v }, validateTaskStatus)
+		mergeTaskScalar(prefix+".contract.intent", task.Contract.Intent, imported.Contract.Intent, func(v string) { task.Contract.Intent = v }, nil)
+		mergeTaskList(prefix+".contract.acceptance_criteria", task.Contract.AcceptanceCriteria, imported.Contract.AcceptanceCriteria, func(v []string) {
+			task.Contract.AcceptanceCriteria = v
+		})
+		mergeTaskList(prefix+".contract.scope", task.Contract.Scope, imported.Contract.Scope, func(v []string) {
+			task.Contract.Scope = v
+		})
+		mergeTaskList(prefix+".contract.acceptance_checks", task.Contract.AcceptanceChecks, imported.Contract.AcceptanceChecks, func(v []string) {
+			task.Contract.AcceptanceChecks = v
+		})
+
+		if taskConflicted {
+			summary.Conflicted++
+		} else if taskChanged {
+			summary.Updated++
+		} else {
+			summary.Unchanged++
+		}
+		out[localIdx] = task
+	}
+
+	return out, summary
+}
+
+func sanitizeImportedTaskForMerge(task model.Subtask) model.Subtask {
+	task.Title = strings.TrimSpace(task.Title)
+	task.Status = strings.TrimSpace(task.Status)
+	task.CheckpointScope = append([]string(nil), task.CheckpointScope...)
+	task.CheckpointChunks = append([]model.CheckpointChunk(nil), task.CheckpointChunks...)
+	task.Delegations = append([]model.TaskDelegation(nil), task.Delegations...)
+	task.Contract.Intent = strings.TrimSpace(task.Contract.Intent)
+	task.Contract.AcceptanceCriteria = normalizeAndDedupeStrings(task.Contract.AcceptanceCriteria)
+	task.Contract.Scope = normalizeAndDedupeStrings(task.Contract.Scope)
+	task.Contract.AcceptanceChecks = normalizeAndDedupeStrings(task.Contract.AcceptanceChecks)
+	task.ContractBaseline = cloneTaskContractBaseline(task.ContractBaseline)
+	task.ContractDrifts = cloneTaskContractDrifts(task.ContractDrifts)
+	return task
+}
+
+func mergeStringListUnion(localValues []string, importedValues []string) ([]string, bool) {
+	localNorm := normalizeAndDedupeStrings(localValues)
+	importedNorm := normalizeAndDedupeStrings(importedValues)
+	if len(importedNorm) == 0 {
+		return append([]string(nil), localValues...), false
+	}
+	out := append([]string(nil), localNorm...)
+	seen := map[string]struct{}{}
+	for _, value := range out {
+		seen[value] = struct{}{}
+	}
+	addedImported := false
+	for _, value := range importedNorm {
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		out = append(out, value)
+		seen[value] = struct{}{}
+		addedImported = true
+	}
+	if !addedImported {
+		return append([]string(nil), localValues...), false
+	}
+	changed := !reflect.DeepEqual(out, localNorm)
+	return out, changed
+}
+
+func normalizeAndDedupeStrings(values []string) []string {
+	if len(values) == 0 {
+		return []string{}
+	}
+	out := make([]string, 0, len(values))
+	seen := map[string]struct{}{}
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	if len(out) == 0 {
+		return []string{}
+	}
+	return out
+}
+
+func validateCRStatus(value string) error {
+	switch strings.TrimSpace(value) {
+	case model.StatusInProgress, model.StatusMerged, model.StatusAbandoned:
+		return nil
+	default:
+		return fmt.Errorf("invalid CR status %q", value)
+	}
+}
+
+func validateTaskStatus(value string) error {
+	switch strings.TrimSpace(value) {
+	case model.TaskStatusOpen, model.TaskStatusDone, model.TaskStatusDelegated:
+		return nil
+	default:
+		return fmt.Errorf("invalid task status %q", value)
+	}
 }
 
 func crFromImportBundle(bundle *CRExportBundle) (*model.CR, error) {
