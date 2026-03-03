@@ -67,9 +67,16 @@ func (s *Service) PackCR(id int, opts PackOptions) (*CRPackView, error) {
 	if review == nil || review.CR == nil {
 		return nil, fmt.Errorf("cr %d is unavailable", id)
 	}
-	anchors, err := s.RangeCR(id)
+	resolvedAnchors, err := s.resolveCRAnchorsWithOptions(review.CR, CRAnchorResolveOptions{AllowMetadataOnlyHeadFallback: true})
 	if err != nil {
 		return nil, err
+	}
+	anchors := &CRRangeAnchorsView{
+		CRID:      review.CR.ID,
+		Base:      resolvedAnchors.baseCommit,
+		Head:      resolvedAnchors.headCommit,
+		MergeBase: resolvedAnchors.mergeBase,
+		Warnings:  append([]string(nil), resolvedAnchors.warnings...),
 	}
 	status, err := s.StatusCR(id)
 	if err != nil {

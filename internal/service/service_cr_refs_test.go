@@ -194,6 +194,164 @@ func TestRangeAndRevParseCR(t *testing.T) {
 	}
 }
 
+func TestRangeCRFailsButTolerantAnchorsSucceedWhenInProgressBranchMissing(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	runGit(t, dir, "config", "user.name", "Test User")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+
+	result, err := svc.AddCRWithOptions("Missing branch fallback", "tolerant anchors for metadata-only preview", AddCROptions{NoSwitch: true})
+	if err != nil {
+		t.Fatalf("AddCRWithOptions() error = %v", err)
+	}
+	cr := result.CR
+	if cr == nil {
+		t.Fatalf("expected CR payload")
+	}
+
+	stored, err := svc.store.LoadCR(cr.ID)
+	if err != nil {
+		t.Fatalf("LoadCR() error = %v", err)
+	}
+	stored.BaseRef = "refs/heads/missing-parent-ref"
+	stored.BaseCommit = ""
+	stored.UpdatedAt = svc.timestamp()
+	if err := svc.store.SaveCR(stored); err != nil {
+		t.Fatalf("SaveCR() error = %v", err)
+	}
+
+	runGit(t, dir, "branch", "-D", cr.Branch)
+
+	if _, err := svc.RangeCR(cr.ID); err == nil {
+		t.Fatalf("expected strict RangeCR() to fail when head anchor is missing")
+	}
+
+	reloaded, err := svc.store.LoadCR(cr.ID)
+	if err != nil {
+		t.Fatalf("LoadCR(reloaded) error = %v", err)
+	}
+	resolved, err := svc.resolveCRAnchorsWithOptions(reloaded, CRAnchorResolveOptions{AllowMetadataOnlyHeadFallback: true})
+	if err != nil {
+		t.Fatalf("resolveCRAnchorsWithOptions() error = %v", err)
+	}
+	if strings.TrimSpace(resolved.baseCommit) == "" {
+		t.Fatalf("expected non-empty base commit in tolerant mode")
+	}
+	if strings.TrimSpace(resolved.headCommit) != strings.TrimSpace(resolved.baseCommit) {
+		t.Fatalf("expected metadata-only head to match base commit, got base=%q head=%q", resolved.baseCommit, resolved.headCommit)
+	}
+	foundWarning := false
+	for _, warning := range resolved.warnings {
+		if strings.Contains(strings.ToLower(warning), "metadata-only") {
+			foundWarning = true
+			break
+		}
+	}
+	if !foundWarning {
+		t.Fatalf("expected metadata-only warning, got %#v", resolved.warnings)
+	}
+}
+
+func TestResolveCRAnchorsMetadataFallbackWarnsWhenCheckpointsExist(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	runGit(t, dir, "config", "user.name", "Test User")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+
+	cr, err := svc.AddCR("Missing branch with checkpoints", "warn when fallback may hide orphaned commits")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	setValidContract(t, svc, cr.ID)
+	task, err := svc.AddTask(cr.ID, "checkpointed task")
+	if err != nil {
+		t.Fatalf("AddTask() error = %v", err)
+	}
+	mustSetTaskContractForDiff(t, svc, cr.ID, task.ID, []string{"checkpoint-warning.txt"})
+	if err := os.WriteFile(filepath.Join(dir, "checkpoint-warning.txt"), []byte("warn\n"), 0o644); err != nil {
+		t.Fatalf("write checkpoint-warning.txt: %v", err)
+	}
+	if _, err := svc.DoneTaskWithCheckpoint(cr.ID, task.ID, DoneTaskOptions{Checkpoint: true, FromContract: true}); err != nil {
+		t.Fatalf("DoneTaskWithCheckpoint() error = %v", err)
+	}
+
+	runGit(t, dir, "checkout", "main")
+	runGit(t, dir, "branch", "-D", cr.Branch)
+
+	reloaded, err := svc.store.LoadCR(cr.ID)
+	if err != nil {
+		t.Fatalf("LoadCR(reloaded) error = %v", err)
+	}
+	resolved, err := svc.resolveCRAnchorsWithOptions(reloaded, CRAnchorResolveOptions{AllowMetadataOnlyHeadFallback: true})
+	if err != nil {
+		t.Fatalf("resolveCRAnchorsWithOptions() error = %v", err)
+	}
+	if strings.TrimSpace(resolved.headCommit) != strings.TrimSpace(resolved.baseCommit) {
+		t.Fatalf("expected metadata-only fallback head==base, got base=%q head=%q", resolved.baseCommit, resolved.headCommit)
+	}
+	if !containsStringCaseInsensitive(resolved.warnings, "orphaned implementation commits") {
+		t.Fatalf("expected orphaned implementation warning, got %#v", resolved.warnings)
+	}
+}
+
+func TestResolveCRAnchorsAllowsAbandonedMissingBranchFallback(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	runGit(t, dir, "config", "user.name", "Test User")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+
+	cr, err := svc.AddCR("Abandoned fallback", "allow metadata-only preview for abandoned CRs")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	if _, err := svc.AbandonCR(cr.ID, CRAbandonOptions{Reason: "testing fallback"}); err != nil {
+		t.Fatalf("AbandonCR() error = %v", err)
+	}
+	if svc.git.BranchExists(cr.Branch) {
+		t.Fatalf("expected abandoned CR branch %q to be removed", cr.Branch)
+	}
+
+	reloaded, err := svc.store.LoadCR(cr.ID)
+	if err != nil {
+		t.Fatalf("LoadCR(reloaded) error = %v", err)
+	}
+	resolved, err := svc.resolveCRAnchorsWithOptions(reloaded, CRAnchorResolveOptions{AllowMetadataOnlyHeadFallback: true})
+	if err != nil {
+		t.Fatalf("resolveCRAnchorsWithOptions() error = %v", err)
+	}
+	if strings.TrimSpace(resolved.headCommit) != strings.TrimSpace(resolved.baseCommit) {
+		t.Fatalf("expected metadata-only fallback head==base for abandoned CR, got base=%q head=%q", resolved.baseCommit, resolved.headCommit)
+	}
+	if !containsStringCaseInsensitive(resolved.warnings, "metadata-only") {
+		t.Fatalf("expected metadata-only warning, got %#v", resolved.warnings)
+	}
+}
+
+func containsStringCaseInsensitive(values []string, needle string) bool {
+	needle = strings.TrimSpace(strings.ToLower(needle))
+	if needle == "" {
+		return false
+	}
+	for _, value := range values {
+		if strings.Contains(strings.ToLower(strings.TrimSpace(value)), needle) {
+			return true
+		}
+	}
+	return false
+}
+
 func symbolicRefTarget(t *testing.T, dir, ref string) string {
 	t.Helper()
 	target, err := symbolicRefTargetE(dir, ref)

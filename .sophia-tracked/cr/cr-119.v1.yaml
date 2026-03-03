@@ -1,0 +1,149 @@
+schema_version: sophia.cr_archive.v1
+notice: Historical archive snapshot. Corrections are append-only revisions.
+archived_at: "2026-03-03T03:14:53Z"
+revision: 1
+cr:
+    id: 119
+    uid: cr_ec547a54-e8be-42c1-b595-3c3ccb6e3828
+    title: Graceful metadata-only preview for missing CR branch
+    description: Allow cr show/pack to render deterministic metadata-only previews when an in-progress CR branch anchor is missing, while preserving strict validation and merge safety signals.
+    status: merged
+    base_branch: main
+    base_ref: main
+    base_commit: 4a2e33025ad495e7825e0335c55b184406fda545
+    branch: cr-graceful-metadata-only-preview-for-missing-cr-br-ec54
+    merged_at: "2026-03-03T03:14:53Z"
+    merged_by: Kevandrew <143258544+Kevandrew@users.noreply.github.com>
+contract:
+    why: 'Restore read-only CR visibility when branch anchors are missing so operators can inspect intent metadata and next actions without hard failures. Keep behavior deterministic: preview surfaces may degrade to metadata-only anchors, but merge and validation safety signals must remain strict and explicit about missing branch context. Done means cr show/pack succeeds for missing-branch in-progress CRs with clear warnings and actionable remediation.'
+    scope:
+        - docs/cli-reference.md
+        - internal/cli/cr_cmd_show.go
+        - internal/cli/cr_show_test.go
+        - internal/cli/templates/cr_show.html
+        - internal/service/service_cr_refs.go
+        - internal/service/service_cr_refs_test.go
+        - internal/service/service_pack.go
+        - internal/service/service_pack_test.go
+    non_goals:
+        - No automatic branch recreation in read-only commands.
+        - No behavior change for task checkpoint or merge mutation flows.
+        - No relaxation of merge/validation blockers for missing branch context.
+    invariants:
+        - Anchor fallback is deterministic and surfaces explicit warnings in payload/UI.
+        - Merge readiness remains blocked when branch diff context is unavailable.
+        - Missing-branch preview mode never mutates refs, branches, or checkpoint metadata.
+    blast_radius: CR anchor resolution for pack/show, JSON payload warnings, show template warning rendering, and tests for missing-branch in-progress CR behavior.
+    risk_tier_hint: medium
+    risk_rationale: Touches CR preview and anchor resolution paths that can affect operator visibility and trust signals.
+    test_plan: go test ./internal/service -run 'CRRef|Pack|Imported|MetadataOnly' -count=1 && go test ./internal/cli -run 'CRShow' -count=1 && go test ./... -count=1 && go vet ./...
+    rollback_plan: Revert the [CR-119] merge commit to restore strict head-anchor requirements for show/pack.
+tasks:
+    - id: 1
+      title: Add tolerant anchor resolver mode for metadata-only previews
+      status: done
+      contract:
+        intent: Provide deterministic anchor resolution for read-only metadata previews when head anchor cannot be resolved from branch/ref.
+        acceptance_criteria:
+            - Fallback emits clear warning text and does not alter existing strict mode behavior.
+            - Resolver can return a metadata-only head fallback for in-progress CRs when explicitly allowed.
+        scope:
+            - internal/service/service_cr_refs.go
+      checkpoint:
+        commit: c3fa0cb0
+        at: "2026-03-03T03:11:31Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_cr_refs.go
+    - id: 2
+      title: Use resilient base anchor fallback when base_ref is stale
+      status: done
+      contract:
+        intent: Ensure base anchor can still resolve when BaseRef is stale by reusing existing commit/base-branch fallback order.
+        acceptance_criteria:
+            - Failure message remains deterministic when no base anchor is resolvable.
+            - Tolerant resolution uses resolved base commit from fallback path when BaseRef cannot be resolved.
+        scope:
+            - internal/service/diff/helpers.go
+            - internal/service/service_cr_refs.go
+      checkpoint:
+        at: "2026-03-03T03:11:38Z"
+        source: task_no_checkpoint
+    - id: 3
+      title: Integrate tolerant anchors into PackCR/read-only preview path
+      status: done
+      contract:
+        intent: Use tolerant anchor mode in PackCR so cr show can render metadata-only payloads instead of returning internal errors.
+        acceptance_criteria:
+            - No mutation commands are affected by this fallback path.
+            - PackCR returns anchor payload with warnings for missing-branch in-progress CRs.
+        scope:
+            - internal/service/service_cr_refs.go
+            - internal/service/service_pack.go
+      checkpoint:
+        commit: 754956b1
+        at: "2026-03-03T03:11:42Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_pack.go
+    - id: 4
+      title: Surface metadata-only fallback warnings in cr show UI
+      status: done
+      contract:
+        intent: Display metadata-only fallback warnings in show UI so users understand degraded anchor mode and next step.
+        acceptance_criteria:
+            - JSON payload continues to expose warnings list without schema breakage.
+            - Rendered show page visibly includes fallback warnings from pack payload.
+        scope:
+            - internal/cli/cr_cmd_show.go
+            - internal/cli/cr_json_mappers.go
+            - internal/cli/templates/cr_show.html
+      checkpoint:
+        commit: 0299a94c
+        at: "2026-03-03T03:11:50Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/cr_cmd_show.go
+            - internal/cli/templates/cr_show.html
+    - id: 5
+      title: Add service tests for missing-branch in-progress preview behavior
+      status: done
+      contract:
+        intent: Lock in service behavior for missing-branch in-progress CR previews and tolerant anchor output.
+        acceptance_criteria:
+            - Range strict path remains unchanged unless tolerant mode is explicitly used.
+            - Service tests cover in-progress missing branch with stale base_ref and resolved base_commit fallback.
+        scope:
+            - internal/service/service_cr_refs_test.go
+            - internal/service/service_pack_test.go
+      checkpoint:
+        commit: adeb7c8b
+        at: "2026-03-03T03:11:54Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_cr_refs_test.go
+            - internal/service/service_pack_test.go
+    - id: 6
+      title: Add CLI show tests and docs for degraded preview semantics
+      status: done
+      contract:
+        intent: Add CLI regression coverage and operator docs for metadata-only preview semantics.
+        acceptance_criteria:
+            - CLI reference documents metadata-only preview behavior and recovery command.
+            - cr show --json --no-open succeeds for missing-branch CR with warnings in payload.
+        scope:
+            - docs/cli-reference.md
+            - internal/cli/cr_show_test.go
+      checkpoint:
+        commit: 645e58ae
+        at: "2026-03-03T03:11:59Z"
+        source: task_checkpoint
+        scope:
+            - docs/cli-reference.md
+            - internal/cli/cr_show_test.go
+git_summary:
+    base_parent: 4a2e33025ad495e7825e0335c55b184406fda545
+    cr_parent: 645e58aebfd2d63513d388be2e142b89e4809388
+    files_changed: []
+    diffstat:
+        summary: 0 files changed, 0 insertions(+), 0 deletions(-)

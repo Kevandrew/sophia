@@ -19,6 +19,10 @@ type crAnchorResolution struct {
 	warnings   []string
 }
 
+type CRAnchorResolveOptions struct {
+	AllowMetadataOnlyHeadFallback bool
+}
+
 func crRefName(id int) string {
 	return fmt.Sprintf("%s%d", crRefPrefix, id)
 }
@@ -171,6 +175,10 @@ func normalizeCRAnchorKind(kind string) (string, error) {
 }
 
 func (s *Service) resolveCRAnchors(cr *model.CR) (*crAnchorResolution, error) {
+	return s.resolveCRAnchorsWithOptions(cr, CRAnchorResolveOptions{})
+}
+
+func (s *Service) resolveCRAnchorsWithOptions(cr *model.CR, opts CRAnchorResolveOptions) (*crAnchorResolution, error) {
 	if cr == nil {
 		return nil, fmt.Errorf("cr is required")
 	}
@@ -181,7 +189,13 @@ func (s *Service) resolveCRAnchors(cr *model.CR) (*crAnchorResolution, error) {
 		baseRef: strings.TrimSpace(nonEmptyTrimmed(cr.BaseRef, cr.BaseBranch)),
 	}
 
-	if strings.TrimSpace(cr.BaseCommit) != "" {
+	if opts.AllowMetadataOnlyHeadFallback {
+		resolvedBase, err := s.resolveCRBaseAnchor(cr)
+		if err != nil {
+			return nil, fmt.Errorf("resolve base anchor for CR %d: %w", cr.ID, err)
+		}
+		res.baseCommit = strings.TrimSpace(resolvedBase)
+	} else if strings.TrimSpace(cr.BaseCommit) != "" {
 		res.baseCommit = strings.TrimSpace(cr.BaseCommit)
 	} else {
 		if res.baseRef == "" {
@@ -227,6 +241,20 @@ func (s *Service) resolveCRAnchors(cr *model.CR) (*crAnchorResolution, error) {
 		res.warnings = append(res.warnings, "CR branch is unavailable; using merged commit as head anchor")
 	}
 
+	if strings.TrimSpace(res.headCommit) == "" && opts.AllowMetadataOnlyHeadFallback && shouldAllowMetadataOnlyHeadFallback(cr.Status) {
+		if strings.TrimSpace(res.baseCommit) != "" {
+			res.headRef = strings.TrimSpace(res.baseCommit)
+			res.headCommit = strings.TrimSpace(res.baseCommit)
+			res.warnings = append(res.warnings,
+				"CR branch is unavailable; using base anchor as metadata-only head preview",
+				fmt.Sprintf("Run `sophia cr switch %d` to recreate the branch from base", cr.ID),
+			)
+			if checkpointCount := countTaskCheckpointCommits(cr.Subtasks); checkpointCount > 0 {
+				res.warnings = append(res.warnings, fmt.Sprintf("CR has %d task checkpoint commit(s) but branch is unavailable; preview diff may omit orphaned implementation commits", checkpointCount))
+			}
+		}
+	}
+
 	if strings.TrimSpace(res.headCommit) == "" {
 		return nil, fmt.Errorf("unable to resolve head anchor for CR %d", cr.ID)
 	}
@@ -237,6 +265,26 @@ func (s *Service) resolveCRAnchors(cr *model.CR) (*crAnchorResolution, error) {
 	}
 	res.mergeBase = strings.TrimSpace(mergeBase)
 	return res, nil
+}
+
+func shouldAllowMetadataOnlyHeadFallback(status string) bool {
+	switch strings.TrimSpace(status) {
+	case model.StatusInProgress, model.StatusAbandoned:
+		return true
+	default:
+		return false
+	}
+}
+
+func countTaskCheckpointCommits(tasks []model.Subtask) int {
+	count := 0
+	for _, task := range tasks {
+		if strings.TrimSpace(task.CheckpointCommit) == "" {
+			continue
+		}
+		count++
+	}
+	return count
 }
 
 func (s *Service) RangeCR(id int) (*CRRangeAnchorsView, error) {
