@@ -81,6 +81,18 @@ If reviewer already has matching CR UID and wants upstream state replacement:
 sophia cr import --file cr.bundle.json --mode replace
 ```
 
+If reviewer already has matching CR UID and wants deterministic reconciliation without full replacement:
+
+```bash
+sophia cr import --file cr.bundle.json --mode merge
+```
+
+Preview merge reconciliation without mutating local CR metadata:
+
+```bash
+sophia cr import --file cr.bundle.json --mode merge --preview --json
+```
+
 ## Flow B: Suggestion patch with preview/apply
 
 Preview first:
@@ -129,6 +141,7 @@ Example v2 patch:
 - On mismatch, Sophia returns structured conflicts and does not mutate metadata.
 - Use preview output to identify conflicting fields before trying apply.
 - `--force` can bypass `before` mismatch when intentional, while recording warnings.
+- CR bundle import with `--mode merge` applies the same safety model: when local and imported non-empty scalar values differ, Sophia returns `import_merge_conflict` with structured conflict details and does not mutate local metadata.
 
 ## Recommended collaboration protocol
 

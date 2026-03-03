@@ -163,6 +163,8 @@ Collaboration artifacts:
 ```bash
 sophia cr export <cr-id> --format json --out cr.bundle.json
 sophia cr import --file cr.bundle.json --mode create
+sophia cr import --file cr.bundle.json --mode merge
+sophia cr import --file cr.bundle.json --mode merge --preview --json
 sophia cr patch preview <cr-id-or-uid> --file cr.patch.json --json
 sophia cr patch apply <cr-id-or-uid> --file cr.patch.json
 sophia cr push [<id|uid>] [--force]
