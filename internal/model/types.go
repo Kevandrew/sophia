@@ -3,6 +3,7 @@ package model
 const (
 	StatusInProgress = "in_progress"
 	StatusMerged     = "merged"
+	StatusAbandoned  = "abandoned"
 
 	TaskStatusOpen      = "open"
 	TaskStatusDone      = "done"
@@ -30,6 +31,7 @@ const (
 	EventTypeCRMergeResumed    = "cr_merge_resumed"
 	EventTypeCRMergeOverridden = "cr_merge_overridden"
 	EventTypeCRMerged          = "cr_merged"
+	EventTypeCRAbandoned       = "cr_abandoned"
 	EventTypeCRReopened        = "cr_reopened"
 	EventTypeCRPROpened        = "cr_pr_opened"
 	EventTypeCRPRSynced        = "cr_pr_synced"
@@ -299,6 +301,9 @@ type CR struct {
 	MergedAt          string             `yaml:"merged_at,omitempty"`
 	MergedBy          string             `yaml:"merged_by,omitempty"`
 	MergedCommit      string             `yaml:"merged_commit,omitempty"`
+	AbandonedAt       string             `yaml:"abandoned_at,omitempty"`
+	AbandonedBy       string             `yaml:"abandoned_by,omitempty"`
+	AbandonedReason   string             `yaml:"abandoned_reason,omitempty"`
 	FilesTouchedCount int                `yaml:"files_touched_count,omitempty"`
 	HQ                CRHQState          `yaml:"hq,omitempty"`
 	PR                CRPRLink           `yaml:"pr,omitempty"`

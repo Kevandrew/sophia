@@ -12,6 +12,14 @@ import (
 type Review struct {
 	CR                 *model.CR
 	Contract           model.Contract
+	LifecycleState     string
+	AbandonedAt        string
+	AbandonedBy        string
+	AbandonedReason    string
+	PRLinkageState     string
+	ActionRequired     string
+	ActionReason       string
+	SuggestedCommands  []string
 	Impact             *ImpactReport
 	Trust              *TrustReport
 	ValidationErrors   []string
@@ -85,10 +93,36 @@ func (s *Service) ReviewCR(id int) (*Review, error) {
 		}
 	}
 	trust := s.trustDomainService().buildReportWithPolicy(cr, validation, diff, policy.Contract.RequiredFields, policy)
+	lifecycleState := strings.TrimSpace(cr.Status)
+	abandonedAt := strings.TrimSpace(cr.AbandonedAt)
+	abandonedBy := strings.TrimSpace(cr.AbandonedBy)
+	abandonedReason := strings.TrimSpace(cr.AbandonedReason)
+	prLinkageState := ""
+	actionRequired := ""
+	actionReason := ""
+	suggestedCommands := []string{}
+	if statusView, statusErr := s.StatusCR(id); statusErr == nil && statusView != nil {
+		lifecycleState = nonEmptyTrimmed(statusView.LifecycleState, lifecycleState)
+		abandonedAt = nonEmptyTrimmed(statusView.AbandonedAt, abandonedAt)
+		abandonedBy = nonEmptyTrimmed(statusView.AbandonedBy, abandonedBy)
+		abandonedReason = nonEmptyTrimmed(statusView.AbandonedReason, abandonedReason)
+		prLinkageState = strings.TrimSpace(statusView.PRLinkageState)
+		actionRequired = strings.TrimSpace(statusView.ActionRequired)
+		actionReason = strings.TrimSpace(statusView.ActionReason)
+		suggestedCommands = cleanAndDedupeStrings(statusView.SuggestedCommands)
+	}
 
 	return &Review{
 		CR:                 cr,
 		Contract:           cr.Contract,
+		LifecycleState:     lifecycleState,
+		AbandonedAt:        abandonedAt,
+		AbandonedBy:        abandonedBy,
+		AbandonedReason:    abandonedReason,
+		PRLinkageState:     prLinkageState,
+		ActionRequired:     actionRequired,
+		ActionReason:       actionReason,
+		SuggestedCommands:  suggestedCommands,
 		Impact:             validation.Impact,
 		Trust:              trust,
 		ValidationErrors:   append([]string(nil), validation.Errors...),
@@ -359,7 +393,7 @@ func (s *Service) resolveCRFromBranch(branch string) (*model.CR, error) {
 	crs, err := s.store.ListCRs()
 	if err == nil {
 		for _, candidate := range crs {
-			if candidate.Status != model.StatusInProgress {
+			if candidate.Status != model.StatusInProgress && candidate.Status != model.StatusAbandoned {
 				continue
 			}
 			if strings.TrimSpace(candidate.Branch) != trimmedBranch {
@@ -378,7 +412,7 @@ func (s *Service) resolveCRFromBranch(branch string) (*model.CR, error) {
 	if err != nil {
 		return nil, ErrNoActiveCRContext
 	}
-	if cr.Status != model.StatusInProgress {
+	if cr.Status != model.StatusInProgress && cr.Status != model.StatusAbandoned {
 		return nil, ErrNoActiveCRContext
 	}
 	return cr, nil
@@ -428,6 +462,9 @@ func (s *Service) switchCRUnlocked(id int) (*model.CR, error) {
 	}
 
 	if cr.Status != model.StatusInProgress {
+		if cr.Status == model.StatusAbandoned {
+			return nil, fmt.Errorf("branch %q is missing for abandoned CR %d; run sophia cr reopen %d", cr.Branch, cr.ID, cr.ID)
+		}
 		return nil, fmt.Errorf("branch %q is missing for merged CR %d; run sophia cr reopen %d", cr.Branch, cr.ID, cr.ID)
 	}
 	baseAnchor, err := s.resolveCRBaseAnchor(cr)
@@ -477,8 +514,8 @@ func (s *Service) reopenCRUnlocked(id int) (*model.CR, error) {
 	if _, err := s.ensureCRBaseFields(cr, false); err != nil {
 		return nil, err
 	}
-	if cr.Status != model.StatusMerged {
-		return nil, fmt.Errorf("cr %d is not merged", id)
+	if cr.Status != model.StatusMerged && cr.Status != model.StatusAbandoned {
+		return nil, fmt.Errorf("cr %d is neither merged nor abandoned", id)
 	}
 	if s.git.BranchExists(cr.Branch) {
 		owner, ownerErr := s.branchOwnerWorktree(cr.Branch)
@@ -504,6 +541,9 @@ func (s *Service) reopenCRUnlocked(id int) (*model.CR, error) {
 	now := s.timestamp()
 	actor := s.git.Actor()
 	cr.Status = model.StatusInProgress
+	cr.AbandonedAt = ""
+	cr.AbandonedBy = ""
+	cr.AbandonedReason = ""
 	cr.UpdatedAt = now
 	cr.Events = append(cr.Events, model.Event{
 		TS:      now,

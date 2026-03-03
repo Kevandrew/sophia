@@ -48,6 +48,22 @@ type CRArchiveBackfillView struct {
 	Config        model.PolicyArchive
 }
 
+type CRAbandonOptions struct {
+	Reason string
+}
+
+type CRAbandonView struct {
+	CRID              int
+	CRUID             string
+	Status            string
+	AbandonedAt       string
+	AbandonedBy       string
+	AbandonedReason   string
+	ActionRequired    string
+	ActionReason      string
+	SuggestedCommands []string
+}
+
 func (s *Service) archivePolicyConfig() (model.PolicyArchive, error) {
 	policy, err := s.repoPolicy()
 	if err != nil {
@@ -303,6 +319,84 @@ func (s *Service) BackfillCRArchives(opts CRArchiveBackfillOptions) (*CRArchiveB
 	out.CommitSHA = sha
 	out.DryRun = false
 	return out, nil
+}
+
+func (s *Service) AbandonCR(id int, opts CRAbandonOptions) (*CRAbandonView, error) {
+	var out *CRAbandonView
+	if err := s.withMutationLock(func() error {
+		var err error
+		out, err = s.abandonCRUnlocked(id, opts)
+		return err
+	}); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (s *Service) abandonCRUnlocked(id int, opts CRAbandonOptions) (*CRAbandonView, error) {
+	cr, err := s.store.LoadCR(id)
+	if err != nil {
+		return nil, err
+	}
+	if cr.Status == model.StatusMerged {
+		return nil, fmt.Errorf("cr %d is already merged", id)
+	}
+	if cr.Status == model.StatusAbandoned {
+		return &CRAbandonView{
+			CRID:            cr.ID,
+			CRUID:           strings.TrimSpace(cr.UID),
+			Status:          cr.Status,
+			AbandonedAt:     strings.TrimSpace(cr.AbandonedAt),
+			AbandonedBy:     strings.TrimSpace(cr.AbandonedBy),
+			AbandonedReason: strings.TrimSpace(cr.AbandonedReason),
+			ActionRequired:  "reopen_cr",
+			ActionReason:    fmt.Sprintf("CR %d is abandoned", cr.ID),
+			SuggestedCommands: []string{
+				fmt.Sprintf("sophia cr reopen %d", cr.ID),
+			},
+		}, nil
+	}
+
+	now := s.timestamp()
+	actor := s.git.Actor()
+	reason := strings.TrimSpace(opts.Reason)
+	if reason == "" {
+		reason = "operator abandoned CR progression"
+	}
+	cr.Status = model.StatusAbandoned
+	cr.AbandonedAt = now
+	cr.AbandonedBy = actor
+	cr.AbandonedReason = reason
+	cr.UpdatedAt = now
+	cr.Events = append(cr.Events, model.Event{
+		TS:      now,
+		Actor:   actor,
+		Type:    model.EventTypeCRAbandoned,
+		Summary: fmt.Sprintf("Abandoned CR %d: %s", cr.ID, reason),
+		Ref:     fmt.Sprintf("cr:%d", cr.ID),
+		Meta: map[string]string{
+			"reason": reason,
+		},
+	})
+	if err := s.store.SaveCR(cr); err != nil {
+		return nil, err
+	}
+	if err := s.syncCRRef(cr); err != nil {
+		return nil, err
+	}
+	return &CRAbandonView{
+		CRID:            cr.ID,
+		CRUID:           strings.TrimSpace(cr.UID),
+		Status:          cr.Status,
+		AbandonedAt:     strings.TrimSpace(cr.AbandonedAt),
+		AbandonedBy:     strings.TrimSpace(cr.AbandonedBy),
+		AbandonedReason: strings.TrimSpace(cr.AbandonedReason),
+		ActionRequired:  "reopen_cr",
+		ActionReason:    fmt.Sprintf("CR %d is abandoned", cr.ID),
+		SuggestedCommands: []string{
+			fmt.Sprintf("sophia cr reopen %d", cr.ID),
+		},
+	}, nil
 }
 
 func marshalCRArchiveYAML(archive model.CRArchive) ([]byte, error) {
