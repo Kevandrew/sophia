@@ -18,7 +18,24 @@ import (
 )
 
 const (
-	prProviderGitHub = "github"
+	prProviderGitHub     = "github"
+	prLinkageHealthy     = "healthy"
+	prLinkageNoLinkedPR  = "no_linked_pr"
+	prLinkagePRNotFound  = "pr_not_found"
+	prLinkageClosed      = "closed_unmerged"
+	prLinkageMismatch    = "linkage_mismatch"
+	prActionOpenPR       = "open_pr"
+	prActionReconcilePR  = "reconcile_pr"
+	prActionReopenPR     = "reopen_pr"
+	prActionCreatePR     = "create_pr"
+	prGateNoLinkedReason = "no linked PR"
+	prGateNotFoundReason = "linked PR not found"
+	prGateClosedReason   = "linked PR is closed without merge"
+	prGateMismatchReason = "linked PR linkage mismatch"
+
+	prReconcileModeRelink = "relink"
+	prReconcileModeReopen = "reopen"
+	prReconcileModeCreate = "create"
 )
 
 type PRContextView struct {
@@ -49,13 +66,32 @@ type PRStatusView struct {
 	ChecksPassing      bool
 	ChecksObserved     bool
 	HeadRefOID         string
+	HeadRefName        string
+	BaseRefName        string
 	Approvals          int
 	NonAuthorApprovals int
 	GateBlocked        bool
 	GateReasons        []string
+	LinkageState       string
 	ActionRequired     string
 	ActionReason       string
+	SuggestedCommands  []string
 	Warnings           []string
+}
+
+type PRReconcileView struct {
+	CRID              int
+	CRUID             string
+	Mode              string
+	Mutated           bool
+	Action            string
+	ActionReason      string
+	BeforePRNumber    int
+	AfterPRNumber     int
+	BeforeLinkage     string
+	AfterLinkage      string
+	SuggestedCommands []string
+	Warnings          []string
 }
 
 type ghPRSummary struct {
@@ -64,6 +100,7 @@ type ghPRSummary struct {
 	State          string `json:"state"`
 	IsDraft        bool   `json:"isDraft"`
 	HeadRefOID     string `json:"headRefOid"`
+	HeadRefName    string `json:"headRefName"`
 	BaseRefName    string `json:"baseRefName"`
 	ReviewDecision string `json:"reviewDecision"`
 	MergedAt       string `json:"mergedAt"`
@@ -333,6 +370,200 @@ func (s *Service) PRReady(id int) (*PRStatusView, error) {
 	return s.PRStatus(id)
 }
 
+func normalizePRReconcileMode(mode string) (string, error) {
+	value := strings.ToLower(strings.TrimSpace(mode))
+	switch value {
+	case prReconcileModeRelink, prReconcileModeReopen, prReconcileModeCreate:
+		return value, nil
+	default:
+		return "", fmt.Errorf("invalid reconcile mode %q (expected relink|reopen|create)", strings.TrimSpace(mode))
+	}
+}
+
+func (s *Service) PRReconcile(id int, mode string) (*PRReconcileView, error) {
+	normalizedMode, err := normalizePRReconcileMode(mode)
+	if err != nil {
+		return nil, err
+	}
+	var out *PRReconcileView
+	if err := s.withMutationLock(func() error {
+		var reconcileErr error
+		out, reconcileErr = s.prReconcileUnlocked(id, normalizedMode)
+		return reconcileErr
+	}); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (s *Service) prReconcileUnlocked(id int, mode string) (*PRReconcileView, error) {
+	policy, err := s.repoPolicy()
+	if err != nil {
+		return nil, err
+	}
+	if policyMergeMode(policy) != "pr_gate" {
+		return nil, fmt.Errorf("cr pr reconcile is only available when merge.mode=pr_gate")
+	}
+	cr, err := s.store.LoadCR(id)
+	if err != nil {
+		return nil, err
+	}
+	beforeStatus, _ := s.PRStatus(id)
+	beforeNumber := cr.PR.Number
+	beforeLinkage := prLinkageHealthy
+	if beforeStatus != nil {
+		beforeLinkage = nonEmptyTrimmed(beforeStatus.LinkageState, prLinkageHealthy)
+	}
+	now := s.timestamp()
+	actor := s.git.Actor()
+	action := ""
+	actionReason := ""
+	mutated := false
+
+	switch mode {
+	case prReconcileModeRelink:
+		action = "relinked"
+		repoSelector := s.ghRepoSelectorForCR(cr)
+		matched, matchErr := s.findPRByHead(repoSelector, cr.Branch, nonEmptyTrimmed(cr.BaseRef, cr.BaseBranch))
+		if matchErr != nil {
+			return nil, matchErr
+		}
+		if matched == nil {
+			return nil, fmt.Errorf("no matching PR found for branch %q and base %q; run `sophia cr pr reconcile %d --mode create`", strings.TrimSpace(cr.Branch), strings.TrimSpace(nonEmptyTrimmed(cr.BaseRef, cr.BaseBranch)), cr.ID)
+		}
+		if matched.Number <= 0 {
+			if parsed := parsePRNumberFromURL(matched.URL); parsed > 0 {
+				matched.Number = parsed
+			}
+		}
+		if matched.Number <= 0 {
+			return nil, fmt.Errorf("unable to resolve PR number for relink candidate on branch %q", strings.TrimSpace(cr.Branch))
+		}
+		previous := cr.PR
+		applyPRSummaryToCRLink(cr, matched, nonEmptyTrimmed(repoSelector, cr.PR.Repo), now)
+		mutated = previous.Number != cr.PR.Number ||
+			!strings.EqualFold(strings.TrimSpace(previous.Repo), strings.TrimSpace(cr.PR.Repo)) ||
+			!strings.EqualFold(strings.TrimSpace(previous.URL), strings.TrimSpace(cr.PR.URL))
+		actionReason = fmt.Sprintf("linked CR %d to PR #%d by branch/base match", cr.ID, cr.PR.Number)
+		if err := s.store.SaveCR(cr); err != nil {
+			return nil, err
+		}
+	case prReconcileModeReopen:
+		action = "reopened"
+		if cr.PR.Number <= 0 {
+			return nil, fmt.Errorf("cr %d has no linked PR; run `sophia cr pr reconcile %d --mode create`", cr.ID, cr.ID)
+		}
+		repoSelector := s.ghRepoSelectorForCR(cr)
+		if _, err := s.runGH(repoSelector, "pr", "reopen", strconv.Itoa(cr.PR.Number)); err != nil {
+			return nil, err
+		}
+		refreshed, refreshErr := s.fetchPRByNumber(repoSelector, cr.PR.Number)
+		if refreshErr != nil {
+			return nil, refreshErr
+		}
+		applyPRSummaryToCRLink(cr, refreshed, nonEmptyTrimmed(repoSelector, cr.PR.Repo), now)
+		mutated = true
+		actionReason = fmt.Sprintf("reopened PR #%d", cr.PR.Number)
+		if err := s.store.SaveCR(cr); err != nil {
+			return nil, err
+		}
+	case prReconcileModeCreate:
+		action = "created"
+		repoURL, repoErr := s.currentRemoteRepo("origin")
+		if repoErr != nil {
+			return nil, repoErr
+		}
+		repoSelector := normalizeGHRepoSelector(repoURL)
+		if strings.TrimSpace(repoSelector) == "" {
+			repoSelector = strings.TrimSpace(repoURL)
+		}
+		ctx, ctxErr := s.buildPRContextView(cr)
+		if ctxErr != nil {
+			return nil, ctxErr
+		}
+		if err := s.pushBranchIfNeeded(cr); err != nil {
+			return nil, err
+		}
+		url, createErr := s.createDraftPR(repoSelector, cr, ctx.Markdown)
+		if createErr != nil {
+			return nil, createErr
+		}
+		pr := &ghPRSummary{URL: strings.TrimSpace(url)}
+		if parsed := parsePRNumberFromURL(pr.URL); parsed > 0 {
+			if byNumber, byNumberErr := s.fetchPRByNumber(repoSelector, parsed); byNumberErr == nil && byNumber != nil {
+				pr = byNumber
+			} else {
+				pr.Number = parsed
+			}
+		}
+		if pr.Number <= 0 {
+			refreshed, refreshErr := s.findPRByHead(repoSelector, cr.Branch, nonEmptyTrimmed(cr.BaseRef, cr.BaseBranch))
+			if refreshErr != nil {
+				return nil, refreshErr
+			}
+			if refreshed != nil {
+				pr = refreshed
+			}
+		}
+		if pr.Number <= 0 {
+			return nil, fmt.Errorf("created draft PR but failed to resolve PR number for CR %d", cr.ID)
+		}
+		applyPRSummaryToCRLink(cr, pr, repoSelector, now)
+		cr.PR.LastBodyHash = hashString(ctx.Markdown)
+		cr.PR.LastSyncedAt = now
+		mutated = true
+		actionReason = fmt.Sprintf("created draft PR #%d", cr.PR.Number)
+		if err := s.store.SaveCR(cr); err != nil {
+			return nil, err
+		}
+	}
+
+	if mutated {
+		meta := map[string]string{
+			"mode":         strings.TrimSpace(mode),
+			"action":       strings.TrimSpace(action),
+			"reason":       strings.TrimSpace(actionReason),
+			"before_pr":    strconv.Itoa(beforeNumber),
+			"after_pr":     strconv.Itoa(cr.PR.Number),
+			"before_state": beforeLinkage,
+		}
+		if appendErr := s.appendCRMutationEventAndSave(cr, model.Event{
+			TS:      now,
+			Actor:   actor,
+			Type:    model.EventTypeCRReconciled,
+			Summary: fmt.Sprintf("PR reconcile (%s): %s", mode, nonEmptyTrimmed(actionReason, action)),
+			Ref:     fmt.Sprintf("cr:%d", cr.ID),
+			Meta:    meta,
+		}); appendErr != nil {
+			return nil, appendErr
+		}
+	}
+
+	afterStatus, _ := s.PRStatus(id)
+	afterLinkage := prLinkageHealthy
+	if afterStatus != nil {
+		afterLinkage = nonEmptyTrimmed(afterStatus.LinkageState, prLinkageHealthy)
+	}
+	suggested := []string{}
+	if afterStatus != nil {
+		suggested = append([]string(nil), afterStatus.SuggestedCommands...)
+	}
+	return &PRReconcileView{
+		CRID:              cr.ID,
+		CRUID:             strings.TrimSpace(cr.UID),
+		Mode:              mode,
+		Mutated:           mutated,
+		Action:            action,
+		ActionReason:      strings.TrimSpace(actionReason),
+		BeforePRNumber:    beforeNumber,
+		AfterPRNumber:     cr.PR.Number,
+		BeforeLinkage:     beforeLinkage,
+		AfterLinkage:      afterLinkage,
+		SuggestedCommands: cleanAndDedupeStrings(suggested),
+		Warnings:          []string{},
+	}, nil
+}
+
 func (s *Service) PRStatus(id int) (*PRStatusView, error) {
 	cr, err := s.store.LoadCR(id)
 	if err != nil {
@@ -342,14 +573,37 @@ func (s *Service) PRStatus(id int) (*PRStatusView, error) {
 		return &PRStatusView{
 			CRID:           cr.ID,
 			CRUID:          strings.TrimSpace(cr.UID),
-			ActionRequired: "open_pr",
-			ActionReason:   "no linked PR",
+			LinkageState:   prLinkageNoLinkedPR,
+			ActionRequired: prActionOpenPR,
+			ActionReason:   prGateNoLinkedReason,
 			GateBlocked:    true,
-			GateReasons:    []string{"no linked PR"},
+			GateReasons:    []string{prGateNoLinkedReason},
+			SuggestedCommands: []string{
+				prOpenCommand(cr.ID),
+			},
 		}, nil
 	}
 	status, err := s.fetchGHPRStatus(cr)
 	if err != nil {
+		if isPRNotFoundError(err) {
+			return &PRStatusView{
+				CRID:           cr.ID,
+				CRUID:          strings.TrimSpace(cr.UID),
+				Provider:       prProviderGitHub,
+				Repo:           strings.TrimSpace(cr.PR.Repo),
+				Number:         cr.PR.Number,
+				LinkageState:   prLinkagePRNotFound,
+				ActionRequired: prActionReconcilePR,
+				ActionReason:   fmt.Sprintf("linked PR #%d not found", cr.PR.Number),
+				GateBlocked:    true,
+				GateReasons:    []string{fmt.Sprintf("%s; run `%s`", prGateNotFoundReason, prReconcileCommand(cr.ID, prReconcileModeCreate))},
+				SuggestedCommands: []string{
+					prReconcileCommand(cr.ID, prReconcileModeRelink),
+					prReconcileCommand(cr.ID, prReconcileModeCreate),
+				},
+				Warnings: []string{},
+			}, nil
+		}
 		return nil, err
 	}
 	policy, err := s.repoPolicy()
@@ -357,12 +611,84 @@ func (s *Service) PRStatus(id int) (*PRStatusView, error) {
 		return nil, err
 	}
 	status.GateBlocked, status.GateReasons = evaluatePRGate(policy, status)
+	s.classifyPRLinkageStatus(cr, status)
 	if status.Merged {
 		if reconcileErr := s.reconcileRemoteMergedPR(cr, status); reconcileErr != nil {
 			status.Warnings = append(status.Warnings, fmt.Sprintf("remote merge reconciliation failed: %v", reconcileErr))
 		}
 	}
 	return status, nil
+}
+
+func prOpenCommand(crID int) string {
+	if crID <= 0 {
+		return "sophia cr pr open <id> --approve-open"
+	}
+	return fmt.Sprintf("sophia cr pr open %d --approve-open", crID)
+}
+
+func prReconcileCommand(crID int, mode string) string {
+	if crID <= 0 {
+		return fmt.Sprintf("sophia cr pr reconcile <id> --mode %s", strings.TrimSpace(mode))
+	}
+	return fmt.Sprintf("sophia cr pr reconcile %d --mode %s", crID, strings.TrimSpace(mode))
+}
+
+func applyPRSummaryToCRLink(cr *model.CR, pr *ghPRSummary, repo string, now string) {
+	if cr == nil || pr == nil {
+		return
+	}
+	cr.PR.Provider = prProviderGitHub
+	cr.PR.Repo = strings.TrimSpace(nonEmptyTrimmed(repo, cr.PR.Repo))
+	cr.PR.Number = pr.Number
+	cr.PR.URL = strings.TrimSpace(pr.URL)
+	cr.PR.State = strings.TrimSpace(pr.State)
+	cr.PR.Draft = pr.IsDraft
+	cr.PR.LastHeadSHA = strings.TrimSpace(pr.HeadRefOID)
+	cr.PR.LastBaseRef = strings.TrimSpace(pr.BaseRefName)
+	cr.PR.LastStatusCheckedAt = strings.TrimSpace(now)
+	cr.PR.AwaitingOpenApproval = false
+	cr.PR.AwaitingOpenApprovalNote = ""
+	cr.UpdatedAt = strings.TrimSpace(now)
+}
+
+func (s *Service) classifyPRLinkageStatus(cr *model.CR, status *PRStatusView) {
+	if cr == nil || status == nil {
+		return
+	}
+	status.LinkageState = prLinkageHealthy
+	if status.Merged {
+		return
+	}
+	state := strings.ToUpper(strings.TrimSpace(status.State))
+	if state == "CLOSED" {
+		status.LinkageState = prLinkageClosed
+		status.ActionRequired = nonEmptyTrimmed(status.ActionRequired, prActionReconcilePR)
+		status.ActionReason = nonEmptyTrimmed(status.ActionReason, fmt.Sprintf("linked PR #%d is closed without merge", status.Number))
+		status.GateBlocked = true
+		status.GateReasons = cleanAndDedupeStrings(append(status.GateReasons, fmt.Sprintf("%s; run `%s`", prGateClosedReason, prReconcileCommand(cr.ID, prReconcileModeReopen))))
+		status.SuggestedCommands = cleanAndDedupeStrings(append(status.SuggestedCommands, prReconcileCommand(cr.ID, prReconcileModeReopen), prReconcileCommand(cr.ID, prReconcileModeCreate)))
+		return
+	}
+
+	expectedBase := strings.TrimSpace(nonEmptyTrimmed(cr.BaseRef, cr.BaseBranch))
+	expectedHead := strings.TrimSpace(cr.Branch)
+	mismatch := []string{}
+	if expectedBase != "" && strings.TrimSpace(status.BaseRefName) != "" && !strings.EqualFold(strings.TrimSpace(status.BaseRefName), expectedBase) {
+		mismatch = append(mismatch, fmt.Sprintf("base ref mismatch (expected %s, observed %s)", expectedBase, strings.TrimSpace(status.BaseRefName)))
+	}
+	if expectedHead != "" && strings.TrimSpace(status.HeadRefName) != "" && !strings.EqualFold(strings.TrimSpace(status.HeadRefName), expectedHead) {
+		mismatch = append(mismatch, fmt.Sprintf("head ref mismatch (expected %s, observed %s)", expectedHead, strings.TrimSpace(status.HeadRefName)))
+	}
+	if len(mismatch) == 0 {
+		return
+	}
+	status.LinkageState = prLinkageMismatch
+	status.ActionRequired = nonEmptyTrimmed(status.ActionRequired, prActionReconcilePR)
+	status.ActionReason = nonEmptyTrimmed(status.ActionReason, fmt.Sprintf("linked PR does not match CR linkage: %s", strings.Join(mismatch, "; ")))
+	status.GateBlocked = true
+	status.GateReasons = cleanAndDedupeStrings(append(status.GateReasons, fmt.Sprintf("%s; run `%s`", prGateMismatchReason, prReconcileCommand(cr.ID, prReconcileModeRelink))))
+	status.SuggestedCommands = cleanAndDedupeStrings(append(status.SuggestedCommands, prReconcileCommand(cr.ID, prReconcileModeRelink), prReconcileCommand(cr.ID, prReconcileModeCreate)))
 }
 
 func evaluatePRGate(policy *model.RepoPolicy, status *PRStatusView) (bool, []string) {
@@ -436,6 +762,9 @@ func (s *Service) mergePRGateCRUnlocked(id int, opts MergeCROptions, policy *mod
 	if err != nil {
 		return nil, err
 	}
+	if cr.Status == model.StatusAbandoned {
+		return nil, fmt.Errorf("cr %d is abandoned; run `sophia cr reopen %d` before merge", id, id)
+	}
 	if cr.Status != model.StatusInProgress {
 		return nil, fmt.Errorf("cr %d is not in progress", id)
 	}
@@ -446,7 +775,9 @@ func (s *Service) mergePRGateCRUnlocked(id int, opts MergeCROptions, policy *mod
 	if err != nil {
 		return nil, err
 	}
-	blocked, reasons := evaluatePRGate(policy, status)
+	status.GateBlocked, status.GateReasons = evaluatePRGate(policy, status)
+	s.classifyPRLinkageStatus(cr, status)
+	blocked, reasons := status.GateBlocked, status.GateReasons
 	result := &MergeCRResult{
 		MergedCommit: "",
 		Warnings:     []string{},
@@ -467,6 +798,12 @@ func (s *Service) mergePRGateFinalizeUnlocked(id int, opts MergeCROptions, polic
 	if err != nil {
 		return nil, err
 	}
+	if cr.Status == model.StatusAbandoned {
+		return nil, fmt.Errorf("cr %d is abandoned; run `sophia cr reopen %d` before merge finalize", id, id)
+	}
+	if cr.Status != model.StatusInProgress {
+		return nil, fmt.Errorf("cr %d is not in progress", id)
+	}
 	if cr.PR.Number <= 0 {
 		return nil, fmt.Errorf("cr %d has no linked PR", id)
 	}
@@ -474,7 +811,9 @@ func (s *Service) mergePRGateFinalizeUnlocked(id int, opts MergeCROptions, polic
 	if err != nil {
 		return nil, err
 	}
-	blocked, reasons := evaluatePRGate(policy, status)
+	status.GateBlocked, status.GateReasons = evaluatePRGate(policy, status)
+	s.classifyPRLinkageStatus(cr, status)
+	blocked, reasons := status.GateBlocked, status.GateReasons
 	if blocked && strings.TrimSpace(opts.OverrideReason) == "" {
 		return &MergeCRResult{
 			MergeMode:    "pr_gate",
@@ -1631,7 +1970,7 @@ func (s *Service) findPRByHead(repoSelector, branch, baseRef string) (*ghPRSumma
 	if strings.TrimSpace(branch) == "" {
 		return nil, fmt.Errorf("branch is required")
 	}
-	out, err := s.runGH(repoSelector, "pr", "list", "--head", branch, "--state", "all", "--json", "number,url,state,isDraft,headRefOid,baseRefName,reviewDecision,mergedAt,mergeCommit,updatedAt")
+	out, err := s.runGH(repoSelector, "pr", "list", "--head", branch, "--state", "all", "--json", "number,url,state,isDraft,headRefOid,headRefName,baseRefName,reviewDecision,mergedAt,mergeCommit,updatedAt")
 	if err != nil {
 		return nil, err
 	}
@@ -1687,7 +2026,7 @@ func (s *Service) fetchPRByNumber(repoSelector string, number int) (*ghPRSummary
 	if number <= 0 {
 		return nil, fmt.Errorf("pr number is required")
 	}
-	out, err := s.runGH(repoSelector, "pr", "view", strconv.Itoa(number), "--json", "number,url,state,isDraft,headRefOid,baseRefName,reviewDecision,mergedAt,mergeCommit")
+	out, err := s.runGH(repoSelector, "pr", "view", strconv.Itoa(number), "--json", "number,url,state,isDraft,headRefOid,headRefName,baseRefName,reviewDecision,mergedAt,mergeCommit")
 	if err != nil {
 		return nil, err
 	}
@@ -1853,7 +2192,7 @@ func (s *Service) fetchGHPRStatus(cr *model.CR) (*PRStatusView, error) {
 	if cr == nil || cr.PR.Number <= 0 {
 		return nil, fmt.Errorf("linked PR is required")
 	}
-	out, err := s.runGH(s.ghRepoSelectorForCR(cr), "pr", "view", strconv.Itoa(cr.PR.Number), "--json", "number,url,state,isDraft,reviewDecision,mergedAt,mergeCommit,author,latestReviews,statusCheckRollup,headRefOid,baseRefName")
+	out, err := s.runGH(s.ghRepoSelectorForCR(cr), "pr", "view", strconv.Itoa(cr.PR.Number), "--json", "number,url,state,isDraft,reviewDecision,mergedAt,mergeCommit,author,latestReviews,statusCheckRollup,headRefOid,headRefName,baseRefName")
 	if err != nil {
 		return nil, err
 	}
@@ -1911,9 +2250,13 @@ func (s *Service) fetchGHPRStatus(cr *model.CR) (*PRStatusView, error) {
 		ChecksPassing:      checksPassing,
 		ChecksObserved:     checksObserved,
 		HeadRefOID:         strings.TrimSpace(pr.HeadRefOID),
+		HeadRefName:        strings.TrimSpace(pr.HeadRefName),
+		BaseRefName:        strings.TrimSpace(pr.BaseRefName),
 		Approvals:          approvals,
 		NonAuthorApprovals: nonAuthor,
+		LinkageState:       prLinkageHealthy,
 		GateReasons:        []string{},
+		SuggestedCommands:  []string{},
 		Warnings:           []string{},
 	}, nil
 }

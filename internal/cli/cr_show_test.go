@@ -6,11 +6,14 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"sophia/internal/model"
 	"sophia/internal/service"
 )
 
@@ -105,6 +108,93 @@ func TestCRShowJSONDashboardFlagForcesDashboardMode(t *testing.T) {
 	}
 	if got, _ := env.Data["view_mode"].(string); got != "localhost_dashboard" {
 		t.Fatalf("expected localhost_dashboard view_mode, got %#v", env.Data["view_mode"])
+	}
+}
+
+func TestBuildCRShowSnapshotIncludesStaleAndAbandonedLifecycleMetadata(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	svc := service.New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "SOPHIA.yaml"), []byte("version: v1\nmerge:\n  mode: pr_gate\narchive:\n  enabled: false\n"), 0o644); err != nil {
+		t.Fatalf("write SOPHIA.yaml: %v", err)
+	}
+	cr, err := svc.AddCR("Show stale lifecycle", "snapshot metadata")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	runGit(t, dir, "config", "user.name", "Test User")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+	if err := os.WriteFile(filepath.Join(dir, "show-lifecycle.txt"), []byte("seed\n"), 0o644); err != nil {
+		t.Fatalf("write show-lifecycle.txt: %v", err)
+	}
+	runGit(t, dir, "add", "show-lifecycle.txt")
+	runGit(t, dir, "commit", "-m", "feat: seed show lifecycle fixture")
+
+	_, payload, err := buildCRShowSnapshot(svc, cr.ID, defaultCRShowEventsLimit, defaultCRShowCheckpointsLimit)
+	if err != nil {
+		t.Fatalf("buildCRShowSnapshot() error = %v", err)
+	}
+	statusMap := mapStringAny(payload["status"])
+	if got, _ := statusMap["pr_linkage_state"].(string); got != "no_linked_pr" {
+		t.Fatalf("expected pr_linkage_state=no_linked_pr, got %#v", statusMap["pr_linkage_state"])
+	}
+	if got, _ := statusMap["action_required"].(string); got != "open_pr" {
+		t.Fatalf("expected action_required=open_pr, got %#v", statusMap["action_required"])
+	}
+
+	if _, err := svc.AbandonCR(cr.ID, service.CRAbandonOptions{Reason: "deferred"}); err != nil {
+		t.Fatalf("AbandonCR() error = %v", err)
+	}
+	payload, selectedID, err := buildCRDashboardSnapshot(svc, model.CRSearchQuery{}, defaultCRListLimit, defaultCRTimelineLimit, cr.ID)
+	if err != nil {
+		t.Fatalf("buildCRDashboardSnapshot() after abandon error = %v", err)
+	}
+	if selectedID != cr.ID {
+		t.Fatalf("expected selected id %d after abandon, got %d", cr.ID, selectedID)
+	}
+	selected := mapStringAny(payload["selected_cr"])
+	if got, _ := selected["status"].(string); got != "abandoned" {
+		t.Fatalf("expected selected status=abandoned, got %#v", selected["status"])
+	}
+	if got, _ := selected["abandoned_reason"].(string); got != "deferred" {
+		t.Fatalf("expected abandoned_reason=deferred, got %#v", selected["abandoned_reason"])
+	}
+	if got, _ := selected["action_required"].(string); got != "reopen_cr" {
+		t.Fatalf("expected action_required=reopen_cr for abandoned CR, got %#v", selected["action_required"])
+	}
+}
+
+func TestBuildCRDashboardSnapshotIncludesSelectedCRLifecycleActions(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	svc := service.New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "SOPHIA.yaml"), []byte("version: v1\nmerge:\n  mode: pr_gate\narchive:\n  enabled: false\n"), 0o644); err != nil {
+		t.Fatalf("write SOPHIA.yaml: %v", err)
+	}
+	cr, err := svc.AddCR("Dashboard lifecycle", "selected CR metadata")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+
+	payload, selectedID, err := buildCRDashboardSnapshot(svc, model.CRSearchQuery{}, defaultCRListLimit, defaultCRTimelineLimit, cr.ID)
+	if err != nil {
+		t.Fatalf("buildCRDashboardSnapshot() error = %v", err)
+	}
+	if selectedID != cr.ID {
+		t.Fatalf("expected selected id %d, got %d", cr.ID, selectedID)
+	}
+	selected := mapStringAny(payload["selected_cr"])
+	if got, _ := selected["pr_linkage_state"].(string); got != "no_linked_pr" {
+		t.Fatalf("expected selected pr_linkage_state=no_linked_pr, got %#v", selected["pr_linkage_state"])
+	}
+	if got, _ := selected["action_required"].(string); got != "open_pr" {
+		t.Fatalf("expected selected action_required=open_pr, got %#v", selected["action_required"])
 	}
 }
 

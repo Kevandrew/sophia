@@ -18,6 +18,8 @@ func newCRArchiveCmd() *cobra.Command {
 	cmd.AddCommand(newCRArchiveWriteCmd())
 	cmd.AddCommand(newCRArchiveAppendCmd())
 	cmd.AddCommand(newCRArchiveBackfillCmd())
+	cmd.AddCommand(newCRArchiveAbandonCmd())
+	cmd.AddCommand(newCRArchiveResumeCmd())
 	return cmd
 }
 
@@ -137,6 +139,74 @@ func newCRArchiveBackfillCmd() *cobra.Command {
 	return cmd
 }
 
+func newCRArchiveAbandonCmd() *cobra.Command {
+	var asJSON bool
+	var reason string
+	cmd := &cobra.Command{
+		Use:   "abandon <id>",
+		Short: "Mark an in-progress CR as abandoned without merging",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			id, err := parsePositiveIntArg(args[0], "id")
+			if err != nil {
+				return commandError(cmd, asJSON, err)
+			}
+			svc, err := newServiceForCmd(cmd)
+			if err != nil {
+				return commandError(cmd, asJSON, err)
+			}
+			view, err := svc.AbandonCR(id, service.CRAbandonOptions{Reason: strings.TrimSpace(reason)})
+			if err != nil {
+				return commandError(cmd, asJSON, err)
+			}
+			if asJSON {
+				return writeJSONSuccess(cmd, crAbandonToJSONMap(view))
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "Abandoned CR %d\n", view.CRID)
+			fmt.Fprintf(cmd.OutOrStdout(), "Reason: %s\n", nonEmpty(view.AbandonedReason, "-"))
+			fmt.Fprintf(cmd.OutOrStdout(), "Next: %s\n", strings.Join(view.SuggestedCommands, " or "))
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&reason, "reason", "", "Reason for abandoning this CR")
+	cmd.Flags().BoolVar(&asJSON, "json", false, "Output in JSON format")
+	return cmd
+}
+
+func newCRArchiveResumeCmd() *cobra.Command {
+	var asJSON bool
+	cmd := &cobra.Command{
+		Use:   "resume <id>",
+		Short: "Resume an abandoned CR (alias of cr reopen)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			id, err := parsePositiveIntArg(args[0], "id")
+			if err != nil {
+				return commandError(cmd, asJSON, err)
+			}
+			svc, err := newServiceForCmd(cmd)
+			if err != nil {
+				return commandError(cmd, asJSON, err)
+			}
+			cr, err := svc.ReopenCR(id)
+			if err != nil {
+				return commandError(cmd, asJSON, err)
+			}
+			if asJSON {
+				return writeJSONSuccess(cmd, map[string]any{
+					"cr_id":  cr.ID,
+					"status": cr.Status,
+					"branch": cr.Branch,
+				})
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "Resumed CR %d on branch %s\n", cr.ID, cr.Branch)
+			return nil
+		},
+	}
+	cmd.Flags().BoolVar(&asJSON, "json", false, "Output in JSON format")
+	return cmd
+}
+
 func archivePolicyToJSONMap(config model.PolicyArchive) map[string]any {
 	enabled := false
 	if config.Enabled != nil {
@@ -211,5 +281,22 @@ func crArchiveBackfillToJSONMap(view *service.CRArchiveBackfillView) map[string]
 		"commit_sha":     view.CommitSHA,
 		"dry_run":        view.DryRun,
 		"config":         archivePolicyToJSONMap(view.Config),
+	}
+}
+
+func crAbandonToJSONMap(view *service.CRAbandonView) map[string]any {
+	if view == nil {
+		return map[string]any{}
+	}
+	return map[string]any{
+		"cr_id":              view.CRID,
+		"cr_uid":             view.CRUID,
+		"status":             view.Status,
+		"abandoned_at":       view.AbandonedAt,
+		"abandoned_by":       view.AbandonedBy,
+		"abandoned_reason":   view.AbandonedReason,
+		"action_required":    view.ActionRequired,
+		"action_reason":      view.ActionReason,
+		"suggested_commands": stringSliceOrEmpty(view.SuggestedCommands),
 	}
 }

@@ -132,6 +132,161 @@ func TestPRGateMergeJSONReturnsPushPermissionDeniedErrorDetails(t *testing.T) {
 	}
 }
 
+func TestPRStatusJSONIncludesLinkageActionMetadataWhenNoLinkedPR(t *testing.T) {
+	dir := setupCLIPRGateRepo(t)
+	installFakeGH(t, "echo '[]'; exit 0")
+
+	out, _, runErr := runCLI(t, dir, "cr", "pr", "status", "1", "--json")
+	if runErr != nil {
+		t.Fatalf("cr pr status --json error = %v\noutput=%s", runErr, out)
+	}
+	env := decodeEnvelope(t, out)
+	if !env.OK {
+		t.Fatalf("expected ok envelope, got %#v", env)
+	}
+	if got, _ := env.Data["linkage_state"].(string); got != "no_linked_pr" {
+		t.Fatalf("expected linkage_state=no_linked_pr, got %#v", env.Data["linkage_state"])
+	}
+	if got, _ := env.Data["action_required"].(string); got != "open_pr" {
+		t.Fatalf("expected action_required=open_pr, got %#v", env.Data["action_required"])
+	}
+	suggested, ok := env.Data["suggested_commands"].([]any)
+	if !ok || len(suggested) == 0 {
+		t.Fatalf("expected suggested_commands list, got %#v", env.Data["suggested_commands"])
+	}
+}
+
+func TestCRStatusJSONIncludesPRLinkageMetadataWhenNoLinkedPR(t *testing.T) {
+	dir := setupCLIPRGateRepo(t)
+	installFakeGH(t, "echo '[]'; exit 0")
+
+	out, _, runErr := runCLI(t, dir, "cr", "status", "1", "--json")
+	if runErr != nil {
+		t.Fatalf("cr status --json error = %v\noutput=%s", runErr, out)
+	}
+	env := decodeEnvelope(t, out)
+	if !env.OK {
+		t.Fatalf("expected ok envelope, got %#v", env)
+	}
+	if got, _ := env.Data["pr_linkage_state"].(string); got != "no_linked_pr" {
+		t.Fatalf("expected pr_linkage_state=no_linked_pr, got %#v", env.Data["pr_linkage_state"])
+	}
+	if got, _ := env.Data["action_required"].(string); got != "open_pr" {
+		t.Fatalf("expected action_required=open_pr, got %#v", env.Data["action_required"])
+	}
+}
+
+func TestCRReviewJSONIncludesLifecycleActionMetadataWhenNoLinkedPR(t *testing.T) {
+	dir := setupCLIPRGateRepo(t)
+	installFakeGH(t, "echo '[]'; exit 0")
+
+	out, _, runErr := runCLI(t, dir, "cr", "review", "1", "--json")
+	if runErr != nil {
+		t.Fatalf("cr review --json error = %v\noutput=%s", runErr, out)
+	}
+	env := decodeEnvelope(t, out)
+	if !env.OK {
+		t.Fatalf("expected ok envelope, got %#v", env)
+	}
+	crMap, ok := env.Data["cr"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected cr object, got %#v", env.Data["cr"])
+	}
+	if got, _ := crMap["pr_linkage_state"].(string); got != "no_linked_pr" {
+		t.Fatalf("expected pr_linkage_state=no_linked_pr, got %#v", crMap["pr_linkage_state"])
+	}
+	if got, _ := crMap["action_required"].(string); got != "open_pr" {
+		t.Fatalf("expected action_required=open_pr, got %#v", crMap["action_required"])
+	}
+}
+
+func TestPRReconcileJSONRequiresExplicitMode(t *testing.T) {
+	dir := setupCLIPRGateRepo(t)
+
+	out, _, runErr := runCLI(t, dir, "cr", "pr", "reconcile", "1", "--json")
+	if runErr == nil {
+		t.Fatalf("expected cr pr reconcile --json without mode to fail, output=%s", out)
+	}
+	env := decodeEnvelope(t, out)
+	if env.OK || env.Error == nil {
+		t.Fatalf("expected non-ok envelope with error, got %#v", env)
+	}
+	if env.Error.Code != "invalid_argument" {
+		t.Fatalf("expected invalid_argument code, got %#v", env.Error.Code)
+	}
+}
+
+func TestPRReconcileRelinkJSONReturnsOutcome(t *testing.T) {
+	dir := setupCLIPRGateRepo(t)
+	installFakeGH(t, strings.Join([]string{
+		"if [ \"$1\" = \"-R\" ]; then",
+		"  shift",
+		"  shift",
+		"fi",
+		"if [ \"$1\" = \"pr\" ] && [ \"$2\" = \"list\" ]; then",
+		"  echo '[{\"number\":7,\"url\":\"https://github.com/acme/repo/pull/7\",\"state\":\"OPEN\",\"isDraft\":true,\"headRefOid\":\"abc123\",\"headRefName\":\"x\",\"baseRefName\":\"main\",\"updatedAt\":\"2026-03-03T00:00:00Z\"}]'",
+		"  exit 0",
+		"fi",
+		"if [ \"$1\" = \"pr\" ] && [ \"$2\" = \"view\" ]; then",
+		"  echo '{\"number\":7,\"url\":\"https://github.com/acme/repo/pull/7\",\"state\":\"OPEN\",\"isDraft\":true,\"headRefOid\":\"abc123\",\"headRefName\":\"x\",\"baseRefName\":\"main\",\"author\":{\"login\":\"bot\"},\"latestReviews\":[],\"statusCheckRollup\":[]}'",
+		"  exit 0",
+		"fi",
+		"echo '[]'; exit 0",
+	}, "\n"))
+
+	out, _, runErr := runCLI(t, dir, "cr", "pr", "reconcile", "1", "--mode", "relink", "--json")
+	if runErr != nil {
+		t.Fatalf("cr pr reconcile --mode relink --json error = %v\noutput=%s", runErr, out)
+	}
+	env := decodeEnvelope(t, out)
+	if !env.OK {
+		t.Fatalf("expected ok envelope, got %#v", env)
+	}
+	if got, _ := env.Data["mode"].(string); got != "relink" {
+		t.Fatalf("expected mode=relink, got %#v", env.Data["mode"])
+	}
+	if got, _ := env.Data["action"].(string); got != "relinked" {
+		t.Fatalf("expected action=relinked, got %#v", env.Data["action"])
+	}
+	if got := int(env.Data["after_pr_number"].(float64)); got != 7 {
+		t.Fatalf("expected after_pr_number=7, got %d", got)
+	}
+}
+
+func TestPRReconcileCreateJSONReturnsOutcome(t *testing.T) {
+	dir := setupCLIPRGateRepo(t)
+	installFakeGH(t, strings.Join([]string{
+		"if [ \"$1\" = \"-R\" ]; then",
+		"  shift",
+		"  shift",
+		"fi",
+		"if [ \"$1\" = \"pr\" ] && [ \"$2\" = \"create\" ]; then",
+		"  echo 'https://github.com/acme/repo/pull/9'",
+		"  exit 0",
+		"fi",
+		"if [ \"$1\" = \"pr\" ] && [ \"$2\" = \"view\" ]; then",
+		"  echo '{\"number\":9,\"url\":\"https://github.com/acme/repo/pull/9\",\"state\":\"OPEN\",\"isDraft\":true,\"headRefOid\":\"abc123\",\"headRefName\":\"x\",\"baseRefName\":\"main\",\"author\":{\"login\":\"bot\"},\"latestReviews\":[],\"statusCheckRollup\":[]}'",
+		"  exit 0",
+		"fi",
+		"echo '[]'; exit 0",
+	}, "\n"))
+
+	out, _, runErr := runCLI(t, dir, "cr", "pr", "reconcile", "1", "--mode", "create", "--json")
+	if runErr != nil {
+		t.Fatalf("cr pr reconcile --mode create --json error = %v\noutput=%s", runErr, out)
+	}
+	env := decodeEnvelope(t, out)
+	if !env.OK {
+		t.Fatalf("expected ok envelope, got %#v", env)
+	}
+	if got, _ := env.Data["action"].(string); got != "created" {
+		t.Fatalf("expected action=created, got %#v", env.Data["action"])
+	}
+	if got := int(env.Data["after_pr_number"].(float64)); got != 9 {
+		t.Fatalf("expected after_pr_number=9, got %d", got)
+	}
+}
+
 func requireActionRequiredDetails(t *testing.T, details map[string]any) map[string]any {
 	t.Helper()
 	if details == nil {

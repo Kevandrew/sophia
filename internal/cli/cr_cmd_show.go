@@ -95,7 +95,7 @@ func newCRShowCmd() *cobra.Command {
 	cmd.Flags().IntVar(&eventsLimit, "events-limit", defaultCRShowEventsLimit, "Maximum recent CR events to include")
 	cmd.Flags().IntVar(&checkpointsLimit, "checkpoints-limit", defaultCRShowCheckpointsLimit, "Maximum recent task checkpoints to include")
 	cmd.Flags().BoolVar(&forceDashboard, "dashboard", false, "Force dashboard mode instead of per-CR mode")
-	cmd.Flags().StringVar(&statusFilter, "status", "", "Dashboard filter by status (in_progress, merged)")
+	cmd.Flags().StringVar(&statusFilter, "status", "", "Dashboard filter by status (in_progress, merged, abandoned)")
 	cmd.Flags().StringVar(&scopeFilter, "scope", "", "Dashboard filter by contract scope prefix")
 	cmd.Flags().StringVar(&riskTierFilter, "risk-tier", "", "Dashboard filter by risk tier (low, medium, high)")
 	cmd.Flags().StringVar(&textFilter, "text", "", "Dashboard text search in title/description/notes/contract")
@@ -427,6 +427,18 @@ func buildCRDashboardSnapshot(svc *service.Service, query model.CRSearchQuery, l
 					UpdatedAt:  cr.UpdatedAt,
 				}, cr)
 			}
+		}
+	}
+	if selectedCRID > 0 && selected != nil {
+		if status, statusErr := svc.StatusCR(selectedCRID); statusErr == nil && status != nil {
+			selected["lifecycle_state"] = nonEmpty(strings.TrimSpace(status.LifecycleState), strings.TrimSpace(status.Status))
+			selected["abandoned_at"] = strings.TrimSpace(status.AbandonedAt)
+			selected["abandoned_by"] = strings.TrimSpace(status.AbandonedBy)
+			selected["abandoned_reason"] = strings.TrimSpace(status.AbandonedReason)
+			selected["pr_linkage_state"] = strings.TrimSpace(status.PRLinkageState)
+			selected["action_required"] = strings.TrimSpace(status.ActionRequired)
+			selected["action_reason"] = strings.TrimSpace(status.ActionReason)
+			selected["suggested_commands"] = stringSliceOrEmpty(status.SuggestedCommands)
 		}
 	}
 

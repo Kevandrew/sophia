@@ -54,6 +54,14 @@ type CRStatusView struct {
 	RiskScore             int
 	MergeBlocked          bool
 	MergeBlockers         []string
+	LifecycleState        string
+	AbandonedAt           string
+	AbandonedBy           string
+	AbandonedReason       string
+	PRLinkageState        string
+	ActionRequired        string
+	ActionReason          string
+	SuggestedCommands     []string
 }
 
 func (s *Service) WhyCR(id int) (*WhyView, error) {
@@ -170,6 +178,10 @@ func (s *Service) StatusCR(id int) (*CRStatusView, error) {
 		TasksDelegatedPending: tasksDelegatedPending,
 		ContractComplete:      len(missingFields) == 0,
 		ContractMissingFields: missingFields,
+		LifecycleState:        strings.TrimSpace(cr.Status),
+		AbandonedAt:           strings.TrimSpace(cr.AbandonedAt),
+		AbandonedBy:           strings.TrimSpace(cr.AbandonedBy),
+		AbandonedReason:       strings.TrimSpace(cr.AbandonedReason),
 		ValidationValid:       true,
 		RiskTier:              "-",
 	}
@@ -196,6 +208,25 @@ func (s *Service) StatusCR(id int) (*CRStatusView, error) {
 			view.RiskTier = nonEmptyTrimmed(report.Impact.RiskTier, "-")
 			view.RiskScore = report.Impact.RiskScore
 		}
+		if policyMergeMode(policy) == "pr_gate" {
+			if prStatus, prStatusErr := s.PRStatus(id); prStatusErr == nil && prStatus != nil {
+				view.PRLinkageState = strings.TrimSpace(prStatus.LinkageState)
+				view.ActionRequired = strings.TrimSpace(prStatus.ActionRequired)
+				view.ActionReason = strings.TrimSpace(prStatus.ActionReason)
+				view.SuggestedCommands = dedupeStrings(append([]string(nil), prStatus.SuggestedCommands...))
+				if prStatus.GateBlocked {
+					view.MergeBlocked = true
+					view.MergeBlockers = dedupeStrings(append(view.MergeBlockers, prStatus.GateReasons...))
+				}
+			}
+		}
+	}
+	if cr.Status == model.StatusAbandoned {
+		view.MergeBlocked = true
+		view.MergeBlockers = dedupeStrings(append(view.MergeBlockers, fmt.Sprintf("CR %d is abandoned; run `sophia cr reopen %d` to resume", cr.ID, cr.ID)))
+		view.ActionRequired = "reopen_cr"
+		view.ActionReason = fmt.Sprintf("CR %d is abandoned", cr.ID)
+		view.SuggestedCommands = dedupeStrings(append(view.SuggestedCommands, fmt.Sprintf("sophia cr reopen %d", cr.ID)))
 	}
 
 	return view, nil

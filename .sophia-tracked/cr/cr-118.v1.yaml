@@ -1,0 +1,189 @@
+schema_version: sophia.cr_archive.v1
+notice: Historical archive snapshot. Corrections are append-only revisions.
+archived_at: "2026-03-03T02:07:24Z"
+revision: 1
+cr:
+    id: 118
+    uid: cr_e3583ba4-54a2-4fff-9ffa-aa25afb1d2ef
+    title: 'Stale CR lifecycle: reconcile, abandon, and archive workflow'
+    description: Define and implement explicit handling for stale PR-linked CRs, including reconcile flows, abandonment semantics, and archive lifecycle signals without silent state mutation.
+    status: merged
+    base_branch: main
+    base_ref: main
+    base_commit: 17ae5fd3d27af3759986bdba9a75dfa07c82b262
+    branch: cr-stale-cr-lifecycle-reconcile-abandon-and-archive-e358
+    merged_at: "2026-03-03T02:07:24Z"
+    merged_by: Kevandrew <143258544+Kevandrew@users.noreply.github.com>
+contract:
+    why: |-
+        PR-gated workflows currently represent only in_progress and merged CR lifecycle states. When a linked PR is closed without merge, deleted, or drifts from the expected branch/head context, operators are left with an in_progress CR but no explicit lifecycle guidance. This CR introduces explicit stale/reconciliation and abandonment workflow semantics so operators can deterministically resolve stale CRs without ad-hoc terminal archaeology.
+
+        The outcome is a workflow where stale PR linkage is detectable, actionable, and auditable: status surfaces should indicate stale conditions, reconciliation commands should relink/reopen/create PRs with explicit operator intent, and abandonment should be a first-class lifecycle action with archive-ready event history.
+
+        Success means stale PR-linked CRs are no longer ambiguous: the system provides explicit state signals, recommended next actions, and command paths to reconcile or abandon while preserving merge safety and auditability.
+    scope:
+        - internal/cli/cr_cmd_archive.go
+        - internal/cli/cr_cmd_core.go
+        - internal/cli/cr_cmd_pr.go
+        - internal/cli/cr_cmd_show.go
+        - internal/cli/cr_helpers.go
+        - internal/cli/cr_json_mappers.go
+        - internal/cli/cr_json_pr_gate_test.go
+        - internal/cli/cr_show_test.go
+        - internal/model/types.go
+        - internal/service/service_archive.go
+        - internal/service/service_cr_status.go
+        - internal/service/service_delegate_stack.go
+        - internal/service/service_pack.go
+        - internal/service/service_pr_gate.go
+        - internal/service/service_pr_gate_test.go
+        - internal/service/service_review_merge.go
+        - internal/service/service_review_merge_test.go
+    non_goals:
+        - No automatic merge, close, or archive mutation triggered solely by background status checks.
+        - No network/provider expansion beyond current GitHub-backed PR workflow.
+        - No replacement of existing PR-gate policy requirements (approvals/checks/draft gates).
+    invariants:
+        - CR merge remains an explicit operator action.
+        - Existing in_progress/merged merge semantics remain backward compatible for non-stale CRs.
+        - Stale detection and reconcile/abandon transitions are evented and auditable.
+    blast_radius: Touches PR status/reconcile logic, CLI status and command UX, CR lifecycle metadata, and archive/read-model reporting; failures could misclassify stale state or block merge paths if not guarded.
+    test_plan: go test ./internal/service -run PR -count=1 && go test ./internal/cli -run TestCRPR -count=1 && go test ./internal/cli -run TestCRStatus -count=1 && go test ./... && go vet ./...
+    rollback_plan: Revert the CR merge commit to restore previous PR-gate lifecycle behavior.
+tasks:
+    - id: 1
+      title: Detect and classify stale PR linkage states
+      status: done
+      contract:
+        intent: Make stale PR linkage first-class by classifying closed/deleted/mismatched PR states and exposing actionable metadata.
+        acceptance_criteria:
+            - Closed-unmerged or missing PR does not silently mutate CR to merged/archived.
+            - PR status surface distinguishes healthy linked PR vs stale conditions (closed_unmerged, pr_not_found, or linkage mismatch).
+            - Status payload includes action_required/action_reason for stale states with deterministic next-step commands.
+        scope:
+            - internal/cli/cr_cmd_core.go
+            - internal/cli/cr_json_mappers.go
+            - internal/service/service_pr_gate.go
+      checkpoint:
+        at: "2026-03-03T02:02:42Z"
+        source: task_no_checkpoint
+    - id: 2
+      title: Add explicit PR reconcile command workflow
+      status: done
+      contract:
+        intent: Provide an explicit operator command to resolve stale PR linkage without manual metadata surgery.
+        acceptance_criteria:
+            - New reconcile command can relink to matching PR by head/base, reopen closed PR when supported, or create a new draft PR by explicit mode.
+            - Reconcile command requires explicit operator choice for mutating paths; no silent fallback mutation.
+            - Reconcile operations produce clear JSON/text outcome fields and append audit events.
+        scope:
+            - internal/cli/cr_cmd_pr.go
+            - internal/cli/cr_json_mappers.go
+            - internal/service/service_pr_gate.go
+      checkpoint:
+        commit: 8fcad6d9
+        at: "2026-03-03T02:02:06Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/cr_cmd_pr.go
+            - internal/service/service_pr_gate.go
+    - id: 3
+      title: Define abandonment lifecycle and archive semantics
+      status: done
+      contract:
+        intent: Introduce explicit abandonment semantics for CRs that should no longer progress to merge, while preserving auditability and optional archive handling.
+        acceptance_criteria:
+            - Abandon action records lifecycle metadata/events and is queryable from status outputs.
+            - Abandoned CRs are excluded or clearly marked in active merge workflows until explicitly reopened/resumed.
+            - Archive behavior for abandoned CRs is explicit and non-destructive, with no automatic merge-state spoofing.
+        scope:
+            - internal/cli/cr_cmd_archive.go
+            - internal/cli/cr_json_mappers.go
+            - internal/model/types.go
+            - internal/service/service_archive.go
+            - internal/service/service_review_merge.go
+      checkpoint:
+        commit: 34c53e02
+        at: "2026-03-03T02:00:38Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/cr_cmd_archive.go
+            - internal/model/types.go
+            - internal/service/service_archive.go
+            - internal/service/service_review_merge.go
+    - id: 4
+      title: Guard merge and PR-gate flows for stale or abandoned CRs
+      status: done
+      contract:
+        intent: Prevent accidental merge progression when PR linkage is stale or CR is explicitly abandoned.
+        acceptance_criteria:
+            - Blocker messages include direct reconcile/reopen command guidance.
+            - Healthy in_progress CRs with valid PR linkage continue existing merge behavior unchanged.
+            - Merge/PR finalize flows return actionable blockers for stale or abandoned lifecycle conditions.
+        scope:
+            - internal/cli/cr_cmd_review_merge.go
+            - internal/cli/cr_helpers.go
+            - internal/service/service_cr_status.go
+            - internal/service/service_delegate_stack.go
+            - internal/service/service_pr_gate.go
+            - internal/service/service_review_merge.go
+      checkpoint:
+        commit: eeb6ef36
+        at: "2026-03-03T02:02:30Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/cr_helpers.go
+            - internal/service/service_cr_status.go
+            - internal/service/service_delegate_stack.go
+    - id: 5
+      title: Surface lifecycle actions in CLI status and dashboard payloads
+      status: done
+      contract:
+        intent: Make stale/abandoned lifecycle state visible in command and UI payloads so operators can steer agents without ambiguity.
+        acceptance_criteria:
+            - Output remains backward compatible for clients that only read existing fields.
+            - cr show payload includes stale/abandoned indicators that can be rendered in existing view surfaces.
+            - cr status/cr review JSON include lifecycle flags and recommended actions.
+        scope:
+            - internal/cli/cr_cmd_core.go
+            - internal/cli/cr_cmd_show.go
+            - internal/cli/cr_json_mappers.go
+            - internal/service/service_pack.go
+      checkpoint:
+        commit: d7534c33
+        at: "2026-03-03T02:00:17Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/cr_cmd_core.go
+            - internal/cli/cr_cmd_show.go
+            - internal/cli/cr_json_mappers.go
+            - internal/service/service_pack.go
+    - id: 6
+      title: Add regression coverage for stale-reconcile-abandon flows
+      status: done
+      contract:
+        intent: Lock down stale detection, reconcile actions, and abandonment behaviors with service and CLI tests.
+        acceptance_criteria:
+            - Existing PR-gate happy-path tests remain green.
+            - Tests cover closed PR, missing PR, reconcile success/failure paths, and abandonment guardrails.
+            - Tests verify no silent merged/archive transitions from stale detection alone.
+        scope:
+            - internal/cli/cr_json_pr_gate_test.go
+            - internal/cli/cr_show_test.go
+            - internal/service/service_pr_gate_test.go
+            - internal/service/service_review_merge_test.go
+      checkpoint:
+        commit: 45a70377
+        at: "2026-03-03T02:00:17Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/cr_json_pr_gate_test.go
+            - internal/cli/cr_show_test.go
+            - internal/service/service_pr_gate_test.go
+            - internal/service/service_review_merge_test.go
+git_summary:
+    base_parent: 17ae5fd3d27af3759986bdba9a75dfa07c82b262
+    cr_parent: eeb6ef366daf5c34a6111682eee530a2d237b83a
+    files_changed: []
+    diffstat:
+        summary: 0 files changed, 0 insertions(+), 0 deletions(-)
