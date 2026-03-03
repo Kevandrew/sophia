@@ -172,6 +172,10 @@ func jsonErrorCode(err error) string {
 	if errors.As(err, &patchConflict) {
 		return "patch_conflict"
 	}
+	var importMergeConflict *service.ImportMergeConflictError
+	if errors.As(err, &importMergeConflict) {
+		return "import_merge_conflict"
+	}
 	switch {
 	case errors.Is(err, service.ErrPolicyInvalid):
 		return "policy_invalid"
