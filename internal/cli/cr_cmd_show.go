@@ -39,6 +39,15 @@ const (
 	defaultCRShowCheckpointsLimit                = 10
 	defaultCRShowSSEPollInterval                 = 2 * time.Second
 	defaultCRShowSSEKeepaliveInterval            = 15 * time.Second
+	crShowActionPublishPR                        = "publish_pr"
+	crShowActionPRSync                           = "pr_sync"
+	crShowActionRefresh                          = "refresh"
+	crShowActionValidate                         = "validate"
+	crShowActionReview                           = "review"
+	crShowActionMerge                            = "merge"
+	crShowActionPull                             = "pull"
+	crShowPullModeMetadata                       = "metadata"
+	crShowPullModeFFOnly                         = "ff_only"
 )
 
 func newCRShowCmd() *cobra.Command {
@@ -146,7 +155,7 @@ func runCRShowPerCR(cmd *cobra.Command, asJSON bool, noOpen bool, svc *service.S
 	closeReason := ""
 	var server *crShowServer
 	if openAttempted {
-		server, err = startCRShowServerWithLiveRoutes(
+		server, err = startCRShowServerWithLiveRoutesAndActions(
 			func() (string, error) {
 				livePayload, _, snapshotErr := buildCRDashboardSnapshot(svc, model.CRSearchQuery{}, defaultCRListLimit, defaultCRTimelineLimit, id)
 				if snapshotErr != nil {
@@ -175,6 +184,7 @@ func runCRShowPerCR(cmd *cobra.Command, asJSON bool, noOpen bool, svc *service.S
 				}
 				return livePayload, nil
 			},
+			newCRShowControlActionHandler(svc),
 		)
 		if err != nil {
 			return commandError(cmd, asJSON, fmt.Errorf("start localhost preview: %w", err))
@@ -246,7 +256,7 @@ func runCRShowDashboard(cmd *cobra.Command, asJSON bool, noOpen bool, svc *servi
 	closeReason := ""
 	var server *crShowServer
 	if openAttempted {
-		server, err = startCRShowServerWithLiveRoutes(
+		server, err = startCRShowServerWithLiveRoutesAndActions(
 			func() (string, error) {
 				livePayload, _, snapshotErr := buildCRDashboardSnapshot(svc, query, listLimit, timelineLimit, selectedHint)
 				if snapshotErr != nil {
@@ -275,6 +285,7 @@ func runCRShowDashboard(cmd *cobra.Command, asJSON bool, noOpen bool, svc *servi
 				}
 				return livePayload, nil
 			},
+			newCRShowControlActionHandler(svc),
 		)
 		if err != nil {
 			return commandError(cmd, asJSON, fmt.Errorf("start localhost preview: %w", err))
@@ -605,13 +616,21 @@ type crShowServer struct {
 
 type crShowSnapshotRenderer func() (map[string]any, error)
 type crShowCRSnapshotRenderer func(id int) (map[string]any, error)
+type crShowControlActionHandler func(ctx context.Context, req crShowControlActionRequest) (int, map[string]any)
+
+type crShowControlActionRequest struct {
+	Action   string `json:"action"`
+	CRID     int    `json:"cr_id"`
+	Confirm  bool   `json:"confirm"`
+	PullMode string `json:"pull_mode"`
+}
 
 func startCRShowServer(render func() (string, error)) (*crShowServer, error) {
 	return startCRShowServerWithRoutes(render, nil)
 }
 
 func startCRShowServerWithRoutes(renderRoot func() (string, error), renderCR func(id int) (string, error)) (*crShowServer, error) {
-	return startCRShowServerWithLiveRoutes(renderRoot, renderCR, nil, nil)
+	return startCRShowServerWithLiveRoutesAndActions(renderRoot, renderCR, nil, nil, nil)
 }
 
 func startCRShowServerWithLiveRoutes(
@@ -619,6 +638,16 @@ func startCRShowServerWithLiveRoutes(
 	renderCR func(id int) (string, error),
 	snapshotRoot crShowSnapshotRenderer,
 	snapshotCR crShowCRSnapshotRenderer,
+) (*crShowServer, error) {
+	return startCRShowServerWithLiveRoutesAndActions(renderRoot, renderCR, snapshotRoot, snapshotCR, nil)
+}
+
+func startCRShowServerWithLiveRoutesAndActions(
+	renderRoot func() (string, error),
+	renderCR func(id int) (string, error),
+	snapshotRoot crShowSnapshotRenderer,
+	snapshotCR crShowCRSnapshotRenderer,
+	actionHandler crShowControlActionHandler,
 ) (*crShowServer, error) {
 	if renderRoot == nil {
 		return nil, fmt.Errorf("render callback is required")
@@ -672,6 +701,48 @@ func startCRShowServerWithLiveRoutes(
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"ok":true}`))
+	})
+	mux.HandleFunc("/__sophia_action", func(w http.ResponseWriter, r *http.Request) {
+		if actionHandler == nil {
+			http.NotFound(w, r)
+			return
+		}
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", http.MethodPost)
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var req crShowControlActionRequest
+		decoder := json.NewDecoder(io.LimitReader(r.Body, 1<<20))
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&req); err != nil {
+			writeCRShowActionJSON(w, http.StatusBadRequest, map[string]any{
+				"ok":    false,
+				"error": "invalid action payload",
+				"hint":  strings.TrimSpace(err.Error()),
+			})
+			return
+		}
+		var extra map[string]any
+		if err := decoder.Decode(&extra); err != io.EOF {
+			writeCRShowActionJSON(w, http.StatusBadRequest, map[string]any{
+				"ok":    false,
+				"error": "invalid action payload",
+				"hint":  "payload must be a single JSON object",
+			})
+			return
+		}
+		status, payload := actionHandler(r.Context(), req)
+		if status == 0 {
+			status = http.StatusOK
+		}
+		if payload == nil {
+			payload = map[string]any{}
+		}
+		if _, ok := payload["ok"]; !ok {
+			payload["ok"] = status < http.StatusBadRequest
+		}
+		writeCRShowActionJSON(w, status, payload)
 	})
 	mux.HandleFunc("/__sophia_events", func(w http.ResponseWriter, r *http.Request) {
 		if snapshotRoot == nil && snapshotCR == nil {
@@ -816,6 +887,382 @@ func resolveCRShowSnapshotRenderer(
 		}, nil
 	default:
 		return nil, fmt.Errorf("invalid stream mode")
+	}
+}
+
+func writeCRShowActionJSON(w http.ResponseWriter, status int, payload map[string]any) {
+	if status == 0 {
+		status = http.StatusOK
+	}
+	if payload == nil {
+		payload = map[string]any{}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate")
+	w.Header().Set("Pragma", "no-cache")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(payload)
+}
+
+func newCRShowControlActionHandler(svc *service.Service) crShowControlActionHandler {
+	if svc == nil {
+		return nil
+	}
+	return func(ctx context.Context, req crShowControlActionRequest) (int, map[string]any) {
+		action := normalizeCRShowControlAction(req.Action)
+		if action == "" {
+			return http.StatusBadRequest, map[string]any{
+				"ok":    false,
+				"error": "unsupported control action",
+				"hint":  "expected publish_pr|pr_sync|refresh|validate|review|merge|pull",
+			}
+		}
+
+		pullMode := ""
+		if action == crShowActionPull {
+			mode, modeErr := normalizeCRShowPullMode(req.PullMode)
+			if modeErr != nil {
+				return http.StatusBadRequest, map[string]any{
+					"ok":     false,
+					"action": action,
+					"error":  modeErr.Error(),
+				}
+			}
+			pullMode = mode
+		}
+
+		crID, crIDErr := resolveCRShowActionCRID(svc, req.CRID, action, pullMode)
+		if crIDErr != nil {
+			return http.StatusBadRequest, map[string]any{
+				"ok":     false,
+				"action": action,
+				"error":  crIDErr.Error(),
+				"hint":   "select a CR in the dashboard (or open a specific CR route) before retrying",
+			}
+		}
+
+		if isCRShowRiskyAction(action) && !req.Confirm {
+			return http.StatusConflict, map[string]any{
+				"ok":                    false,
+				"action":                action,
+				"cr_id":                 crShowActionCRIDValue(crID),
+				"requires_confirmation": true,
+				"summary":               "confirmation required before running control action",
+				"preflight":             buildCRShowActionPreflight(svc, action, crID),
+			}
+		}
+
+		runResult, runErr := runCRShowControlAction(ctx, svc, action, crID, pullMode)
+		if runErr != nil {
+			status := crShowActionStatusForError(runErr)
+			payload := map[string]any{
+				"ok":      false,
+				"action":  action,
+				"cr_id":   crShowActionCRIDValue(crID),
+				"summary": "control action failed",
+				"error":   strings.TrimSpace(runErr.Error()),
+				"hint":    crShowActionHintForError(runErr),
+			}
+			if runResult != nil {
+				if summary, ok := runResult["summary"]; ok {
+					payload["summary"] = summary
+				}
+				if result, ok := runResult["result"]; ok {
+					payload["result"] = result
+				}
+				if mode, ok := runResult["pull_mode"]; ok {
+					payload["pull_mode"] = mode
+				}
+			}
+			return status, payload
+		}
+		if runResult == nil {
+			runResult = map[string]any{}
+		}
+		runResult["ok"] = true
+		runResult["action"] = action
+		runResult["cr_id"] = crShowActionCRIDValue(crID)
+		runResult["executed_at"] = time.Now().UTC().Format(time.RFC3339)
+		return http.StatusOK, runResult
+	}
+}
+
+func normalizeCRShowControlAction(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case crShowActionPublishPR:
+		return crShowActionPublishPR
+	case crShowActionPRSync:
+		return crShowActionPRSync
+	case crShowActionRefresh:
+		return crShowActionRefresh
+	case crShowActionValidate:
+		return crShowActionValidate
+	case crShowActionReview:
+		return crShowActionReview
+	case crShowActionMerge:
+		return crShowActionMerge
+	case crShowActionPull:
+		return crShowActionPull
+	default:
+		return ""
+	}
+}
+
+func normalizeCRShowPullMode(raw string) (string, error) {
+	mode := strings.ToLower(strings.TrimSpace(raw))
+	switch mode {
+	case "", crShowPullModeMetadata, crShowPullModeFFOnly:
+		return mode, nil
+	default:
+		return "", fmt.Errorf("invalid pull_mode %q (expected metadata|ff_only)", raw)
+	}
+}
+
+func resolveCRShowActionCRID(svc *service.Service, reqCRID int, action string, pullMode string) (int, error) {
+	if reqCRID > 0 {
+		return reqCRID, nil
+	}
+	requiresCR := action != crShowActionPull || strings.TrimSpace(pullMode) == crShowPullModeMetadata
+	if !requiresCR {
+		return 0, nil
+	}
+	ctx, err := svc.CurrentCR()
+	if err != nil {
+		if errorsIs(err, service.ErrNoActiveCRContext) {
+			return 0, fmt.Errorf("action %q requires a CR id", action)
+		}
+		return 0, err
+	}
+	if ctx == nil || ctx.CR == nil || ctx.CR.ID <= 0 {
+		return 0, fmt.Errorf("action %q requires a CR id", action)
+	}
+	return ctx.CR.ID, nil
+}
+
+func buildCRShowActionPreflight(svc *service.Service, action string, crID int) map[string]any {
+	preflight := map[string]any{
+		"action": action,
+	}
+	if crID > 0 {
+		preflight["cr_id"] = crID
+		if statusView, err := svc.StatusCR(crID); err == nil {
+			preflight["status"] = crStatusToJSONMap(statusView)
+		} else {
+			preflight["status_error"] = strings.TrimSpace(err.Error())
+		}
+	}
+	if action == crShowActionMerge && crID > 0 {
+		if validationView, err := svc.ValidateCR(crID); err == nil {
+			preflight["validation"] = validationToJSONMap(validationView)
+		} else {
+			preflight["validation_error"] = strings.TrimSpace(err.Error())
+		}
+	}
+	if action == crShowActionPublishPR && crID > 0 {
+		if prView, err := svc.PRStatus(crID); err == nil {
+			preflight["pr"] = prStatusToJSONMap(prView)
+		} else {
+			preflight["pr_error"] = strings.TrimSpace(err.Error())
+		}
+	}
+	return preflight
+}
+
+func runCRShowControlAction(ctx context.Context, svc *service.Service, action string, crID int, pullMode string) (map[string]any, error) {
+	switch action {
+	case crShowActionPublishPR:
+		prView, err := svc.PROpen(crID, true)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{
+			"summary": "Published PR link for current CR state",
+			"result":  prStatusToJSONMap(prView),
+		}, nil
+	case crShowActionPRSync:
+		prView, err := svc.PRSync(crID)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{
+			"summary": "Synced Sophia-managed PR body content",
+			"result":  prStatusToJSONMap(prView),
+		}, nil
+	case crShowActionRefresh:
+		view, err := svc.RefreshCR(crID, service.RefreshOptions{Strategy: service.RefreshStrategyAuto})
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{
+			"summary": fmt.Sprintf("Refreshed CR %d with strategy %s", crID, strings.TrimSpace(view.Strategy)),
+			"result":  crRefreshToJSONMap(view),
+		}, nil
+	case crShowActionValidate:
+		report, err := svc.ValidateCR(crID)
+		if err != nil {
+			return nil, err
+		}
+		payload := validationToJSONMap(report)
+		if report != nil && !report.Valid {
+			return map[string]any{
+				"summary": fmt.Sprintf("Validation failed for CR %d", crID),
+				"result":  payload,
+			}, fmt.Errorf("%w: %d error(s)", service.ErrCRValidationFailed, len(report.Errors))
+		}
+		return map[string]any{
+			"summary": fmt.Sprintf("Validation passed for CR %d", crID),
+			"result":  payload,
+		}, nil
+	case crShowActionReview:
+		review, err := svc.ReviewCR(crID)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{
+			"summary": fmt.Sprintf("Built review context for CR %d", crID),
+			"result":  reviewToJSONMap(review),
+		}, nil
+	case crShowActionMerge:
+		result, err := svc.MergeCRWithOptions(crID, service.MergeCROptions{
+			ApprovePROpen: true,
+		})
+		if err != nil {
+			return nil, err
+		}
+		payload := map[string]any{
+			"cr_id":           crID,
+			"merged_commit":   strings.TrimSpace(result.MergedCommit),
+			"warnings":        stringSliceOrEmpty(result.Warnings),
+			"merge_mode":      strings.TrimSpace(result.MergeMode),
+			"pr_url":          strings.TrimSpace(result.PRURL),
+			"action":          strings.TrimSpace(result.Action),
+			"action_reason":   strings.TrimSpace(result.ActionReason),
+			"gate_blocked":    result.GateBlocked,
+			"gate_reasons":    stringSliceOrEmpty(result.GateReasons),
+			"override_reason": "",
+		}
+		summary := fmt.Sprintf("Processed merge action for CR %d", crID)
+		if strings.TrimSpace(result.MergedCommit) != "" {
+			summary = fmt.Sprintf("Merged CR %d as commit %s", crID, strings.TrimSpace(result.MergedCommit))
+		} else if strings.TrimSpace(result.MergeMode) == "pr_gate" {
+			summary = fmt.Sprintf("Prepared PR-gated merge flow for CR %d", crID)
+		}
+		return map[string]any{
+			"summary": summary,
+			"result":  payload,
+		}, nil
+	case crShowActionPull:
+		mode := strings.TrimSpace(pullMode)
+		if mode == "" {
+			if crID > 0 {
+				mode = crShowPullModeMetadata
+			} else {
+				mode = crShowPullModeFFOnly
+			}
+		}
+		switch mode {
+		case crShowPullModeMetadata:
+			if crID <= 0 {
+				return nil, fmt.Errorf("metadata pull requires a CR id")
+			}
+			pullResult, err := svc.PullCRFromHQ(strconv.Itoa(crID), false)
+			if err != nil {
+				return nil, err
+			}
+			return map[string]any{
+				"summary":   fmt.Sprintf("Pulled metadata for CR %d from configured remote", crID),
+				"pull_mode": mode,
+				"result": map[string]any{
+					"local_cr_id":          pullResult.LocalCRID,
+					"cr_uid":               pullResult.CRUID,
+					"created":              pullResult.Created,
+					"updated":              pullResult.Updated,
+					"local_ahead":          pullResult.LocalAhead,
+					"up_to_date":           pullResult.UpToDate,
+					"forced":               pullResult.Forced,
+					"upstream_fingerprint": pullResult.UpstreamFingerprint,
+				},
+			}, nil
+		case crShowPullModeFFOnly:
+			output, err := runCRShowFFOnlyPull(ctx)
+			if err != nil {
+				if strings.TrimSpace(output) != "" {
+					return nil, fmt.Errorf("%w: %s", err, strings.TrimSpace(output))
+				}
+				return nil, err
+			}
+			return map[string]any{
+				"summary":   "Updated local branch with fast-forward only pull",
+				"pull_mode": mode,
+				"result": map[string]any{
+					"command": "git pull --ff-only",
+					"output":  strings.TrimSpace(output),
+				},
+			}, nil
+		default:
+			return nil, fmt.Errorf("invalid pull mode %q", mode)
+		}
+	default:
+		return nil, fmt.Errorf("unsupported action %q", action)
+	}
+}
+
+func runCRShowFFOnlyPull(ctx context.Context) (string, error) {
+	command := exec.CommandContext(ctx, "git", "pull", "--ff-only")
+	output, err := command.CombinedOutput()
+	return string(output), err
+}
+
+func isCRShowRiskyAction(action string) bool {
+	return action == crShowActionPublishPR || action == crShowActionMerge
+}
+
+func crShowActionCRIDValue(crID int) any {
+	if crID <= 0 {
+		return nil
+	}
+	return crID
+}
+
+func crShowActionStatusForError(err error) int {
+	switch {
+	case err == nil:
+		return http.StatusOK
+	case errorsIs(err, service.ErrNoActiveCRContext):
+		return http.StatusBadRequest
+	case errorsIs(err, service.ErrWorkingTreeDirty),
+		errorsIs(err, service.ErrBranchInOtherWorktree),
+		errorsIs(err, service.ErrMergeConflict),
+		errorsIs(err, service.ErrMergeInProgress),
+		errorsIs(err, service.ErrCRValidationFailed),
+		errorsIs(err, service.ErrPRApprovalRequired),
+		errorsIs(err, service.ErrPolicyViolation),
+		errorsIs(err, service.ErrHQNotConfigured),
+		errorsIs(err, service.ErrHQIntentDiverged),
+		errorsIs(err, service.ErrHQUpstreamMoved),
+		errorsIs(err, service.ErrParentCRRequired):
+		return http.StatusConflict
+	default:
+		return http.StatusInternalServerError
+	}
+}
+
+func crShowActionHintForError(err error) string {
+	switch {
+	case err == nil:
+		return ""
+	case errorsIs(err, service.ErrWorkingTreeDirty):
+		return "working tree is dirty; commit/stash local changes and retry"
+	case errorsIs(err, service.ErrBranchInOtherWorktree):
+		return "target branch is open in another worktree; run action from that worktree path"
+	case errorsIs(err, service.ErrPRApprovalRequired):
+		return "confirm the action to allow PR creation/open"
+	case errorsIs(err, service.ErrHQNotConfigured):
+		return "configure a collaboration remote before metadata pull"
+	case errorsIs(err, service.ErrHQIntentDiverged), errorsIs(err, service.ErrHQUpstreamMoved):
+		return "retry with an explicit force workflow from CLI if remote/local intent diverged"
+	default:
+		return ""
 	}
 }
 
