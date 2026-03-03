@@ -168,6 +168,11 @@ sophia cr pull [<id|uid>] [--force]
 sophia cr sync [<id|uid>] [--force]
 ```
 
+Patch compatibility notes:
+
+- `sophia.cr_patch.v1`: `set_field`, `set_contract`, `add_note`, `add_task`, `update_task`
+- `sophia.cr_patch.v2`: all v1 ops plus `delete_note`, `delete_task`, `reorder_task`
+
 ## JSON surfaces
 
 ```bash

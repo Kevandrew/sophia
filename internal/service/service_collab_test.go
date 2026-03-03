@@ -241,6 +241,528 @@ func TestPatchApplyDedupNotes(t *testing.T) {
 	}
 }
 
+func TestPatchApplyAcceptsSchemaV2ForV1CompatibleOps(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	cr, err := svc.AddCR("Patch schema v2", "compat ops")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	setValidContract(t, svc, cr.ID)
+	loaded, err := svc.store.LoadCR(cr.ID)
+	if err != nil {
+		t.Fatalf("LoadCR() error = %v", err)
+	}
+
+	patch := map[string]any{
+		"schema_version": patchSchemaV2,
+		"target": map[string]any{
+			"cr_uid": loaded.UID,
+		},
+		"ops": []any{
+			map[string]any{
+				"op":   "add_note",
+				"text": "v2 note",
+			},
+		},
+	}
+	payload, err := json.Marshal(patch)
+	if err != nil {
+		t.Fatalf("Marshal(patch) error = %v", err)
+	}
+	result, err := svc.ApplyCRPatch(strconv.Itoa(cr.ID), payload, false, false)
+	if err != nil {
+		t.Fatalf("ApplyCRPatch() error = %v", err)
+	}
+	if len(result.AppliedOps) != 1 {
+		t.Fatalf("expected one applied op, got %#v", result.AppliedOps)
+	}
+}
+
+func TestPatchApplyRejectsUnknownSchemaVersion(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	cr, err := svc.AddCR("Patch schema unknown", "reject unknown version")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	setValidContract(t, svc, cr.ID)
+	loaded, err := svc.store.LoadCR(cr.ID)
+	if err != nil {
+		t.Fatalf("LoadCR() error = %v", err)
+	}
+
+	patch := map[string]any{
+		"schema_version": "sophia.cr_patch.v999",
+		"target": map[string]any{
+			"cr_uid": loaded.UID,
+		},
+		"ops": []any{
+			map[string]any{
+				"op":   "add_note",
+				"text": "ignored",
+			},
+		},
+	}
+	payload, err := json.Marshal(patch)
+	if err != nil {
+		t.Fatalf("Marshal(patch) error = %v", err)
+	}
+	_, err = svc.ApplyCRPatch(strconv.Itoa(cr.ID), payload, false, false)
+	if err == nil {
+		t.Fatalf("expected unknown schema version error")
+	}
+	if !strings.Contains(err.Error(), "invalid patch schema_version") {
+		t.Fatalf("expected schema version error, got %v", err)
+	}
+}
+
+func TestPatchApplyRejectsV2OnlyOpsInV1Schema(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	cr, err := svc.AddCR("Patch schema v1 gate", "reject v2 only ops")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	setValidContract(t, svc, cr.ID)
+	loaded, err := svc.store.LoadCR(cr.ID)
+	if err != nil {
+		t.Fatalf("LoadCR() error = %v", err)
+	}
+
+	patch := map[string]any{
+		"schema_version": patchSchemaV1,
+		"target": map[string]any{
+			"cr_uid": loaded.UID,
+		},
+		"ops": []any{
+			map[string]any{
+				"op":        "delete_note",
+				"note_hash": "abc",
+			},
+		},
+	}
+	payload, err := json.Marshal(patch)
+	if err != nil {
+		t.Fatalf("Marshal(patch) error = %v", err)
+	}
+	_, err = svc.ApplyCRPatch(strconv.Itoa(cr.ID), payload, false, false)
+	if err == nil {
+		t.Fatalf("expected schema/op compatibility error")
+	}
+	if !strings.Contains(err.Error(), "does not support op") {
+		t.Fatalf("expected schema op support error, got %v", err)
+	}
+}
+
+func TestPatchApplyDeleteNoteWithStableBeforeMatch(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	cr, err := svc.AddCR("Patch delete note", "delete note op")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	setValidContract(t, svc, cr.ID)
+	if err := svc.AddNote(cr.ID, "delete-me"); err != nil {
+		t.Fatalf("AddNote() error = %v", err)
+	}
+	loaded, err := svc.store.LoadCR(cr.ID)
+	if err != nil {
+		t.Fatalf("LoadCR() error = %v", err)
+	}
+
+	patch := map[string]any{
+		"schema_version": patchSchemaV2,
+		"target": map[string]any{
+			"cr_uid": loaded.UID,
+		},
+		"ops": []any{
+			map[string]any{
+				"op":        "delete_note",
+				"note_hash": noteHash("delete-me"),
+				"before":    "delete-me",
+			},
+		},
+	}
+	payload, err := json.Marshal(patch)
+	if err != nil {
+		t.Fatalf("Marshal(patch) error = %v", err)
+	}
+	result, err := svc.ApplyCRPatch(strconv.Itoa(cr.ID), payload, false, false)
+	if err != nil {
+		t.Fatalf("ApplyCRPatch() error = %v", err)
+	}
+	if len(result.AppliedOps) != 1 {
+		t.Fatalf("expected one applied op, got %#v", result.AppliedOps)
+	}
+	reloaded, err := svc.store.LoadCR(cr.ID)
+	if err != nil {
+		t.Fatalf("LoadCR(reloaded) error = %v", err)
+	}
+	if len(reloaded.Notes) != 0 {
+		t.Fatalf("expected note deleted, got %#v", reloaded.Notes)
+	}
+}
+
+func TestPatchApplyDeleteTaskWithStableBeforeMatch(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	cr, err := svc.AddCR("Patch delete task", "delete task op")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	setValidContract(t, svc, cr.ID)
+	task, err := svc.AddTask(cr.ID, "delete-task")
+	if err != nil {
+		t.Fatalf("AddTask() error = %v", err)
+	}
+	loaded, err := svc.store.LoadCR(cr.ID)
+	if err != nil {
+		t.Fatalf("LoadCR() error = %v", err)
+	}
+
+	patch := map[string]any{
+		"schema_version": patchSchemaV2,
+		"target": map[string]any{
+			"cr_uid": loaded.UID,
+		},
+		"ops": []any{
+			map[string]any{
+				"op":      "delete_task",
+				"task_id": task.ID,
+				"before":  task.Title,
+			},
+		},
+	}
+	payload, err := json.Marshal(patch)
+	if err != nil {
+		t.Fatalf("Marshal(patch) error = %v", err)
+	}
+	result, err := svc.ApplyCRPatch(strconv.Itoa(cr.ID), payload, false, false)
+	if err != nil {
+		t.Fatalf("ApplyCRPatch() error = %v", err)
+	}
+	if len(result.AppliedOps) != 1 {
+		t.Fatalf("expected one applied op, got %#v", result.AppliedOps)
+	}
+	reloaded, err := svc.store.LoadCR(cr.ID)
+	if err != nil {
+		t.Fatalf("LoadCR(reloaded) error = %v", err)
+	}
+	if len(reloaded.Subtasks) != 0 {
+		t.Fatalf("expected task deleted, got %#v", reloaded.Subtasks)
+	}
+}
+
+func TestPatchApplyReorderTaskDeterministic(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	cr, err := svc.AddCR("Patch reorder", "reorder tasks")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	setValidContract(t, svc, cr.ID)
+	t1, err := svc.AddTask(cr.ID, "task-1")
+	if err != nil {
+		t.Fatalf("AddTask(1) error = %v", err)
+	}
+	t2, err := svc.AddTask(cr.ID, "task-2")
+	if err != nil {
+		t.Fatalf("AddTask(2) error = %v", err)
+	}
+	t3, err := svc.AddTask(cr.ID, "task-3")
+	if err != nil {
+		t.Fatalf("AddTask(3) error = %v", err)
+	}
+	loaded, err := svc.store.LoadCR(cr.ID)
+	if err != nil {
+		t.Fatalf("LoadCR() error = %v", err)
+	}
+
+	patch := map[string]any{
+		"schema_version": patchSchemaV2,
+		"target": map[string]any{
+			"cr_uid": loaded.UID,
+		},
+		"ops": []any{
+			map[string]any{
+				"op":       "reorder_task",
+				"before":   []int{t1.ID, t2.ID, t3.ID},
+				"task_ids": []int{t3.ID, t1.ID, t2.ID},
+			},
+		},
+	}
+	payload, err := json.Marshal(patch)
+	if err != nil {
+		t.Fatalf("Marshal(patch) error = %v", err)
+	}
+	result, err := svc.ApplyCRPatch(strconv.Itoa(cr.ID), payload, false, false)
+	if err != nil {
+		t.Fatalf("ApplyCRPatch() error = %v", err)
+	}
+	if len(result.AppliedOps) != 1 {
+		t.Fatalf("expected one applied op, got %#v", result.AppliedOps)
+	}
+	reloaded, err := svc.store.LoadCR(cr.ID)
+	if err != nil {
+		t.Fatalf("LoadCR(reloaded) error = %v", err)
+	}
+	gotOrder := currentTaskOrder(reloaded.Subtasks)
+	expectedOrder := []int{t3.ID, t1.ID, t2.ID}
+	if len(gotOrder) != len(expectedOrder) || gotOrder[0] != expectedOrder[0] || gotOrder[1] != expectedOrder[1] || gotOrder[2] != expectedOrder[2] {
+		t.Fatalf("expected task order %#v, got %#v", expectedOrder, gotOrder)
+	}
+}
+
+func TestPatchApplyReorderTaskInvalidPayloadReturnsConflict(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	cr, err := svc.AddCR("Patch reorder invalid", "invalid reorder payload")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	setValidContract(t, svc, cr.ID)
+	t1, err := svc.AddTask(cr.ID, "task-1")
+	if err != nil {
+		t.Fatalf("AddTask(1) error = %v", err)
+	}
+	t2, err := svc.AddTask(cr.ID, "task-2")
+	if err != nil {
+		t.Fatalf("AddTask(2) error = %v", err)
+	}
+	loaded, err := svc.store.LoadCR(cr.ID)
+	if err != nil {
+		t.Fatalf("LoadCR() error = %v", err)
+	}
+
+	patch := map[string]any{
+		"schema_version": patchSchemaV2,
+		"target": map[string]any{
+			"cr_uid": loaded.UID,
+		},
+		"ops": []any{
+			map[string]any{
+				"op":       "reorder_task",
+				"before":   []int{t1.ID, t2.ID},
+				"task_ids": []int{t1.ID, t1.ID},
+			},
+		},
+	}
+	payload, err := json.Marshal(patch)
+	if err != nil {
+		t.Fatalf("Marshal(patch) error = %v", err)
+	}
+	_, err = svc.ApplyCRPatch(strconv.Itoa(cr.ID), payload, false, false)
+	if err == nil {
+		t.Fatalf("expected conflict error")
+	}
+	var conflictErr *PatchConflictError
+	if !errors.As(err, &conflictErr) {
+		t.Fatalf("expected PatchConflictError, got %T (%v)", err, err)
+	}
+	if conflictErr.Result == nil || len(conflictErr.Result.Conflicts) == 0 {
+		t.Fatalf("expected structured conflicts, got %#v", conflictErr.Result)
+	}
+	reloaded, err := svc.store.LoadCR(cr.ID)
+	if err != nil {
+		t.Fatalf("LoadCR(reloaded) error = %v", err)
+	}
+	if got := currentTaskOrder(reloaded.Subtasks); len(got) != 2 || got[0] != t1.ID || got[1] != t2.ID {
+		t.Fatalf("expected task order unchanged, got %#v", got)
+	}
+}
+
+func TestPatchApplySetFieldSupportsStatus(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	cr, err := svc.AddCR("Patch status", "set_field status")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	setValidContract(t, svc, cr.ID)
+	loaded, err := svc.store.LoadCR(cr.ID)
+	if err != nil {
+		t.Fatalf("LoadCR() error = %v", err)
+	}
+
+	patch := map[string]any{
+		"schema_version": patchSchemaV2,
+		"target": map[string]any{
+			"cr_uid": loaded.UID,
+		},
+		"ops": []any{
+			map[string]any{
+				"op":     "set_field",
+				"field":  "cr.status",
+				"before": model.StatusInProgress,
+				"after":  model.StatusAbandoned,
+			},
+		},
+	}
+	payload, err := json.Marshal(patch)
+	if err != nil {
+		t.Fatalf("Marshal(patch) error = %v", err)
+	}
+	if _, err := svc.ApplyCRPatch(strconv.Itoa(cr.ID), payload, false, false); err != nil {
+		t.Fatalf("ApplyCRPatch() error = %v", err)
+	}
+	reloaded, err := svc.store.LoadCR(cr.ID)
+	if err != nil {
+		t.Fatalf("LoadCR(reloaded) error = %v", err)
+	}
+	if reloaded.Status != model.StatusAbandoned {
+		t.Fatalf("expected status updated to %q, got %q", model.StatusAbandoned, reloaded.Status)
+	}
+}
+
+func TestPatchApplySetFieldTypeMismatchIsDeterministic(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	cr, err := svc.AddCR("Patch type mismatch", "set_field type mismatch")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	setValidContract(t, svc, cr.ID)
+	loaded, err := svc.store.LoadCR(cr.ID)
+	if err != nil {
+		t.Fatalf("LoadCR() error = %v", err)
+	}
+
+	patch := map[string]any{
+		"schema_version": patchSchemaV2,
+		"target": map[string]any{
+			"cr_uid": loaded.UID,
+		},
+		"ops": []any{
+			map[string]any{
+				"op":     "set_field",
+				"field":  "cr.parent_cr_id",
+				"before": nil,
+				"after":  "not-an-int",
+			},
+		},
+	}
+	payload, err := json.Marshal(patch)
+	if err != nil {
+		t.Fatalf("Marshal(patch) error = %v", err)
+	}
+	_, err = svc.ApplyCRPatch(strconv.Itoa(cr.ID), payload, false, false)
+	if err == nil {
+		t.Fatalf("expected type mismatch error")
+	}
+	if !strings.Contains(err.Error(), "after decode") {
+		t.Fatalf("expected typed decode error, got %v", err)
+	}
+}
+
+func TestPatchApplyConflictsDoNotPartiallyWriteForV2Ops(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	cr, err := svc.AddCR("Patch no partial writes", "conflicts block all writes")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	setValidContract(t, svc, cr.ID)
+	task, err := svc.AddTask(cr.ID, "task-1")
+	if err != nil {
+		t.Fatalf("AddTask() error = %v", err)
+	}
+	loaded, err := svc.store.LoadCR(cr.ID)
+	if err != nil {
+		t.Fatalf("LoadCR() error = %v", err)
+	}
+
+	patch := map[string]any{
+		"schema_version": patchSchemaV2,
+		"target": map[string]any{
+			"cr_uid": loaded.UID,
+		},
+		"ops": []any{
+			map[string]any{
+				"op":   "add_note",
+				"text": "would-have-been-added",
+			},
+			map[string]any{
+				"op":      "delete_task",
+				"task_id": task.ID,
+				"before":  "wrong-title",
+			},
+		},
+	}
+	payload, err := json.Marshal(patch)
+	if err != nil {
+		t.Fatalf("Marshal(patch) error = %v", err)
+	}
+	_, err = svc.ApplyCRPatch(strconv.Itoa(cr.ID), payload, false, false)
+	if err == nil {
+		t.Fatalf("expected conflict error")
+	}
+	var conflictErr *PatchConflictError
+	if !errors.As(err, &conflictErr) {
+		t.Fatalf("expected PatchConflictError, got %T (%v)", err, err)
+	}
+	reloaded, err := svc.store.LoadCR(cr.ID)
+	if err != nil {
+		t.Fatalf("LoadCR(reloaded) error = %v", err)
+	}
+	if len(reloaded.Notes) != 0 {
+		t.Fatalf("expected notes unchanged on conflict, got %#v", reloaded.Notes)
+	}
+	if len(reloaded.Subtasks) != 1 || reloaded.Subtasks[0].ID != task.ID {
+		t.Fatalf("expected tasks unchanged on conflict, got %#v", reloaded.Subtasks)
+	}
+}
+
 func TestImportCreateAndReplaceByUID(t *testing.T) {
 	t.Parallel()
 	sourceDir := t.TempDir()

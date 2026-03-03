@@ -95,6 +95,34 @@ Apply when preview is clean:
 sophia cr patch apply <cr-id-or-uid> --file cr.patch.json
 ```
 
+### Patch schema versions
+
+- `sophia.cr_patch.v1`: supports `set_field`, `set_contract`, `add_note`, `add_task`, `update_task`.
+- `sophia.cr_patch.v2`: adds structural operations for collaboration workflows:
+  - `delete_note`
+  - `delete_task`
+  - `reorder_task`
+
+Example v2 patch:
+
+```json
+{
+  "schema_version": "sophia.cr_patch.v2",
+  "target": { "cr_uid": "cr_abc123" },
+  "ops": [
+    { "op": "delete_note", "note_hash": "<sha256>", "before": "obsolete note" },
+    { "op": "delete_task", "task_id": 3, "before": "legacy task" },
+    { "op": "reorder_task", "before": [1, 2, 4], "task_ids": [2, 1, 4] }
+  ]
+}
+```
+
+### Migration guidance (v1 -> v2)
+
+- Existing v1 payloads remain valid with unchanged semantics.
+- Use v2 when your patch needs structural edits (delete/reorder).
+- If a v1 payload includes v2-only ops, Sophia rejects it deterministically during validation.
+
 ## Conflict behavior
 
 - Patch apply compares patch `before` values against current CR/task state.
