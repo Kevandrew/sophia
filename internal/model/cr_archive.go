@@ -2,6 +2,7 @@ package model
 
 const (
 	CRArchiveSchemaV1 = "sophia.cr_archive.v1"
+	CRArchiveSchemaV2 = "sophia.cr_archive.v2"
 	CRArchiveNotice   = "Historical archive snapshot. Corrections are append-only revisions."
 )
 
@@ -15,6 +16,17 @@ type CRArchive struct {
 	Contract      CRArchiveContract   `yaml:"contract"`
 	Tasks         []CRArchiveTask     `yaml:"tasks,omitempty"`
 	GitSummary    CRArchiveGitSummary `yaml:"git_summary"`
+	FullDiff      *CRArchiveFullDiff  `yaml:"full_diff,omitempty"`
+}
+
+const (
+	CRArchiveFullDiffEncodingGitUnifiedPatch = "git_unified_patch"
+)
+
+type CRArchiveFullDiff struct {
+	Encoding string `yaml:"encoding"`
+	Bytes    int    `yaml:"bytes"`
+	Patch    string `yaml:"patch"`
 }
 
 type CRArchiveCR struct {

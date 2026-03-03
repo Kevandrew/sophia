@@ -134,6 +134,8 @@ sophia cr merge <cr-id>
 Behavior in `pr_gate` mode:
 - Pushes CR branch to `origin` if needed.
 - Stages/commits `cr-<id>.v1.yaml` archive artifact on CR branch when archive policy is enabled.
+  - When `archive.include_full_diffs=true`, archive payload uses schema `sophia.cr_archive.v2` with full diff snapshot metadata.
+  - Full diff payloads over `8 MiB` are rejected before commit with deterministic guardrail errors.
 - Creates or syncs a draft PR and updates only Sophia-managed body section.
 - Returns PR URL plus gate status (approvals/checks/draft readiness).
 - Repository CI checks run on PR lifecycle events only after PR is non-draft (`ready_for_review` or non-draft open/sync events).

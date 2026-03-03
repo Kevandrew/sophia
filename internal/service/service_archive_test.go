@@ -2,6 +2,7 @@ package service
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -61,6 +62,53 @@ func TestMergeWritesArchiveFileIntoMergeCommit(t *testing.T) {
 	}
 	if strings.Contains(archiveBody, ".sophia-tracked/cr/cr-1.v1.yaml") {
 		t.Fatalf("expected archive git summary to exclude archive paths:\n%s", archiveBody)
+	}
+}
+
+func TestMergeWritesArchiveV2WithFullDiffWhenEnabled(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	runGit(t, dir, "config", "user.name", "Test User")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+	writeArchivePolicyForTest(t, dir, true, true)
+
+	cr, err := svc.AddCR("Archive merge v2", "archive merge integration")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	setValidContract(t, svc, cr.ID)
+	if err := os.WriteFile(filepath.Join(dir, "archive-v2.txt"), []byte("hello\nworld\n"), 0o644); err != nil {
+		t.Fatalf("write archive-v2.txt: %v", err)
+	}
+	runGit(t, dir, "add", "archive-v2.txt")
+	runGit(t, dir, "commit", "-m", "feat: archive merge v2 fixture")
+
+	sha, warnings, err := svc.MergeCRWithWarnings(cr.ID, true, "")
+	if err != nil {
+		t.Fatalf("MergeCRWithWarnings() error = %v", err)
+	}
+	if strings.TrimSpace(sha) == "" {
+		t.Fatalf("expected merge sha")
+	}
+	if len(warnings) != 0 {
+		t.Fatalf("unexpected merge warnings: %#v", warnings)
+	}
+	archiveBody := runGit(t, dir, "show", sha+":.sophia-tracked/cr/cr-1.v1.yaml")
+	if !strings.Contains(archiveBody, "schema_version: sophia.cr_archive.v2") {
+		t.Fatalf("expected archive v2 schema version in archive yaml:\n%s", archiveBody)
+	}
+	if !strings.Contains(archiveBody, "full_diff:") {
+		t.Fatalf("expected full_diff payload in archive yaml:\n%s", archiveBody)
+	}
+	if !strings.Contains(archiveBody, "encoding: git_unified_patch") {
+		t.Fatalf("expected full_diff encoding in archive yaml:\n%s", archiveBody)
+	}
+	if !strings.Contains(archiveBody, "diff --git a/archive-v2.txt b/archive-v2.txt") {
+		t.Fatalf("expected full diff patch in archive yaml:\n%s", archiveBody)
 	}
 }
 
@@ -358,6 +406,196 @@ func TestBackfillCommitRequiresBaseBranch(t *testing.T) {
 	}
 }
 
+func TestWriteCRArchiveFullDiffIsDeterministicAcrossRevisions(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	runGit(t, dir, "config", "user.name", "Test User")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+	writeArchivePolicyForTest(t, dir, false, true)
+
+	cr, err := svc.AddCR("Archive full diff deterministic", "archive write integration")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	setValidContract(t, svc, cr.ID)
+	if err := os.WriteFile(filepath.Join(dir, "deterministic.txt"), []byte("hello\ndeterministic\n"), 0o644); err != nil {
+		t.Fatalf("write deterministic.txt: %v", err)
+	}
+	runGit(t, dir, "add", "deterministic.txt")
+	runGit(t, dir, "commit", "-m", "feat: deterministic full diff fixture")
+	if _, _, err := svc.MergeCRWithWarnings(cr.ID, false, ""); err != nil {
+		t.Fatalf("MergeCRWithWarnings() error = %v", err)
+	}
+
+	viewA, err := svc.WriteCRArchive(cr.ID, CRArchiveWriteOptions{})
+	if err != nil {
+		t.Fatalf("WriteCRArchive(v1) error = %v", err)
+	}
+	viewB, err := svc.WriteCRArchive(cr.ID, CRArchiveWriteOptions{Reason: "second revision"})
+	if err != nil {
+		t.Fatalf("WriteCRArchive(v2) error = %v", err)
+	}
+	if viewA.Archive.FullDiff == nil || viewB.Archive.FullDiff == nil {
+		t.Fatalf("expected full diff payloads in both revisions")
+	}
+	if viewA.Archive.SchemaVersion != model.CRArchiveSchemaV2 || viewB.Archive.SchemaVersion != model.CRArchiveSchemaV2 {
+		t.Fatalf("expected v2 schema for include_full_diffs=true, got %q and %q", viewA.Archive.SchemaVersion, viewB.Archive.SchemaVersion)
+	}
+	if viewA.Archive.FullDiff.Patch != viewB.Archive.FullDiff.Patch {
+		t.Fatalf("expected deterministic full diff patch across revisions")
+	}
+	if viewA.Archive.FullDiff.Bytes != viewB.Archive.FullDiff.Bytes {
+		t.Fatalf("expected deterministic full diff bytes across revisions")
+	}
+}
+
+func TestWriteCRArchiveFullDiffIgnoresDiffContextConfig(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	runGit(t, dir, "config", "user.name", "Test User")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+	writeArchivePolicyForTest(t, dir, false, true)
+
+	cr, err := svc.AddCR("Archive diff context stability", "archive write integration")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	setValidContract(t, svc, cr.ID)
+	lines := make([]string, 0, 40)
+	for i := 1; i <= 40; i++ {
+		lines = append(lines, fmt.Sprintf("line-%d", i))
+	}
+	if err := os.WriteFile(filepath.Join(dir, "context.txt"), []byte(strings.Join(lines, "\n")+"\n"), 0o644); err != nil {
+		t.Fatalf("write context.txt seed: %v", err)
+	}
+	runGit(t, dir, "add", "context.txt")
+	runGit(t, dir, "commit", "-m", "feat: add context fixture")
+	if err := os.WriteFile(filepath.Join(dir, "context.txt"), []byte(strings.ReplaceAll(strings.Join(lines, "\n"), "line-20", "line-20-updated")+"\n"), 0o644); err != nil {
+		t.Fatalf("write context.txt update: %v", err)
+	}
+	runGit(t, dir, "add", "context.txt")
+	runGit(t, dir, "commit", "-m", "feat: change middle context line")
+	if _, _, err := svc.MergeCRWithWarnings(cr.ID, false, ""); err != nil {
+		t.Fatalf("MergeCRWithWarnings() error = %v", err)
+	}
+
+	viewA, err := svc.WriteCRArchive(cr.ID, CRArchiveWriteOptions{})
+	if err != nil {
+		t.Fatalf("WriteCRArchive(v1) error = %v", err)
+	}
+	runGit(t, dir, "config", "diff.context", "20")
+	viewB, err := svc.WriteCRArchive(cr.ID, CRArchiveWriteOptions{Reason: "context changed"})
+	if err != nil {
+		t.Fatalf("WriteCRArchive(v2) error = %v", err)
+	}
+	if viewA.Archive.FullDiff == nil || viewB.Archive.FullDiff == nil {
+		t.Fatalf("expected full diff payloads in both revisions")
+	}
+	if viewA.Archive.FullDiff.Patch != viewB.Archive.FullDiff.Patch {
+		t.Fatalf("expected full diff patch to ignore git diff.context")
+	}
+	if viewA.Archive.FullDiff.Bytes != viewB.Archive.FullDiff.Bytes {
+		t.Fatalf("expected full diff bytes to ignore git diff.context")
+	}
+}
+
+func TestWriteCRArchiveFullDiffGuardrailRejectsOversizePatch(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	runGit(t, dir, "config", "user.name", "Test User")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+	writeArchivePolicyForTest(t, dir, false, true)
+
+	cr, err := svc.AddCR("Archive full diff guardrail", "archive write integration")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	setValidContract(t, svc, cr.ID)
+	oversizePayload := strings.Repeat("x", archiveFullDiffMaxBytes+1024)
+	if err := os.WriteFile(filepath.Join(dir, "oversize.txt"), []byte(oversizePayload), 0o644); err != nil {
+		t.Fatalf("write oversize.txt: %v", err)
+	}
+	runGit(t, dir, "add", "oversize.txt")
+	runGit(t, dir, "commit", "-m", "feat: oversize full diff fixture")
+	if _, _, err := svc.MergeCRWithWarnings(cr.ID, false, ""); err != nil {
+		t.Fatalf("MergeCRWithWarnings() error = %v", err)
+	}
+
+	_, writeErr := svc.WriteCRArchive(cr.ID, CRArchiveWriteOptions{})
+	if writeErr == nil {
+		t.Fatalf("expected oversize full diff guardrail error")
+	}
+	if !strings.Contains(writeErr.Error(), "archive full diff exceeds byte limit") {
+		t.Fatalf("expected deterministic guardrail error, got %v", writeErr)
+	}
+	archivePath := filepath.Join(dir, ".sophia-tracked", "cr", "cr-1.v1.yaml")
+	if _, err := os.Stat(archivePath); !os.IsNotExist(err) {
+		t.Fatalf("expected no archive file on guardrail failure, stat err=%v", err)
+	}
+}
+
+func TestBackfillWritesV2ArchivesWithFullDiffWhenEnabled(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	runGit(t, dir, "config", "user.name", "Test User")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+	writeArchivePolicyForTest(t, dir, false, true)
+
+	for i := 1; i <= 2; i++ {
+		cr, err := svc.AddCR("Backfill v2 fixture", "archive backfill fixture")
+		if err != nil {
+			t.Fatalf("AddCR(%d) error = %v", i, err)
+		}
+		setValidContract(t, svc, cr.ID)
+		file := filepath.Join(dir, "backfill-v2-"+string(rune('a'+i-1))+".txt")
+		if err := os.WriteFile(file, []byte("x\n"), 0o644); err != nil {
+			t.Fatalf("write fixture file: %v", err)
+		}
+		runGit(t, dir, "add", filepath.Base(file))
+		runGit(t, dir, "commit", "-m", "feat: backfill v2 fixture")
+		if _, _, err := svc.MergeCRWithWarnings(cr.ID, false, ""); err != nil {
+			t.Fatalf("MergeCRWithWarnings(%d) error = %v", i, err)
+		}
+	}
+
+	view, err := svc.BackfillCRArchives(CRArchiveBackfillOptions{Commit: true})
+	if err != nil {
+		t.Fatalf("BackfillCRArchives(commit) error = %v", err)
+	}
+	if len(view.WrittenPaths) != 2 {
+		t.Fatalf("expected 2 written archive paths, got %#v", view.WrittenPaths)
+	}
+	for _, path := range view.WrittenPaths {
+		content, readErr := os.ReadFile(path)
+		if readErr != nil {
+			t.Fatalf("read archive %s: %v", path, readErr)
+		}
+		body := string(content)
+		if !strings.Contains(body, "schema_version: sophia.cr_archive.v2") {
+			t.Fatalf("expected v2 schema in backfilled archive:\n%s", body)
+		}
+		if !strings.Contains(body, "full_diff:") {
+			t.Fatalf("expected full_diff payload in backfilled archive:\n%s", body)
+		}
+	}
+}
+
 func TestArchiveDocumentEncodingIsDeterministic(t *testing.T) {
 	t.Parallel()
 	cr := &model.CR{
@@ -411,8 +649,9 @@ func TestArchiveDocumentEncodingIsDeterministic(t *testing.T) {
 		"base",
 		"head",
 	)
-	archiveA := buildCRArchiveDocument(cr, 1, "", "2026-02-24T00:00:00Z", summary)
-	archiveB := buildCRArchiveDocument(cr, 1, "", "2026-02-24T00:00:00Z", summary)
+	config := model.PolicyArchive{IncludeFullDiffs: boolPtr(false)}
+	archiveA := buildCRArchiveDocument(cr, 1, "", "2026-02-24T00:00:00Z", config, summary, nil)
+	archiveB := buildCRArchiveDocument(cr, 1, "", "2026-02-24T00:00:00Z", config, summary, nil)
 	yamlA, err := marshalCRArchiveYAML(archiveA)
 	if err != nil {
 		t.Fatalf("marshal archive A: %v", err)
@@ -436,9 +675,17 @@ func TestArchiveDocumentEncodingIsDeterministic(t *testing.T) {
 
 func writeArchivePolicyEnabledForTest(t *testing.T, dir string, enabled bool) {
 	t.Helper()
+	writeArchivePolicyForTest(t, dir, enabled, false)
+}
+
+func writeArchivePolicyForTest(t *testing.T, dir string, enabled, includeFullDiffs bool) {
+	t.Helper()
 	content := "version: v1\narchive:\n  enabled: false\n"
 	if enabled {
 		content = "version: v1\narchive:\n  enabled: true\n"
+	}
+	if includeFullDiffs {
+		content += "  include_full_diffs: true\n"
 	}
 	if err := os.WriteFile(filepath.Join(dir, repoPolicyFileName), []byte(content), 0o644); err != nil {
 		t.Fatalf("write archive policy fixture: %v", err)

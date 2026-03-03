@@ -1,0 +1,167 @@
+schema_version: sophia.cr_archive.v1
+notice: Historical archive snapshot. Corrections are append-only revisions.
+archived_at: "2026-03-03T12:51:32Z"
+revision: 1
+cr:
+    id: 111
+    uid: cr_7779921e-d58c-4307-ac33-c0e301d34177
+    title: Implement archive v2 full-diff snapshots
+    description: Implement archive.include_full_diffs=true behavior with deterministic full-diff capture in archive artifacts, including size and format guardrails that preserve append-only archive integrity.
+    status: merged
+    base_branch: main
+    base_ref: main
+    base_commit: 53b30c8c40081cf3094f9611e64ff63cfdb90341
+    branch: cr-implement-archive-v2-full-diff-snapshots-7779
+    merged_at: "2026-03-03T12:51:32Z"
+    merged_by: Kevandrew <143258544+Kevandrew@users.noreply.github.com>
+contract:
+    why: Implement archive full-diff snapshots so merged CR archives can optionally include reproducible full patch context for forensic review and automation. Done means include_full_diffs true is supported under a versioned archive document contract with deterministic output and explicit guardrails.
+    scope:
+        - docs/cli-reference.md
+        - docs/repository-policy.md
+        - internal/cli
+        - internal/cli/cr_cmd_archive.go
+        - internal/model
+        - internal/service
+        - internal/service/service_archive.go
+        - internal/service/service_policy.go
+    non_goals:
+        - No change to default archive policy behavior when include_full_diffs is false.
+        - No redesign of append-only archive revision behavior.
+        - No remote archive storage integration in this CR.
+        - No unrelated archive format proliferation beyond planned versioning.
+    invariants:
+        - Archive writes remain append-only and never rewrite prior revisions.
+        - Existing archive readers can continue consuming prior revision formats.
+        - Full-diff generation is deterministic for the same merge commit and repo state.
+        - Guardrail failures do not produce partial archive files.
+    blast_radius: Archive policy validation, archive document schema, merge snapshot generation, archive CLI surfaces, and policy/docs references. Failure modes include oversized artifacts, unstable diff output, and reader compatibility breaks.
+    risk_critical_scopes:
+        - internal/service/service_archive.go
+    risk_tier_hint: medium
+    risk_rationale: Archive artifacts are compliance and audit surfaces; malformed or non-deterministic snapshots reduce trust in historical records.
+    test_plan: go test ./internal/service -run 'Archive|Policy' -count=1 && go test ./internal/cli -run 'Archive' -count=1 && go test ./... -count=1 && go vet ./...
+    rollback_plan: Revert the [CR-111] merge commit and return include_full_diffs to unsupported behavior.
+tasks:
+    - id: 1
+      title: Enable policy semantics for include_full_diffs
+      status: done
+      contract:
+        intent: Allow include_full_diffs policy setting for supported archive generation paths.
+        acceptance_criteria:
+            - policy validation accepts include_full_diffs true for supported archive versions.
+            - unsupported combinations still fail with deterministic policy errors.
+        scope:
+            - internal/model
+            - internal/service/service_archive.go
+            - internal/service/service_policy.go
+      checkpoint:
+        commit: 5bccdb00
+        at: "2026-03-03T12:48:09Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_archive.go
+    - id: 2
+      title: Define archive v2 document fields for full diff payloads
+      status: done
+      contract:
+        intent: Introduce versioned archive schema fields required for full diff snapshot payloads.
+        acceptance_criteria:
+            - archive documents include explicit versioned fields for full diff content.
+            - existing archive revision behavior remains append-only and backward readable.
+        scope:
+            - internal/model
+            - internal/service/service_archive.go
+      checkpoint:
+        commit: ac54843d
+        at: "2026-03-03T12:49:14Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_archive.go
+    - id: 3
+      title: Implement deterministic full diff capture in archive writes
+      status: done
+      contract:
+        intent: Collect canonical full diff snapshots during archive write when enabled.
+        acceptance_criteria:
+            - archive write captures merge diff deterministically for the same commit inputs.
+            - diff normalization prevents unstable output due to trivial formatting differences.
+        scope:
+            - internal/gitx
+            - internal/service/service_archive.go
+      checkpoint:
+        commit: 5a28e859
+        at: "2026-03-03T12:48:10Z"
+        source: task_checkpoint
+        scope:
+            - internal/gitx/git_diff_history_blame.go
+            - internal/service/service_archive.go
+            - internal/service/service_merge_domain.go
+            - internal/service/service_pr_gate.go
+            - internal/service/service_runtime_fakes_test.go
+            - internal/service/service_runtime_ports.go
+    - id: 4
+      title: Add size and safety guardrails for full diff archives
+      status: done
+      contract:
+        intent: Protect archive generation from oversized or unsafe full diff payloads.
+        acceptance_criteria:
+            - guardrail failures never create partial archive revisions.
+            - guardrails produce clear deterministic errors when limits are exceeded.
+        scope:
+            - internal/service/service_archive.go
+      checkpoint:
+        commit: 6c2d989a
+        at: "2026-03-03T12:49:14Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_archive.go
+    - id: 5
+      title: Add archive write append and backfill full diff tests
+      status: done
+      contract:
+        intent: Cover full diff behavior across write append and backfill flows.
+        acceptance_criteria:
+            - tests cover include_full_diffs false and true cases with deterministic expectations.
+            - tests validate guardrail failures and compatibility behavior.
+        scope:
+            - internal/cli
+            - internal/service
+        acceptance_checks:
+            - go_vet
+            - unit_tests
+      checkpoint:
+        commit: c806270d
+        at: "2026-03-03T12:48:10Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/cr_archive_test.go
+            - internal/cli/cr_cmd_archive.go
+            - internal/service/service_archive_test.go
+            - internal/service/service_pr_gate_test.go
+    - id: 6
+      title: Document archive v2 policy and migration guidance
+      status: done
+      contract:
+        intent: Publish clear policy and usage guidance for enabling full diff archive snapshots.
+        acceptance_criteria:
+            - CLI reference includes archive command examples for full diff scenarios.
+            - repository policy docs describe include_full_diffs behavior and constraints.
+        scope:
+            - docs/cli-reference.md
+            - docs/repository-policy.md
+            - docs/workflow.md
+      checkpoint:
+        commit: 07bd8f62
+        at: "2026-03-03T12:48:10Z"
+        source: task_checkpoint
+        scope:
+            - docs/cli-reference.md
+            - docs/repository-policy.md
+            - docs/workflow.md
+git_summary:
+    base_parent: 53b30c8c40081cf3094f9611e64ff63cfdb90341
+    cr_parent: 6c2d989a733162e1d69c20b5475306cc2aa41713
+    files_changed: []
+    diffstat:
+        summary: 0 files changed, 0 insertions(+), 0 deletions(-)

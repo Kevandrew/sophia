@@ -95,7 +95,42 @@ func TestCRArchiveBackfillDryRunAndCommitJSON(t *testing.T) {
 	}
 }
 
+func TestCRArchiveWriteJSONIncludesFullDiffMetadataWhenEnabled(t *testing.T) {
+	t.Parallel()
+	dir := setupCLIMergedCRNoArchiveRepoWithPolicy(t, true)
+
+	writeOut, _, writeErr := runCLI(t, dir, "cr", "archive", "write", "1", "--json")
+	if writeErr != nil {
+		t.Fatalf("cr archive write --json error = %v\noutput=%s", writeErr, writeOut)
+	}
+	writeEnv := decodeEnvelope(t, writeOut)
+	if !writeEnv.OK {
+		t.Fatalf("expected write envelope ok, got %#v", writeEnv)
+	}
+	if schema, ok := writeEnv.Data["schema"].(string); !ok || schema != "sophia.cr_archive.v2" {
+		t.Fatalf("expected schema sophia.cr_archive.v2, got %#v", writeEnv.Data["schema"])
+	}
+	fullDiff, ok := writeEnv.Data["full_diff"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected full_diff metadata in payload, got %#v", writeEnv.Data["full_diff"])
+	}
+	if encoding, ok := fullDiff["encoding"].(string); !ok || encoding != "git_unified_patch" {
+		t.Fatalf("expected full_diff.encoding=git_unified_patch, got %#v", fullDiff["encoding"])
+	}
+	if bytes, ok := fullDiff["bytes"].(float64); !ok || bytes <= 0 {
+		t.Fatalf("expected full_diff.bytes > 0, got %#v", fullDiff["bytes"])
+	}
+	if _, exists := fullDiff["patch"]; exists {
+		t.Fatalf("did not expect full diff patch body in JSON metadata, got %#v", fullDiff["patch"])
+	}
+}
+
 func setupCLIMergedCRNoArchiveRepo(t *testing.T) string {
+	t.Helper()
+	return setupCLIMergedCRNoArchiveRepoWithPolicy(t, false)
+}
+
+func setupCLIMergedCRNoArchiveRepoWithPolicy(t *testing.T, includeFullDiffs bool) string {
 	t.Helper()
 
 	dir := t.TempDir()
@@ -103,7 +138,11 @@ func setupCLIMergedCRNoArchiveRepo(t *testing.T) string {
 	if _, err := svc.Init("main", ""); err != nil {
 		t.Fatalf("Init() error = %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "SOPHIA.yaml"), []byte("version: v1\narchive:\n  enabled: false\n"), 0o644); err != nil {
+	policyContent := "version: v1\narchive:\n  enabled: false\n"
+	if includeFullDiffs {
+		policyContent += "  include_full_diffs: true\n"
+	}
+	if err := os.WriteFile(filepath.Join(dir, "SOPHIA.yaml"), []byte(policyContent), 0o644); err != nil {
 		t.Fatalf("write SOPHIA.yaml: %v", err)
 	}
 	runGit(t, dir, "add", "SOPHIA.yaml")

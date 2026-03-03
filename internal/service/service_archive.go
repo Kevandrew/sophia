@@ -15,7 +15,9 @@ import (
 )
 
 const (
-	archiveTrackedPrefix = ".sophia-tracked"
+	archiveTrackedPrefix    = ".sophia-tracked"
+	archiveFullDiffMaxBytes = 8 * 1024 * 1024
+	archiveFullDiffUnified  = 3
 )
 
 type CRArchiveWriteOptions struct {
@@ -83,9 +85,6 @@ func archivePolicyIncludeFullDiffs(config model.PolicyArchive) bool {
 func (s *Service) requireArchiveConfigSupported(config model.PolicyArchive) error {
 	if strings.TrimSpace(config.Format) != defaultArchiveFormat {
 		return fmt.Errorf("%w: archive.format %q is unsupported (expected yaml)", ErrPolicyInvalid, config.Format)
-	}
-	if archivePolicyIncludeFullDiffs(config) {
-		return fmt.Errorf("%w: archive.include_full_diffs=true is not implemented for archive generation", ErrPolicyInvalid)
 	}
 	return nil
 }
@@ -192,7 +191,11 @@ func (s *Service) WriteCRArchive(id int, opts CRArchiveWriteOptions) (*CRArchive
 	if err != nil {
 		return nil, err
 	}
-	archive := buildCRArchiveDocument(cr, revision, strings.TrimSpace(opts.Reason), s.timestamp(), gitSummary)
+	fullDiff, err := s.buildArchiveFullDiffFromMergeCommit(mergedCommit, gitSummary.FilesChanged, archivePolicyIncludeFullDiffs(config))
+	if err != nil {
+		return nil, err
+	}
+	archive := buildCRArchiveDocument(cr, revision, strings.TrimSpace(opts.Reason), s.timestamp(), config, gitSummary, fullDiff)
 	payload, err := marshalCRArchiveYAML(archive)
 	if err != nil {
 		return nil, err
@@ -289,7 +292,11 @@ func (s *Service) BackfillCRArchives(opts CRArchiveBackfillOptions) (*CRArchiveB
 		if summaryErr != nil {
 			return nil, summaryErr
 		}
-		archive := buildCRArchiveDocument(&cr, 1, "", s.timestamp(), gitSummary)
+		fullDiff, diffErr := s.buildArchiveFullDiffFromMergeCommit(cr.MergedCommit, gitSummary.FilesChanged, archivePolicyIncludeFullDiffs(config))
+		if diffErr != nil {
+			return nil, diffErr
+		}
+		archive := buildCRArchiveDocument(&cr, 1, "", s.timestamp(), config, gitSummary, fullDiff)
 		payload, marshalErr := marshalCRArchiveYAML(archive)
 		if marshalErr != nil {
 			return nil, marshalErr
@@ -427,7 +434,7 @@ func archiveFileExists(path string) (bool, error) {
 	}
 }
 
-func buildCRArchiveDocument(cr *model.CR, revision int, reason, archivedAt string, gitSummary model.CRArchiveGitSummary) model.CRArchive {
+func buildCRArchiveDocument(cr *model.CR, revision int, reason, archivedAt string, config model.PolicyArchive, gitSummary model.CRArchiveGitSummary, fullDiff *model.CRArchiveFullDiff) model.CRArchive {
 	tasks := make([]model.CRArchiveTask, 0, len(cr.Subtasks))
 	for _, task := range cr.Subtasks {
 		delegated := make([]model.CRArchiveTaskDelegated, 0, len(task.Delegations))
@@ -466,8 +473,12 @@ func buildCRArchiveDocument(cr *model.CR, revision int, reason, archivedAt strin
 	sort.Slice(tasks, func(i, j int) bool {
 		return tasks[i].ID < tasks[j].ID
 	})
+	schemaVersion := model.CRArchiveSchemaV1
+	if archivePolicyIncludeFullDiffs(config) {
+		schemaVersion = model.CRArchiveSchemaV2
+	}
 	return model.CRArchive{
-		SchemaVersion: model.CRArchiveSchemaV1,
+		SchemaVersion: schemaVersion,
 		Notice:        model.CRArchiveNotice,
 		ArchivedAt:    strings.TrimSpace(archivedAt),
 		Revision:      revision,
@@ -499,6 +510,7 @@ func buildCRArchiveDocument(cr *model.CR, revision int, reason, archivedAt strin
 		},
 		Tasks:      tasks,
 		GitSummary: gitSummary,
+		FullDiff:   fullDiff,
 	}
 }
 
@@ -547,9 +559,32 @@ func (s *Service) buildArchiveGitSummaryFromMergeCommit(mergeCommit string) (mod
 	return buildArchiveGitSummary(changes, numStats, parents[0], parents[1]), nil
 }
 
+func (s *Service) buildArchiveFullDiffFromMergeCommit(mergeCommit string, paths []string, include bool) (*model.CRArchiveFullDiff, error) {
+	if !include {
+		return nil, nil
+	}
+	mergeCommit = strings.TrimSpace(mergeCommit)
+	if mergeCommit == "" {
+		return nil, fmt.Errorf("merge commit is required for archive full diff")
+	}
+	parents, err := s.git.CommitParents(mergeCommit)
+	if err != nil {
+		return nil, err
+	}
+	if len(parents) < 2 {
+		return nil, fmt.Errorf("commit %s is not a merge commit", shortHash(mergeCommit))
+	}
+	patch, err := s.git.DiffPatchBetween(strings.TrimSpace(parents[0]), mergeCommit, append([]string(nil), paths...), archiveFullDiffUnified)
+	if err != nil {
+		return nil, err
+	}
+	return buildArchiveFullDiffFromPatch(patch)
+}
+
 type archiveCachedDiffGit interface {
 	DiffNameStatusCached() ([]gitx.FileChange, error)
 	DiffNumStatCached() ([]gitx.DiffNumStat, error)
+	DiffPatchCached(paths []string, unified int) (string, error)
 }
 
 func buildArchiveGitSummaryFromCachedDiff(gitClient archiveCachedDiffGit, baseParent, crParent string) (model.CRArchiveGitSummary, error) {
@@ -565,6 +600,33 @@ func buildArchiveGitSummaryFromCachedDiff(gitClient archiveCachedDiffGit, basePa
 		return model.CRArchiveGitSummary{}, err
 	}
 	return buildArchiveGitSummary(changes, numStats, baseParent, crParent), nil
+}
+
+func buildArchiveFullDiffFromCachedDiff(gitClient archiveCachedDiffGit, paths []string, include bool) (*model.CRArchiveFullDiff, error) {
+	if !include {
+		return nil, nil
+	}
+	if gitClient == nil {
+		return nil, fmt.Errorf("git client is required")
+	}
+	patch, err := gitClient.DiffPatchCached(append([]string(nil), paths...), archiveFullDiffUnified)
+	if err != nil {
+		return nil, err
+	}
+	return buildArchiveFullDiffFromPatch(patch)
+}
+
+func buildArchiveFullDiffFromPatch(rawPatch string) (*model.CRArchiveFullDiff, error) {
+	patch := normalizeArchivePatch(rawPatch)
+	patchBytes := len([]byte(patch))
+	if patchBytes > archiveFullDiffMaxBytes {
+		return nil, fmt.Errorf("archive full diff exceeds byte limit: got %d, max %d", patchBytes, archiveFullDiffMaxBytes)
+	}
+	return &model.CRArchiveFullDiff{
+		Encoding: model.CRArchiveFullDiffEncodingGitUnifiedPatch,
+		Bytes:    patchBytes,
+		Patch:    patch,
+	}, nil
 }
 
 func buildArchiveGitSummary(changes []gitx.FileChange, numStats []gitx.DiffNumStat, baseParent, crParent string) model.CRArchiveGitSummary {
@@ -639,6 +701,16 @@ func archiveShortStatSummary(files, insertions, deletions int) string {
 
 func normalizeArchiveSummaryPath(path string) string {
 	return strings.TrimSpace(strings.ReplaceAll(path, "\\", "/"))
+}
+
+func normalizeArchivePatch(patch string) string {
+	normalized := strings.ReplaceAll(patch, "\r\n", "\n")
+	normalized = strings.ReplaceAll(normalized, "\r", "\n")
+	normalized = strings.TrimRight(normalized, "\n")
+	if normalized == "" {
+		return ""
+	}
+	return normalized + "\n"
 }
 
 func isArchiveTrackedPath(path string) bool {

@@ -42,6 +42,22 @@ func (c *Client) DiffPatchBetween(fromRef, toRef string, paths []string, unified
 	return out, nil
 }
 
+func (c *Client) DiffPatchCached(paths []string, unified int) (string, error) {
+	args := []string{"diff", "--cached"}
+	if unified >= 0 {
+		args = append(args, fmt.Sprintf("--unified=%d", unified))
+	}
+	if len(paths) > 0 {
+		args = append(args, "--")
+		args = append(args, paths...)
+	}
+	out, err := c.run(args...)
+	if err != nil {
+		return "", err
+	}
+	return out, nil
+}
+
 func (c *Client) WorkingTreeUnifiedDiff(paths []string, unified int) (string, error) {
 	args := []string{"diff", fmt.Sprintf("--unified=%d", unified)}
 	if len(paths) > 0 {

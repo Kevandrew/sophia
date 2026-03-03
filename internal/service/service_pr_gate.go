@@ -2394,11 +2394,15 @@ func (s *Service) stageArchiveForPRGate(cr *model.CR, policy *model.RepoPolicy) 
 	if err != nil {
 		return err
 	}
+	fullDiff, err := buildArchiveFullDiffFromCachedDiff(mergeGit, gitSummary.FilesChanged, archivePolicyIncludeFullDiffs(policy.Archive))
+	if err != nil {
+		return err
+	}
 	archiveCR := *cr
 	archiveCR.Status = model.StatusMerged
 	archiveCR.MergedAt = s.timestamp()
 	archiveCR.MergedBy = mergeGit.Actor()
-	archive := buildCRArchiveDocument(&archiveCR, 1, "", archiveCR.MergedAt, gitSummary)
+	archive := buildCRArchiveDocument(&archiveCR, 1, "", archiveCR.MergedAt, policy.Archive, gitSummary, fullDiff)
 	payload, err := marshalCRArchiveYAML(archive)
 	if err != nil {
 		return err

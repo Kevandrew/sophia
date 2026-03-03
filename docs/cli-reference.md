@@ -157,6 +157,8 @@ Archive behavior:
 - `write` writes the next append-only revision (`vN`) for a merged CR.
 - `append` writes `vN+1` and records the provided reason in the archive header.
 - `backfill` is dry-run by default; add `--commit` to write missing `v1` archives and create one commit.
+- With `archive.include_full_diffs=true`, generated archives emit schema `sophia.cr_archive.v2` and include deterministic full patch snapshots.
+- Full diff snapshots are guardrailed at `8 MiB`; oversize payloads fail generation with no partial archive writes.
 
 Collaboration artifacts:
 

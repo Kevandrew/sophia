@@ -66,6 +66,7 @@ type mergeRuntimeGit interface {
 	DeleteBranch(branch string, force bool) error
 	DiffNameStatusCached() ([]gitx.FileChange, error)
 	DiffNumStatCached() ([]gitx.DiffNumStat, error)
+	DiffPatchCached(paths []string, unified int) (string, error)
 	HeadShortSHA() (string, error)
 	IsMergeInProgress() (bool, error)
 	MergeAbort() error
