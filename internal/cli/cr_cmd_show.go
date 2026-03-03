@@ -1184,7 +1184,11 @@ func runCRShowControlAction(ctx context.Context, svc *service.Service, action st
 				},
 			}, nil
 		case crShowPullModeFFOnly:
-			output, err := runCRShowFFOnlyPull(ctx)
+			targetBranch := "main"
+			if cfg, cfgErr := svc.Config(); cfgErr == nil && strings.TrimSpace(cfg.BaseBranch) != "" {
+				targetBranch = strings.TrimSpace(cfg.BaseBranch)
+			}
+			output, currentBranch, err := runCRShowFFOnlyPull(ctx, targetBranch)
 			if err != nil {
 				if strings.TrimSpace(output) != "" {
 					return nil, fmt.Errorf("%w: %s", err, strings.TrimSpace(output))
@@ -1195,8 +1199,10 @@ func runCRShowControlAction(ctx context.Context, svc *service.Service, action st
 				"summary":   "Updated local branch with fast-forward only pull",
 				"pull_mode": mode,
 				"result": map[string]any{
-					"command": "git pull --ff-only",
-					"output":  strings.TrimSpace(output),
+					"command":        "git pull --ff-only",
+					"target_branch":  targetBranch,
+					"current_branch": currentBranch,
+					"output":         strings.TrimSpace(output),
 				},
 			}, nil
 		default:
@@ -1207,10 +1213,25 @@ func runCRShowControlAction(ctx context.Context, svc *service.Service, action st
 	}
 }
 
-func runCRShowFFOnlyPull(ctx context.Context) (string, error) {
+func runCRShowFFOnlyPull(ctx context.Context, targetBranch string) (string, string, error) {
+	branchCmd := exec.CommandContext(ctx, "git", "rev-parse", "--abbrev-ref", "HEAD")
+	branchOut, branchErr := branchCmd.CombinedOutput()
+	currentBranch := strings.TrimSpace(string(branchOut))
+	if branchErr != nil {
+		return string(branchOut), currentBranch, fmt.Errorf("resolve current branch: %w", branchErr)
+	}
+
+	target := strings.TrimSpace(targetBranch)
+	if target == "" {
+		target = "main"
+	}
+	if currentBranch != target {
+		return "", currentBranch, fmt.Errorf("ff-only pull targets branch %q; current branch is %q", target, currentBranch)
+	}
+
 	command := exec.CommandContext(ctx, "git", "pull", "--ff-only")
 	output, err := command.CombinedOutput()
-	return string(output), err
+	return string(output), currentBranch, err
 }
 
 func isCRShowRiskyAction(action string) bool {
@@ -1261,6 +1282,8 @@ func crShowActionHintForError(err error) string {
 		return "configure a collaboration remote before metadata pull"
 	case errorsIs(err, service.ErrHQIntentDiverged), errorsIs(err, service.ErrHQUpstreamMoved):
 		return "retry with an explicit force workflow from CLI if remote/local intent diverged"
+	case strings.Contains(strings.ToLower(strings.TrimSpace(err.Error())), "ff-only pull targets branch"):
+		return "switch to the target base branch (or select a CR for metadata pull mode) and retry"
 	default:
 		return ""
 	}
