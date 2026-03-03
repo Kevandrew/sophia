@@ -57,6 +57,45 @@ func TestCRShowJSONUsesLocalhostPreview(t *testing.T) {
 	}
 }
 
+func TestCRShowJSONMissingInProgressBranchFallsBackToMetadataOnlyPreview(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	svc := service.New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	cr, _, err := svc.AddCRWithOptionsWithWarnings("Show metadata-only fallback", "render without strict head anchor", service.AddCROptions{NoSwitch: true})
+	if err != nil {
+		t.Fatalf("AddCRWithOptionsWithWarnings() error = %v", err)
+	}
+	runGit(t, dir, "branch", "-D", cr.Branch)
+
+	out, _, runErr := runCLI(t, dir, "cr", "show", "1", "--json", "--no-open")
+	if runErr != nil {
+		t.Fatalf("cr show --json --no-open error = %v\noutput=%s", runErr, out)
+	}
+	env := decodeEnvelope(t, out)
+	if !env.OK {
+		t.Fatalf("expected ok envelope, got %#v", env)
+	}
+	warnings := requireJSONArrayField(t, env.Data, "warnings")
+	if len(warnings) == 0 {
+		t.Fatalf("expected metadata-only fallback warnings, got %#v", warnings)
+	}
+	found := false
+	for _, raw := range warnings {
+		warning, _ := raw.(string)
+		if strings.Contains(strings.ToLower(warning), "metadata-only") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected metadata-only warning, got %#v", warnings)
+	}
+}
+
 func TestCRShowJSONWithoutContextFallsBackToDashboard(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
