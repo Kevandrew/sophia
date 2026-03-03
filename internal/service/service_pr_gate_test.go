@@ -590,6 +590,338 @@ func TestClassifyPushCommandErrorDoesNotMisclassifyNonPermissionFailures(t *test
 	}
 }
 
+func TestPRStatusReturnsNoLinkedPRActionMetadata(t *testing.T) {
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "SOPHIA.yaml"), []byte("version: v1\nmerge:\n  mode: pr_gate\narchive:\n  enabled: false\n"), 0o644); err != nil {
+		t.Fatalf("write SOPHIA.yaml: %v", err)
+	}
+	cr, err := svc.AddCR("PR status metadata", "ensure no-linked payload")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	status, err := svc.PRStatus(cr.ID)
+	if err != nil {
+		t.Fatalf("PRStatus() error = %v", err)
+	}
+	if status.LinkageState != prLinkageNoLinkedPR {
+		t.Fatalf("expected linkage state %q, got %q", prLinkageNoLinkedPR, status.LinkageState)
+	}
+	if status.ActionRequired != prActionOpenPR {
+		t.Fatalf("expected action_required %q, got %q", prActionOpenPR, status.ActionRequired)
+	}
+	if len(status.SuggestedCommands) == 0 || status.SuggestedCommands[0] != "sophia cr pr open 1 --approve-open" {
+		t.Fatalf("expected suggested open command, got %#v", status.SuggestedCommands)
+	}
+}
+
+func TestPRStatusReturnsStaleWhenLinkedPRNotFound(t *testing.T) {
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "SOPHIA.yaml"), []byte("version: v1\nmerge:\n  mode: pr_gate\narchive:\n  enabled: false\n"), 0o644); err != nil {
+		t.Fatalf("write SOPHIA.yaml: %v", err)
+	}
+	cr, err := svc.AddCR("PR stale not found", "status path")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	loaded, err := svc.store.LoadCR(cr.ID)
+	if err != nil {
+		t.Fatalf("LoadCR() error = %v", err)
+	}
+	loaded.PR.Number = 42
+	loaded.PR.Repo = "acme/repo"
+	if err := svc.store.SaveCR(loaded); err != nil {
+		t.Fatalf("SaveCR() error = %v", err)
+	}
+	installFakeGHCommand(t, "echo 'no pull requests found for branch \"x\"' >&2\nexit 1\n")
+
+	status, err := svc.PRStatus(cr.ID)
+	if err != nil {
+		t.Fatalf("PRStatus() error = %v", err)
+	}
+	if status.LinkageState != prLinkagePRNotFound {
+		t.Fatalf("expected linkage state %q, got %q", prLinkagePRNotFound, status.LinkageState)
+	}
+	if status.ActionRequired != prActionReconcilePR {
+		t.Fatalf("expected action_required %q, got %q", prActionReconcilePR, status.ActionRequired)
+	}
+	if !status.GateBlocked {
+		t.Fatalf("expected gate to be blocked")
+	}
+	reloaded, err := svc.store.LoadCR(cr.ID)
+	if err != nil {
+		t.Fatalf("LoadCR() error = %v", err)
+	}
+	if reloaded.Status != model.StatusInProgress {
+		t.Fatalf("expected stale detection to keep CR in_progress, got %q", reloaded.Status)
+	}
+	if strings.TrimSpace(reloaded.MergedCommit) != "" || strings.TrimSpace(reloaded.MergedAt) != "" {
+		t.Fatalf("expected stale detection to avoid silent merge mutation, got merged_at=%q merged_commit=%q", reloaded.MergedAt, reloaded.MergedCommit)
+	}
+}
+
+func TestPRStatusClosedUnmergedDoesNotSilentlyMutateCRLifecycle(t *testing.T) {
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "SOPHIA.yaml"), []byte("version: v1\nmerge:\n  mode: pr_gate\narchive:\n  enabled: false\n"), 0o644); err != nil {
+		t.Fatalf("write SOPHIA.yaml: %v", err)
+	}
+	cr, err := svc.AddCR("PR stale closed", "status path")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	loaded, err := svc.store.LoadCR(cr.ID)
+	if err != nil {
+		t.Fatalf("LoadCR() error = %v", err)
+	}
+	loaded.PR.Number = 90
+	loaded.PR.Repo = "acme/repo"
+	if err := svc.store.SaveCR(loaded); err != nil {
+		t.Fatalf("SaveCR() error = %v", err)
+	}
+	installFakeGHCommand(t, "#!/bin/sh\nif [ \"$1\" = \"-R\" ]; then\n  shift\n  shift\nfi\nif [ \"$1\" = \"pr\" ] && [ \"$2\" = \"view\" ]; then\n  echo '{\"number\":90,\"url\":\"https://github.com/acme/repo/pull/90\",\"state\":\"CLOSED\",\"isDraft\":false,\"headRefOid\":\"abc123\",\"headRefName\":\"cr-1-pr-stale-closed\",\"baseRefName\":\"main\",\"author\":{\"login\":\"bot\"},\"latestReviews\":[],\"statusCheckRollup\":[]}'\n  exit 0\nfi\necho \"unexpected gh args: $@\" >&2\nexit 1\n")
+
+	status, err := svc.PRStatus(cr.ID)
+	if err != nil {
+		t.Fatalf("PRStatus() error = %v", err)
+	}
+	if status.LinkageState != prLinkageClosed {
+		t.Fatalf("expected linkage state %q, got %q", prLinkageClosed, status.LinkageState)
+	}
+	reloaded, err := svc.store.LoadCR(cr.ID)
+	if err != nil {
+		t.Fatalf("LoadCR() after PRStatus error = %v", err)
+	}
+	if reloaded.Status != model.StatusInProgress {
+		t.Fatalf("expected closed PR detection to keep CR in_progress, got %q", reloaded.Status)
+	}
+	if strings.TrimSpace(reloaded.MergedCommit) != "" || strings.TrimSpace(reloaded.MergedAt) != "" {
+		t.Fatalf("expected no silent merged transition, got merged_at=%q merged_commit=%q", reloaded.MergedAt, reloaded.MergedCommit)
+	}
+	if strings.TrimSpace(reloaded.AbandonedAt) != "" {
+		t.Fatalf("expected no silent abandon/archive transition, got abandoned_at=%q", reloaded.AbandonedAt)
+	}
+}
+
+func TestClassifyPRLinkageStatusMarksClosedUnmergedPRsStale(t *testing.T) {
+	t.Parallel()
+	svc := &Service{}
+	cr := &model.CR{
+		ID:         8,
+		Branch:     "cr-8-intent",
+		BaseRef:    "main",
+		BaseBranch: "main",
+	}
+	status := &PRStatusView{
+		Number: 19,
+		State:  "CLOSED",
+	}
+	svc.classifyPRLinkageStatus(cr, status)
+	if status.LinkageState != prLinkageClosed {
+		t.Fatalf("expected linkage state %q, got %q", prLinkageClosed, status.LinkageState)
+	}
+	if status.ActionRequired != prActionReconcilePR {
+		t.Fatalf("expected action_required %q, got %q", prActionReconcilePR, status.ActionRequired)
+	}
+	if !status.GateBlocked {
+		t.Fatalf("expected closed-unmerged PR to block gate")
+	}
+	if len(status.SuggestedCommands) < 2 {
+		t.Fatalf("expected stale suggested commands, got %#v", status.SuggestedCommands)
+	}
+}
+
+func TestClassifyPRLinkageStatusMarksMismatchStale(t *testing.T) {
+	t.Parallel()
+	svc := &Service{}
+	cr := &model.CR{
+		ID:         11,
+		Branch:     "cr-11-target",
+		BaseRef:    "main",
+		BaseBranch: "main",
+	}
+	status := &PRStatusView{
+		Number:      33,
+		State:       "OPEN",
+		HeadRefName: "different-branch",
+		BaseRefName: "develop",
+	}
+	svc.classifyPRLinkageStatus(cr, status)
+	if status.LinkageState != prLinkageMismatch {
+		t.Fatalf("expected linkage state %q, got %q", prLinkageMismatch, status.LinkageState)
+	}
+	if status.ActionRequired != prActionReconcilePR {
+		t.Fatalf("expected action_required %q, got %q", prActionReconcilePR, status.ActionRequired)
+	}
+	if !strings.Contains(status.ActionReason, "base ref mismatch") || !strings.Contains(status.ActionReason, "head ref mismatch") {
+		t.Fatalf("expected mismatch reason details, got %q", status.ActionReason)
+	}
+	if !status.GateBlocked {
+		t.Fatalf("expected mismatch to block gate")
+	}
+}
+
+func TestPRReconcileRelinkLinksMatchingPRAndRecordsEvent(t *testing.T) {
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "SOPHIA.yaml"), []byte("version: v1\nmerge:\n  mode: pr_gate\narchive:\n  enabled: false\n"), 0o644); err != nil {
+		t.Fatalf("write SOPHIA.yaml: %v", err)
+	}
+	cr, err := svc.AddCR("PR reconcile relink", "status path")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	loaded, err := svc.store.LoadCR(cr.ID)
+	if err != nil {
+		t.Fatalf("LoadCR() error = %v", err)
+	}
+	loaded.PR.Number = 404
+	loaded.PR.Repo = "acme/repo"
+	if err := svc.store.SaveCR(loaded); err != nil {
+		t.Fatalf("SaveCR() error = %v", err)
+	}
+	installFakeGHCommand(t, "#!/bin/sh\nif [ \"$1\" = \"-R\" ]; then\n  shift\n  shift\nfi\nif [ \"$1\" = \"pr\" ] && [ \"$2\" = \"list\" ]; then\n  echo '[{\"number\":77,\"url\":\"https://github.com/acme/repo/pull/77\",\"state\":\"OPEN\",\"isDraft\":true,\"headRefOid\":\"abc123\",\"headRefName\":\"cr-1-pr-reconcile-relink\",\"baseRefName\":\"main\",\"updatedAt\":\"2026-03-03T00:00:00Z\"}]'\n  exit 0\nfi\nif [ \"$1\" = \"pr\" ] && [ \"$2\" = \"view\" ]; then\n  echo '{\"number\":77,\"url\":\"https://github.com/acme/repo/pull/77\",\"state\":\"OPEN\",\"isDraft\":true,\"headRefOid\":\"abc123\",\"headRefName\":\"cr-1-pr-reconcile-relink\",\"baseRefName\":\"main\",\"author\":{\"login\":\"bot\"},\"latestReviews\":[],\"statusCheckRollup\":[]}'\n  exit 0\nfi\necho \"unexpected gh args: $@\" >&2\nexit 1\n")
+
+	view, err := svc.PRReconcile(cr.ID, prReconcileModeRelink)
+	if err != nil {
+		t.Fatalf("PRReconcile(relink) error = %v", err)
+	}
+	if !view.Mutated {
+		t.Fatalf("expected relink to mutate linkage")
+	}
+	if view.AfterPRNumber != 77 {
+		t.Fatalf("expected relinked PR number 77, got %d", view.AfterPRNumber)
+	}
+
+	reloaded, err := svc.store.LoadCR(cr.ID)
+	if err != nil {
+		t.Fatalf("LoadCR() after reconcile error = %v", err)
+	}
+	if reloaded.PR.Number != 77 {
+		t.Fatalf("expected stored PR number 77, got %d", reloaded.PR.Number)
+	}
+	found := false
+	for _, event := range reloaded.Events {
+		if event.Type == model.EventTypeCRReconciled && event.Meta["mode"] == prReconcileModeRelink {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected reconcile event with relink mode, got %#v", reloaded.Events)
+	}
+}
+
+func TestPRReconcileReopenRunsProviderReopen(t *testing.T) {
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "SOPHIA.yaml"), []byte("version: v1\nmerge:\n  mode: pr_gate\narchive:\n  enabled: false\n"), 0o644); err != nil {
+		t.Fatalf("write SOPHIA.yaml: %v", err)
+	}
+	cr, err := svc.AddCR("PR reconcile reopen", "status path")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	loaded, err := svc.store.LoadCR(cr.ID)
+	if err != nil {
+		t.Fatalf("LoadCR() error = %v", err)
+	}
+	loaded.PR.Number = 55
+	loaded.PR.Repo = "acme/repo"
+	if err := svc.store.SaveCR(loaded); err != nil {
+		t.Fatalf("SaveCR() error = %v", err)
+	}
+	installFakeGHCommand(t, "#!/bin/sh\nif [ \"$1\" = \"-R\" ]; then\n  shift\n  shift\nfi\nif [ \"$1\" = \"pr\" ] && [ \"$2\" = \"reopen\" ]; then\n  exit 0\nfi\nif [ \"$1\" = \"pr\" ] && [ \"$2\" = \"view\" ]; then\n  echo '{\"number\":55,\"url\":\"https://github.com/acme/repo/pull/55\",\"state\":\"OPEN\",\"isDraft\":false,\"headRefOid\":\"abc123\",\"headRefName\":\"cr-1-pr-reconcile-reopen\",\"baseRefName\":\"main\",\"author\":{\"login\":\"bot\"},\"latestReviews\":[],\"statusCheckRollup\":[]}'\n  exit 0\nfi\necho \"unexpected gh args: $@\" >&2\nexit 1\n")
+
+	view, err := svc.PRReconcile(cr.ID, prReconcileModeReopen)
+	if err != nil {
+		t.Fatalf("PRReconcile(reopen) error = %v", err)
+	}
+	if view.Action != "reopened" {
+		t.Fatalf("expected action reopened, got %q", view.Action)
+	}
+
+	reloaded, err := svc.store.LoadCR(cr.ID)
+	if err != nil {
+		t.Fatalf("LoadCR() after reconcile error = %v", err)
+	}
+	if strings.ToUpper(strings.TrimSpace(reloaded.PR.State)) != "OPEN" {
+		t.Fatalf("expected stored PR state OPEN, got %q", reloaded.PR.State)
+	}
+}
+
+func TestPRReconcileCreateCreatesDraftPR(t *testing.T) {
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "SOPHIA.yaml"), []byte("version: v1\nmerge:\n  mode: pr_gate\narchive:\n  enabled: false\n"), 0o644); err != nil {
+		t.Fatalf("write SOPHIA.yaml: %v", err)
+	}
+
+	runGit(t, dir, "config", "user.name", "Test User")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("seed\n"), 0o644); err != nil {
+		t.Fatalf("write README.md: %v", err)
+	}
+	runGit(t, dir, "add", "README.md")
+	runGit(t, dir, "commit", "-m", "seed")
+	remoteDir := filepath.Join(t.TempDir(), "origin.git")
+	runGit(t, dir, "init", "--bare", remoteDir)
+	runGit(t, dir, "remote", "add", "origin", remoteDir)
+	runGit(t, dir, "push", "-u", "origin", "main")
+
+	cr, err := svc.AddCR("PR reconcile create", "status path")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	installFakeGHCommand(t, "#!/bin/sh\nif [ \"$1\" = \"-R\" ]; then\n  shift\n  shift\nfi\nif [ \"$1\" = \"pr\" ] && [ \"$2\" = \"create\" ]; then\n  echo 'https://github.com/acme/repo/pull/9'\n  exit 0\nfi\nif [ \"$1\" = \"pr\" ] && [ \"$2\" = \"view\" ]; then\n  echo '{\"number\":9,\"url\":\"https://github.com/acme/repo/pull/9\",\"state\":\"OPEN\",\"isDraft\":true,\"headRefOid\":\"abc123\",\"headRefName\":\"cr-1-pr-reconcile-create\",\"baseRefName\":\"main\",\"author\":{\"login\":\"bot\"},\"latestReviews\":[],\"statusCheckRollup\":[]}'\n  exit 0\nfi\necho \"unexpected gh args: $@\" >&2\nexit 1\n")
+
+	view, err := svc.PRReconcile(cr.ID, prReconcileModeCreate)
+	if err != nil {
+		t.Fatalf("PRReconcile(create) error = %v", err)
+	}
+	if view.Action != "created" || view.AfterPRNumber != 9 {
+		t.Fatalf("expected created action with PR #9, got action=%q number=%d", view.Action, view.AfterPRNumber)
+	}
+}
+
+func installFakeGHCommand(t *testing.T, body string) {
+	t.Helper()
+	binDir := t.TempDir()
+	ghPath := filepath.Join(binDir, "gh")
+	script := body
+	if !strings.HasPrefix(script, "#!/bin/sh") {
+		script = "#!/bin/sh\n" + script
+	}
+	if err := os.WriteFile(ghPath, []byte(script), 0o755); err != nil {
+		t.Fatalf("write fake gh: %v", err)
+	}
+	currentPath := os.Getenv("PATH")
+	if strings.TrimSpace(currentPath) == "" {
+		t.Setenv("PATH", binDir)
+		return
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+currentPath)
+}
+
 func TestStageArchiveForPRGateSkipsWhenArchiveDisabled(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
