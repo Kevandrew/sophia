@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"sophia/internal/model"
+	"sophia/internal/store"
 )
 
 func TestExportIncludesFingerprintDeterministic(t *testing.T) {
@@ -1102,6 +1103,282 @@ func TestImportMergePreviewDoesNotMutateCR(t *testing.T) {
 	}
 	if !reflect.DeepEqual(before.Subtasks, after.Subtasks) {
 		t.Fatalf("expected preview to avoid task mutation")
+	}
+}
+
+func TestImportMergePreviewCreateDoesNotAssignIDOrWrite(t *testing.T) {
+	t.Parallel()
+	sourceDir := t.TempDir()
+	sourceSvc := New(sourceDir)
+	if _, err := sourceSvc.Init("main", ""); err != nil {
+		t.Fatalf("source Init() error = %v", err)
+	}
+	sourceCR, err := sourceSvc.AddCR("Import preview create source", "preview create")
+	if err != nil {
+		t.Fatalf("source AddCR() error = %v", err)
+	}
+	setValidContract(t, sourceSvc, sourceCR.ID)
+	_, payload, err := sourceSvc.ExportCRBundle(sourceCR.ID, ExportCROptions{Format: "json"})
+	if err != nil {
+		t.Fatalf("source ExportCRBundle() error = %v", err)
+	}
+
+	targetDir := t.TempDir()
+	targetSvc := New(targetDir)
+	if _, err := targetSvc.Init("main", ""); err != nil {
+		t.Fatalf("target Init() error = %v", err)
+	}
+	bundlePath := filepath.Join(targetDir, "import.bundle.json")
+	if err := os.WriteFile(bundlePath, payload, 0o644); err != nil {
+		t.Fatalf("write bundle file: %v", err)
+	}
+
+	previewResult, err := targetSvc.ImportCRBundle(ImportCRBundleOptions{FilePath: bundlePath, Mode: "merge", Preview: true})
+	if err != nil {
+		t.Fatalf("ImportCRBundle(merge preview create) error = %v", err)
+	}
+	if !previewResult.Preview || !previewResult.Created || previewResult.Applied {
+		t.Fatalf("expected preview create result with applied=false, got %#v", previewResult)
+	}
+	if previewResult.LocalCRID != 0 {
+		t.Fatalf("expected preview create local_cr_id to remain 0, got %#v", previewResult)
+	}
+
+	_, loadErr := targetSvc.store.LoadCRByUID(sourceCR.UID)
+	if !errors.Is(loadErr, store.ErrNotFound) {
+		t.Fatalf("expected preview create to avoid writes, got loadErr=%v", loadErr)
+	}
+	idx, idxErr := targetSvc.store.LoadIndex()
+	if idxErr != nil {
+		t.Fatalf("LoadIndex() error = %v", idxErr)
+	}
+	if idx.NextID != 1 {
+		t.Fatalf("expected preview create to avoid reserving ids, got next_id=%d", idx.NextID)
+	}
+}
+
+func TestImportMergeRejectsInvalidRiskTierHint(t *testing.T) {
+	t.Parallel()
+	sourceDir := t.TempDir()
+	sourceSvc := New(sourceDir)
+	if _, err := sourceSvc.Init("main", ""); err != nil {
+		t.Fatalf("source Init() error = %v", err)
+	}
+	sourceCR, err := sourceSvc.AddCR("Import risk tier source", "risk tier")
+	if err != nil {
+		t.Fatalf("source AddCR() error = %v", err)
+	}
+	setValidContract(t, sourceSvc, sourceCR.ID)
+	_, payload, err := sourceSvc.ExportCRBundle(sourceCR.ID, ExportCROptions{Format: "json"})
+	if err != nil {
+		t.Fatalf("source ExportCRBundle() error = %v", err)
+	}
+
+	targetDir := t.TempDir()
+	targetSvc := New(targetDir)
+	if _, err := targetSvc.Init("main", ""); err != nil {
+		t.Fatalf("target Init() error = %v", err)
+	}
+	bundlePath := filepath.Join(targetDir, "import.bundle.json")
+	if err := os.WriteFile(bundlePath, payload, 0o644); err != nil {
+		t.Fatalf("write bundle file: %v", err)
+	}
+	createResult, err := targetSvc.ImportCRBundle(ImportCRBundleOptions{FilePath: bundlePath, Mode: "create"})
+	if err != nil {
+		t.Fatalf("ImportCRBundle(create) error = %v", err)
+	}
+
+	sourceLoaded, err := sourceSvc.store.LoadCR(sourceCR.ID)
+	if err != nil {
+		t.Fatalf("source LoadCR() error = %v", err)
+	}
+	sourceLoaded.Contract.RiskTierHint = "critical"
+	if err := sourceSvc.store.SaveCR(sourceLoaded); err != nil {
+		t.Fatalf("source SaveCR() error = %v", err)
+	}
+	_, updatedPayload, err := sourceSvc.ExportCRBundle(sourceCR.ID, ExportCROptions{Format: "json"})
+	if err != nil {
+		t.Fatalf("source ExportCRBundle(updated) error = %v", err)
+	}
+	if err := os.WriteFile(bundlePath, updatedPayload, 0o644); err != nil {
+		t.Fatalf("rewrite bundle file: %v", err)
+	}
+
+	_, err = targetSvc.ImportCRBundle(ImportCRBundleOptions{FilePath: bundlePath, Mode: "merge"})
+	if err == nil {
+		t.Fatalf("expected merge conflict error")
+	}
+	var conflictErr *ImportMergeConflictError
+	if !errors.As(err, &conflictErr) {
+		t.Fatalf("expected ImportMergeConflictError, got %T (%v)", err, err)
+	}
+	found := false
+	for _, conflict := range conflictErr.Result.Conflicts {
+		if conflict.Field == "cr.contract.risk_tier_hint" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected risk tier conflict, got %#v", conflictErr.Result.Conflicts)
+	}
+
+	reloaded, err := targetSvc.store.LoadCR(createResult.LocalCRID)
+	if err != nil {
+		t.Fatalf("target LoadCR(reloaded) error = %v", err)
+	}
+	if reloaded.Contract.RiskTierHint != "" {
+		t.Fatalf("expected local risk_tier_hint unchanged, got %q", reloaded.Contract.RiskTierHint)
+	}
+}
+
+func TestImportMergeRejectsInvalidStatusForAddedTask(t *testing.T) {
+	t.Parallel()
+	sourceDir := t.TempDir()
+	sourceSvc := New(sourceDir)
+	if _, err := sourceSvc.Init("main", ""); err != nil {
+		t.Fatalf("source Init() error = %v", err)
+	}
+	sourceCR, err := sourceSvc.AddCR("Import invalid task status source", "task status")
+	if err != nil {
+		t.Fatalf("source AddCR() error = %v", err)
+	}
+	setValidContract(t, sourceSvc, sourceCR.ID)
+	sourceTask1, err := sourceSvc.AddTask(sourceCR.ID, "task one")
+	if err != nil {
+		t.Fatalf("source AddTask(task1) error = %v", err)
+	}
+	setValidTaskContract(t, sourceSvc, sourceCR.ID, sourceTask1.ID)
+	_, payload, err := sourceSvc.ExportCRBundle(sourceCR.ID, ExportCROptions{Format: "json"})
+	if err != nil {
+		t.Fatalf("source ExportCRBundle() error = %v", err)
+	}
+
+	targetDir := t.TempDir()
+	targetSvc := New(targetDir)
+	if _, err := targetSvc.Init("main", ""); err != nil {
+		t.Fatalf("target Init() error = %v", err)
+	}
+	bundlePath := filepath.Join(targetDir, "import.bundle.json")
+	if err := os.WriteFile(bundlePath, payload, 0o644); err != nil {
+		t.Fatalf("write bundle file: %v", err)
+	}
+	createResult, err := targetSvc.ImportCRBundle(ImportCRBundleOptions{FilePath: bundlePath, Mode: "create"})
+	if err != nil {
+		t.Fatalf("ImportCRBundle(create) error = %v", err)
+	}
+
+	sourceTask2, err := sourceSvc.AddTask(sourceCR.ID, "task two")
+	if err != nil {
+		t.Fatalf("source AddTask(task2) error = %v", err)
+	}
+	sourceLoaded, err := sourceSvc.store.LoadCR(sourceCR.ID)
+	if err != nil {
+		t.Fatalf("source LoadCR() error = %v", err)
+	}
+	for i := range sourceLoaded.Subtasks {
+		if sourceLoaded.Subtasks[i].ID == sourceTask2.ID {
+			sourceLoaded.Subtasks[i].Status = "paused"
+			break
+		}
+	}
+	if err := sourceSvc.store.SaveCR(sourceLoaded); err != nil {
+		t.Fatalf("source SaveCR() error = %v", err)
+	}
+	_, updatedPayload, err := sourceSvc.ExportCRBundle(sourceCR.ID, ExportCROptions{Format: "json"})
+	if err != nil {
+		t.Fatalf("source ExportCRBundle(updated) error = %v", err)
+	}
+	if err := os.WriteFile(bundlePath, updatedPayload, 0o644); err != nil {
+		t.Fatalf("rewrite bundle file: %v", err)
+	}
+
+	_, err = targetSvc.ImportCRBundle(ImportCRBundleOptions{FilePath: bundlePath, Mode: "merge"})
+	if err == nil {
+		t.Fatalf("expected merge conflict error")
+	}
+	var conflictErr *ImportMergeConflictError
+	if !errors.As(err, &conflictErr) {
+		t.Fatalf("expected ImportMergeConflictError, got %T (%v)", err, err)
+	}
+	expectedField := "cr.tasks." + strconv.Itoa(sourceTask2.ID) + ".status"
+	found := false
+	for _, conflict := range conflictErr.Result.Conflicts {
+		if conflict.Field == expectedField {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected task status conflict on %s, got %#v", expectedField, conflictErr.Result.Conflicts)
+	}
+
+	reloaded, err := targetSvc.store.LoadCR(createResult.LocalCRID)
+	if err != nil {
+		t.Fatalf("target LoadCR(reloaded) error = %v", err)
+	}
+	if len(reloaded.Subtasks) != 1 {
+		t.Fatalf("expected invalid imported task to be skipped, got %#v", reloaded.Subtasks)
+	}
+}
+
+func TestImportMergeDoesNotNormalizeLocalListsWithoutIncomingValues(t *testing.T) {
+	t.Parallel()
+	sourceDir := t.TempDir()
+	sourceSvc := New(sourceDir)
+	if _, err := sourceSvc.Init("main", ""); err != nil {
+		t.Fatalf("source Init() error = %v", err)
+	}
+	sourceCR, err := sourceSvc.AddCR("Import empty list source", "empty list")
+	if err != nil {
+		t.Fatalf("source AddCR() error = %v", err)
+	}
+	setValidContract(t, sourceSvc, sourceCR.ID)
+	_, payload, err := sourceSvc.ExportCRBundle(sourceCR.ID, ExportCROptions{Format: "json"})
+	if err != nil {
+		t.Fatalf("source ExportCRBundle() error = %v", err)
+	}
+
+	targetDir := t.TempDir()
+	targetSvc := New(targetDir)
+	if _, err := targetSvc.Init("main", ""); err != nil {
+		t.Fatalf("target Init() error = %v", err)
+	}
+	bundlePath := filepath.Join(targetDir, "import.bundle.json")
+	if err := os.WriteFile(bundlePath, payload, 0o644); err != nil {
+		t.Fatalf("write bundle file: %v", err)
+	}
+	createResult, err := targetSvc.ImportCRBundle(ImportCRBundleOptions{FilePath: bundlePath, Mode: "create"})
+	if err != nil {
+		t.Fatalf("ImportCRBundle(create) error = %v", err)
+	}
+
+	local, err := targetSvc.store.LoadCR(createResult.LocalCRID)
+	if err != nil {
+		t.Fatalf("target LoadCR(local) error = %v", err)
+	}
+	local.Notes = []string{" local-note ", "local-note", ""}
+	if err := targetSvc.store.SaveCR(local); err != nil {
+		t.Fatalf("target SaveCR(local) error = %v", err)
+	}
+
+	mergeResult, err := targetSvc.ImportCRBundle(ImportCRBundleOptions{FilePath: bundlePath, Mode: "merge"})
+	if err != nil {
+		t.Fatalf("ImportCRBundle(merge) error = %v", err)
+	}
+	if mergeResult.Applied {
+		t.Fatalf("expected merge apply=false when incoming list is empty, got %#v", mergeResult)
+	}
+	if len(mergeResult.ChangedFields) != 0 {
+		t.Fatalf("expected no changed_fields for empty incoming list merge, got %#v", mergeResult.ChangedFields)
+	}
+
+	reloaded, err := targetSvc.store.LoadCR(createResult.LocalCRID)
+	if err != nil {
+		t.Fatalf("target LoadCR(reloaded) error = %v", err)
+	}
+	if !reflect.DeepEqual(reloaded.Notes, local.Notes) {
+		t.Fatalf("expected local notes to remain unchanged, got before=%#v after=%#v", local.Notes, reloaded.Notes)
 	}
 }
 

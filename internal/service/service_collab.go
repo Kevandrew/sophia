@@ -330,20 +330,19 @@ func (s *Service) importCRBundleUnlocked(opts ImportCRBundleOptions) (*ImportCRB
 		if !errors.Is(existingErr, store.ErrNotFound) {
 			return nil, existingErr
 		}
-		var newID int
-		var idErr error
 		if opts.Preview {
-			newID, idErr = peekNextCRID(s.store)
+			// Preview create does not reserve IDs; keep local_cr_id unset for deterministic previews.
+			imported.ID = 0
+			result.Created = true
+			target = imported
 		} else {
-			newID, idErr = s.store.NextCRID()
-		}
-		if idErr != nil {
-			return nil, idErr
-		}
-		imported.ID = newID
-		result.Created = true
-		target = imported
-		if !opts.Preview {
+			newID, idErr := s.store.NextCRID()
+			if idErr != nil {
+				return nil, idErr
+			}
+			imported.ID = newID
+			result.Created = true
+			target = imported
 			shouldPersist = true
 		}
 	}
@@ -379,20 +378,6 @@ type importMergeClassification struct {
 	Conflicts     []ImportMergeConflict
 	ChangedFields []string
 	TaskSummary   ImportMergeTaskSummary
-}
-
-func peekNextCRID(st *store.Store) (int, error) {
-	if st == nil {
-		return 0, fmt.Errorf("store is required")
-	}
-	idx, err := st.LoadIndex()
-	if err != nil {
-		return 0, err
-	}
-	if idx.NextID < 1 {
-		return 1, nil
-	}
-	return idx.NextID, nil
 }
 
 func classifyCRImportMerge(localCR, importedCR *model.CR) importMergeClassification {
@@ -490,7 +475,13 @@ func classifyCRImportMerge(localCR, importedCR *model.CR) importMergeClassificat
 		mergeList("cr.contract.invariants", merged.Contract.Invariants, importedCR.Contract.Invariants, func(v []string) { merged.Contract.Invariants = v })
 		mergeCRScalar("cr.contract.blast_radius", merged.Contract.BlastRadius, importedCR.Contract.BlastRadius, func(v string) { merged.Contract.BlastRadius = v }, nil)
 		mergeList("cr.contract.risk_critical_scopes", merged.Contract.RiskCriticalScopes, importedCR.Contract.RiskCriticalScopes, func(v []string) { merged.Contract.RiskCriticalScopes = v })
-		mergeCRScalar("cr.contract.risk_tier_hint", merged.Contract.RiskTierHint, importedCR.Contract.RiskTierHint, func(v string) { merged.Contract.RiskTierHint = v }, nil)
+		mergeCRScalar("cr.contract.risk_tier_hint", merged.Contract.RiskTierHint, importedCR.Contract.RiskTierHint, func(v string) {
+			normalized, _ := normalizeRiskTierHint(v)
+			merged.Contract.RiskTierHint = normalized
+		}, func(v string) error {
+			_, err := normalizeRiskTierHint(v)
+			return err
+		})
 		mergeCRScalar("cr.contract.risk_rationale", merged.Contract.RiskRationale, importedCR.Contract.RiskRationale, func(v string) { merged.Contract.RiskRationale = v }, nil)
 		mergeCRScalar("cr.contract.test_plan", merged.Contract.TestPlan, importedCR.Contract.TestPlan, func(v string) { merged.Contract.TestPlan = v }, nil)
 		mergeCRScalar("cr.contract.rollback_plan", merged.Contract.RollbackPlan, importedCR.Contract.RollbackPlan, func(v string) { merged.Contract.RollbackPlan = v }, nil)
@@ -538,7 +529,20 @@ func mergeImportTasks(
 		}
 		localIdx, ok := indexByID[taskID]
 		if !ok {
-			out = append(out, sanitizeImportedTaskForMerge(imported))
+			sanitized := sanitizeImportedTaskForMerge(imported)
+			if sanitized.Status != "" {
+				if err := validateTaskStatus(sanitized.Status); err != nil {
+					addConflict(ImportMergeConflict{
+						Field:    fmt.Sprintf("cr.tasks.%d.status", taskID),
+						TaskID:   taskID,
+						Message:  err.Error(),
+						Imported: sanitized.Status,
+					})
+					summary.Conflicted++
+					continue
+				}
+			}
+			out = append(out, sanitized)
 			summary.Added++
 			addChangedField(fmt.Sprintf("cr.tasks.%d", taskID))
 			indexByID[taskID] = len(out) - 1
@@ -643,19 +647,24 @@ func mergeStringListUnion(localValues []string, importedValues []string) ([]stri
 	localNorm := normalizeAndDedupeStrings(localValues)
 	importedNorm := normalizeAndDedupeStrings(importedValues)
 	if len(importedNorm) == 0 {
-		return append([]string(nil), localNorm...), !reflect.DeepEqual(localNorm, localValues)
+		return append([]string(nil), localValues...), false
 	}
 	out := append([]string(nil), localNorm...)
 	seen := map[string]struct{}{}
 	for _, value := range out {
 		seen[value] = struct{}{}
 	}
+	addedImported := false
 	for _, value := range importedNorm {
 		if _, ok := seen[value]; ok {
 			continue
 		}
 		out = append(out, value)
 		seen[value] = struct{}{}
+		addedImported = true
+	}
+	if !addedImported {
+		return append([]string(nil), localValues...), false
 	}
 	changed := !reflect.DeepEqual(out, localNorm)
 	return out, changed
