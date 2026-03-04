@@ -41,6 +41,7 @@ sophia cr merge abort <cr-id>
 | `pre_staged_changes` | Index already has staged files before checkpointing. | Unstage first, then retry `task done` with explicit scope |
 | `no_task_scope_matches` | Selected completion mode found no eligible files. | Use `--path`/`--patch-file`, or update task scope |
 | `merge_in_progress` | Mutating command blocked during unresolved merge. | `sophia cr merge status <cr-id>` then `resume`/`abort` |
+| `branch_in_other_worktree` | Target CR branch is checked out in a different linked worktree. | `sophia cr where <id>` then run the `suggested_command` from details |
 | `validation_failed` | Contract/policy or change validation failed. | Run `sophia cr validate [<cr-id>|<cr-uid>]` and address required items |
 | `pr_open_approval_required` | Agent/user approval needed before creating/opening PR in `pr_gate` mode. | Re-run with `--approve-pr-open` (merge) or `--approve-open` (`cr pr open`) |
 | `gh_auth_required` | `gh` CLI is not authenticated for PR operations. | Run `gh auth login`, then retry |
@@ -58,6 +59,7 @@ sophia cr merge abort <cr-id>
 - Gate blocked in `pr_gate` mode: inspect `sophia cr pr status <id>` for approvals/checks/draft blockers.
 - No CI checks shown on an open PR: confirm PR state is not draft. This repository's `CI` workflow is skipped while `pull_request.draft == true` and runs after `ready_for_review`.
 - No merge permission for finalize: hand off to reviewer merge on PR page; run `sophia cr pr status <id>` afterward to reconcile local CR merged state.
+- Worktree ownership conflict while switching/reopening: run `sophia cr where <id>` and use the returned `suggested_command` to route into the owner worktree.
 
 ## Useful machine-readable checks
 

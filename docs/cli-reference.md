@@ -62,6 +62,7 @@ Navigation:
 
 ```bash
 sophia cr current
+sophia cr where [<cr-id>|<cr-uid>]
 sophia cr show [<cr-id>|<cr-uid>]
 sophia cr switch <cr-id>
 sophia cr list
