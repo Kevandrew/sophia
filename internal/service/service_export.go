@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -478,6 +479,7 @@ func marshalExportBundleYAML(bundle *CRExportBundle) ([]byte, error) {
 	if err := decoder.Decode(&value); err != nil {
 		return nil, fmt.Errorf("decode json export payload: %w", err)
 	}
+	value = normalizeExportYAMLValue(value)
 	root := jsonValueToYAMLNode(value)
 	if root == nil {
 		root = &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!null", Value: "null"}
@@ -537,6 +539,23 @@ func jsonValueToYAMLNode(value any) *yaml.Node {
 		}
 		return jsonValueToYAMLNode(fallback)
 	}
+}
+
+func normalizeExportYAMLValue(value any) any {
+	root, ok := value.(map[string]any)
+	if !ok {
+		return value
+	}
+	rawCRYAML, _ := root["cr_yaml"].(string)
+	if strings.TrimSpace(rawCRYAML) == "" {
+		return root
+	}
+	var crValue any
+	if err := yaml.Unmarshal([]byte(rawCRYAML), &crValue); err != nil {
+		return root
+	}
+	root["cr"] = normalizeYAMLValue(crValue)
+	return root
 }
 
 func marshalExportBundleNDJSON(bundle *CRExportBundle) ([]byte, error) {
@@ -718,17 +737,25 @@ func normalizeYAMLValue(value any) any {
 }
 
 func decodeExportBundleNDJSON(raw []byte) (*CRExportBundle, error) {
-	scanner := bufio.NewScanner(bytes.NewReader(raw))
-	scanner.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
-
+	reader := bufio.NewReader(bytes.NewReader(raw))
 	var bundle CRExportBundle
 	hasMeta := false
 	lineNo := 0
 	seenSingleton := map[string]struct{}{}
-	for scanner.Scan() {
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil && err != io.EOF {
+			return nil, fmt.Errorf("scan ndjson payload: %w", err)
+		}
+		if len(line) == 0 && err == io.EOF {
+			break
+		}
 		lineNo++
-		line := strings.TrimSpace(scanner.Text())
+		line = strings.TrimSpace(line)
 		if line == "" {
+			if err == io.EOF {
+				break
+			}
 			continue
 		}
 		var payload map[string]json.RawMessage
@@ -852,9 +879,9 @@ func decodeExportBundleNDJSON(raw []byte) (*CRExportBundle, error) {
 		default:
 			return nil, fmt.Errorf("decode ndjson line %d: unsupported record type %q", lineNo, recordType)
 		}
-	}
-	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("scan ndjson payload: %w", err)
+		if err == io.EOF {
+			break
+		}
 	}
 	if !hasMeta {
 		return nil, fmt.Errorf("decode as ndjson: missing meta record")
