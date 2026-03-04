@@ -21,6 +21,9 @@ func newCRPRCmd() *cobra.Command {
 	cmd.AddCommand(newCRPRStatusCmd())
 	cmd.AddCommand(newCRPRReconcileCmd())
 	cmd.AddCommand(newCRPRReadyCmd())
+	cmd.AddCommand(newCRPRUnreadyCmd())
+	cmd.AddCommand(newCRPRCloseCmd())
+	cmd.AddCommand(newCRPRReopenCmd())
 	return cmd
 }
 
@@ -228,6 +231,78 @@ func newCRPRReadyCmd() *cobra.Command {
 					return writeJSONSuccess(cmd, prStatusToJSONMap(status))
 				}
 				fmt.Fprintf(cmd.OutOrStdout(), "PR #%d marked ready\n", status.Number)
+				return nil
+			})
+		},
+	}
+	cmd.Flags().BoolVar(&asJSON, "json", false, "Output in JSON format")
+	return cmd
+}
+
+func newCRPRUnreadyCmd() *cobra.Command {
+	var asJSON bool
+	cmd := &cobra.Command{
+		Use:   "unready [id]",
+		Short: "Move linked PR back to draft",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return withOptionalCRIDAndService(cmd, asJSON, args, "id", func(id int, svc *service.Service) error {
+				status, err := svc.PRUnready(id)
+				if err != nil {
+					return commandError(cmd, asJSON, err)
+				}
+				if asJSON {
+					return writeJSONSuccess(cmd, prStatusToJSONMap(status))
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "PR #%d moved to draft\n", status.Number)
+				return nil
+			})
+		},
+	}
+	cmd.Flags().BoolVar(&asJSON, "json", false, "Output in JSON format")
+	return cmd
+}
+
+func newCRPRCloseCmd() *cobra.Command {
+	var asJSON bool
+	cmd := &cobra.Command{
+		Use:   "close [id]",
+		Short: "Close linked PR without merging",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return withOptionalCRIDAndService(cmd, asJSON, args, "id", func(id int, svc *service.Service) error {
+				status, err := svc.PRClose(id)
+				if err != nil {
+					return commandError(cmd, asJSON, err)
+				}
+				if asJSON {
+					return writeJSONSuccess(cmd, prStatusToJSONMap(status))
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "PR #%d closed\n", status.Number)
+				return nil
+			})
+		},
+	}
+	cmd.Flags().BoolVar(&asJSON, "json", false, "Output in JSON format")
+	return cmd
+}
+
+func newCRPRReopenCmd() *cobra.Command {
+	var asJSON bool
+	cmd := &cobra.Command{
+		Use:   "reopen [id]",
+		Short: "Reopen linked PR",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return withOptionalCRIDAndService(cmd, asJSON, args, "id", func(id int, svc *service.Service) error {
+				status, err := svc.PRReopen(id)
+				if err != nil {
+					return commandError(cmd, asJSON, err)
+				}
+				if asJSON {
+					return writeJSONSuccess(cmd, prStatusToJSONMap(status))
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "PR #%d reopened\n", status.Number)
 				return nil
 			})
 		},
