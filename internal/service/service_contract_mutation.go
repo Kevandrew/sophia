@@ -25,9 +25,14 @@ type SetCRContractOptions struct {
 }
 
 type SetCRContractResult struct {
-	ChangedFields  []string
-	AlreadyApplied bool
-	DryRun         bool
+	ChangedFields    []string
+	AlreadyApplied   bool
+	DryRun           bool
+	ScopeChanged     bool
+	BaselineFrozen   bool
+	DriftRecorded    bool
+	DriftID          int
+	DriftAckRequired bool
 }
 
 type TaskContractDriftSummary struct {

@@ -4,12 +4,12 @@ import (
 	"os"
 	"path/filepath"
 	"sophia/internal/service"
+	"strings"
 	"testing"
 )
 
-func TestCRContractDriftCommandsAndChangeReasonJSON(t *testing.T) {
-	t.Parallel()
-	dir := t.TempDir()
+func setupCRContractDriftCLIFixture(t *testing.T, dir string) *service.Service {
+	t.Helper()
 	svc := service.New(dir)
 	if _, err := svc.Init("main", ""); err != nil {
 		t.Fatalf("Init() error = %v", err)
@@ -59,6 +59,13 @@ func TestCRContractDriftCommandsAndChangeReasonJSON(t *testing.T) {
 	if _, err := svc.DoneTaskWithCheckpoint(cr.ID, task.ID, service.DoneTaskOptions{Checkpoint: true, Paths: []string{"a.txt"}}); err != nil {
 		t.Fatalf("DoneTaskWithCheckpoint() error = %v", err)
 	}
+	return svc
+}
+
+func TestCRContractDriftCommandsAndChangeReasonJSON(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	_ = setupCRContractDriftCLIFixture(t, dir)
 
 	out, _, runErr := runCLI(t, dir, "cr", "contract", "set", "1", "--scope", "a.txt", "--scope", "b.txt", "--json")
 	if runErr == nil {
@@ -76,6 +83,21 @@ func TestCRContractDriftCommandsAndChangeReasonJSON(t *testing.T) {
 	env := decodeEnvelope(t, out)
 	if !env.OK {
 		t.Fatalf("expected ok envelope from contract set with reason, got %#v", env)
+	}
+	if scopeChanged, _ := env.Data["scope_changed"].(bool); !scopeChanged {
+		t.Fatalf("expected scope_changed=true, got %#v", env.Data["scope_changed"])
+	}
+	if baselineFrozen, _ := env.Data["baseline_frozen"].(bool); !baselineFrozen {
+		t.Fatalf("expected baseline_frozen=true, got %#v", env.Data["baseline_frozen"])
+	}
+	if driftRecorded, _ := env.Data["drift_recorded"].(bool); !driftRecorded {
+		t.Fatalf("expected drift_recorded=true, got %#v", env.Data["drift_recorded"])
+	}
+	if driftAckRequired, _ := env.Data["drift_ack_required"].(bool); !driftAckRequired {
+		t.Fatalf("expected drift_ack_required=true, got %#v", env.Data["drift_ack_required"])
+	}
+	if driftID, ok := env.Data["drift_id"].(float64); !ok || int(driftID) <= 0 {
+		t.Fatalf("expected drift_id > 0, got %#v", env.Data["drift_id"])
 	}
 
 	out, _, runErr = runCLI(t, dir, "cr", "contract", "drift", "list", "1", "--json")
@@ -113,5 +135,42 @@ func TestCRContractDriftCommandsAndChangeReasonJSON(t *testing.T) {
 	}
 	if _, ok := env.Data["contract_drifts"]; !ok {
 		t.Fatalf("expected contract_drifts in show payload, got %#v", env.Data)
+	}
+}
+
+func TestCRContractSetAndDriftListTextGuidance(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	_ = setupCRContractDriftCLIFixture(t, dir)
+
+	out, _, runErr := runCLI(t, dir, "cr", "contract", "set", "1", "--scope", "a.txt", "--scope", "b.txt", "--change-reason", "widen scope")
+	if runErr != nil {
+		t.Fatalf("cr contract set text error = %v\noutput=%s", runErr, out)
+	}
+	if !strings.Contains(out, "CR contract scope drift was recorded and must be acknowledged before merge.") {
+		t.Fatalf("expected drift guidance message, output=%s", out)
+	}
+	if !strings.Contains(out, "sophia cr contract drift list 1") {
+		t.Fatalf("expected drift list guidance command, output=%s", out)
+	}
+	if !strings.Contains(out, "sophia cr contract drift ack 1 1 --reason") {
+		t.Fatalf("expected drift ack guidance command, output=%s", out)
+	}
+
+	out, _, runErr = runCLI(t, dir, "cr", "contract", "drift", "list", "1")
+	if runErr != nil {
+		t.Fatalf("cr contract drift list text error = %v\noutput=%s", runErr, out)
+	}
+	if !strings.Contains(out, "reason: widen scope") {
+		t.Fatalf("expected drift reason in text output, output=%s", out)
+	}
+	if !strings.Contains(out, "scope_added: b.txt") {
+		t.Fatalf("expected scope delta added in text output, output=%s", out)
+	}
+	if !strings.Contains(out, "scope_removed: (none)") {
+		t.Fatalf("expected scope delta removed in text output, output=%s", out)
+	}
+	if !strings.Contains(out, "next: sophia cr contract drift ack 1 1 --reason") {
+		t.Fatalf("expected remediation command in text output, output=%s", out)
 	}
 }
