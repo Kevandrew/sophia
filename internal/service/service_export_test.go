@@ -481,3 +481,33 @@ func mapKeys(m map[string]any) []string {
 	}
 	return keys
 }
+
+func TestNDJSONRecordDecoderRegistryCoversMarshallerTypes(t *testing.T) {
+	t.Parallel()
+	expectedTypes := []string{
+		"meta",
+		"doc",
+		"cr",
+		"cr_yaml",
+		"derived",
+		"anchors",
+		"checkpoints",
+		"referenced_commits",
+		"evidence",
+		"task_diffs",
+		"sections",
+	}
+	for _, recordType := range expectedTypes {
+		decoder, ok := ndjsonRecordDecoders[recordType]
+		if !ok {
+			t.Fatalf("missing ndjson decoder for record type %q", recordType)
+		}
+		if decoder.decode == nil {
+			t.Fatalf("nil ndjson decoder for record type %q", recordType)
+		}
+	}
+	meta := ndjsonRecordDecoders["meta"]
+	if !meta.marksMeta {
+		t.Fatalf("meta decoder must mark hasMeta")
+	}
+}
