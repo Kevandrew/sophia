@@ -484,20 +484,59 @@ func mapKeys(m map[string]any) []string {
 
 func TestNDJSONRecordDecoderRegistryCoversMarshallerTypes(t *testing.T) {
 	t.Parallel()
-	expectedTypes := []string{
-		"meta",
-		"doc",
-		"cr",
-		"cr_yaml",
-		"derived",
-		"anchors",
-		"checkpoints",
-		"referenced_commits",
-		"evidence",
-		"task_diffs",
-		"sections",
+	bundle := &CRExportBundle{
+		SchemaVersion:    exportSchemaV1,
+		Format:           exportFormatNDJSON,
+		CRUID:            "cr_registry_decoder",
+		CRFingerprint:    "fp",
+		DocSchemaVersion: crDocSchemaV1,
+		Doc: &CRDoc{
+			ID:          1,
+			UID:         "cr_registry_decoder",
+			Title:       "registry decoder",
+			Description: "decoder coverage",
+			Status:      model.StatusInProgress,
+			BaseBranch:  "main",
+			Branch:      "cr-registry-decoder",
+		},
+		CR: &model.CR{
+			ID:          1,
+			UID:         "cr_registry_decoder",
+			Title:       "registry decoder",
+			Description: "decoder coverage",
+			Status:      model.StatusInProgress,
+			BaseBranch:  "main",
+			Branch:      "cr-registry-decoder",
+		},
+		CRYAML: "id: 1\n",
+		Derived: CRExportDerived{
+			FilesChanged: []string{"internal/service/service_export.go"},
+		},
+		Anchors:           &CRExportAnchors{BaseRef: "main"},
+		Checkpoints:       []CRExportCheckpoint{{TaskID: 1, Title: "task"}},
+		ReferencedCommits: []string{"abc123"},
+		Evidence:          []model.EvidenceEntry{{Type: "command_run", Summary: "ok"}},
+		TaskDiffs:         []CRExportTaskDiff{{TaskID: 1, Title: "task", Commit: "abc123"}},
+		Sections:          &CRExportSections{TaskDiffs: []CRExportTaskDiff{{TaskID: 1, Title: "task", Commit: "abc123"}}},
 	}
-	for _, recordType := range expectedTypes {
+	raw, err := marshalExportBundleNDJSON(bundle)
+	if err != nil {
+		t.Fatalf("marshalExportBundleNDJSON() error = %v", err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(raw)), "\n")
+	if len(lines) == 0 {
+		t.Fatalf("expected ndjson records")
+	}
+	seenTypes := make(map[string]struct{}, len(lines))
+	for _, line := range lines {
+		var payload map[string]json.RawMessage
+		if err := json.Unmarshal([]byte(line), &payload); err != nil {
+			t.Fatalf("decode ndjson line: %v", err)
+		}
+		recordType, err := ndjsonRecordType(payload)
+		if err != nil {
+			t.Fatalf("ndjsonRecordType() error: %v", err)
+		}
 		decoder, ok := ndjsonRecordDecoders[recordType]
 		if !ok {
 			t.Fatalf("missing ndjson decoder for record type %q", recordType)
@@ -505,6 +544,10 @@ func TestNDJSONRecordDecoderRegistryCoversMarshallerTypes(t *testing.T) {
 		if decoder.decode == nil {
 			t.Fatalf("nil ndjson decoder for record type %q", recordType)
 		}
+		seenTypes[recordType] = struct{}{}
+	}
+	if len(seenTypes) != len(ndjsonRecordDecoders) {
+		t.Fatalf("decoder registry size mismatch: seen=%d registered=%d", len(seenTypes), len(ndjsonRecordDecoders))
 	}
 	meta := ndjsonRecordDecoders["meta"]
 	if !meta.marksMeta {
