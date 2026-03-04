@@ -136,6 +136,9 @@ sophia cr pr draft [<cr-id>|<cr-uid>]
 sophia cr pr open [<cr-id>|<cr-uid>] --approve-open
 sophia cr pr sync [<cr-id>|<cr-uid>]
 sophia cr pr ready [<cr-id>|<cr-uid>]
+sophia cr pr unready [<cr-id>|<cr-uid>]
+sophia cr pr close [<cr-id>|<cr-uid>]
+sophia cr pr reopen [<cr-id>|<cr-uid>]
 sophia cr pr status [<cr-id>|<cr-uid>]
 ```
 

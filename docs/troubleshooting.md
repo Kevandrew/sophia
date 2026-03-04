@@ -58,6 +58,8 @@ sophia cr merge abort <cr-id>
 - Missing `origin` or push denied: verify remote with `git remote -v`, then `git push -u origin <cr-branch>` and retry.
 - Gate blocked in `pr_gate` mode: inspect `sophia cr pr status <id>` for approvals/checks/draft blockers.
 - No CI checks shown on an open PR: confirm PR state is not draft. This repository's `CI` workflow is skipped while `pull_request.draft == true` and runs after `ready_for_review`.
+- PR accidentally marked ready: run `sophia cr pr unready <id>` to return to draft, then `sophia cr pr status <id>`.
+- PR closed but CR still in progress: run `sophia cr pr reopen <id>` (or `sophia cr pr reconcile <id> --mode create` if it was closed/deleted remotely).
 - No merge permission for finalize: hand off to reviewer merge on PR page; run `sophia cr pr status <id>` afterward to reconcile local CR merged state.
 - Worktree ownership conflict while switching/reopening: run `sophia cr where <id>` and use the returned `suggested_command` to route into the owner worktree.
 
