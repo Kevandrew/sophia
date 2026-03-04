@@ -285,6 +285,35 @@ func setCRContractResultToJSONMap(crID int, result *service.SetCRContractResult)
 	}
 }
 
+func prReadyBlockedToJSONMap(crID int, err *service.PRReadyBlockedError) map[string]any {
+	if err == nil {
+		return map[string]any{
+			"cr_id": crID,
+			"action_required": map[string]any{
+				"type":               "manual",
+				"name":               "ready_pr_blocked",
+				"reason_code":        "pre_implementation_no_checkpoints",
+				"reason":             "",
+				"suggested_commands": []string{},
+			},
+		}
+	}
+	reasonCode := err.ReasonCode
+	if reasonCode == "" {
+		reasonCode = "pre_implementation_no_checkpoints"
+	}
+	return map[string]any{
+		"cr_id": crID,
+		"action_required": map[string]any{
+			"type":               "manual",
+			"name":               "ready_pr_blocked",
+			"reason_code":        reasonCode,
+			"reason":             err.Reason,
+			"suggested_commands": stringSliceOrEmpty(err.SuggestedCommands),
+		},
+	}
+}
+
 func prLinkToJSONMap(pr model.CRPRLink) map[string]any {
 	return map[string]any{
 		"provider":                    pr.Provider,
