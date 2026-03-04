@@ -26,6 +26,7 @@ const (
 	prLinkageMismatch    = "linkage_mismatch"
 	prActionOpenPR       = "open_pr"
 	prActionReadyPR      = "ready_pr"
+	prActionReadyBlocked = "ready_pr_blocked"
 	prActionUnreadyPR    = "unready_pr"
 	prActionClosePR      = "close_pr"
 	prActionReconcilePR  = "reconcile_pr"
@@ -39,6 +40,8 @@ const (
 	prReconcileModeRelink = "relink"
 	prReconcileModeReopen = "reopen"
 	prReconcileModeCreate = "create"
+
+	prReadyBlockedReasonNoCheckpoints = "pre_implementation_no_checkpoints"
 )
 
 type PRContextView struct {
@@ -131,6 +134,13 @@ type PRApprovalRequiredError struct {
 	CRID   int
 	Branch string
 	Reason string
+}
+
+type PRReadyBlockedError struct {
+	CRID              int
+	ReasonCode        string
+	Reason            string
+	SuggestedCommands []string
 }
 
 type PRActionRequiredError struct {
@@ -364,6 +374,14 @@ func (s *Service) PRReady(id int) (*PRStatusView, error) {
 	}
 	if cr.PR.Number <= 0 {
 		return nil, fmt.Errorf("cr %d has no linked PR", id)
+	}
+	if !hasImplementationCheckpointProgress(cr) {
+		return nil, &PRReadyBlockedError{
+			CRID:              cr.ID,
+			ReasonCode:        prReadyBlockedReasonNoCheckpoints,
+			Reason:            "CR has no task checkpoint commits yet; keep PR draft until implementation checkpoints exist.",
+			SuggestedCommands: prReadyBlockedSuggestedCommands(cr.ID),
+		}
 	}
 	if _, err := s.runGH(s.ghRepoSelectorForCR(cr), "pr", "ready", strconv.Itoa(cr.PR.Number)); err != nil {
 		return nil, err
@@ -697,6 +715,47 @@ func prOpenCommand(crID int) string {
 		return "sophia cr pr open <id> --approve-open"
 	}
 	return fmt.Sprintf("sophia cr pr open %d --approve-open", crID)
+}
+
+func prTaskListCommand(crID int) string {
+	if crID <= 0 {
+		return "sophia cr task list <id>"
+	}
+	return fmt.Sprintf("sophia cr task list %d", crID)
+}
+
+func prTaskDoneFromContractCommand(crID int) string {
+	if crID <= 0 {
+		return "sophia cr task done <id> <task-id> --from-contract"
+	}
+	return fmt.Sprintf("sophia cr task done %d <task-id> --from-contract", crID)
+}
+
+func prMergeApproveOpenCommand(crID int) string {
+	if crID <= 0 {
+		return "sophia cr merge <id> --approve-pr-open"
+	}
+	return fmt.Sprintf("sophia cr merge %d --approve-pr-open", crID)
+}
+
+func prReadyBlockedSuggestedCommands(crID int) []string {
+	return cleanAndDedupeStrings([]string{
+		prTaskListCommand(crID),
+		prTaskDoneFromContractCommand(crID),
+		prMergeApproveOpenCommand(crID),
+	})
+}
+
+func hasImplementationCheckpointProgress(cr *model.CR) bool {
+	if cr == nil {
+		return false
+	}
+	for _, task := range cr.Subtasks {
+		if strings.TrimSpace(task.CheckpointCommit) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func prReadyCommand(crID int) string {

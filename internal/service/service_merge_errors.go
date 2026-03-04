@@ -127,3 +127,42 @@ func (e *BranchInOtherWorktreeError) Details() map[string]any {
 	}
 	return out
 }
+
+func (e *PRReadyBlockedError) Error() string {
+	if e == nil {
+		return "pr ready is blocked"
+	}
+	reason := strings.TrimSpace(e.Reason)
+	if reason == "" {
+		reason = "keep PR draft until implementation checkpoints exist"
+	}
+	return fmt.Sprintf("pr ready is blocked: %s", reason)
+}
+
+func (e *PRReadyBlockedError) Details() map[string]any {
+	if e == nil {
+		return map[string]any{}
+	}
+	reasonCode := strings.TrimSpace(e.ReasonCode)
+	if reasonCode == "" {
+		reasonCode = prReadyBlockedReasonNoCheckpoints
+	}
+	reason := strings.TrimSpace(e.Reason)
+	if reason == "" {
+		reason = "CR has no task checkpoint commits yet; keep PR draft until implementation checkpoints exist."
+	}
+	suggestedCommands := cleanAndDedupeStrings(e.SuggestedCommands)
+	return map[string]any{
+		"cr_id":              e.CRID,
+		"reason_code":        reasonCode,
+		"reason":             reason,
+		"suggested_commands": suggestedCommands,
+		"action_required": map[string]any{
+			"type":               "manual",
+			"name":               prActionReadyBlocked,
+			"reason_code":        reasonCode,
+			"reason":             reason,
+			"suggested_commands": suggestedCommands,
+		},
+	}
+}
