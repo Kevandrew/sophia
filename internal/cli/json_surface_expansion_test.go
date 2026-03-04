@@ -274,6 +274,9 @@ func TestCRMutationCommandsSupportJSON(t *testing.T) {
 	if !env.OK {
 		t.Fatalf("expected ok envelope from cr add --json, got %#v", env)
 	}
+	if switched, ok := env.Data["switched"].(bool); !ok || switched {
+		t.Fatalf("expected switched=false for default cr add --json, got %#v", env.Data["switched"])
+	}
 
 	out, _, runErr = runCLI(t, dir, "cr", "note", "1", "first note", "--json")
 	if runErr != nil {
