@@ -11,10 +11,7 @@ import (
 )
 
 func (s *Service) AddCR(title, description string) (*model.CR, error) {
-	cr, _, err := s.addCRWithAdaptedWarnings(title, description, AddCROptions{
-		SwitchMode: AddCRSwitchModeSwitch,
-		Switch:     true,
-	})
+	cr, _, err := s.addCRWithAdaptedWarnings(title, description, AddCROptions{Switch: true})
 	if err != nil {
 		return nil, err
 	}
@@ -22,10 +19,7 @@ func (s *Service) AddCR(title, description string) (*model.CR, error) {
 }
 
 func (s *Service) AddCRWithWarnings(title, description string) (*model.CR, []string, error) {
-	return s.addCRWithAdaptedWarnings(title, description, AddCROptions{
-		SwitchMode: AddCRSwitchModeSwitch,
-		Switch:     true,
-	})
+	return s.addCRWithAdaptedWarnings(title, description, AddCROptions{Switch: true})
 }
 
 type addCRBaseContext struct {
@@ -58,8 +52,7 @@ func adaptAddCRResult(result *AddCRResult) (*model.CR, []string) {
 }
 
 func normalizeAddCROptions(opts AddCROptions) AddCROptions {
-	mode, noSwitch, switchBranch := servicecr.NormalizeSwitchFlags(string(opts.SwitchMode), opts.NoSwitch, opts.Switch)
-	opts.SwitchMode = AddCRSwitchMode(mode)
+	_, noSwitch, switchBranch := servicecr.NormalizeSwitchFlags("", opts.NoSwitch, opts.Switch)
 	opts.NoSwitch = noSwitch
 	opts.Switch = switchBranch
 	return opts
