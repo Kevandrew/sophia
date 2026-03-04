@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"sophia/internal/model"
+
 	"gopkg.in/yaml.v3"
 )
 
@@ -312,4 +314,126 @@ func TestExportCRBundleRejectsInvalidFormat(t *testing.T) {
 	if _, _, err := svc.ExportCRBundle(cr.ID, ExportCROptions{Format: "toml"}); err == nil {
 		t.Fatalf("expected invalid format error")
 	}
+}
+
+func TestExportCRBundleYAMLCRUsesSnakeCaseKeys(t *testing.T) {
+	t.Parallel()
+	bundle := &CRExportBundle{
+		SchemaVersion:    exportSchemaV1,
+		Format:           exportFormatYAML,
+		CRUID:            "cr_yaml_shape",
+		CRFingerprint:    "fp",
+		DocSchemaVersion: crDocSchemaV1,
+		CR: &model.CR{
+			ID:          1,
+			UID:         "cr_yaml_shape",
+			Title:       "shape",
+			Description: "shape",
+			Status:      model.StatusInProgress,
+			BaseBranch:  "main",
+			Branch:      "cr-shape",
+		},
+		CRYAML: strings.TrimSpace(`
+id: 1
+uid: cr_yaml_shape
+title: shape
+description: shape
+status: in_progress
+base_branch: main
+branch: cr-shape
+notes: []
+subtasks: []
+events: []
+created_at: "2026-03-04T00:00:00Z"
+updated_at: "2026-03-04T00:00:00Z"
+`) + "\n",
+	}
+	payload, err := marshalExportBundleYAML(bundle)
+	if err != nil {
+		t.Fatalf("marshalExportBundleYAML() error = %v", err)
+	}
+	var decoded map[string]any
+	if err := yaml.Unmarshal(payload, &decoded); err != nil {
+		t.Fatalf("decode yaml export: %v", err)
+	}
+	crValue, ok := decoded["cr"]
+	if !ok {
+		t.Fatalf("expected yaml payload to include cr object")
+	}
+	crMap, ok := normalizeYAMLValue(crValue).(map[string]any)
+	if !ok {
+		t.Fatalf("expected cr to decode into map, got %#v", crValue)
+	}
+	if _, ok := crMap["base_branch"]; !ok {
+		t.Fatalf("expected snake_case key base_branch in cr payload, got keys=%v", mapKeys(crMap))
+	}
+	if _, ok := crMap["BaseBranch"]; ok {
+		t.Fatalf("did not expect CamelCase key BaseBranch in cr payload, got keys=%v", mapKeys(crMap))
+	}
+}
+
+func TestDecodeExportBundleNDJSONAllowsLargeRecord(t *testing.T) {
+	t.Parallel()
+	largeCRYAML := strings.Repeat("x", 17*1024*1024)
+	lines := [][]byte{
+		mustMarshalNDJSONLine(t, map[string]any{
+			"type":               "meta",
+			"schema_version":     exportSchemaV1,
+			"format":             exportFormatNDJSON,
+			"cr_uid":             "cr_large_line",
+			"cr_fingerprint":     "fp",
+			"doc_schema_version": crDocSchemaV1,
+		}),
+		mustMarshalNDJSONLine(t, map[string]any{
+			"type": "doc",
+			"value": map[string]any{
+				"id":          1,
+				"uid":         "cr_large_line",
+				"title":       "large ndjson",
+				"description": "test",
+				"status":      "in_progress",
+				"base_branch": "main",
+				"branch":      "cr-large",
+				"notes":       []string{},
+				"subtasks":    []any{},
+				"events":      []any{},
+				"created_at":  "2026-03-04T00:00:00Z",
+				"updated_at":  "2026-03-04T00:00:00Z",
+			},
+		}),
+		mustMarshalNDJSONLine(t, map[string]any{
+			"type":  "cr_yaml",
+			"value": largeCRYAML,
+		}),
+	}
+	raw := bytes.Join(lines, []byte{'\n'})
+	raw = append(raw, '\n')
+
+	bundle, err := decodeExportBundleNDJSON(raw)
+	if err != nil {
+		t.Fatalf("decodeExportBundleNDJSON() error = %v", err)
+	}
+	if bundle == nil {
+		t.Fatalf("expected non-nil bundle")
+	}
+	if got := len(bundle.CRYAML); got != len(largeCRYAML) {
+		t.Fatalf("expected large cr_yaml length %d, got %d", len(largeCRYAML), got)
+	}
+}
+
+func mustMarshalNDJSONLine(t *testing.T, value map[string]any) []byte {
+	t.Helper()
+	raw, err := json.Marshal(value)
+	if err != nil {
+		t.Fatalf("marshal ndjson line: %v", err)
+	}
+	return raw
+}
+
+func mapKeys(m map[string]any) []string {
+	keys := make([]string, 0, len(m))
+	for key := range m {
+		keys = append(keys, key)
+	}
+	return keys
 }
