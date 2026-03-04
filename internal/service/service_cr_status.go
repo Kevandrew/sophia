@@ -300,20 +300,10 @@ func (s *Service) ValidateCR(id int) (*ValidationReport, error) {
 	if strings.TrimSpace(impact.ScopeSource) == "contract_baseline" {
 		scopeLabel = "frozen contract baseline scope"
 	}
-	scopeDriftErrors := append([]string(nil), impact.ScopeDrift...)
-	if strings.TrimSpace(impact.ScopeSource) == "contract_baseline" {
-		crDrift := summarizeCRContractDrift(cr.ContractDrifts)
-		if crDrift.Unacknowledged == 0 {
-			// Drift is still surfaced in impact, but acknowledged contract revisions
-			// should be validated against the latest declared scope for merge eligibility.
-			scopeDriftErrors = findScopeDrift(diff.Files, append([]string(nil), cr.Contract.Scope...))
-			scopeLabel = "declared contract scope"
-		}
-	}
 	for _, field := range missingCRContractFields(cr.Contract, policy.Contract.RequiredFields) {
 		errorsOut = append(errorsOut, fmt.Sprintf("missing required contract field: %s", field))
 	}
-	for _, driftPath := range scopeDriftErrors {
+	for _, driftPath := range impact.ScopeDrift {
 		errorsOut = append(errorsOut, fmt.Sprintf("scope drift: changed path %q is outside %s", driftPath, scopeLabel))
 	}
 	errorsOut = append(errorsOut, policyScopeViolationErrors(cr, policy.Scope.AllowedPrefixes)...)

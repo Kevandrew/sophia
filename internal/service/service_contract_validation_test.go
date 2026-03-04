@@ -80,6 +80,29 @@ func TestValidateCRDetectsScopeDriftAsError(t *testing.T) {
 	}
 }
 
+func TestImpactCRUsesDeclaredScopeSourceWhenNoBaselineCaptured(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	cr, err := svc.AddCR("Declared scope source", "no checkpoint baseline yet")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	setValidContract(t, svc, cr.ID)
+
+	impact, err := svc.ImpactCR(cr.ID)
+	if err != nil {
+		t.Fatalf("ImpactCR() error = %v", err)
+	}
+	if impact.ScopeSource != "contract_scope" {
+		t.Fatalf("expected contract_scope before baseline capture, got %#v", impact)
+	}
+}
+
 func TestValidateCRIgnoresSophiaTrackedArchivePathForScopeDrift(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()

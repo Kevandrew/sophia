@@ -200,6 +200,126 @@ func TestMergeBlockedByUnacknowledgedCRContractDriftUntilAcked(t *testing.T) {
 	}
 }
 
+func TestScopeSourceSwitchesToContractAfterCRDriftAck(t *testing.T) {
+	svc, crID, _ := newCRCheckpointFixture(t)
+
+	updatedScope := []string{"scoped-a.txt", "scoped-b.txt"}
+	reason := "scope changed after first checkpoint"
+	if _, err := svc.SetCRContract(crID, ContractPatch{Scope: &updatedScope, ChangeReason: &reason}); err != nil {
+		t.Fatalf("SetCRContract(with reason) error = %v", err)
+	}
+	task, err := svc.AddTask(crID, "checkpoint scoped-b")
+	if err != nil {
+		t.Fatalf("AddTask() error = %v", err)
+	}
+	intent := "checkpoint b"
+	acceptance := []string{"scoped-b is checkpointed"}
+	taskScope := []string{"scoped-b.txt"}
+	if _, err := svc.SetTaskContract(crID, task.ID, TaskContractPatch{
+		Intent:             &intent,
+		AcceptanceCriteria: &acceptance,
+		Scope:              &taskScope,
+	}); err != nil {
+		t.Fatalf("SetTaskContract() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(svc.git.WorkDir, "scoped-b.txt"), []byte("b\n"), 0o644); err != nil {
+		t.Fatalf("write scoped-b.txt: %v", err)
+	}
+	if _, err := svc.DoneTaskWithCheckpoint(crID, task.ID, DoneTaskOptions{Checkpoint: true, Paths: []string{"scoped-b.txt"}}); err != nil {
+		t.Fatalf("DoneTaskWithCheckpoint() error = %v", err)
+	}
+
+	beforeAck, err := svc.ValidateCR(crID)
+	if err != nil {
+		t.Fatalf("ValidateCR(before ack) error = %v", err)
+	}
+	if beforeAck.Impact == nil || beforeAck.Impact.ScopeSource != "contract_baseline" {
+		t.Fatalf("expected baseline scope source before ack, got %#v", beforeAck.Impact)
+	}
+	if !containsAny(beforeAck.Errors, "outside frozen contract baseline scope") {
+		t.Fatalf("expected baseline scope drift error before ack, got %#v", beforeAck.Errors)
+	}
+
+	drifts, err := svc.ListCRContractDrifts(crID)
+	if err != nil {
+		t.Fatalf("ListCRContractDrifts() error = %v", err)
+	}
+	if len(drifts) != 1 {
+		t.Fatalf("expected one drift before ack, got %#v", drifts)
+	}
+	if _, err := svc.AckCRContractDrift(crID, drifts[0].ID, "accepted during review"); err != nil {
+		t.Fatalf("AckCRContractDrift() error = %v", err)
+	}
+
+	afterAck, err := svc.ValidateCR(crID)
+	if err != nil {
+		t.Fatalf("ValidateCR(after ack) error = %v", err)
+	}
+	if afterAck.Impact == nil || afterAck.Impact.ScopeSource != "contract_scope" {
+		t.Fatalf("expected declared contract scope source after ack, got %#v", afterAck.Impact)
+	}
+	if containsAny(afterAck.Errors, "outside frozen contract baseline scope") {
+		t.Fatalf("did not expect baseline scope drift error after ack, got %#v", afterAck.Errors)
+	}
+	if containsAny(afterAck.Warnings, "scope drift is evaluated against frozen contract baseline scope (first checkpoint)") {
+		t.Fatalf("did not expect baseline warning after ack, got %#v", afterAck.Warnings)
+	}
+}
+
+func TestSetCRContractWithOptionsReportsCRDriftWorkflowMetadata(t *testing.T) {
+	svc, crID, _ := newCRCheckpointFixture(t)
+	updatedScope := []string{"scoped-a.txt", "scoped-b.txt"}
+	reason := "expand declared scope"
+
+	result, err := svc.SetCRContractWithOptions(crID, ContractPatch{
+		Scope:        &updatedScope,
+		ChangeReason: &reason,
+	}, SetCRContractOptions{})
+	if err != nil {
+		t.Fatalf("SetCRContractWithOptions() error = %v", err)
+	}
+	if result.AlreadyApplied {
+		t.Fatalf("expected update to apply, got %#v", result)
+	}
+	if !result.ScopeChanged || !result.BaselineFrozen {
+		t.Fatalf("expected scope_changed=true and baseline_frozen=true, got %#v", result)
+	}
+	if !result.DriftRecorded || result.DriftID <= 0 || !result.DriftAckRequired {
+		t.Fatalf("expected recorded drift metadata, got %#v", result)
+	}
+}
+
+func TestSetCRContractWithOptionsDryRunReportsDeterministicCRDriftMetadata(t *testing.T) {
+	svc, crID, _ := newCRCheckpointFixture(t)
+	updatedScope := []string{"scoped-a.txt", "scoped-b.txt"}
+	reason := "expand declared scope"
+
+	result, err := svc.SetCRContractWithOptions(crID, ContractPatch{
+		Scope:        &updatedScope,
+		ChangeReason: &reason,
+	}, SetCRContractOptions{DryRun: true})
+	if err != nil {
+		t.Fatalf("SetCRContractWithOptions(dry-run) error = %v", err)
+	}
+	if !result.DryRun {
+		t.Fatalf("expected dry_run=true, got %#v", result)
+	}
+	if !result.ScopeChanged || !result.BaselineFrozen {
+		t.Fatalf("expected scope_changed=true and baseline_frozen=true in dry-run, got %#v", result)
+	}
+	if result.DriftRecorded || result.DriftID != 0 || result.DriftAckRequired {
+		t.Fatalf("expected no recorded drift metadata in dry-run, got %#v", result)
+	}
+
+	drifts, err := svc.ListCRContractDrifts(crID)
+	if err != nil {
+		t.Fatalf("ListCRContractDrifts() error = %v", err)
+	}
+	if len(drifts) != 0 {
+		t.Fatalf("expected dry-run to avoid recording drift, got %#v", drifts)
+	}
+}
+
 func TestSetCRContractUpdatesCRUpdatedAt(t *testing.T) {
 	t.Parallel()
 	svc, crID, _ := newCRCheckpointFixture(t)

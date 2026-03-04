@@ -90,13 +90,30 @@ func buildImpactReport(cr *model.CR, diff *diffSummary, policy *model.RepoPolicy
 }
 
 func scopeReferenceForCR(cr *model.CR) ([]string, string) {
-	if cr != nil && !crContractBaselineIsEmpty(cr.ContractBaseline) {
+	if cr != nil && !crContractBaselineIsEmpty(cr.ContractBaseline) && hasUnacknowledgedCRScopeDrift(cr.ContractDrifts) {
 		return append([]string(nil), cr.ContractBaseline.Scope...), "contract_baseline"
 	}
 	if cr == nil {
 		return []string{}, "contract_scope"
 	}
 	return append([]string(nil), cr.Contract.Scope...), "contract_scope"
+}
+
+func hasUnacknowledgedCRScopeDrift(drifts []model.CRContractDrift) bool {
+	for _, drift := range drifts {
+		if drift.Acknowledged {
+			continue
+		}
+		for _, field := range drift.Fields {
+			if strings.TrimSpace(field) == "scope_changed" {
+				return true
+			}
+		}
+		if len(drift.BeforeScope) > 0 || len(drift.AfterScope) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func findMatchedScopePrefixes(changedFiles, scopePrefixes []string) []string {
