@@ -4,6 +4,8 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sophia/internal/gitx"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -314,6 +316,77 @@ func TestMergeCRUsesBaseOwnerWorktreeAndWarnsWhenCRBranchOwnedElsewhere(t *testi
 	}
 	if merged.Status != "merged" {
 		t.Fatalf("expected merged status, got %q", merged.Status)
+	}
+}
+
+func TestRebaseBranchOntoConflictIncludesCRIDWhenKnown(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	runGit(t, dir, "config", "user.name", "Test User")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+	cr, err := svc.AddCR("Rebase conflict", "rebase conflict details")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+
+	branch := cr.Branch
+	ownerPath := filepath.Join(t.TempDir(), "wt-owner")
+
+	mergeGit := newFakeMergeGit("Test User <test@example.com>", "main")
+	mergeGit.worktrees[branch] = &gitx.Worktree{
+		Path:   ownerPath,
+		Branch: branch,
+	}
+	ownerGit := newFakeMergeGit("Test User <test@example.com>", "main")
+	svc.overrideMergeRuntimeProvidersForTests(mergeGit, nil, func(root string) mergeRuntimeGit {
+		if samePath(root, ownerPath) {
+			return ownerGit
+		}
+		return mergeGit
+	})
+
+	err = svc.rebaseBranchOnto(branch, "main")
+	if err == nil {
+		t.Fatalf("expected branch ownership conflict error")
+	}
+	if !errors.Is(err, ErrBranchInOtherWorktree) {
+		t.Fatalf("expected ErrBranchInOtherWorktree, got %v", err)
+	}
+	var details *BranchInOtherWorktreeError
+	if !errors.As(err, &details) {
+		t.Fatalf("expected BranchInOtherWorktreeError details, got %T", err)
+	}
+	if details.CRID != cr.ID {
+		t.Fatalf("expected cr_id=%d in conflict details, got %d", cr.ID, details.CRID)
+	}
+	if details.Operation != "rebase_branch" {
+		t.Fatalf("expected operation rebase_branch, got %q", details.Operation)
+	}
+	if !strings.Contains(details.SuggestedCommand, "sophia cr switch "+strconv.Itoa(cr.ID)) {
+		t.Fatalf("expected suggested command to target CR switch, got %q", details.SuggestedCommand)
+	}
+}
+
+func TestWithWorktreePathPrefixShellQuotesWorktreePath(t *testing.T) {
+	t.Parallel()
+	suggested := withWorktreePathPrefix("/tmp/wt-$HOME", "sophia cr switch 1")
+	if !strings.HasPrefix(suggested, "cd '/tmp/wt-$HOME' && ") {
+		t.Fatalf("expected single-quoted worktree path, got %q", suggested)
+	}
+	if strings.Contains(suggested, `"/tmp/wt-$HOME"`) {
+		t.Fatalf("expected no double-quoted shell path, got %q", suggested)
+	}
+}
+
+func TestBranchResolveCommandShellQuotesBranchSelector(t *testing.T) {
+	t.Parallel()
+	command := branchResolveCommand("feature/$HOME")
+	if command != "sophia cr branch resolve --branch 'feature/$HOME'" {
+		t.Fatalf("expected single-quoted branch selector command, got %q", command)
 	}
 }
 
