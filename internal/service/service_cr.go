@@ -64,15 +64,15 @@ func (s *Service) AddCRWithOptions(title, description string, opts AddCROptions)
 }
 
 func (s *Service) addCRWithOptionsUnlocked(title, description string, opts AddCROptions) (*AddCRResult, error) {
+	if err := servicecr.ValidateAddRequest(title, opts.BaseRef, opts.ParentCRID, opts.BranchAlias, opts.OwnerPrefixSet); err != nil {
+		return nil, err
+	}
 	bootstrap, err := s.ensureLazyLocalBootstrapForCRMutation()
 	if err != nil {
 		return nil, err
 	}
 	lifecycleStore := s.activeLifecycleStoreProvider()
 	lifecycleGit := s.activeLifecycleGitProvider()
-	if err := servicecr.ValidateAddRequest(title, opts.BaseRef, opts.ParentCRID, opts.BranchAlias, opts.OwnerPrefixSet); err != nil {
-		return nil, err
-	}
 	if err := lifecycleStore.EnsureInitialized(); err != nil {
 		return nil, err
 	}
