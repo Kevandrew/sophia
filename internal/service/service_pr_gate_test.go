@@ -2,6 +2,7 @@ package service
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -730,14 +731,42 @@ func TestClassifyPRLinkageStatusMarksClosedUnmergedPRsStale(t *testing.T) {
 	if status.LinkageState != prLinkageClosed {
 		t.Fatalf("expected linkage state %q, got %q", prLinkageClosed, status.LinkageState)
 	}
-	if status.ActionRequired != prActionReconcilePR {
-		t.Fatalf("expected action_required %q, got %q", prActionReconcilePR, status.ActionRequired)
+	if status.ActionRequired != prActionReopenPR {
+		t.Fatalf("expected action_required %q, got %q", prActionReopenPR, status.ActionRequired)
 	}
 	if !status.GateBlocked {
 		t.Fatalf("expected closed-unmerged PR to block gate")
 	}
 	if len(status.SuggestedCommands) < 2 {
 		t.Fatalf("expected stale suggested commands, got %#v", status.SuggestedCommands)
+	}
+}
+
+func TestClassifyPRLinkageStatusMarksDraftPRActionMetadata(t *testing.T) {
+	t.Parallel()
+	svc := &Service{}
+	cr := &model.CR{
+		ID:         12,
+		Branch:     "cr-12-target",
+		BaseRef:    "main",
+		BaseBranch: "main",
+	}
+	status := &PRStatusView{
+		Number:      41,
+		State:       "OPEN",
+		Draft:       true,
+		HeadRefName: "cr-12-target",
+		BaseRefName: "main",
+	}
+	svc.classifyPRLinkageStatus(cr, status)
+	if status.ActionRequired != prActionReadyPR {
+		t.Fatalf("expected draft action_required=%q, got %q", prActionReadyPR, status.ActionRequired)
+	}
+	if !strings.Contains(status.ActionReason, "draft") {
+		t.Fatalf("expected draft action reason, got %q", status.ActionReason)
+	}
+	if len(status.SuggestedCommands) == 0 || status.SuggestedCommands[0] != "sophia cr pr ready 12" {
+		t.Fatalf("expected draft suggested ready command, got %#v", status.SuggestedCommands)
 	}
 }
 
@@ -822,6 +851,116 @@ func TestPRReconcileRelinkLinksMatchingPRAndRecordsEvent(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("expected reconcile event with relink mode, got %#v", reloaded.Events)
+	}
+}
+
+func TestPRUnreadyCloseReopenLifecycleOperations(t *testing.T) {
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "SOPHIA.yaml"), []byte("version: v1\nmerge:\n  mode: pr_gate\narchive:\n  enabled: false\n"), 0o644); err != nil {
+		t.Fatalf("write SOPHIA.yaml: %v", err)
+	}
+	cr, err := svc.AddCR("PR lifecycle commands", "status path")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	loaded, err := svc.store.LoadCR(cr.ID)
+	if err != nil {
+		t.Fatalf("LoadCR() error = %v", err)
+	}
+	loaded.PR.Number = 64
+	loaded.PR.Repo = "acme/repo"
+	loaded.PR.State = "OPEN"
+	loaded.PR.Draft = false
+	branchName := strings.TrimSpace(loaded.Branch)
+	if branchName == "" {
+		branchName = "cr-1-pr-lifecycle"
+	}
+	if err := svc.store.SaveCR(loaded); err != nil {
+		t.Fatalf("SaveCR() error = %v", err)
+	}
+	installFakeGHCommand(t, fmt.Sprintf(strings.Join([]string{
+		"#!/bin/sh",
+		"if [ \"$1\" = \"-R\" ]; then",
+		"  shift",
+		"  shift",
+		"fi",
+		"if [ \"$1\" = \"pr\" ] && [ \"$2\" = \"ready\" ] && [ \"$4\" = \"--undo\" ]; then",
+		"  printf 'draft' > \"$TMPDIR/sophia-pr-state-64\"",
+		"  exit 0",
+		"fi",
+		"if [ \"$1\" = \"pr\" ] && [ \"$2\" = \"close\" ]; then",
+		"  printf 'closed' > \"$TMPDIR/sophia-pr-state-64\"",
+		"  exit 0",
+		"fi",
+		"if [ \"$1\" = \"pr\" ] && [ \"$2\" = \"reopen\" ]; then",
+		"  printf 'open' > \"$TMPDIR/sophia-pr-state-64\"",
+		"  exit 0",
+		"fi",
+		"if [ \"$1\" = \"pr\" ] && [ \"$2\" = \"view\" ]; then",
+		"  state_file=\"$TMPDIR/sophia-pr-state-64\"",
+		"  current='open'",
+		"  if [ -f \"$state_file\" ]; then",
+		"    current=$(cat \"$state_file\")",
+		"  fi",
+		"  if [ \"$current\" = \"draft\" ]; then",
+		"    echo '{\"number\":64,\"url\":\"https://github.com/acme/repo/pull/64\",\"state\":\"OPEN\",\"isDraft\":true,\"headRefOid\":\"abc123\",\"headRefName\":\"%s\",\"baseRefName\":\"main\",\"author\":{\"login\":\"bot\"},\"latestReviews\":[],\"statusCheckRollup\":[]}'",
+		"    exit 0",
+		"  fi",
+		"  if [ \"$current\" = \"closed\" ]; then",
+		"    echo '{\"number\":64,\"url\":\"https://github.com/acme/repo/pull/64\",\"state\":\"CLOSED\",\"isDraft\":false,\"headRefOid\":\"abc123\",\"headRefName\":\"%s\",\"baseRefName\":\"main\",\"author\":{\"login\":\"bot\"},\"latestReviews\":[],\"statusCheckRollup\":[]}'",
+		"    exit 0",
+		"  fi",
+		"  echo '{\"number\":64,\"url\":\"https://github.com/acme/repo/pull/64\",\"state\":\"OPEN\",\"isDraft\":false,\"headRefOid\":\"abc123\",\"headRefName\":\"%s\",\"baseRefName\":\"main\",\"author\":{\"login\":\"bot\"},\"latestReviews\":[],\"statusCheckRollup\":[]}'",
+		"  exit 0",
+		"fi",
+		"echo \"unexpected gh args: $@\" >&2",
+		"exit 1",
+	}, "\n"), branchName, branchName, branchName))
+
+	unready, err := svc.PRUnready(cr.ID)
+	if err != nil {
+		t.Fatalf("PRUnready() error = %v", err)
+	}
+	if !unready.Draft {
+		t.Fatalf("expected unready result to be draft")
+	}
+
+	closed, err := svc.PRClose(cr.ID)
+	if err != nil {
+		t.Fatalf("PRClose() error = %v", err)
+	}
+	if got := strings.ToUpper(strings.TrimSpace(closed.State)); got != "CLOSED" {
+		t.Fatalf("expected closed state, got %q", got)
+	}
+	if closed.ActionRequired != prActionReopenPR {
+		t.Fatalf("expected closed action_required=%q, got %q", prActionReopenPR, closed.ActionRequired)
+	}
+
+	reopened, err := svc.PRReopen(cr.ID)
+	if err != nil {
+		t.Fatalf("PRReopen() error = %v", err)
+	}
+	if got := strings.ToUpper(strings.TrimSpace(reopened.State)); got != "OPEN" {
+		t.Fatalf("expected reopened state OPEN, got %q", got)
+	}
+
+	reloaded, err := svc.store.LoadCR(cr.ID)
+	if err != nil {
+		t.Fatalf("LoadCR() after lifecycle ops error = %v", err)
+	}
+	if strings.ToUpper(strings.TrimSpace(reloaded.PR.State)) != "OPEN" {
+		t.Fatalf("expected stored PR state OPEN after reopen, got %q", reloaded.PR.State)
+	}
+	eventTypes := map[string]int{}
+	for _, event := range reloaded.Events {
+		eventTypes[event.Type]++
+	}
+	if eventTypes[model.EventTypeCRReconciled] < 3 {
+		t.Fatalf("expected at least three CRReconciled lifecycle events, got %#v", eventTypes)
 	}
 }
 

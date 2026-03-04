@@ -149,8 +149,17 @@ sophia cr pr context <cr-id>
 sophia cr pr open <cr-id> --approve-open
 sophia cr pr sync <cr-id>
 sophia cr pr ready <cr-id>
+sophia cr pr unready <cr-id>
+sophia cr pr close <cr-id>
+sophia cr pr reopen <cr-id>
 sophia cr pr status <cr-id>
 ```
+
+Lifecycle guidance:
+- Use `pr ready` only for explicit reviewer handoff.
+- If marked ready too early, run `pr unready` to move back to draft.
+- Use `pr close` when intentionally pausing/cancelling the PR without merging.
+- Use `pr reopen` to resume a closed PR for the same CR branch.
 
 4. Reviewer merges on GitHub PR page (common team path), or privileged user runs:
 

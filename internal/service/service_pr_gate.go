@@ -25,6 +25,9 @@ const (
 	prLinkageClosed      = "closed_unmerged"
 	prLinkageMismatch    = "linkage_mismatch"
 	prActionOpenPR       = "open_pr"
+	prActionReadyPR      = "ready_pr"
+	prActionUnreadyPR    = "unready_pr"
+	prActionClosePR      = "close_pr"
 	prActionReconcilePR  = "reconcile_pr"
 	prActionReopenPR     = "reopen_pr"
 	prActionCreatePR     = "create_pr"
@@ -348,6 +351,13 @@ func (s *Service) PRSync(id int) (*PRStatusView, error) {
 }
 
 func (s *Service) PRReady(id int) (*PRStatusView, error) {
+	policy, err := s.repoPolicy()
+	if err != nil {
+		return nil, err
+	}
+	if policyMergeMode(policy) != "pr_gate" {
+		return nil, fmt.Errorf("cr pr ready is only available when merge.mode=pr_gate")
+	}
 	cr, err := s.store.LoadCR(id)
 	if err != nil {
 		return nil, err
@@ -359,12 +369,74 @@ func (s *Service) PRReady(id int) (*PRStatusView, error) {
 		return nil, err
 	}
 	now := s.timestamp()
+	repoSelector := s.ghRepoSelectorForCR(cr)
+	if refreshed, refreshErr := s.fetchPRByNumber(repoSelector, cr.PR.Number); refreshErr == nil && refreshed != nil {
+		applyPRSummaryToCRLink(cr, refreshed, nonEmptyTrimmed(repoSelector, cr.PR.Repo), now)
+		if saveErr := s.store.SaveCR(cr); saveErr != nil {
+			return nil, saveErr
+		}
+	}
 	actor := s.git.Actor()
 	_ = s.appendCRMutationEventAndSave(cr, model.Event{
 		TS:      now,
 		Actor:   actor,
 		Type:    model.EventTypeCRPRReady,
 		Summary: fmt.Sprintf("Marked PR #%d ready for review", cr.PR.Number),
+		Ref:     fmt.Sprintf("cr:%d", cr.ID),
+	})
+	return s.PRStatus(id)
+}
+
+func (s *Service) PRUnready(id int) (*PRStatusView, error) {
+	return s.runPRLifecycleTransition(id, []string{"pr", "ready", "<pr-number>", "--undo"}, model.EventTypeCRReconciled, "Moved PR #%d back to draft", "cr pr unready")
+}
+
+func (s *Service) PRClose(id int) (*PRStatusView, error) {
+	return s.runPRLifecycleTransition(id, []string{"pr", "close", "<pr-number>"}, model.EventTypeCRReconciled, "Closed PR #%d without merge", "cr pr close")
+}
+
+func (s *Service) PRReopen(id int) (*PRStatusView, error) {
+	return s.runPRLifecycleTransition(id, []string{"pr", "reopen", "<pr-number>"}, model.EventTypeCRReconciled, "Reopened PR #%d", "cr pr reopen")
+}
+
+func (s *Service) runPRLifecycleTransition(id int, args []string, eventType string, summaryFmt string, commandName string) (*PRStatusView, error) {
+	policy, err := s.repoPolicy()
+	if err != nil {
+		return nil, err
+	}
+	if policyMergeMode(policy) != "pr_gate" {
+		return nil, fmt.Errorf("%s is only available when merge.mode=pr_gate", strings.TrimSpace(commandName))
+	}
+	cr, err := s.store.LoadCR(id)
+	if err != nil {
+		return nil, err
+	}
+	if cr.PR.Number <= 0 {
+		return nil, fmt.Errorf("cr %d has no linked PR", id)
+	}
+	runArgs := append([]string(nil), args...)
+	// Command templates pass the CR id placeholder; replace with linked PR number.
+	for i := range runArgs {
+		if strings.TrimSpace(runArgs[i]) == "<pr-number>" {
+			runArgs[i] = strconv.Itoa(cr.PR.Number)
+		}
+	}
+	repoSelector := s.ghRepoSelectorForCR(cr)
+	if _, err := s.runGH(repoSelector, runArgs...); err != nil {
+		return nil, err
+	}
+	now := s.timestamp()
+	if refreshed, refreshErr := s.fetchPRByNumber(repoSelector, cr.PR.Number); refreshErr == nil && refreshed != nil {
+		applyPRSummaryToCRLink(cr, refreshed, nonEmptyTrimmed(repoSelector, cr.PR.Repo), now)
+		if saveErr := s.store.SaveCR(cr); saveErr != nil {
+			return nil, saveErr
+		}
+	}
+	_ = s.appendCRMutationEventAndSave(cr, model.Event{
+		TS:      now,
+		Actor:   s.git.Actor(),
+		Type:    strings.TrimSpace(eventType),
+		Summary: fmt.Sprintf(summaryFmt, cr.PR.Number),
 		Ref:     fmt.Sprintf("cr:%d", cr.ID),
 	})
 	return s.PRStatus(id)
@@ -627,6 +699,34 @@ func prOpenCommand(crID int) string {
 	return fmt.Sprintf("sophia cr pr open %d --approve-open", crID)
 }
 
+func prReadyCommand(crID int) string {
+	if crID <= 0 {
+		return "sophia cr pr ready <id>"
+	}
+	return fmt.Sprintf("sophia cr pr ready %d", crID)
+}
+
+func prUnreadyCommand(crID int) string {
+	if crID <= 0 {
+		return "sophia cr pr unready <id>"
+	}
+	return fmt.Sprintf("sophia cr pr unready %d", crID)
+}
+
+func prCloseCommand(crID int) string {
+	if crID <= 0 {
+		return "sophia cr pr close <id>"
+	}
+	return fmt.Sprintf("sophia cr pr close %d", crID)
+}
+
+func prReopenCommand(crID int) string {
+	if crID <= 0 {
+		return "sophia cr pr reopen <id>"
+	}
+	return fmt.Sprintf("sophia cr pr reopen %d", crID)
+}
+
 func prReconcileCommand(crID int, mode string) string {
 	if crID <= 0 {
 		return fmt.Sprintf("sophia cr pr reconcile <id> --mode %s", strings.TrimSpace(mode))
@@ -663,12 +763,17 @@ func (s *Service) classifyPRLinkageStatus(cr *model.CR, status *PRStatusView) {
 	state := strings.ToUpper(strings.TrimSpace(status.State))
 	if state == "CLOSED" {
 		status.LinkageState = prLinkageClosed
-		status.ActionRequired = nonEmptyTrimmed(status.ActionRequired, prActionReconcilePR)
-		status.ActionReason = nonEmptyTrimmed(status.ActionReason, fmt.Sprintf("linked PR #%d is closed without merge", status.Number))
+		status.ActionRequired = prActionReopenPR
+		status.ActionReason = fmt.Sprintf("linked PR #%d is closed without merge", status.Number)
 		status.GateBlocked = true
-		status.GateReasons = cleanAndDedupeStrings(append(status.GateReasons, fmt.Sprintf("%s; run `%s`", prGateClosedReason, prReconcileCommand(cr.ID, prReconcileModeReopen))))
-		status.SuggestedCommands = cleanAndDedupeStrings(append(status.SuggestedCommands, prReconcileCommand(cr.ID, prReconcileModeReopen), prReconcileCommand(cr.ID, prReconcileModeCreate)))
+		status.GateReasons = cleanAndDedupeStrings(append(status.GateReasons, fmt.Sprintf("%s; run `%s`", prGateClosedReason, prReopenCommand(cr.ID))))
+		status.SuggestedCommands = cleanAndDedupeStrings(append(status.SuggestedCommands, prReopenCommand(cr.ID), prReconcileCommand(cr.ID, prReconcileModeCreate)))
 		return
+	}
+	if status.Draft {
+		status.ActionRequired = nonEmptyTrimmed(status.ActionRequired, prActionReadyPR)
+		status.ActionReason = nonEmptyTrimmed(status.ActionReason, fmt.Sprintf("linked PR #%d is draft", status.Number))
+		status.SuggestedCommands = cleanAndDedupeStrings(append(status.SuggestedCommands, prReadyCommand(cr.ID), prUnreadyCommand(cr.ID), prCloseCommand(cr.ID)))
 	}
 
 	expectedBase := strings.TrimSpace(nonEmptyTrimmed(cr.BaseRef, cr.BaseBranch))
@@ -684,8 +789,8 @@ func (s *Service) classifyPRLinkageStatus(cr *model.CR, status *PRStatusView) {
 		return
 	}
 	status.LinkageState = prLinkageMismatch
-	status.ActionRequired = nonEmptyTrimmed(status.ActionRequired, prActionReconcilePR)
-	status.ActionReason = nonEmptyTrimmed(status.ActionReason, fmt.Sprintf("linked PR does not match CR linkage: %s", strings.Join(mismatch, "; ")))
+	status.ActionRequired = prActionReconcilePR
+	status.ActionReason = fmt.Sprintf("linked PR does not match CR linkage: %s", strings.Join(mismatch, "; "))
 	status.GateBlocked = true
 	status.GateReasons = cleanAndDedupeStrings(append(status.GateReasons, fmt.Sprintf("%s; run `%s`", prGateMismatchReason, prReconcileCommand(cr.ID, prReconcileModeRelink))))
 	status.SuggestedCommands = cleanAndDedupeStrings(append(status.SuggestedCommands, prReconcileCommand(cr.ID, prReconcileModeRelink), prReconcileCommand(cr.ID, prReconcileModeCreate)))

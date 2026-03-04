@@ -287,6 +287,59 @@ func TestPRReconcileCreateJSONReturnsOutcome(t *testing.T) {
 	}
 }
 
+func TestPRLifecycleCommandsJSONReturnUpdatedStates(t *testing.T) {
+	dir := setupCLIPRGateRepo(t)
+	installFakeGHLifecycleScript(t)
+
+	out, _, runErr := runCLI(t, dir, "cr", "pr", "reconcile", "1", "--mode", "relink", "--json")
+	if runErr != nil {
+		t.Fatalf("cr pr reconcile --mode relink --json error = %v\noutput=%s", runErr, out)
+	}
+	env := decodeEnvelope(t, out)
+	if !env.OK {
+		t.Fatalf("expected ok envelope for relink, got %#v", env)
+	}
+
+	out, _, runErr = runCLI(t, dir, "cr", "pr", "unready", "1", "--json")
+	if runErr != nil {
+		t.Fatalf("cr pr unready --json error = %v\noutput=%s", runErr, out)
+	}
+	env = decodeEnvelope(t, out)
+	if !env.OK {
+		t.Fatalf("expected ok envelope for unready, got %#v", env)
+	}
+	if draft, _ := env.Data["draft"].(bool); !draft {
+		t.Fatalf("expected draft=true after unready, got %#v", env.Data["draft"])
+	}
+
+	out, _, runErr = runCLI(t, dir, "cr", "pr", "close", "1", "--json")
+	if runErr != nil {
+		t.Fatalf("cr pr close --json error = %v\noutput=%s", runErr, out)
+	}
+	env = decodeEnvelope(t, out)
+	if !env.OK {
+		t.Fatalf("expected ok envelope for close, got %#v", env)
+	}
+	if got, _ := env.Data["state"].(string); strings.ToUpper(strings.TrimSpace(got)) != "CLOSED" {
+		t.Fatalf("expected state=CLOSED after close, got %#v", env.Data["state"])
+	}
+	if got, _ := env.Data["action_required"].(string); got != "reopen_pr" {
+		t.Fatalf("expected action_required=reopen_pr for closed PR, got %#v", env.Data["action_required"])
+	}
+
+	out, _, runErr = runCLI(t, dir, "cr", "pr", "reopen", "1", "--json")
+	if runErr != nil {
+		t.Fatalf("cr pr reopen --json error = %v\noutput=%s", runErr, out)
+	}
+	env = decodeEnvelope(t, out)
+	if !env.OK {
+		t.Fatalf("expected ok envelope for reopen, got %#v", env)
+	}
+	if got, _ := env.Data["state"].(string); strings.ToUpper(strings.TrimSpace(got)) != "OPEN" {
+		t.Fatalf("expected state=OPEN after reopen, got %#v", env.Data["state"])
+	}
+}
+
 func requireActionRequiredDetails(t *testing.T, details map[string]any) map[string]any {
 	t.Helper()
 	if details == nil {
@@ -353,6 +406,58 @@ func installFakeGitPushDenied(t *testing.T) {
 	}, "\n") + "\n"
 	if err := os.WriteFile(gitPath, []byte(script), 0o755); err != nil {
 		t.Fatalf("write fake git: %v", err)
+	}
+	prependPath(t, binDir)
+}
+
+func installFakeGHLifecycleScript(t *testing.T) {
+	t.Helper()
+	binDir := t.TempDir()
+	ghPath := filepath.Join(binDir, "gh")
+	script := strings.Join([]string{
+		"#!/bin/sh",
+		"state_file=\"${TMPDIR:-/tmp}/sophia-pr-state-12\"",
+		"if [ \"$1\" = \"-R\" ]; then",
+		"  shift",
+		"  shift",
+		"fi",
+		"if [ \"$1\" = \"pr\" ] && [ \"$2\" = \"list\" ]; then",
+		"  echo '[{\"number\":12,\"url\":\"https://github.com/acme/repo/pull/12\",\"state\":\"OPEN\",\"isDraft\":false,\"headRefOid\":\"abc123\",\"headRefName\":\"cr-1-pr-lifecycle\",\"baseRefName\":\"main\",\"updatedAt\":\"2026-03-03T00:00:00Z\"}]'",
+		"  exit 0",
+		"fi",
+		"if [ \"$1\" = \"pr\" ] && [ \"$2\" = \"ready\" ] && [ \"$4\" = \"--undo\" ]; then",
+		"  printf 'draft' > \"$state_file\"",
+		"  exit 0",
+		"fi",
+		"if [ \"$1\" = \"pr\" ] && [ \"$2\" = \"close\" ]; then",
+		"  printf 'closed' > \"$state_file\"",
+		"  exit 0",
+		"fi",
+		"if [ \"$1\" = \"pr\" ] && [ \"$2\" = \"reopen\" ]; then",
+		"  printf 'open' > \"$state_file\"",
+		"  exit 0",
+		"fi",
+		"if [ \"$1\" = \"pr\" ] && [ \"$2\" = \"view\" ]; then",
+		"  current='open'",
+		"  if [ -f \"$state_file\" ]; then",
+		"    current=$(cat \"$state_file\")",
+		"  fi",
+		"  if [ \"$current\" = \"draft\" ]; then",
+		"    echo '{\"number\":12,\"url\":\"https://github.com/acme/repo/pull/12\",\"state\":\"OPEN\",\"isDraft\":true,\"headRefOid\":\"abc123\",\"headRefName\":\"cr-1-pr-lifecycle\",\"baseRefName\":\"main\",\"author\":{\"login\":\"bot\"},\"latestReviews\":[],\"statusCheckRollup\":[]}'",
+		"    exit 0",
+		"  fi",
+		"  if [ \"$current\" = \"closed\" ]; then",
+		"    echo '{\"number\":12,\"url\":\"https://github.com/acme/repo/pull/12\",\"state\":\"CLOSED\",\"isDraft\":false,\"headRefOid\":\"abc123\",\"headRefName\":\"cr-1-pr-lifecycle\",\"baseRefName\":\"main\",\"author\":{\"login\":\"bot\"},\"latestReviews\":[],\"statusCheckRollup\":[]}'",
+		"    exit 0",
+		"  fi",
+		"  echo '{\"number\":12,\"url\":\"https://github.com/acme/repo/pull/12\",\"state\":\"OPEN\",\"isDraft\":false,\"headRefOid\":\"abc123\",\"headRefName\":\"cr-1-pr-lifecycle\",\"baseRefName\":\"main\",\"author\":{\"login\":\"bot\"},\"latestReviews\":[],\"statusCheckRollup\":[]}'",
+		"  exit 0",
+		"fi",
+		"echo \"unexpected gh args: $@\" >&2",
+		"exit 1",
+	}, "\n") + "\n"
+	if err := os.WriteFile(ghPath, []byte(script), 0o755); err != nil {
+		t.Fatalf("write fake gh lifecycle script: %v", err)
 	}
 	prependPath(t, binDir)
 }
