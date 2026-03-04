@@ -1,0 +1,154 @@
+schema_version: sophia.cr_archive.v1
+notice: Historical archive snapshot. Corrections are append-only revisions.
+archived_at: "2026-03-04T01:22:04Z"
+revision: 1
+cr:
+    id: 112
+    uid: cr_ffdda5f2-8229-4976-aa19-8a2e335d8b11
+    title: Expand CR export bundle formats and include options
+    description: Extend CR export beyond json-only by adding additional format/include surfaces (for example richer metadata sections and optional diff/evidence payloads) with stable schema evolution strategy.
+    status: merged
+    base_branch: main
+    base_ref: main
+    base_commit: 32445f05a4b34f880de2368c1179c7d3d2ab6e9c
+    branch: cr-expand-cr-export-bundle-formats-and-include-opti-ffdd
+    merged_at: "2026-03-04T01:22:04Z"
+    merged_by: Kevandrew <143258544+Kevandrew@users.noreply.github.com>
+contract:
+    why: Expand CR export capability so collaboration workflows can request richer include sets and additional output formats while keeping deterministic machine consumption. Done means export supports planned format and include expansion with stable schema versioning and backward compatibility for current bundle consumers.
+    scope:
+        - README.md
+        - docs/cli-reference.md
+        - docs/collaboration.md
+        - internal/cli
+        - internal/cli/cr_cmd_export.go
+        - internal/model
+        - internal/service
+        - internal/service/service_export.go
+    non_goals:
+        - No breaking removal of current JSON export behavior.
+        - No dependency on external collaboration platform services for export generation.
+        - No unrelated refactors in non-export command families.
+        - No unstable or non-deterministic ordering in export payloads.
+    invariants:
+        - Current JSON export output remains supported for existing workflows.
+        - Equivalent CR state exports produce stable payload ordering.
+        - Export includes are validated deterministically with explicit errors for unsupported values.
+        - Schema/version metadata is explicit in every exported payload.
+    blast_radius: Export service schema and include logic, export CLI flags and JSON envelopes, model types, and collaboration docs. Failure modes include consumer breakage, invalid include parsing, and inconsistent deterministic output.
+    risk_critical_scopes:
+        - internal/service/service_export.go
+    risk_tier_hint: medium
+    risk_rationale: Export payloads are consumed by automation and reviewers, so schema or ordering regressions can break downstream tooling.
+    test_plan: go test ./internal/service -run 'Export|Bundle' -count=1 && go test ./internal/cli -run 'Export' -count=1 && go test ./... -count=1 && go vet ./...
+    rollback_plan: Revert the [CR-112] merge commit and restore existing export format/include behavior.
+tasks:
+    - id: 1
+      title: Define export bundle v2 schema and compatibility strategy
+      status: done
+      contract:
+        intent: Specify stable v1 export schema contract for multi-format bundle encoding and rich include projections without breaking existing consumers.
+        acceptance_criteria:
+            - export pipeline defines explicit v1 schema metadata shared across json/yaml/ndjson encodings.
+            - format selection and include projections are deterministic and backward compatible for current JSON consumers.
+        scope:
+            - internal/model
+            - internal/service/service_collab.go
+            - internal/service/service_export.go
+      checkpoint:
+        commit: 223f3677
+        at: "2026-03-04T01:15:10Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_export.go
+    - id: 2
+      title: Implement expanded include surfaces for export bundles
+      status: done
+      contract:
+        intent: Add rich include options so export bundles can carry additional collaboration context deterministically.
+        acceptance_criteria:
+            - 'export supports include values: diffs,evidence,events,anchors,checkpoints,trust,validation.'
+            - unsupported include values return deterministic validation errors with supported token list.
+        scope:
+            - internal/service/service_export.go
+      checkpoint:
+        at: "2026-03-04T00:59:18Z"
+        source: task_no_checkpoint
+    - id: 3
+      title: Implement additional output format support for exports
+      status: done
+      contract:
+        intent: Add YAML and NDJSON export format support while preserving deterministic payload ordering.
+        acceptance_criteria:
+            - export emits yaml and ndjson for the same canonical CR bundle data in stable deterministic order.
+            - ndjson uses deterministic section-stream records suitable for streaming ingestion.
+        scope:
+            - internal/service/service_collab.go
+            - internal/service/service_export.go
+      checkpoint:
+        at: "2026-03-04T01:15:26Z"
+        source: task_no_checkpoint
+    - id: 4
+      title: Wire CLI export flags and envelopes for new modes
+      status: done
+      contract:
+        intent: Expose new export/import format and include modes via CLI with stable machine-readable envelopes.
+        acceptance_criteria:
+            - CLI help and validation include json,yaml,ndjson formats and rich include options.
+            - JSON CLI output includes schema version, format, include metadata, and payload metadata consistently.
+        scope:
+            - internal/cli/cr_cmd_export.go
+            - internal/cli/cr_cmd_import_patch.go
+      checkpoint:
+        commit: eabe4a61d7403c004ea0f9490ac418589f4bd2e9
+        at: "2026-03-03T21:53:27+08:00"
+        source: footer_scan
+        scope:
+            - internal/cli/cr_cmd_export.go
+            - internal/cli/cr_cmd_import_patch.go
+    - id: 5
+      title: Add compatibility and determinism regression tests
+      status: done
+      contract:
+        intent: Protect existing consumers and deterministic guarantees across multi-format export/import paths.
+        acceptance_criteria:
+            - tests cover backward compatibility for existing JSON export behavior.
+            - tests verify yaml/ndjson export determinism and import parity for create/replace/merge paths.
+        scope:
+            - internal/cli
+            - internal/service
+        acceptance_checks:
+            - go_vet
+            - unit_tests
+      checkpoint:
+        commit: c8f5d6f6
+        at: "2026-03-04T01:19:09Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_export_test.go
+    - id: 6
+      title: Update collaboration and CLI docs for export expansion
+      status: done
+      contract:
+        intent: Document new multi-format export/import behavior and compatibility guidance.
+        acceptance_criteria:
+            - docs include concrete examples for json,yaml,ndjson export and import modes.
+            - docs state schema v1 compatibility guarantees and additive include semantics.
+        scope:
+            - README.md
+            - docs/cli-reference.md
+            - docs/collaboration.md
+      checkpoint:
+        commit: a10c965727462a347b5fb0abdc9fd316af31e788
+        at: "2026-03-03T21:53:54+08:00"
+        source: footer_scan
+        scope:
+            - README.md
+            - docs/cli-reference.md
+            - docs/collaboration.md
+git_summary:
+    base_parent: 32445f05a4b34f880de2368c1179c7d3d2ab6e9c
+    cr_parent: c8f5d6f6f40892d87e6a597c3c87d6d657aef0ca
+    files_changed: []
+    diffstat:
+        summary: 0 files changed, 0 insertions(+), 0 deletions(-)

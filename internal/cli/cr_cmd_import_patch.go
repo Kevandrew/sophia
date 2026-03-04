@@ -14,6 +14,7 @@ func newCRImportCmd() *cobra.Command {
 	var filePath string
 	var mode string
 	var preview bool
+	var format string
 	var asJSON bool
 
 	cmd := &cobra.Command{
@@ -30,6 +31,7 @@ func newCRImportCmd() *cobra.Command {
 				FilePath: bundlePath,
 				Mode:     mode,
 				Preview:  preview,
+				Format:   format,
 			})
 			if err != nil {
 				if !asJSON && result != nil {
@@ -63,8 +65,9 @@ func newCRImportCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&filePath, "file", "", "Path to exported CR bundle JSON file")
+	cmd.Flags().StringVar(&filePath, "file", "", "Path to exported CR bundle file")
 	cmd.Flags().StringVar(&mode, "mode", "create", "Import mode: create, replace, or merge")
+	cmd.Flags().StringVar(&format, "format", "auto", "Bundle format: auto, json, yaml, or ndjson")
 	cmd.Flags().BoolVar(&preview, "preview", false, "Preview merge import outcome without writing CR metadata (requires --mode merge)")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "Output in JSON format")
 	return cmd

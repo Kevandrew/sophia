@@ -79,17 +79,23 @@ func newCRExportCmd() *cobra.Command {
 				return nil
 			}
 			if asJSON {
-				var decoded any
-				if err := json.Unmarshal(payload, &decoded); err != nil {
-					return writeJSONError(cmd, fmt.Errorf("decode export payload: %w", err))
-				}
-				return writeJSONSuccess(cmd, map[string]any{
+				out := map[string]any{
 					"cr_id":          id,
 					"format":         bundle.Format,
 					"schema_version": bundle.SchemaVersion,
 					"includes":       stringSliceOrEmpty(bundle.Includes),
-					"bundle":         decoded,
-				})
+				}
+				if strings.EqualFold(bundle.Format, serviceExportFormatJSON) {
+					var decoded any
+					if err := json.Unmarshal(payload, &decoded); err != nil {
+						return writeJSONError(cmd, fmt.Errorf("decode export payload: %w", err))
+					}
+					out["bundle"] = decoded
+				} else {
+					out["bundle"] = bundle
+					out["payload_text"] = string(payload)
+				}
+				return writeJSONSuccess(cmd, out)
 			}
 
 			if len(payload) > 0 {
@@ -100,9 +106,11 @@ func newCRExportCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&format, "format", "json", "Export format (currently: json)")
-	cmd.Flags().StringSliceVar(&include, "include", nil, "Optional sections to include (supported: diffs)")
+	cmd.Flags().StringVar(&format, "format", "json", "Export format: json, yaml, or ndjson")
+	cmd.Flags().StringSliceVar(&include, "include", nil, "Optional sections to include (supported: anchors,checkpoints,diffs,evidence,events,trust,validation)")
 	cmd.Flags().StringVar(&outPath, "out", "", "Output path for bundle file (stdout when omitted)")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "Output in JSON format")
 	return cmd
 }
+
+const serviceExportFormatJSON = "json"

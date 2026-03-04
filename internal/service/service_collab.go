@@ -34,6 +34,7 @@ type ImportCRBundleOptions struct {
 	FilePath string
 	Mode     string
 	Preview  bool
+	Format   string
 }
 
 type ImportCRBundleResult struct {
@@ -260,15 +261,15 @@ func (s *Service) importCRBundleUnlocked(opts ImportCRBundleOptions) (*ImportCRB
 	if err != nil {
 		return nil, fmt.Errorf("read import bundle %q: %w", path, err)
 	}
-	var bundle CRExportBundle
-	if err := json.Unmarshal(raw, &bundle); err != nil {
+	bundle, err := decodeExportBundlePayload(raw, path, opts.Format)
+	if err != nil {
 		return nil, fmt.Errorf("decode import bundle: %w", err)
 	}
 	if strings.TrimSpace(bundle.SchemaVersion) != exportSchemaV1 {
 		return nil, fmt.Errorf("invalid bundle schema_version %q (expected %s)", strings.TrimSpace(bundle.SchemaVersion), exportSchemaV1)
 	}
 
-	imported, err := crFromImportBundle(&bundle)
+	imported, err := crFromImportBundle(bundle)
 	if err != nil {
 		return nil, err
 	}
