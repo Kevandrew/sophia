@@ -140,6 +140,21 @@ func TestCRContractSetDryRunAndAlreadyAppliedJSON(t *testing.T) {
 	if alreadyApplied, _ := dryEnv.Data["already_applied"].(bool); alreadyApplied {
 		t.Fatalf("expected already_applied=false on dry-run change, got %#v", dryEnv.Data["already_applied"])
 	}
+	if _, ok := dryEnv.Data["scope_changed"]; !ok {
+		t.Fatalf("expected additive scope_changed field, got %#v", dryEnv.Data)
+	}
+	if _, ok := dryEnv.Data["baseline_frozen"]; !ok {
+		t.Fatalf("expected additive baseline_frozen field, got %#v", dryEnv.Data)
+	}
+	if _, ok := dryEnv.Data["drift_recorded"]; !ok {
+		t.Fatalf("expected additive drift_recorded field, got %#v", dryEnv.Data)
+	}
+	if _, ok := dryEnv.Data["drift_id"]; !ok {
+		t.Fatalf("expected additive drift_id field, got %#v", dryEnv.Data)
+	}
+	if _, ok := dryEnv.Data["drift_ack_required"]; !ok {
+		t.Fatalf("expected additive drift_ack_required field, got %#v", dryEnv.Data)
+	}
 
 	afterDryRun, err := svc.GetCRContract(cr.ID)
 	if err != nil {
