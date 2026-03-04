@@ -38,6 +38,26 @@ sophia cr task contract set [<cr-id>|<cr-uid>] <task-id> \
   --scope <prefix>
 ```
 
+### Updating CR scope before vs after first checkpoint
+
+- Before first checkpoint freeze: update scope directly.
+- After first checkpoint freeze: scope edits require an explicit reason and create a CR drift record that must be acknowledged.
+
+```bash
+# Before first checkpoint
+sophia cr contract set [<cr-id>|<cr-uid>] --scope internal/service --scope internal/cli
+
+# After first checkpoint (required reason)
+sophia cr contract set [<cr-id>|<cr-uid>] \
+  --scope internal/service \
+  --scope internal/cli \
+  --change-reason "Expanded scope for validated follow-up work"
+
+# Review + acknowledge pending CR scope drifts
+sophia cr contract drift list <cr-id>
+sophia cr contract drift ack <cr-id> <drift-id> --reason "Accepted scope update"
+```
+
 ## Checkpoint scope modes (decision guide)
 
 Use exactly one completion scope mode per `task done` call:

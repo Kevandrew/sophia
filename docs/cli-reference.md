@@ -92,6 +92,11 @@ sophia cr add "<title>" --description "<why>"
 sophia cr contract set [<cr-id>|<cr-uid>] --why "..." --scope <prefix>
 sophia cr task add [<cr-id>|<cr-uid>] "<task>"
 sophia cr task contract set [<cr-id>|<cr-uid>] <task-id> --intent "..." --acceptance "..." --scope <prefix>
+
+# Post-first-checkpoint scope update flow
+sophia cr contract set [<cr-id>|<cr-uid>] --scope <prefix> --change-reason "..."
+sophia cr contract drift list <cr-id>
+sophia cr contract drift ack <cr-id> <drift-id> --reason "..."
 ```
 
 `sophia cr add` supports no-init entry. In an uninitialized Git repository, it lazily bootstraps local metadata and proceeds.
