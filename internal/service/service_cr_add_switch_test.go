@@ -1,6 +1,8 @@
 package service
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -129,5 +131,29 @@ func TestAddCRRejectsInvalidAliasCombinations(t *testing.T) {
 		BranchAlias: "cr-bad-suffix-a1b2c",
 	}); err == nil {
 		t.Fatalf("expected v2 suffix length validation error")
+	}
+}
+
+func TestAddCRRejectsNegativeParentWithoutLazyBootstrap(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	runGit(t, dir, "init", "-b", "main")
+
+	svc := New(dir)
+	if svc.store.IsInitialized() {
+		t.Fatalf("expected uninitialized metadata store before invalid add")
+	}
+
+	if _, _, err := svc.AddCRWithOptionsWithWarnings("Bad parent", "negative", AddCROptions{
+		ParentCRID: -1,
+	}); err == nil || !strings.Contains(err.Error(), "--parent must be >= 1") {
+		t.Fatalf("expected parent lower bound error, got %v", err)
+	}
+
+	if svc.store.IsInitialized() {
+		t.Fatalf("expected invalid add request to avoid lazy bootstrap")
+	}
+	if _, err := os.Stat(filepath.Join(localMetadataDir(t, dir), "config.yaml")); !os.IsNotExist(err) {
+		t.Fatalf("expected shared metadata config to remain absent, err=%v", err)
 	}
 }
