@@ -1,0 +1,95 @@
+schema_version: sophia.cr_archive.v1
+notice: Historical archive snapshot. Corrections are append-only revisions.
+archived_at: "2026-03-04T17:41:27Z"
+revision: 1
+cr:
+    id: 102
+    uid: cr_2d2118ce-ac29-455f-9a36-5d65aa78ab04
+    title: Normalize add switch state model in AddCROptions
+    description: Remove contradictory Switch/NoSwitch option state by normalizing to one internal switch decision at add-entry.
+    status: merged
+    base_branch: main
+    base_ref: main
+    base_commit: 6d88de135b26da526287274ec43c5b1c0fe13c83
+    branch: cr-normalize-add-switch-state-model-in-addcroptions-2d21
+    merged_at: "2026-03-04T17:41:27Z"
+    merged_by: Kevandrew <143258544+Kevandrew@users.noreply.github.com>
+contract:
+    why: The current add flow represents one switch decision using two booleans (Switch and NoSwitch), which expands state combinations and requires precedence logic. This increases accidental complexity and makes add-related call sites harder to reason about. This CR simplifies that by introducing a single internal switch decision and normalizing legacy fields once at the add boundary while keeping user-visible behavior unchanged.
+    scope:
+        - internal/cli/cr_cmd_core.go
+        - internal/cli/cr_json_branch_ops_test.go
+        - internal/cli/json_surface_expansion_test.go
+        - internal/service/cr/add.go
+        - internal/service/service.go
+        - internal/service/service_cr.go
+        - internal/service/service_cr_add_switch_test.go
+    non_goals:
+        - Do not change CLI flags or defaults.
+        - Do not redesign non-add command option models.
+    invariants:
+        - Service-level AddCR convenience behavior remains compatible for existing callers.
+        - sophia cr add default remains no-switch unless --switch is provided.
+    blast_radius: Add options parsing/normalization path, switch decision plumbing, and add-related tests touching switch semantics.
+    risk_tier_hint: medium
+    risk_rationale: Touches a core CR intake path and default behavior interpretation.
+    test_plan: go test ./internal/service ./internal/cli
+    rollback_plan: Revert the merge commit for this CR to restore prior add option semantics.
+tasks:
+    - id: 1
+      title: Introduce canonical internal switch decision for add options
+      status: done
+      contract:
+        intent: Derive one canonical switch decision at service entry and eliminate contradictory branching in add flow.
+        acceptance_criteria:
+            - Add flow evaluates switch behavior through one normalized internal decision.
+            - Legacy option fields remain accepted for compatibility.
+        scope:
+            - internal/service/cr/add.go
+            - internal/service/service_cr.go
+      checkpoint:
+        commit: 03428ccc
+        at: "2026-03-04T17:37:47Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_cr.go
+    - id: 2
+      title: Update add callers and tests for normalized switch semantics
+      status: done
+      contract:
+        intent: Adjust add callers/tests to assert normalized semantics without contradictory combinations.
+        acceptance_criteria:
+            - Relevant service and CLI tests pass with unchanged user-facing behavior.
+        scope:
+            - internal/cli/cr_json_branch_ops_test.go
+            - internal/service/service_cr_add_switch_test.go
+      checkpoint:
+        commit: 816f9beb
+        at: "2026-03-04T17:38:07Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/cr_json_branch_ops_test.go
+            - internal/service/service_cr_add_switch_test.go
+    - id: 3
+      title: Lock compatibility for add switch UX and JSON output
+      status: done
+      contract:
+        intent: Prevent regressions in add switch output and JSON flags while simplifying internals.
+        acceptance_criteria:
+            - Text output and JSON switched field semantics remain unchanged.
+        scope:
+            - internal/cli/cr_cmd_core.go
+            - internal/cli/json_surface_expansion_test.go
+      checkpoint:
+        commit: 01b6c9b9
+        at: "2026-03-04T17:38:42Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/cr_cmd_core.go
+            - internal/cli/json_surface_expansion_test.go
+git_summary:
+    base_parent: 6d88de135b26da526287274ec43c5b1c0fe13c83
+    cr_parent: 01b6c9b963d479febce704c62ad557df828d3106
+    files_changed: []
+    diffstat:
+        summary: 0 files changed, 0 insertions(+), 0 deletions(-)
