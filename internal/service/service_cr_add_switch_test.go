@@ -98,6 +98,19 @@ func TestAddCRRejectsInvalidAliasCombinations(t *testing.T) {
 		t.Fatalf("Init() error = %v", err)
 	}
 
+	if _, _, err := svc.AddCRWithOptionsWithWarnings("Bad parent", "negative", AddCROptions{
+		ParentCRID: -1,
+	}); err == nil || !strings.Contains(err.Error(), "--parent must be >= 1") {
+		t.Fatalf("expected parent lower bound error, got %v", err)
+	}
+
+	if _, _, err := svc.AddCRWithOptionsWithWarnings("Bad combo", "conflict", AddCROptions{
+		BaseRef:    "main",
+		ParentCRID: 1,
+	}); err == nil || !strings.Contains(err.Error(), "--base and --parent cannot be combined") {
+		t.Fatalf("expected --base/--parent conflict error, got %v", err)
+	}
+
 	if _, _, err := svc.AddCRWithOptionsWithWarnings("Bad alias", "mismatch", AddCROptions{
 		BranchAlias: "cr-99-not-this-id",
 	}); err == nil {
@@ -108,8 +121,8 @@ func TestAddCRRejectsInvalidAliasCombinations(t *testing.T) {
 		BranchAlias:    "cr-1-bad-combo",
 		OwnerPrefix:    "kevandrew",
 		OwnerPrefixSet: true,
-	}); err == nil {
-		t.Fatalf("expected branch-alias/owner-prefix conflict error")
+	}); err == nil || !strings.Contains(err.Error(), "--branch-alias and --owner-prefix cannot be combined") {
+		t.Fatalf("expected branch-alias/owner-prefix conflict error, got %v", err)
 	}
 
 	if _, _, err := svc.AddCRWithOptionsWithWarnings("Bad v2 suffix", "unsupported length", AddCROptions{

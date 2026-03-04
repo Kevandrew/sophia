@@ -25,6 +25,20 @@ func TestCRAddRejectsBaseAndParentTogether(t *testing.T) {
 	}
 }
 
+func TestCRAddRejectsNegativeParent(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	svc := service.New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	_, _, err := runCLI(t, dir, "cr", "add", "Bad parent", "--parent", "-1")
+	if err == nil || !strings.Contains(err.Error(), "--parent must be >= 1") {
+		t.Fatalf("expected --parent lower bound error, got %v", err)
+	}
+}
+
 func TestCRAddDefaultsToNoSwitchAndSupportsSwitchFlag(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
