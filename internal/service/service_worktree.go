@@ -83,7 +83,7 @@ func (s *Service) rebaseBranchOnto(branch, ontoRef string) error {
 			return branchErr
 		}
 		if strings.TrimSpace(currentBranch) != branch {
-			return s.newBranchInOtherWorktreeError(0, branch, owner.Path, "rebase_branch", "sophia cr branch resolve --branch "+branch)
+			return s.newBranchInOtherWorktreeError(0, branch, owner.Path, "rebase_branch", "")
 		}
 		return rebaseGit.RebaseCurrentBranchOnto(ontoRef)
 	}
@@ -125,7 +125,7 @@ func (s *Service) resolveBranchWorktreeContext(crID int, branch, command string)
 		if crID > 0 {
 			command = fmt.Sprintf("sophia cr switch %d", crID)
 		} else if branch != "" {
-			command = "sophia cr branch resolve --branch " + branch
+			command = branchResolveCommand(branch)
 		}
 	}
 	currentPath := strings.TrimSpace(s.git.WorkDir)
@@ -152,12 +152,17 @@ func (s *Service) resolveBranchWorktreeContext(crID int, branch, command string)
 func (s *Service) newBranchInOtherWorktreeError(crID int, branch, ownerPath, operation, command string) error {
 	branch = strings.TrimSpace(branch)
 	ownerPath = strings.TrimSpace(ownerPath)
+	if crID <= 0 && branch != "" {
+		if resolvedCRID, err := s.ResolveCRID(branch); err == nil && resolvedCRID > 0 {
+			crID = resolvedCRID
+		}
+	}
 	command = strings.TrimSpace(command)
 	if command == "" {
 		if crID > 0 {
 			command = fmt.Sprintf("sophia cr switch %d", crID)
 		} else if branch != "" {
-			command = "sophia cr branch resolve --branch " + branch
+			command = branchResolveCommand(branch)
 		}
 	}
 	return &BranchInOtherWorktreeError{
@@ -179,7 +184,22 @@ func withWorktreePathPrefix(worktreePath, command string) string {
 	if worktreePath == "" {
 		return command
 	}
-	return fmt.Sprintf("cd %q && %s", worktreePath, command)
+	return fmt.Sprintf("cd %s && %s", shellQuote(worktreePath), command)
+}
+
+func branchResolveCommand(branch string) string {
+	branch = strings.TrimSpace(branch)
+	if branch == "" {
+		return "sophia cr branch resolve"
+	}
+	return "sophia cr branch resolve --branch " + shellQuote(branch)
+}
+
+func shellQuote(value string) string {
+	if value == "" {
+		return "''"
+	}
+	return "'" + strings.ReplaceAll(value, "'", `'"'"'`) + "'"
 }
 
 func (s *Service) effectiveMergeGitForCR(cr *model.CR) (mergeRuntimeGit, string, error) {
