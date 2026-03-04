@@ -1,0 +1,57 @@
+schema_version: sophia.cr_archive.v1
+notice: Historical archive snapshot. Corrections are append-only revisions.
+archived_at: "2026-03-04T16:42:55Z"
+revision: 1
+cr:
+    id: 121
+    uid: cr_e4d289c4-a431-4512-a37e-fe1c344a45b5
+    title: Filter abandoned CRs from default cr show dashboard
+    description: Hide abandoned CRs from default dashboard view while keeping explicit --status abandoned behavior available.
+    status: merged
+    base_branch: main
+    base_ref: main
+    base_commit: 3ec369f31d646a0d365eb16d3ec32855946f9827
+    branch: cr-filter-abandoned-crs-from-default-cr-show-dashbo-e4d2
+    merged_at: "2026-03-04T16:42:55Z"
+    merged_by: Kevandrew <143258544+Kevandrew@users.noreply.github.com>
+contract:
+    why: Default cr show dashboard currently includes abandoned CRs in the active list, which adds noise for day-to-day navigation. We want default dashboard behavior to focus on in-progress + merged CRs while still allowing operators to explicitly view abandoned CRs when needed via --status abandoned.
+    scope:
+        - internal/cli
+        - internal/cli/templates
+        - internal/service
+    non_goals:
+        - Do not remove support for --status abandoned.
+    invariants:
+        - Change remains additive/non-breaking for explicit abandoned filtering.
+        - Status filtering remains explicit and deterministic when --status is provided.
+    blast_radius: cr show dashboard filtering path and active/merged grouping behavior.
+    test_plan: go test ./internal/cli ./internal/service && go test ./...
+    rollback_plan: Revert CR-121 merge commit.
+tasks:
+    - id: 1
+      title: Default dashboard excludes abandoned CRs unless status filter explicitly requests them
+      status: done
+      contract:
+        intent: Implement default cr show dashboard filtering so abandoned CRs are hidden unless --status abandoned is explicitly requested.
+        acceptance_criteria:
+            - cr show --status abandoned still returns abandoned CR rows.
+            - cr show dashboard default view does not include abandoned CRs in active or merged buckets.
+            - existing explicit status filters remain deterministic and backwards compatible.
+        scope:
+            - internal/cli/cr_cmd_show.go
+            - internal/cli/cr_show_test.go
+            - internal/cli/templates/cr_list.html
+      checkpoint:
+        commit: e8a747ee
+        at: "2026-03-04T16:40:17Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/cr_cmd_show.go
+            - internal/cli/cr_show_test.go
+git_summary:
+    base_parent: 3ec369f31d646a0d365eb16d3ec32855946f9827
+    cr_parent: e8a747eeade1439d9a95dc3489d31ecfeb3562a0
+    files_changed: []
+    diffstat:
+        summary: 0 files changed, 0 insertions(+), 0 deletions(-)

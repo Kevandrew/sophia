@@ -232,10 +232,36 @@ func TestBuildCRShowSnapshotIncludesStaleAndAbandonedLifecycleMetadata(t *testin
 	if err != nil {
 		t.Fatalf("buildCRDashboardSnapshot() after abandon error = %v", err)
 	}
-	if selectedID != cr.ID {
-		t.Fatalf("expected selected id %d after abandon, got %d", cr.ID, selectedID)
+	if selectedID != 0 {
+		t.Fatalf("expected no selected id after default dashboard filtering, got %d", selectedID)
 	}
 	selected := mapStringAny(payload["selected_cr"])
+	if len(selected) != 0 {
+		t.Fatalf("expected selected_cr to be empty when abandoned is default-filtered, got %#v", selected)
+	}
+	rows, ok := payload["crs"].([]map[string]any)
+	if !ok {
+		t.Fatalf("expected crs payload array, got %#v", payload["crs"])
+	}
+	if len(rows) != 0 {
+		t.Fatalf("expected no dashboard rows after default filtering, got %d", len(rows))
+	}
+	timeline, ok := payload["timeline"].([]map[string]any)
+	if !ok {
+		t.Fatalf("expected timeline payload array, got %#v", payload["timeline"])
+	}
+	if len(timeline) != 0 {
+		t.Fatalf("expected no timeline entries after default filtering, got %d", len(timeline))
+	}
+
+	payload, selectedID, err = buildCRDashboardSnapshot(svc, model.CRSearchQuery{Status: model.StatusAbandoned}, defaultCRListLimit, defaultCRTimelineLimit, cr.ID)
+	if err != nil {
+		t.Fatalf("buildCRDashboardSnapshot() with abandoned filter error = %v", err)
+	}
+	if selectedID != cr.ID {
+		t.Fatalf("expected selected id %d when status=abandoned, got %d", cr.ID, selectedID)
+	}
+	selected = mapStringAny(payload["selected_cr"])
 	if got, _ := selected["status"].(string); got != "abandoned" {
 		t.Fatalf("expected selected status=abandoned, got %#v", selected["status"])
 	}
@@ -244,6 +270,65 @@ func TestBuildCRShowSnapshotIncludesStaleAndAbandonedLifecycleMetadata(t *testin
 	}
 	if got, _ := selected["action_required"].(string); got != "reopen_cr" {
 		t.Fatalf("expected action_required=reopen_cr for abandoned CR, got %#v", selected["action_required"])
+	}
+}
+
+func TestCRShowDashboardJSONDefaultExcludesAbandonedInCounts(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	svc := service.New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	if _, _, err := svc.AddCRWithOptionsWithWarnings("Dashboard active CR", "default dashboard result", service.AddCROptions{NoSwitch: true}); err != nil {
+		t.Fatalf("AddCRWithOptionsWithWarnings(active) error = %v", err)
+	}
+	abandoned, _, err := svc.AddCRWithOptionsWithWarnings("Dashboard abandoned CR", "explicit abandoned status filter result", service.AddCROptions{NoSwitch: true})
+	if err != nil {
+		t.Fatalf("AddCRWithOptionsWithWarnings(abandoned) error = %v", err)
+	}
+	if _, err := svc.AbandonCR(abandoned.ID, service.CRAbandonOptions{Reason: "deferred"}); err != nil {
+		t.Fatalf("AbandonCR() error = %v", err)
+	}
+
+	out, _, runErr := runCLI(t, dir, "cr", "show", "--dashboard", "--json", "--no-open")
+	if runErr != nil {
+		t.Fatalf("cr show --dashboard --json --no-open error = %v\noutput=%s", runErr, out)
+	}
+	env := decodeEnvelope(t, out)
+	if !env.OK {
+		t.Fatalf("expected ok envelope, got %#v", env)
+	}
+	countsRaw, ok := env.Data["counts"]
+	if !ok {
+		t.Fatalf("expected counts in response payload, got %#v", env.Data)
+	}
+	counts, ok := countsRaw.(map[string]any)
+	if !ok {
+		t.Fatalf("expected counts object, got %#v", countsRaw)
+	}
+	if got := int(jsonNumberField(t, counts, "list_total")); got != 1 {
+		t.Fatalf("expected list_total=1 with default abandoned exclusion, got %d", got)
+	}
+
+	out, _, runErr = runCLI(t, dir, "cr", "show", "--dashboard", "--status", "abandoned", "--json", "--no-open")
+	if runErr != nil {
+		t.Fatalf("cr show --dashboard --status abandoned --json --no-open error = %v\noutput=%s", runErr, out)
+	}
+	env = decodeEnvelope(t, out)
+	if !env.OK {
+		t.Fatalf("expected ok envelope for --status abandoned, got %#v", env)
+	}
+	countsRaw, ok = env.Data["counts"]
+	if !ok {
+		t.Fatalf("expected counts in abandoned response payload, got %#v", env.Data)
+	}
+	counts, ok = countsRaw.(map[string]any)
+	if !ok {
+		t.Fatalf("expected counts object for abandoned response, got %#v", countsRaw)
+	}
+	if got := int(jsonNumberField(t, counts, "list_total")); got != 1 {
+		t.Fatalf("expected list_total=1 for status=abandoned, got %d", got)
 	}
 }
 
