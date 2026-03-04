@@ -379,6 +379,9 @@ func buildCRDashboardSnapshot(svc *service.Service, query model.CRSearchQuery, l
 	if err != nil {
 		return nil, 0, err
 	}
+	if strings.TrimSpace(query.Status) == "" {
+		results = filterDashboardResultsDefaultStatus(results)
+	}
 	allCRs, err := svc.ListCRs()
 	if err != nil {
 		return nil, 0, err
@@ -531,6 +534,20 @@ func buildCRDashboardSnapshot(svc *service.Service, query model.CRSearchQuery, l
 	}
 
 	return payload, selectedCRID, nil
+}
+
+func filterDashboardResultsDefaultStatus(results []model.CRSearchResult) []model.CRSearchResult {
+	if len(results) == 0 {
+		return results
+	}
+	filtered := make([]model.CRSearchResult, 0, len(results))
+	for _, result := range results {
+		if strings.TrimSpace(result.Status) == model.StatusAbandoned {
+			continue
+		}
+		filtered = append(filtered, result)
+	}
+	return filtered
 }
 
 type dashboardTimelineEntry struct {
