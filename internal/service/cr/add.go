@@ -60,11 +60,6 @@ func NormalizeSwitchFlags(mode string, noSwitch, switchFlag bool) (string, bool,
 	return SwitchModeSwitch, false, true
 }
 
-func ShouldSwitch(noSwitch, switchFlag bool) bool {
-	_, _, switchBranch := NormalizeSwitchFlags("", noSwitch, switchFlag)
-	return switchBranch
-}
-
 func BuildCR(input BuildInput) *model.CR {
 	return &model.CR{
 		ID:          input.ID,

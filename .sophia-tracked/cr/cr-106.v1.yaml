@@ -1,0 +1,91 @@
+schema_version: sophia.cr_archive.v1
+notice: Historical archive snapshot. Corrections are append-only revisions.
+archived_at: "2026-03-04T17:59:40Z"
+revision: 1
+cr:
+    id: 106
+    uid: cr_9e1e4384-4806-419a-aa84-710c6d8ee830
+    title: Flatten low-value cr add helper indirection
+    description: Inline trivial add option-mapping and keep helper packages only for behaviorally meaningful domain logic.
+    status: merged
+    base_branch: main
+    base_ref: main
+    base_commit: 379c35eadfa48a065cd65b0df0b39f878375ee05
+    branch: cr-flatten-low-value-cr-add-helper-indirection-9e1e
+    merged_at: "2026-03-04T17:59:40Z"
+    merged_by: Kevandrew <143258544+Kevandrew@users.noreply.github.com>
+contract:
+    why: The add path currently uses multi-hop helper indirection for simple option mapping and tiny wrappers, increasing navigation cost without meaningful abstraction value. This CR flattens low-value helper layers while keeping behavior and output stable.
+    scope:
+        - internal/cli/cr/helpers.go
+        - internal/cli/cr_cmd_core.go
+        - internal/cli/cr_json_branch_ops_test.go
+        - internal/service/cr/add.go
+        - internal/service/service_cr.go
+    non_goals:
+        - Do not change add command behavior or output contracts.
+        - Do not flatten helpers used by unrelated command families.
+    invariants:
+        - Any retained helper must represent non-trivial reusable behavior.
+        - Option normalization remains functionally identical for add inputs.
+    blast_radius: CLI add option-mapping path and tiny service/add helper boundaries.
+    risk_tier_hint: low
+    risk_rationale: Refactor targets low-level indirection with behavior held constant.
+    test_plan: go test ./internal/cli ./internal/service
+    rollback_plan: Revert the merge commit for this CR to restore previous helper layering.
+tasks:
+    - id: 1
+      title: Inline trivial add option mapping at call sites
+      status: done
+      contract:
+        intent: Remove redundant option-mapping hops for add command wiring.
+        acceptance_criteria:
+            - Add command path maps flags to service options in one direct step.
+        scope:
+            - internal/cli/cr/helpers.go
+            - internal/cli/cr_cmd_core.go
+      checkpoint:
+        commit: 23b2f307
+        at: "2026-03-04T17:57:14Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/cr_cmd_core.go
+    - id: 2
+      title: Retain only meaningful reusable add-domain helpers
+      status: done
+      contract:
+        intent: Keep helper boundaries only where they encode reusable behavioral rules.
+        acceptance_criteria:
+            - Low-value wrapper helpers are removed or folded into owning files.
+        scope:
+            - internal/service/cr/add.go
+            - internal/service/service_cr.go
+      checkpoint:
+        commit: a1ae482b
+        at: "2026-03-04T17:57:23Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/cr/add.go
+            - internal/service/service_cr.go
+    - id: 3
+      title: Protect behavior parity with focused regression tests
+      status: done
+      contract:
+        intent: Ensure helper flattening does not alter add outputs or validation behavior.
+        acceptance_criteria:
+            - Existing add-path test suite remains green without expected output changes.
+        scope:
+            - internal/cli/cr_json_branch_ops_test.go
+            - internal/cli/helpers_test.go
+      checkpoint:
+        commit: 475465f6
+        at: "2026-03-04T17:57:33Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/cr_json_branch_ops_test.go
+git_summary:
+    base_parent: 379c35eadfa48a065cd65b0df0b39f878375ee05
+    cr_parent: 475465f6e2a03d99c22fc05e2d78029b3e03eaba
+    files_changed: []
+    diffstat:
+        summary: 0 files changed, 0 insertions(+), 0 deletions(-)

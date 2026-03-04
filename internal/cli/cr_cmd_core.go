@@ -3,7 +3,6 @@ package cli
 import (
 	"fmt"
 	"io"
-	clicr "sophia/internal/cli/cr"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -20,17 +19,6 @@ type crAddRenderOptions struct {
 }
 
 type crAddParentResolver func(*service.Service) (int, error)
-
-func buildAddCROptions(baseRef string, parentCRID int, switchBranch bool, branchAlias string, ownerPrefix string, ownerPrefixSet bool) service.AddCROptions {
-	return clicr.BuildAddCROptions(clicr.AddOptionsInput{
-		BaseRef:        baseRef,
-		ParentCRID:     parentCRID,
-		SwitchBranch:   switchBranch,
-		BranchAlias:    branchAlias,
-		OwnerPrefix:    ownerPrefix,
-		OwnerPrefixSet: ownerPrefixSet,
-	})
-}
 
 func runCRAddFlow(
 	cmd *cobra.Command,
@@ -109,7 +97,15 @@ func runCRAddCommand(
 		}
 	}
 
-	opts := buildAddCROptions(baseRef, parentCRID, switchBranch, branchAlias, ownerPrefix, cmd.Flags().Changed("owner-prefix"))
+	opts := service.AddCROptions{
+		BaseRef:        strings.TrimSpace(baseRef),
+		ParentCRID:     parentCRID,
+		Switch:         switchBranch,
+		NoSwitch:       !switchBranch,
+		BranchAlias:    strings.TrimSpace(branchAlias),
+		OwnerPrefix:    strings.TrimSpace(ownerPrefix),
+		OwnerPrefixSet: cmd.Flags().Changed("owner-prefix"),
+	}
 	opts = service.NormalizeCLIAddCROptions(opts)
 	resolvedSwitch := opts.Switch
 	return runCRAddFlow(cmd, asJSON, svc, title, description, opts, crAddRenderOptions{
