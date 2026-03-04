@@ -784,118 +784,23 @@ func decodeExportBundleNDJSON(raw []byte) (*CRExportBundle, error) {
 		if err != nil {
 			return nil, fmt.Errorf("decode ndjson line %d: %w", lineNo, err)
 		}
-		switch recordType {
-		case "meta":
-			if _, exists := seenSingleton[recordType]; exists {
-				return nil, fmt.Errorf("decode ndjson line %d: duplicate record type %q", lineNo, recordType)
-			}
-			if err := decodeNDJSONMeta(payload, &bundle); err != nil {
-				return nil, fmt.Errorf("decode ndjson line %d: %w", lineNo, err)
-			}
-			seenSingleton[recordType] = struct{}{}
-			hasMeta = true
-		case "doc":
-			if _, exists := seenSingleton[recordType]; exists {
-				return nil, fmt.Errorf("decode ndjson line %d: duplicate record type %q", lineNo, recordType)
-			}
-			doc, err := decodeNDJSONValue[CRDoc](payload)
-			if err != nil {
-				return nil, fmt.Errorf("decode ndjson line %d: %w", lineNo, err)
-			}
-			bundle.Doc = &doc
-			seenSingleton[recordType] = struct{}{}
-		case "cr":
-			if _, exists := seenSingleton[recordType]; exists {
-				return nil, fmt.Errorf("decode ndjson line %d: duplicate record type %q", lineNo, recordType)
-			}
-			cr, err := decodeNDJSONValue[model.CR](payload)
-			if err != nil {
-				return nil, fmt.Errorf("decode ndjson line %d: %w", lineNo, err)
-			}
-			bundle.CR = &cr
-			seenSingleton[recordType] = struct{}{}
-		case "cr_yaml":
-			if _, exists := seenSingleton[recordType]; exists {
-				return nil, fmt.Errorf("decode ndjson line %d: duplicate record type %q", lineNo, recordType)
-			}
-			value, err := decodeNDJSONValue[string](payload)
-			if err != nil {
-				return nil, fmt.Errorf("decode ndjson line %d: %w", lineNo, err)
-			}
-			bundle.CRYAML = value
-			seenSingleton[recordType] = struct{}{}
-		case "derived":
-			if _, exists := seenSingleton[recordType]; exists {
-				return nil, fmt.Errorf("decode ndjson line %d: duplicate record type %q", lineNo, recordType)
-			}
-			value, err := decodeNDJSONValue[CRExportDerived](payload)
-			if err != nil {
-				return nil, fmt.Errorf("decode ndjson line %d: %w", lineNo, err)
-			}
-			bundle.Derived = value
-			seenSingleton[recordType] = struct{}{}
-		case "anchors":
-			if _, exists := seenSingleton[recordType]; exists {
-				return nil, fmt.Errorf("decode ndjson line %d: duplicate record type %q", lineNo, recordType)
-			}
-			value, err := decodeNDJSONValue[CRExportAnchors](payload)
-			if err != nil {
-				return nil, fmt.Errorf("decode ndjson line %d: %w", lineNo, err)
-			}
-			bundle.Anchors = &value
-			seenSingleton[recordType] = struct{}{}
-		case "checkpoints":
-			if _, exists := seenSingleton[recordType]; exists {
-				return nil, fmt.Errorf("decode ndjson line %d: duplicate record type %q", lineNo, recordType)
-			}
-			value, err := decodeNDJSONValue[[]CRExportCheckpoint](payload)
-			if err != nil {
-				return nil, fmt.Errorf("decode ndjson line %d: %w", lineNo, err)
-			}
-			bundle.Checkpoints = value
-			seenSingleton[recordType] = struct{}{}
-		case "referenced_commits":
-			if _, exists := seenSingleton[recordType]; exists {
-				return nil, fmt.Errorf("decode ndjson line %d: duplicate record type %q", lineNo, recordType)
-			}
-			value, err := decodeNDJSONValue[[]string](payload)
-			if err != nil {
-				return nil, fmt.Errorf("decode ndjson line %d: %w", lineNo, err)
-			}
-			bundle.ReferencedCommits = value
-			seenSingleton[recordType] = struct{}{}
-		case "evidence":
-			if _, exists := seenSingleton[recordType]; exists {
-				return nil, fmt.Errorf("decode ndjson line %d: duplicate record type %q", lineNo, recordType)
-			}
-			value, err := decodeNDJSONValue[[]model.EvidenceEntry](payload)
-			if err != nil {
-				return nil, fmt.Errorf("decode ndjson line %d: %w", lineNo, err)
-			}
-			bundle.Evidence = value
-			seenSingleton[recordType] = struct{}{}
-		case "task_diffs":
-			if _, exists := seenSingleton[recordType]; exists {
-				return nil, fmt.Errorf("decode ndjson line %d: duplicate record type %q", lineNo, recordType)
-			}
-			value, err := decodeNDJSONValue[[]CRExportTaskDiff](payload)
-			if err != nil {
-				return nil, fmt.Errorf("decode ndjson line %d: %w", lineNo, err)
-			}
-			bundle.TaskDiffs = value
-			seenSingleton[recordType] = struct{}{}
-		case "sections":
-			if _, exists := seenSingleton[recordType]; exists {
-				return nil, fmt.Errorf("decode ndjson line %d: duplicate record type %q", lineNo, recordType)
-			}
-			value, err := decodeNDJSONValue[CRExportSections](payload)
-			if err != nil {
-				return nil, fmt.Errorf("decode ndjson line %d: %w", lineNo, err)
-			}
-			bundle.Sections = &value
-			seenSingleton[recordType] = struct{}{}
-		default:
+		decoder, ok := ndjsonRecordDecoders[recordType]
+		if !ok {
 			return nil, fmt.Errorf("decode ndjson line %d: unsupported record type %q", lineNo, recordType)
+		}
+		if decoder.singleton {
+			if _, exists := seenSingleton[recordType]; exists {
+				return nil, fmt.Errorf("decode ndjson line %d: duplicate record type %q", lineNo, recordType)
+			}
+		}
+		if err := decoder.decode(payload, &bundle); err != nil {
+			return nil, fmt.Errorf("decode ndjson line %d: %w", lineNo, err)
+		}
+		if decoder.singleton {
+			seenSingleton[recordType] = struct{}{}
+		}
+		if decoder.marksMeta {
+			hasMeta = true
 		}
 	}
 	if err := scanner.Err(); err != nil {
@@ -912,6 +817,180 @@ func decodeExportBundleNDJSON(raw []byte) (*CRExportBundle, error) {
 		return nil, fmt.Errorf("decode as ndjson: missing schema_version")
 	}
 	return &bundle, nil
+}
+
+type ndjsonRecordDecoder struct {
+	singleton bool
+	marksMeta bool
+	decode    func(map[string]json.RawMessage, *CRExportBundle) error
+}
+
+var ndjsonRecordDecoders = map[string]ndjsonRecordDecoder{
+	"meta": {
+		singleton: true,
+		marksMeta: true,
+		decode:    decodeNDJSONMeta,
+	},
+	"doc": {
+		singleton: true,
+		decode:    decodeNDJSONDocRecord,
+	},
+	"cr": {
+		singleton: true,
+		decode:    decodeNDJSONCRRecord,
+	},
+	"cr_yaml": {
+		singleton: true,
+		decode:    decodeNDJSONCRYAMLRecord,
+	},
+	"derived": {
+		singleton: true,
+		decode:    decodeNDJSONDerivedRecord,
+	},
+	"anchors": {
+		singleton: true,
+		decode:    decodeNDJSONAnchorsRecord,
+	},
+	"checkpoints": {
+		singleton: true,
+		decode:    decodeNDJSONCheckpointsRecord,
+	},
+	"referenced_commits": {
+		singleton: true,
+		decode:    decodeNDJSONReferencedCommitsRecord,
+	},
+	"evidence": {
+		singleton: true,
+		decode:    decodeNDJSONEvidenceRecord,
+	},
+	"task_diffs": {
+		singleton: true,
+		decode:    decodeNDJSONTaskDiffsRecord,
+	},
+	"sections": {
+		singleton: true,
+		decode:    decodeNDJSONSectionsRecord,
+	},
+}
+
+func decodeNDJSONDocRecord(payload map[string]json.RawMessage, bundle *CRExportBundle) error {
+	if bundle == nil {
+		return fmt.Errorf("bundle is required")
+	}
+	doc, err := decodeNDJSONValue[CRDoc](payload)
+	if err != nil {
+		return err
+	}
+	bundle.Doc = &doc
+	return nil
+}
+
+func decodeNDJSONCRRecord(payload map[string]json.RawMessage, bundle *CRExportBundle) error {
+	if bundle == nil {
+		return fmt.Errorf("bundle is required")
+	}
+	cr, err := decodeNDJSONValue[model.CR](payload)
+	if err != nil {
+		return err
+	}
+	bundle.CR = &cr
+	return nil
+}
+
+func decodeNDJSONCRYAMLRecord(payload map[string]json.RawMessage, bundle *CRExportBundle) error {
+	if bundle == nil {
+		return fmt.Errorf("bundle is required")
+	}
+	value, err := decodeNDJSONValue[string](payload)
+	if err != nil {
+		return err
+	}
+	bundle.CRYAML = value
+	return nil
+}
+
+func decodeNDJSONDerivedRecord(payload map[string]json.RawMessage, bundle *CRExportBundle) error {
+	if bundle == nil {
+		return fmt.Errorf("bundle is required")
+	}
+	value, err := decodeNDJSONValue[CRExportDerived](payload)
+	if err != nil {
+		return err
+	}
+	bundle.Derived = value
+	return nil
+}
+
+func decodeNDJSONAnchorsRecord(payload map[string]json.RawMessage, bundle *CRExportBundle) error {
+	if bundle == nil {
+		return fmt.Errorf("bundle is required")
+	}
+	value, err := decodeNDJSONValue[CRExportAnchors](payload)
+	if err != nil {
+		return err
+	}
+	bundle.Anchors = &value
+	return nil
+}
+
+func decodeNDJSONCheckpointsRecord(payload map[string]json.RawMessage, bundle *CRExportBundle) error {
+	if bundle == nil {
+		return fmt.Errorf("bundle is required")
+	}
+	value, err := decodeNDJSONValue[[]CRExportCheckpoint](payload)
+	if err != nil {
+		return err
+	}
+	bundle.Checkpoints = value
+	return nil
+}
+
+func decodeNDJSONReferencedCommitsRecord(payload map[string]json.RawMessage, bundle *CRExportBundle) error {
+	if bundle == nil {
+		return fmt.Errorf("bundle is required")
+	}
+	value, err := decodeNDJSONValue[[]string](payload)
+	if err != nil {
+		return err
+	}
+	bundle.ReferencedCommits = value
+	return nil
+}
+
+func decodeNDJSONEvidenceRecord(payload map[string]json.RawMessage, bundle *CRExportBundle) error {
+	if bundle == nil {
+		return fmt.Errorf("bundle is required")
+	}
+	value, err := decodeNDJSONValue[[]model.EvidenceEntry](payload)
+	if err != nil {
+		return err
+	}
+	bundle.Evidence = value
+	return nil
+}
+
+func decodeNDJSONTaskDiffsRecord(payload map[string]json.RawMessage, bundle *CRExportBundle) error {
+	if bundle == nil {
+		return fmt.Errorf("bundle is required")
+	}
+	value, err := decodeNDJSONValue[[]CRExportTaskDiff](payload)
+	if err != nil {
+		return err
+	}
+	bundle.TaskDiffs = value
+	return nil
+}
+
+func decodeNDJSONSectionsRecord(payload map[string]json.RawMessage, bundle *CRExportBundle) error {
+	if bundle == nil {
+		return fmt.Errorf("bundle is required")
+	}
+	value, err := decodeNDJSONValue[CRExportSections](payload)
+	if err != nil {
+		return err
+	}
+	bundle.Sections = &value
+	return nil
 }
 
 func ndjsonRecordType(payload map[string]json.RawMessage) (string, error) {
