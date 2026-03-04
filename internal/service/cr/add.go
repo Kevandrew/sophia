@@ -26,6 +26,9 @@ func ValidateAddRequest(title, baseRef string, parentCRID int, branchAlias strin
 	if strings.TrimSpace(title) == "" {
 		return errors.New("title cannot be empty")
 	}
+	if parentCRID < 0 {
+		return errors.New("--parent must be >= 1")
+	}
 	if strings.TrimSpace(baseRef) != "" && parentCRID > 0 {
 		return errors.New("--base and --parent cannot be combined")
 	}
