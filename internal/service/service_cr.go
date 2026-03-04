@@ -43,12 +43,7 @@ func (s *Service) addCRWithAdaptedWarnings(title, description string, opts AddCR
 	if err != nil {
 		return nil, nil, err
 	}
-	cr, warnings := adaptAddCRResult(result)
-	return cr, warnings, nil
-}
-
-func adaptAddCRResult(result *AddCRResult) (*model.CR, []string) {
-	return result.CR, append([]string(nil), result.Warnings...)
+	return result.CR, append([]string(nil), result.Warnings...), nil
 }
 
 func normalizeAddCROptionsWithDefault(opts AddCROptions, defaultSwitch bool) AddCROptions {
