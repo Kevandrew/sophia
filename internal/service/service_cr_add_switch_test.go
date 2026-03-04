@@ -108,6 +108,61 @@ func TestAddCRDefaultSwitchParityAcrossWrappers(t *testing.T) {
 	}
 }
 
+func TestAddCRWithOptionsNormalizesLegacySwitchCombinations(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name       string
+		opts       AddCROptions
+		wantSwitch bool
+	}{
+		{
+			name:       "legacy conflicting bools remain switch",
+			opts:       AddCROptions{Switch: true, NoSwitch: true},
+			wantSwitch: true,
+		},
+		{
+			name:       "legacy no flags defaults to switch",
+			opts:       AddCROptions{},
+			wantSwitch: true,
+		},
+		{
+			name:       "legacy explicit no_switch remains no switch",
+			opts:       AddCROptions{NoSwitch: true},
+			wantSwitch: false,
+		},
+	}
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			dir := t.TempDir()
+			svc := New(dir)
+			if _, err := svc.Init("main", ""); err != nil {
+				t.Fatalf("Init() error = %v", err)
+			}
+
+			cr, _, err := svc.AddCRWithOptionsWithWarnings("normalize "+tc.name, "switch semantics", tc.opts)
+			if err != nil {
+				t.Fatalf("AddCRWithOptionsWithWarnings() error = %v", err)
+			}
+			current, err := svc.git.CurrentBranch()
+			if err != nil {
+				t.Fatalf("CurrentBranch() error = %v", err)
+			}
+
+			if tc.wantSwitch {
+				if current != cr.Branch {
+					t.Fatalf("expected switched branch %q, got %q", cr.Branch, current)
+				}
+				return
+			}
+			if current != "main" {
+				t.Fatalf("expected current branch main when no-switch, got %q", current)
+			}
+		})
+	}
+}
+
 func TestAddCRUsesConfiguredOwnerPrefix(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()

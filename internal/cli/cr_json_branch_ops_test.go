@@ -89,6 +89,55 @@ func TestCRAddDefaultsToNoSwitchAndSupportsSwitchFlag(t *testing.T) {
 	}
 }
 
+func TestCRAddJSONSwitchSemanticsRemainCompatible(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	svc := service.New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	out, _, runErr := runCLI(t, dir, "cr", "add", "JSON default no switch", "--json")
+	if runErr != nil {
+		t.Fatalf("cr add --json error = %v\noutput=%s", runErr, out)
+	}
+	env := decodeEnvelope(t, out)
+	if !env.OK {
+		t.Fatalf("expected ok envelope from cr add --json, got %#v", env)
+	}
+	if switched, ok := env.Data["switched"].(bool); !ok || switched {
+		t.Fatalf("expected switched=false for default add, got %#v", env.Data["switched"])
+	}
+	current := runGit(t, dir, "branch", "--show-current")
+	if current != "main" {
+		t.Fatalf("expected to remain on main for default json add, got %q", current)
+	}
+
+	out, _, runErr = runCLI(t, dir, "cr", "add", "JSON switch", "--switch", "--json")
+	if runErr != nil {
+		t.Fatalf("cr add --switch --json error = %v\noutput=%s", runErr, out)
+	}
+	env = decodeEnvelope(t, out)
+	if !env.OK {
+		t.Fatalf("expected ok envelope from cr add --switch --json, got %#v", env)
+	}
+	if switched, ok := env.Data["switched"].(bool); !ok || !switched {
+		t.Fatalf("expected switched=true for --switch json add, got %#v", env.Data["switched"])
+	}
+	crData, ok := env.Data["cr"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected cr payload object, got %#v", env.Data["cr"])
+	}
+	branch, _ := crData["branch"].(string)
+	if strings.TrimSpace(branch) == "" {
+		t.Fatalf("expected branch in cr payload, got %#v", crData)
+	}
+	current = runGit(t, dir, "branch", "--show-current")
+	if current != branch {
+		t.Fatalf("expected switched branch %q, got %q", branch, current)
+	}
+}
+
 func TestCRChildAddDefaultsToNoSwitchAndSupportsSwitchFlag(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
