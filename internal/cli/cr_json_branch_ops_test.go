@@ -150,6 +150,32 @@ func TestCRAddJSONSwitchSemanticsRemainCompatible(t *testing.T) {
 	}
 }
 
+func TestCRAddJSONOwnerPrefixOptionNormalization(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	svc := service.New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	out, _, runErr := runCLI(t, dir, "cr", "add", "Owner prefix trim", "--owner-prefix", "  team  ", "--switch", "--json")
+	if runErr != nil {
+		t.Fatalf("cr add --owner-prefix --switch --json error = %v\noutput=%s", runErr, out)
+	}
+	env := decodeEnvelope(t, out)
+	if !env.OK {
+		t.Fatalf("expected ok envelope from cr add --json, got %#v", env)
+	}
+	crData, ok := env.Data["cr"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected cr payload object, got %#v", env.Data["cr"])
+	}
+	branch, _ := crData["branch"].(string)
+	if !strings.HasPrefix(branch, "team/") {
+		t.Fatalf("expected trimmed owner prefix in branch, got %q", branch)
+	}
+}
+
 func TestCRChildAddDefaultsToNoSwitchAndSupportsSwitchFlag(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
