@@ -1,0 +1,245 @@
+schema_version: sophia.cr_archive.v1
+notice: Historical archive snapshot. Corrections are append-only revisions.
+archived_at: "2026-03-04T16:02:51Z"
+revision: 1
+cr:
+    id: 120
+    uid: cr_25af4b82-8247-48ff-89c2-5a565cff07a1
+    title: Worktree-native CR routing and ownership visibility
+    description: Make CR navigation/status/errors worktree-aware so operators can immediately route to the correct worktree and avoid branch ownership collisions.
+    status: merged
+    base_branch: main
+    base_ref: main
+    base_commit: 84716f4b56ec8a1319463ca459ab887d9cb46f24
+    branch: cr-worktree-native-cr-routing-and-ownership-visibil-25af
+    merged_at: "2026-03-04T16:02:51Z"
+    merged_by: Kevandrew <143258544+Kevandrew@users.noreply.github.com>
+contract:
+    why: |-
+        Sophia already detects branch ownership conflicts across linked worktrees, but the operator UX is still too coarse when this happens.
+        Today, users get a generic failure and have to manually infer where to run the next command, which slows down PR/CR sync workflows and causes avoidable retries.
+
+        This CR makes worktree ownership first-class in navigation and status surfaces.
+        The goal is to give deterministic, machine-readable, and human-actionable routing information whenever a CR branch is owned by another worktree.
+
+        Success means a user can run one read command, learn exactly where the CR is active, and copy a suggested command without guessing.
+        Mutating behavior remains conservative: Sophia should never silently run mutations in a non-current worktree.
+    scope:
+        - docs
+        - internal/cli
+        - internal/gitx
+        - internal/service
+    non_goals:
+        - Do not auto-create worktrees in this CR.
+        - Do not auto-proxy mutating commands into another worktree.
+        - Do not change branch alias/UID identity formats.
+        - Do not change merge policy gates or approval requirements.
+    invariants:
+        - CR metadata identity (id/uid/branch) remains unchanged.
+        - ErrBranchInOtherWorktree remains the canonical semantic error (errors.Is compatible).
+        - JSON envelopes remain backwards compatible, with additive fields only.
+        - Mutating commands never execute against a non-current worktree implicitly.
+    blast_radius: 'CLI surfaces: cr where (new), cr switch/reopen/status output changes; service worktree resolution and branch ownership error shaping; JSON error details for branch_in_other_worktree; docs for worktree operator workflow.'
+    risk_critical_scopes:
+        - internal/cli
+        - internal/service
+    risk_tier_hint: high
+    risk_rationale: Touches core CR navigation and mutation guardrails used in daily workflows.
+    test_plan: go test ./internal/service ./internal/cli ./internal/gitx && go test ./... && go vet ./...
+    rollback_plan: Revert the CR merge commit and run `sophia repair --refresh` to reconcile local metadata with git history.
+tasks:
+    - id: 1
+      title: Introduce structured branch ownership conflict error
+      status: done
+      contract:
+        intent: Replace string-built branch ownership failures with a typed error that carries operation, branch, and worktree context.
+        acceptance_criteria:
+            - All branch-ownership conflict paths return one shared typed error with Details() payload.
+            - Existing non-conflict error behavior is unchanged.
+            - errors.Is(err, ErrBranchInOtherWorktree) remains true for compatibility.
+        scope:
+            - internal/service/service.go
+            - internal/service/service_branch_ops.go
+            - internal/service/service_errors_patterns.go
+            - internal/service/service_merge_errors.go
+            - internal/service/service_pr_gate.go
+            - internal/service/service_review_merge.go
+            - internal/service/service_worktree.go
+      checkpoint:
+        commit: aa4015a3
+        at: "2026-03-04T15:58:52Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_worktree.go
+    - id: 2
+      title: Add CR worktree ownership view in service layer
+      status: done
+      contract:
+        intent: Provide one read-model API that resolves the owner worktree for a CR branch and normalizes routing hints.
+        acceptance_criteria:
+            - Service exposes a view containing CR id, branch, owner_worktree_path, current_worktree_path, owner_is_current_worktree, checked_out_in_other_worktree, and suggested_command.
+            - View behavior is deterministic when branch is missing or detached.
+        scope:
+            - internal/service/service_cr_status.go
+            - internal/service/service_runtime_ports.go
+            - internal/service/service_worktree.go
+      checkpoint:
+        at: "2026-03-04T15:59:17Z"
+        source: task_no_checkpoint
+    - id: 3
+      title: Add `sophia cr where` command
+      status: done
+      contract:
+        intent: Expose a single command that tells operators where to run CR mutations in multi-worktree setups.
+        acceptance_criteria:
+            - Selector behavior accepts both CR id and CR uid.
+            - '`sophia cr where --json` returns stable machine-readable fields matching the service view.'
+            - '`sophia cr where <id|uid>` prints owner/current worktree paths and a suggested command.'
+        scope:
+            - internal/cli/cr.go
+            - internal/cli/cr_cmd_navigation.go
+            - internal/cli/cr_helpers.go
+            - internal/cli/cr_json_mappers.go
+      checkpoint:
+        commit: fb339c10
+        at: "2026-03-04T15:32:41Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/cr.go
+            - internal/cli/cr_cmd_navigation.go
+    - id: 4
+      title: Expose worktree ownership signals in CR status
+      status: done
+      contract:
+        intent: Make `cr status` self-sufficient for diagnosing branch ownership conflicts.
+        acceptance_criteria:
+            - Fields are additive and do not remove existing status keys.
+            - Text status output includes a clear worktree hint when branch is owned elsewhere.
+            - '`cr status --json` includes branch_context.owner_worktree_path, owner_is_current_worktree, and checked_out_in_other_worktree.'
+        scope:
+            - internal/cli/cr_cmd_review_merge.go
+            - internal/cli/cr_json_mappers.go
+            - internal/service/service_cr_status.go
+      checkpoint:
+        commit: 5e519b56
+        at: "2026-03-04T15:59:05Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_cr_status.go
+    - id: 5
+      title: Upgrade switch/reopen conflict guidance
+      status: done
+      contract:
+        intent: Return copy-pastable, path-specific remediation guidance when switch/reopen hits another worktree owner.
+        acceptance_criteria:
+            - Guidance is consistent between `cr switch` and `cr reopen`.
+            - No generic/fuzzy message remains for ErrBranchInOtherWorktree.
+            - Text output includes owner worktree path and exact suggested command.
+        scope:
+            - internal/cli/cr_cmd_navigation.go
+            - internal/cli/json.go
+            - internal/service/service_branch_ops.go
+            - internal/service/service_review_merge.go
+      checkpoint:
+        at: "2026-03-04T15:32:56Z"
+        source: task_no_checkpoint
+    - id: 6
+      title: Standardize JSON error details for branch ownership conflicts
+      status: done
+      contract:
+        intent: Guarantee structured error details for automation clients handling worktree conflicts.
+        acceptance_criteria:
+            - Existing code/message fields remain unchanged.
+            - Suggested command always points to a valid next action pattern.
+            - '`branch_in_other_worktree` JSON errors include cr_id (when known), branch, owner_worktree_path, current_worktree_path, operation, and suggested_command.'
+        scope:
+            - internal/cli/cr_json_mappers.go
+            - internal/cli/json.go
+            - internal/service/service_merge_errors.go
+      checkpoint:
+        at: "2026-03-04T15:59:17Z"
+        source: task_no_checkpoint
+    - id: 7
+      title: Add service tests for worktree view and status signals
+      status: done
+      contract:
+        intent: Validate service-level correctness for ownership resolution and status projection.
+        acceptance_criteria:
+            - Status view assertions cover new worktree fields and compatibility behavior.
+            - Unit/integration tests cover owner=current, owner=other worktree, and branch-missing cases.
+        scope:
+            - internal/service/service_cr_status_fallback_test.go
+            - internal/service/service_review_merge_test.go
+            - internal/service/service_runtime_fakes_test.go
+            - internal/service/service_worktree_integration_test.go
+      checkpoint:
+        commit: e013ec69
+        at: "2026-03-04T15:59:09Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_cr_status_fallback_test.go
+            - internal/service/service_worktree_integration_test.go
+    - id: 8
+      title: Add CLI tests for `cr where` and conflict UX
+      status: done
+      contract:
+        intent: Lock command UX contracts for text and JSON outputs.
+        acceptance_criteria:
+            - CLI tests assert `cr switch`/`cr reopen` branch_in_other_worktree error details and suggested actions.
+            - CLI tests assert `cr where` text and JSON payloads.
+            - Tests verify id and uid selector forms.
+        scope:
+            - internal/cli/cr_json_branch_ops_test.go
+            - internal/cli/cr_json_guardrail_test.go
+            - internal/cli/json_surface_expansion_test.go
+            - internal/cli/worktree_resolution_test.go
+      checkpoint:
+        commit: 4d4a189d
+        at: "2026-03-04T15:33:14Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/cr_json_branch_ops_test.go
+            - internal/cli/worktree_resolution_test.go
+    - id: 9
+      title: Align PR-gate branch conflict errors with new worktree detail model
+      status: done
+      contract:
+        intent: Ensure PR-gated flows emit the same structured worktree conflict semantics as core navigation commands.
+        acceptance_criteria:
+            - No regression in existing PR gate decision logic.
+            - PR open/sync/finalize conflict paths return ErrBranchInOtherWorktree-compatible typed error with details.
+        scope:
+            - internal/cli/cr_json_pr_gate_test.go
+            - internal/service/service_pr_gate.go
+            - internal/service/service_pr_gate_test.go
+      checkpoint:
+        at: "2026-03-04T15:33:20Z"
+        source: task_no_checkpoint
+    - id: 10
+      title: Document worktree-first operator workflow
+      status: done
+      contract:
+        intent: Teach users how to route CR operations safely in linked worktree environments.
+        acceptance_criteria:
+            - Docs include `cr where`, status worktree hints, and branch ownership conflict playbook.
+            - Troubleshooting maps branch_in_other_worktree to deterministic next commands.
+        scope:
+            - docs/cli-reference.md
+            - docs/getting-started.md
+            - docs/troubleshooting.md
+            - docs/workflow.md
+      checkpoint:
+        commit: 5714a162
+        at: "2026-03-04T15:33:25Z"
+        source: task_checkpoint
+        scope:
+            - docs/cli-reference.md
+            - docs/getting-started.md
+            - docs/troubleshooting.md
+            - docs/workflow.md
+git_summary:
+    base_parent: 84716f4b56ec8a1319463ca459ab887d9cb46f24
+    cr_parent: e013ec69237f6e4cafd5b96901631d23dc5be7a4
+    files_changed: []
+    diffstat:
+        summary: 0 files changed, 0 insertions(+), 0 deletions(-)
