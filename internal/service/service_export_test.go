@@ -370,6 +370,23 @@ updated_at: "2026-03-04T00:00:00Z"
 	if _, ok := crMap["BaseBranch"]; ok {
 		t.Fatalf("did not expect CamelCase key BaseBranch in cr payload, got keys=%v", mapKeys(crMap))
 	}
+	if got, ok := crMap["id"].(int); !ok || got != 1 {
+		t.Fatalf("expected cr.id integer value 1, got %#v", crMap["id"])
+	}
+}
+
+func TestMarshalExportBundleYAMLRejectsInvalidCRYAML(t *testing.T) {
+	t.Parallel()
+	bundle := &CRExportBundle{
+		SchemaVersion: exportSchemaV1,
+		Format:        exportFormatYAML,
+		CRUID:         "cr_bad_yaml",
+		CRFingerprint: "fp",
+		CRYAML:        "id: [not-valid\n",
+	}
+	if _, err := marshalExportBundleYAML(bundle); err == nil {
+		t.Fatalf("expected marshalExportBundleYAML to fail for invalid cr_yaml")
+	}
 }
 
 func TestDecodeExportBundleNDJSONAllowsLargeRecord(t *testing.T) {
@@ -418,6 +435,33 @@ func TestDecodeExportBundleNDJSONAllowsLargeRecord(t *testing.T) {
 	}
 	if got := len(bundle.CRYAML); got != len(largeCRYAML) {
 		t.Fatalf("expected large cr_yaml length %d, got %d", len(largeCRYAML), got)
+	}
+}
+
+func TestDecodeExportBundleNDJSONRejectsOversizedRecord(t *testing.T) {
+	t.Parallel()
+	oversizedCRYAML := strings.Repeat("x", exportNDJSONMaxLineBytes)
+	lines := [][]byte{
+		mustMarshalNDJSONLine(t, map[string]any{
+			"type":               "meta",
+			"schema_version":     exportSchemaV1,
+			"format":             exportFormatNDJSON,
+			"cr_uid":             "cr_oversized_line",
+			"cr_fingerprint":     "fp",
+			"doc_schema_version": crDocSchemaV1,
+		}),
+		mustMarshalNDJSONLine(t, map[string]any{
+			"type":  "cr_yaml",
+			"value": oversizedCRYAML,
+		}),
+	}
+	raw := bytes.Join(lines, []byte{'\n'})
+	raw = append(raw, '\n')
+
+	if _, err := decodeExportBundleNDJSON(raw); err == nil {
+		t.Fatalf("expected oversized ndjson line error")
+	} else if !strings.Contains(err.Error(), "record exceeds max line bytes") {
+		t.Fatalf("expected deterministic oversized record error, got %v", err)
 	}
 }
 
