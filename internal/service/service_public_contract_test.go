@@ -16,6 +16,7 @@ var (
 	_ func(*Service, int) error                                                 = (*Service).AbortMergeCR
 	_ func(*Service, int, bool, string) (string, []string, error)               = (*Service).ResumeMergeCR
 	_ func(*Service, int, MergeCROptions) (*MergeCRResult, error)               = (*Service).ResumeMergeCRWithOptions
+	_ func(*Service, string, string) (*model.CR, []string, error)               = (*Service).AddCRWithWarnings
 	_ func(*Service, string, string, AddCROptions) (*model.CR, []string, error) = (*Service).AddCRWithOptionsWithWarnings
 	_ func(*Service, string, string, AddCROptions) (*AddCRResult, error)        = (*Service).AddCRWithOptions
 )
