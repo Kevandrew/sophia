@@ -225,6 +225,18 @@ func newCRPRReadyCmd() *cobra.Command {
 			return withOptionalCRIDAndService(cmd, asJSON, args, "id", func(id int, svc *service.Service) error {
 				status, err := svc.PRReady(id)
 				if err != nil {
+					var blocked *service.PRReadyBlockedError
+					if errors.As(err, &blocked) {
+						if asJSON {
+							return writeJSONSuccess(cmd, prReadyBlockedToJSONMap(id, blocked))
+						}
+						fmt.Fprintln(cmd.OutOrStdout(), "PR should remain draft until implementation checkpoints exist.")
+						if reason := strings.TrimSpace(blocked.Reason); reason != "" {
+							fmt.Fprintf(cmd.OutOrStdout(), "Reason: %s\n", reason)
+						}
+						printListSection(cmd, "Suggested Commands", blocked.SuggestedCommands)
+						return nil
+					}
 					return commandError(cmd, asJSON, err)
 				}
 				if asJSON {

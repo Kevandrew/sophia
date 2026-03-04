@@ -1,0 +1,107 @@
+schema_version: sophia.cr_archive.v1
+notice: Historical archive snapshot. Corrections are append-only revisions.
+archived_at: "2026-03-04T23:28:57Z"
+revision: 1
+cr:
+    id: 93
+    uid: cr_95e59fe9-8fea-44eb-9ce7-c632c54f9f2e
+    title: Enforce draft-only pre-implementation PR deployment
+    description: Prevent accidental ready-for-review transitions when publishing implementation-incomplete CRs by adding explicit readiness guards and workflow guidance.
+    status: merged
+    base_branch: main
+    base_ref: main
+    base_commit: d5299183ed4eeabc93cf19e2a942c6e1f2f01602
+    branch: cr-enforce-draft-only-pre-implementation-pr-deploym-95e5
+    merged_at: "2026-03-04T23:28:57Z"
+    merged_by: Kevandrew <143258544+Kevandrew@users.noreply.github.com>
+contract:
+    why: Publishing a PR early is useful for visibility, but an implementation-incomplete CR should remain draft unless an explicit readiness decision is made. The current agent workflow can accidentally promote a pre-implementation PR to ready-for-review, which misleads reviewers and can trigger branch-protection expectations before work exists. This CR introduces explicit readiness guards so pre-implementation publication stays draft-first by default and ready transitions are intentional and auditable.
+    scope:
+        - docs/repository-policy.md
+        - docs/troubleshooting.md
+        - docs/workflow.md
+        - internal/cli
+        - internal/service
+    non_goals:
+        - Do not change merge gate policy (approvals/checks) semantics in this CR.
+        - Do not modify release/tag workflows.
+        - Do not redesign checkpoint comment content in this CR.
+    invariants:
+        - Existing local merge mode behavior remains unchanged.
+        - Ready-for-review transition remains explicit and returns structured blocked guidance when readiness preconditions are not met.
+        - sophia cr merge <id> in pr_gate mode only opens/syncs draft PR state unless user explicitly requests ready transition.
+    blast_radius: PR publication lifecycle behavior, CLI UX for pr ready/merge flow, and reviewer expectations for draft vs ready state in PR-gated repositories.
+    risk_tier_hint: medium
+    risk_rationale: Touches merge/publish lifecycle semantics and user-facing PR state transitions in PR-gated mode.
+    test_plan: go test ./internal/service/... -count=1 && go test ./internal/cli/... -count=1 && go test ./... -count=1 && go vet ./...
+    rollback_plan: Revert CR-93 merge commit to restore prior PR readiness behavior.
+tasks:
+    - id: 1
+      title: Define and enforce pre-implementation readiness guard in PR-gate service flow
+      status: done
+      contract:
+        intent: Prevent readiness promotion for pre-implementation CRs by adding a deterministic readiness predicate in PR-gate service operations.
+        acceptance_criteria:
+            - Draft/open publish path remains available for visibility and does not require ready transition.
+            - Guard evaluation is deterministic and idempotent across repeated status/ready calls.
+            - Ready transition is blocked when CR has no completed implementation tasks (or equivalent pre-implementation state), with a structured reason code.
+        scope:
+            - internal/service/service_merge_errors.go
+            - internal/service/service_pr_gate.go
+      checkpoint:
+        commit: 8d55a468
+        at: "2026-03-04T23:19:44Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_merge_errors.go
+            - internal/service/service_pr_gate.go
+    - id: 2
+      title: Wire CLI action-required messaging for blocked ready transitions
+      status: done
+      contract:
+        intent: Expose blocked-ready guidance clearly in CLI text/JSON so agents and humans know draft-first behavior and next actions.
+        acceptance_criteria:
+            - Action-required payload identifies that PR should remain draft until implementation checkpoints exist.
+            - No behavior regression for successful ready transitions after implementation progress exists.
+            - sophia cr pr ready returns actionable blocked output (text and json) when pre-implementation readiness guard fails.
+        scope:
+            - internal/cli/cr_cmd_pr.go
+            - internal/cli/cr_json_mappers.go
+            - internal/cli/cr_json_pr_gate_test.go
+      checkpoint:
+        commit: eed9f132
+        at: "2026-03-04T23:25:10Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/cr_json_mappers.go
+            - internal/cli/cr_json_pr_gate_test.go
+    - id: 3
+      title: Add regression tests and docs for draft-first pre-implementation PR flow
+      status: done
+      contract:
+        intent: Cover new draft-first readiness guard with regression tests and document the expected pre-implementation PR lifecycle.
+        acceptance_criteria:
+            - Docs explain that pre-implementation PR publish stays draft by default and ready is an explicit post-implementation action.
+            - Service and CLI tests cover blocked-ready and allowed-ready scenarios.
+            - Troubleshooting includes what to do when ready is blocked for no checkpoints/progress.
+        scope:
+            - docs/repository-policy.md
+            - docs/troubleshooting.md
+            - docs/workflow.md
+            - internal/cli/cr_json_pr_gate_test.go
+            - internal/service/service_pr_gate_test.go
+      checkpoint:
+        commit: 46c39bd0
+        at: "2026-03-04T23:19:53Z"
+        source: task_checkpoint
+        scope:
+            - docs/repository-policy.md
+            - docs/troubleshooting.md
+            - docs/workflow.md
+            - internal/service/service_pr_gate_test.go
+git_summary:
+    base_parent: d5299183ed4eeabc93cf19e2a942c6e1f2f01602
+    cr_parent: eed9f132563bc8d2b0eeeb6b0b637503df16b110
+    files_changed: []
+    diffstat:
+        summary: 0 files changed, 0 insertions(+), 0 deletions(-)

@@ -714,6 +714,132 @@ func TestPRStatusClosedUnmergedDoesNotSilentlyMutateCRLifecycle(t *testing.T) {
 	}
 }
 
+func TestPRReadyBlockedWhenNoTaskCheckpointCommits(t *testing.T) {
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "SOPHIA.yaml"), []byte("version: v1\nmerge:\n  mode: pr_gate\narchive:\n  enabled: false\n"), 0o644); err != nil {
+		t.Fatalf("write SOPHIA.yaml: %v", err)
+	}
+	cr, err := svc.AddCR("PR ready blocked", "no checkpoint path")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	loaded, err := svc.store.LoadCR(cr.ID)
+	if err != nil {
+		t.Fatalf("LoadCR() error = %v", err)
+	}
+	loaded.PR.Number = 52
+	loaded.PR.Repo = "acme/repo"
+	if err := svc.store.SaveCR(loaded); err != nil {
+		t.Fatalf("SaveCR() error = %v", err)
+	}
+
+	ghInvokedMarker := filepath.Join(t.TempDir(), "gh-invoked")
+	installFakeGHCommand(t, fmt.Sprintf(strings.Join([]string{
+		"#!/bin/sh",
+		"if [ \"$1\" = \"-R\" ]; then",
+		"  shift",
+		"  shift",
+		"fi",
+		"printf '%%s\\n' \"$*\" >> %q",
+		"if [ \"$1\" = \"pr\" ] && [ \"$2\" = \"ready\" ]; then",
+		"  echo 'unexpected gh pr ready call' >&2",
+		"  exit 1",
+		"fi",
+		"echo '{\"number\":52,\"url\":\"https://github.com/acme/repo/pull/52\",\"state\":\"OPEN\",\"isDraft\":true,\"headRefOid\":\"abc123\",\"headRefName\":\"cr-1-pr-ready-blocked\",\"baseRefName\":\"main\",\"author\":{\"login\":\"bot\"},\"latestReviews\":[],\"statusCheckRollup\":[]}'",
+		"exit 0",
+	}, "\n"), ghInvokedMarker))
+
+	status, err := svc.PRReady(cr.ID)
+	if status != nil {
+		t.Fatalf("expected nil status when readiness is blocked, got %#v", status)
+	}
+	if err == nil {
+		t.Fatalf("expected PRReady() to return blocked error")
+	}
+	var blocked *PRReadyBlockedError
+	if !errors.As(err, &blocked) {
+		t.Fatalf("expected PRReadyBlockedError, got %T (%v)", err, err)
+	}
+	if blocked.ReasonCode != prReadyBlockedReasonNoCheckpoints {
+		t.Fatalf("expected reason code %q, got %q", prReadyBlockedReasonNoCheckpoints, blocked.ReasonCode)
+	}
+	if strings.TrimSpace(blocked.Reason) == "" {
+		t.Fatalf("expected non-empty blocked reason")
+	}
+	if _, statErr := os.Stat(ghInvokedMarker); !os.IsNotExist(statErr) {
+		t.Fatalf("expected gh to remain uninvoked, stat err=%v", statErr)
+	}
+}
+
+func TestPRReadySucceedsWhenTaskCheckpointCommitExists(t *testing.T) {
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "SOPHIA.yaml"), []byte("version: v1\nmerge:\n  mode: pr_gate\narchive:\n  enabled: false\n"), 0o644); err != nil {
+		t.Fatalf("write SOPHIA.yaml: %v", err)
+	}
+	cr, err := svc.AddCR("PR ready allowed", "checkpoint path")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	loaded, err := svc.store.LoadCR(cr.ID)
+	if err != nil {
+		t.Fatalf("LoadCR() error = %v", err)
+	}
+	loaded.PR.Number = 64
+	loaded.PR.Repo = "acme/repo"
+	loaded.Subtasks = []model.Subtask{
+		{
+			ID:               1,
+			Title:            "Implement checkpointed task",
+			Status:           model.TaskStatusDone,
+			CheckpointCommit: "abc123",
+		},
+	}
+	if err := svc.store.SaveCR(loaded); err != nil {
+		t.Fatalf("SaveCR() error = %v", err)
+	}
+
+	readyCalledMarker := filepath.Join(t.TempDir(), "ready-called")
+	installFakeGHCommand(t, fmt.Sprintf(strings.Join([]string{
+		"#!/bin/sh",
+		"if [ \"$1\" = \"-R\" ]; then",
+		"  shift",
+		"  shift",
+		"fi",
+		"if [ \"$1\" = \"pr\" ] && [ \"$2\" = \"ready\" ]; then",
+		"  printf 'called' > %q",
+		"  exit 0",
+		"fi",
+		"if [ \"$1\" = \"pr\" ] && [ \"$2\" = \"view\" ]; then",
+		"  echo '{\"number\":64,\"url\":\"https://github.com/acme/repo/pull/64\",\"state\":\"OPEN\",\"isDraft\":false,\"headRefOid\":\"def456\",\"headRefName\":\"cr-1-pr-ready-allowed\",\"baseRefName\":\"main\",\"author\":{\"login\":\"bot\"},\"latestReviews\":[],\"statusCheckRollup\":[]}'",
+		"  exit 0",
+		"fi",
+		"echo \"unexpected gh args: $@\" >&2",
+		"exit 1",
+	}, "\n"), readyCalledMarker))
+
+	status, err := svc.PRReady(cr.ID)
+	if err != nil {
+		t.Fatalf("PRReady() error = %v", err)
+	}
+	if status == nil {
+		t.Fatalf("expected status from PRReady()")
+	}
+	if status.Draft {
+		t.Fatalf("expected ready transition to return non-draft status")
+	}
+	if _, statErr := os.Stat(readyCalledMarker); statErr != nil {
+		t.Fatalf("expected gh pr ready invocation marker, stat err=%v", statErr)
+	}
+}
+
 func TestClassifyPRLinkageStatusMarksClosedUnmergedPRsStale(t *testing.T) {
 	t.Parallel()
 	svc := &Service{}

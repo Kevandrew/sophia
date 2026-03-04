@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"strings"
+
 	clijson "sophia/internal/cli/json"
 	"sophia/internal/model"
 	"sophia/internal/service"
@@ -282,6 +284,39 @@ func setCRContractResultToJSONMap(crID int, result *service.SetCRContractResult)
 		"drift_recorded":     result.DriftRecorded,
 		"drift_id":           result.DriftID,
 		"drift_ack_required": result.DriftAckRequired,
+	}
+}
+
+func prReadyBlockedToJSONMap(crID int, err *service.PRReadyBlockedError) map[string]any {
+	if err == nil {
+		return map[string]any{
+			"cr_id": crID,
+			"action_required": map[string]any{
+				"type":               "manual",
+				"name":               "ready_pr_blocked",
+				"reason_code":        "pre_implementation_no_checkpoints",
+				"reason":             "",
+				"suggested_commands": []string{},
+			},
+		}
+	}
+	reasonCode := err.ReasonCode
+	if reasonCode == "" {
+		reasonCode = "pre_implementation_no_checkpoints"
+	}
+	reason := err.Reason
+	if strings.TrimSpace(reason) == "" {
+		reason = "CR has no task checkpoint commits yet; keep PR draft until implementation checkpoints exist."
+	}
+	return map[string]any{
+		"cr_id": crID,
+		"action_required": map[string]any{
+			"type":               "manual",
+			"name":               "ready_pr_blocked",
+			"reason_code":        reasonCode,
+			"reason":             reason,
+			"suggested_commands": stringSliceOrEmpty(err.SuggestedCommands),
+		},
 	}
 }
 

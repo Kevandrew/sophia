@@ -65,6 +65,100 @@ func TestPRGateOpenJSONReturnsActionRequiredWhenApprovalMissing(t *testing.T) {
 	}
 }
 
+func TestPRReadyJSONReturnsActionRequiredWhenNoTaskCheckpointsExist(t *testing.T) {
+	dir := setupCLIPRGateRepo(t)
+	installFakeGH(t, strings.Join([]string{
+		"if [ \"$1\" = \"pr\" ] && [ \"$2\" = \"list\" ]; then",
+		"  echo '[{\"number\":27,\"url\":\"https://github.com/acme/repo/pull/27\",\"state\":\"OPEN\",\"isDraft\":true,\"headRefOid\":\"abc123\",\"headRefName\":\"cr-1-pr-gate-json\",\"baseRefName\":\"main\",\"updatedAt\":\"2026-03-03T00:00:00Z\"}]'",
+		"  exit 0",
+		"fi",
+		"if [ \"$1\" = \"pr\" ] && [ \"$2\" = \"view\" ]; then",
+		"  echo '{\"number\":27,\"url\":\"https://github.com/acme/repo/pull/27\",\"state\":\"OPEN\",\"isDraft\":true,\"headRefOid\":\"abc123\",\"headRefName\":\"cr-1-pr-gate-json\",\"baseRefName\":\"main\",\"author\":{\"login\":\"bot\"},\"latestReviews\":[],\"statusCheckRollup\":[]}'",
+		"  exit 0",
+		"fi",
+		"if [ \"$1\" = \"pr\" ] && [ \"$2\" = \"ready\" ]; then",
+		"  echo 'unexpected ready transition' >&2",
+		"  exit 1",
+		"fi",
+		"echo \"unexpected gh args: $@\" >&2",
+		"exit 1",
+	}, "\n"))
+
+	out, _, runErr := runCLI(t, dir, "cr", "pr", "reconcile", "1", "--mode", "relink", "--json")
+	if runErr != nil {
+		t.Fatalf("cr pr reconcile --mode relink --json error = %v\noutput=%s", runErr, out)
+	}
+
+	out, _, runErr = runCLI(t, dir, "cr", "pr", "ready", "1", "--json")
+	if runErr != nil {
+		t.Fatalf("cr pr ready --json error = %v\noutput=%s", runErr, out)
+	}
+	env := decodeEnvelope(t, out)
+	if !env.OK {
+		t.Fatalf("expected ok envelope, got %#v", env)
+	}
+	actionRequired, ok := env.Data["action_required"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected action_required object, got %#v", env.Data["action_required"])
+	}
+	if got, _ := actionRequired["name"].(string); got != "ready_pr_blocked" {
+		t.Fatalf("expected action_required.name=ready_pr_blocked, got %#v", actionRequired["name"])
+	}
+	if got, _ := actionRequired["reason_code"].(string); got != "pre_implementation_no_checkpoints" {
+		t.Fatalf("expected action_required.reason_code=pre_implementation_no_checkpoints, got %#v", actionRequired["reason_code"])
+	}
+	suggested, ok := actionRequired["suggested_commands"].([]any)
+	if !ok || len(suggested) == 0 {
+		t.Fatalf("expected suggested_commands array, got %#v", actionRequired["suggested_commands"])
+	}
+	foundTaskList := false
+	for _, command := range suggested {
+		if strings.TrimSpace(fmt.Sprint(command)) == "sophia cr task list 1" {
+			foundTaskList = true
+			break
+		}
+	}
+	if !foundTaskList {
+		t.Fatalf("expected suggested_commands to include `sophia cr task list 1`, got %#v", suggested)
+	}
+}
+
+func TestPRReadyTextReturnsGuidanceWhenNoTaskCheckpointsExist(t *testing.T) {
+	dir := setupCLIPRGateRepo(t)
+	installFakeGH(t, strings.Join([]string{
+		"if [ \"$1\" = \"pr\" ] && [ \"$2\" = \"list\" ]; then",
+		"  echo '[{\"number\":27,\"url\":\"https://github.com/acme/repo/pull/27\",\"state\":\"OPEN\",\"isDraft\":true,\"headRefOid\":\"abc123\",\"headRefName\":\"cr-1-pr-gate-json\",\"baseRefName\":\"main\",\"updatedAt\":\"2026-03-03T00:00:00Z\"}]'",
+		"  exit 0",
+		"fi",
+		"if [ \"$1\" = \"pr\" ] && [ \"$2\" = \"view\" ]; then",
+		"  echo '{\"number\":27,\"url\":\"https://github.com/acme/repo/pull/27\",\"state\":\"OPEN\",\"isDraft\":true,\"headRefOid\":\"abc123\",\"headRefName\":\"cr-1-pr-gate-json\",\"baseRefName\":\"main\",\"author\":{\"login\":\"bot\"},\"latestReviews\":[],\"statusCheckRollup\":[]}'",
+		"  exit 0",
+		"fi",
+		"if [ \"$1\" = \"pr\" ] && [ \"$2\" = \"ready\" ]; then",
+		"  echo 'unexpected ready transition' >&2",
+		"  exit 1",
+		"fi",
+		"echo \"unexpected gh args: $@\" >&2",
+		"exit 1",
+	}, "\n"))
+
+	out, _, runErr := runCLI(t, dir, "cr", "pr", "reconcile", "1", "--mode", "relink")
+	if runErr != nil {
+		t.Fatalf("cr pr reconcile --mode relink error = %v\noutput=%s", runErr, out)
+	}
+
+	out, _, runErr = runCLI(t, dir, "cr", "pr", "ready", "1")
+	if runErr != nil {
+		t.Fatalf("cr pr ready error = %v\noutput=%s", runErr, out)
+	}
+	if !strings.Contains(out, "PR should remain draft until implementation checkpoints exist.") {
+		t.Fatalf("expected draft guidance text, got output=%q", out)
+	}
+	if !strings.Contains(out, "sophia cr task list 1") {
+		t.Fatalf("expected suggested task list command in output, got output=%q", out)
+	}
+}
+
 func TestPRGateMergeJSONReturnsGHAuthRequiredErrorDetails(t *testing.T) {
 	dir := setupCLIPRGateRepo(t)
 	installFakeGH(t, "echo 'error: not logged into github.com. Run gh auth login.' >&2; exit 4")

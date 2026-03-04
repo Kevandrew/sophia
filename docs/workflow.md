@@ -177,6 +177,8 @@ sophia cr pr status <cr-id>
 
 Lifecycle guidance:
 - Use `pr ready` only for explicit reviewer handoff.
+- `pr ready` can be blocked with `reason_code=pre_implementation_no_checkpoints` until at least one task checkpoint commit exists for the CR.
+- Keep pre-implementation PRs in draft; checkpoint implementation (`sophia cr task done ...`) before promoting ready-for-review.
 - If marked ready too early, run `pr unready` to move back to draft.
 - Use `pr close` when intentionally pausing/cancelling the PR without merging.
 - Use `pr reopen` to resume a closed PR for the same CR branch.
