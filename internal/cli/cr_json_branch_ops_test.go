@@ -39,6 +39,18 @@ func TestCRAddRejectsNegativeParent(t *testing.T) {
 	}
 }
 
+func TestRootHelpMentionsCRAddSwitchDefault(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	out, _, runErr := runCLI(t, dir, "--help")
+	if runErr != nil {
+		t.Fatalf("root --help error = %v\noutput=%s", runErr, out)
+	}
+	if !strings.Contains(out, "(default: stays on current branch; pass --switch to hop immediately)") {
+		t.Fatalf("expected root help to describe cr add switch default, got %q", out)
+	}
+}
+
 func TestCRAddDefaultsToNoSwitchAndSupportsSwitchFlag(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()

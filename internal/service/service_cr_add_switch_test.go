@@ -163,6 +163,53 @@ func TestAddCRWithOptionsNormalizesLegacySwitchCombinations(t *testing.T) {
 	}
 }
 
+func TestNormalizeCLIAndServiceAddOptionsDefaultsByEntrypoint(t *testing.T) {
+	t.Parallel()
+
+	cliDefaults := NormalizeCLIAddCROptions(AddCROptions{})
+	if cliDefaults.Switch || !cliDefaults.NoSwitch {
+		t.Fatalf("expected CLI defaults (Switch=false, NoSwitch=true), got (%t,%t)", cliDefaults.Switch, cliDefaults.NoSwitch)
+	}
+	cliSwitch := NormalizeCLIAddCROptions(AddCROptions{Switch: true})
+	if !cliSwitch.Switch || cliSwitch.NoSwitch {
+		t.Fatalf("expected CLI --switch normalization to keep switch=true, got (%t,%t)", cliSwitch.Switch, cliSwitch.NoSwitch)
+	}
+
+	serviceDefaults := normalizeServiceAddCROptions(AddCROptions{})
+	if !serviceDefaults.Switch || serviceDefaults.NoSwitch {
+		t.Fatalf("expected service defaults (Switch=true, NoSwitch=false), got (%t,%t)", serviceDefaults.Switch, serviceDefaults.NoSwitch)
+	}
+}
+
+func TestAddChildCRFromCurrentDefaultsToSwitch(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	parent, err := svc.AddCR("Parent switch default", "anchor")
+	if err != nil {
+		t.Fatalf("AddCR(parent) error = %v", err)
+	}
+	if current, err := svc.git.CurrentBranch(); err != nil || current != parent.Branch {
+		t.Fatalf("expected current branch %q after AddCR, got %q (err=%v)", parent.Branch, current, err)
+	}
+
+	child, _, err := svc.AddChildCRFromCurrent("Child switch default", "inherits parent context")
+	if err != nil {
+		t.Fatalf("AddChildCRFromCurrent() error = %v", err)
+	}
+	current, err := svc.git.CurrentBranch()
+	if err != nil {
+		t.Fatalf("CurrentBranch() error = %v", err)
+	}
+	if current != child.Branch {
+		t.Fatalf("expected AddChildCRFromCurrent to switch to child branch %q, got %q", child.Branch, current)
+	}
+}
+
 func TestAddCRUsesConfiguredOwnerPrefix(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()

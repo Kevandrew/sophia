@@ -11,7 +11,7 @@ import (
 )
 
 func (s *Service) AddCR(title, description string) (*model.CR, error) {
-	cr, _, err := s.addCRWithAdaptedWarnings(title, description, AddCROptions{Switch: true})
+	cr, _, err := s.addCRWithAdaptedWarnings(title, description, normalizeServiceAddCROptions(AddCROptions{}))
 	if err != nil {
 		return nil, err
 	}
@@ -19,7 +19,7 @@ func (s *Service) AddCR(title, description string) (*model.CR, error) {
 }
 
 func (s *Service) AddCRWithWarnings(title, description string) (*model.CR, []string, error) {
-	return s.addCRWithAdaptedWarnings(title, description, AddCROptions{Switch: true})
+	return s.addCRWithAdaptedWarnings(title, description, normalizeServiceAddCROptions(AddCROptions{}))
 }
 
 type addCRBaseContext struct {
@@ -51,11 +51,28 @@ func adaptAddCRResult(result *AddCRResult) (*model.CR, []string) {
 	return result.CR, append([]string(nil), result.Warnings...)
 }
 
-func normalizeAddCROptions(opts AddCROptions) AddCROptions {
+func normalizeAddCROptionsWithDefault(opts AddCROptions, defaultSwitch bool) AddCROptions {
+	if !opts.Switch && !opts.NoSwitch {
+		if defaultSwitch {
+			opts.Switch = true
+		} else {
+			opts.NoSwitch = true
+		}
+	}
 	_, noSwitch, switchBranch := servicecr.NormalizeSwitchFlags("", opts.NoSwitch, opts.Switch)
 	opts.NoSwitch = noSwitch
 	opts.Switch = switchBranch
 	return opts
+}
+
+// NormalizeCLIAddCROptions applies the CLI add default (no switch unless requested)
+// while preserving legacy switch/no-switch compatibility handling.
+func NormalizeCLIAddCROptions(opts AddCROptions) AddCROptions {
+	return normalizeAddCROptionsWithDefault(opts, false)
+}
+
+func normalizeServiceAddCROptions(opts AddCROptions) AddCROptions {
+	return normalizeAddCROptionsWithDefault(opts, true)
 }
 
 func (s *Service) AddCRWithOptions(title, description string, opts AddCROptions) (*AddCRResult, error) {
@@ -74,7 +91,7 @@ func (s *Service) addCRWithOptionsUnlocked(title, description string, opts AddCR
 	if err := servicecr.ValidateAddRequest(title, opts.BaseRef, opts.ParentCRID, opts.BranchAlias, opts.OwnerPrefixSet); err != nil {
 		return nil, err
 	}
-	opts = normalizeAddCROptions(opts)
+	opts = normalizeServiceAddCROptions(opts)
 	bootstrap, err := s.ensureLazyLocalBootstrapForCRMutation()
 	if err != nil {
 		return nil, err
