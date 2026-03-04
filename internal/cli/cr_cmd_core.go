@@ -110,6 +110,7 @@ func runCRAddCommand(
 	}
 
 	opts := buildAddCROptions(baseRef, parentCRID, switchBranch, branchAlias, ownerPrefix, cmd.Flags().Changed("owner-prefix"))
+	opts = service.NormalizeCLIAddCROptions(opts)
 	resolvedSwitch := opts.Switch
 	return runCRAddFlow(cmd, asJSON, svc, title, description, opts, crAddRenderOptions{
 		switchBranch:    resolvedSwitch,
