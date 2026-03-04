@@ -134,10 +134,21 @@ func findScopeDrift(changedFiles, scopePrefixes []string) []string {
 		return []string{}
 	}
 	if len(scopePrefixes) == 0 {
-		return append([]string(nil), changedFiles...)
+		drift := make([]string, 0, len(changedFiles))
+		for _, changedPath := range changedFiles {
+			if isScopeDriftExcludedPath(changedPath) {
+				continue
+			}
+			drift = append(drift, changedPath)
+		}
+		sort.Strings(drift)
+		return drift
 	}
 	drift := []string{}
 	for _, changedPath := range changedFiles {
+		if isScopeDriftExcludedPath(changedPath) {
+			continue
+		}
 		inScope := false
 		for _, scopePrefix := range scopePrefixes {
 			if pathMatchesScopePrefix(changedPath, scopePrefix) {
@@ -151,6 +162,14 @@ func findScopeDrift(changedFiles, scopePrefixes []string) []string {
 	}
 	sort.Strings(drift)
 	return drift
+}
+
+func isScopeDriftExcludedPath(path string) bool {
+	trimmed := strings.TrimSpace(path)
+	if trimmed == "" {
+		return false
+	}
+	return trimmed == archiveTrackedPrefix || strings.HasPrefix(trimmed, archiveTrackedPrefix+"/")
 }
 
 func findTaskScopeWarnings(tasks []model.Subtask, scopePrefixes []string) []string {

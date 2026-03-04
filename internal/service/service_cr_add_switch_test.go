@@ -3,6 +3,8 @@ package service
 import (
 	"strings"
 	"testing"
+
+	"sophia/internal/model"
 )
 
 func TestAddCRWithOptionsSupportsNoSwitchAndSwitch(t *testing.T) {
@@ -38,6 +40,69 @@ func TestAddCRWithOptionsSupportsNoSwitchAndSwitch(t *testing.T) {
 	}
 	if current != crSwitch.Branch {
 		t.Fatalf("expected switched branch %q, got %q", crSwitch.Branch, current)
+	}
+}
+
+func TestAddCRDefaultSwitchParityAcrossWrappers(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		run  func(*Service, string, string) (*model.CR, error)
+	}{
+		{
+			name: "AddCR",
+			run: func(svc *Service, title, description string) (*model.CR, error) {
+				return svc.AddCR(title, description)
+			},
+		},
+		{
+			name: "AddCRWithWarnings",
+			run: func(svc *Service, title, description string) (*model.CR, error) {
+				cr, _, err := svc.AddCRWithWarnings(title, description)
+				return cr, err
+			},
+		},
+		{
+			name: "AddCRWithOptions",
+			run: func(svc *Service, title, description string) (*model.CR, error) {
+				result, err := svc.AddCRWithOptions(title, description, AddCROptions{})
+				if err != nil {
+					return nil, err
+				}
+				return result.CR, nil
+			},
+		},
+		{
+			name: "AddCRWithOptionsWithWarnings",
+			run: func(svc *Service, title, description string) (*model.CR, error) {
+				cr, _, err := svc.AddCRWithOptionsWithWarnings(title, description, AddCROptions{})
+				return cr, err
+			},
+		},
+	}
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			dir := t.TempDir()
+			svc := New(dir)
+			if _, err := svc.Init("main", ""); err != nil {
+				t.Fatalf("Init() error = %v", err)
+			}
+
+			cr, err := tc.run(svc, "default switch "+tc.name, "wrapper parity")
+			if err != nil {
+				t.Fatalf("%s() error = %v", tc.name, err)
+			}
+
+			current, err := svc.git.CurrentBranch()
+			if err != nil {
+				t.Fatalf("CurrentBranch() error = %v", err)
+			}
+			if current != cr.Branch {
+				t.Fatalf("expected switched branch %q, got %q", cr.Branch, current)
+			}
+		})
 	}
 }
 

@@ -1,0 +1,89 @@
+schema_version: sophia.cr_archive.v1
+notice: Historical archive snapshot. Corrections are append-only revisions.
+archived_at: "2026-03-04T01:56:06Z"
+revision: 1
+cr:
+    id: 103
+    uid: cr_68b92704-4341-44a7-9c38-3cc14f661353
+    title: Collapse AddCR service wrapper fan-out
+    description: Reduce AddCR wrapper surface by centralizing result shaping and warning copy behavior in one adapter path.
+    status: merged
+    base_branch: main
+    base_ref: main
+    base_commit: 0fb76e972118b1e855c4cf397141ac8ec0fcec1f
+    branch: cr-collapse-addcr-service-wrapper-fan-out-68b9
+    merged_at: "2026-03-04T01:56:06Z"
+    merged_by: Kevandrew <143258544+Kevandrew@users.noreply.github.com>
+contract:
+    why: The service currently exposes multiple AddCR wrappers that mostly reshape the same result. This duplicates logic and obscures the true add entrypoint. This CR reduces wrapper noise while preserving exported signatures and behavior, making add flow easier to follow and maintain.
+    scope:
+        - internal/service/service_cr.go
+        - internal/service/service_cr_add_switch_test.go
+        - internal/service/service_public_contract_test.go
+        - internal/service/service_test.go
+    non_goals:
+        - Do not change add persistence, branching, or bootstrap behavior.
+        - Do not remove exported service methods used by existing callers.
+    invariants:
+        - AddCR, AddCRWithWarnings, AddCRWithOptionsWithWarnings, and AddCRWithOptions keep existing signatures.
+        - Warning payload content remains unchanged for callers.
+    blast_radius: Service add method wrappers and compile-time signature guards, with potential touchpoints in non-test callers.
+    risk_tier_hint: low
+    risk_rationale: Primarily structural simplification with strict compatibility constraints.
+    test_plan: go test ./internal/service ./internal/cli
+    rollback_plan: Revert the merge commit for this CR to restore prior wrapper layout.
+tasks:
+    - id: 1
+      title: Centralize AddCR result adaptation in one private helper
+      status: done
+      contract:
+        intent: Use one internal adapter for warning copying/result shaping across AddCR wrappers.
+        acceptance_criteria:
+            - No duplicated warning-copy logic remains across AddCR wrappers.
+        scope:
+            - internal/service/service_cr.go
+      checkpoint:
+        commit: 35d25715
+        at: "2026-03-04T01:50:10Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_cr.go
+    - id: 2
+      title: Keep public service signatures and compatibility checks stable
+      status: done
+      contract:
+        intent: Preserve public method signatures while simplifying internals.
+        acceptance_criteria:
+            - Compile-time signature guards remain valid.
+        scope:
+            - internal/service/service_cr.go
+            - internal/service/service_public_contract_test.go
+      checkpoint:
+        commit: 016aad72
+        at: "2026-03-04T01:50:31Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_public_contract_test.go
+    - id: 3
+      title: Add regression coverage for wrapper parity
+      status: done
+      contract:
+        intent: Assert wrapper outputs stay behaviorally equivalent before and after simplification.
+        acceptance_criteria:
+            - Tests verify same CR/warnings behavior for all wrapper entrypoints.
+        scope:
+            - internal/service/service_cr_add_switch_test.go
+            - internal/service/service_test.go
+      checkpoint:
+        commit: 4a5160fc
+        at: "2026-03-04T01:50:38Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_cr_add_switch_test.go
+            - internal/service/service_test.go
+git_summary:
+    base_parent: 0fb76e972118b1e855c4cf397141ac8ec0fcec1f
+    cr_parent: 4a5160fcf1c5a27ace20062a6574c39b5b6559c2
+    files_changed: []
+    diffstat:
+        summary: 0 files changed, 0 insertions(+), 0 deletions(-)

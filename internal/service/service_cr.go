@@ -11,19 +11,15 @@ import (
 )
 
 func (s *Service) AddCR(title, description string) (*model.CR, error) {
-	result, err := s.AddCRWithOptions(title, description, AddCROptions{Switch: true})
+	cr, _, err := s.addCRWithAdaptedWarnings(title, description, AddCROptions{Switch: true})
 	if err != nil {
 		return nil, err
 	}
-	return result.CR, nil
+	return cr, nil
 }
 
 func (s *Service) AddCRWithWarnings(title, description string) (*model.CR, []string, error) {
-	result, err := s.AddCRWithOptions(title, description, AddCROptions{Switch: true})
-	if err != nil {
-		return nil, nil, err
-	}
-	return result.CR, append([]string(nil), result.Warnings...), nil
+	return s.addCRWithAdaptedWarnings(title, description, AddCROptions{Switch: true})
 }
 
 type addCRBaseContext struct {
@@ -39,11 +35,20 @@ type AddCRResult struct {
 }
 
 func (s *Service) AddCRWithOptionsWithWarnings(title, description string, opts AddCROptions) (*model.CR, []string, error) {
+	return s.addCRWithAdaptedWarnings(title, description, opts)
+}
+
+func (s *Service) addCRWithAdaptedWarnings(title, description string, opts AddCROptions) (*model.CR, []string, error) {
 	result, err := s.AddCRWithOptions(title, description, opts)
 	if err != nil {
 		return nil, nil, err
 	}
-	return result.CR, append([]string(nil), result.Warnings...), nil
+	cr, warnings := adaptAddCRResult(result)
+	return cr, warnings, nil
+}
+
+func adaptAddCRResult(result *AddCRResult) (*model.CR, []string) {
+	return result.CR, append([]string(nil), result.Warnings...)
 }
 
 func (s *Service) AddCRWithOptions(title, description string, opts AddCROptions) (*AddCRResult, error) {

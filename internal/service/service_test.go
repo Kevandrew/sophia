@@ -4,7 +4,9 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
+	"sort"
 	"strings"
 	"testing"
 
@@ -250,6 +252,87 @@ func TestAddCRAssignsDistinctUIDs(t *testing.T) {
 	}
 	if first.UID == second.UID {
 		t.Fatalf("expected distinct uids, got %q", first.UID)
+	}
+}
+
+func TestAddCRWarningParityAcrossWrappers(t *testing.T) {
+	t.Parallel()
+	runCase := func(t *testing.T, name string, run func(*Service) ([]string, error)) []string {
+		t.Helper()
+		dir := t.TempDir()
+		svc := New(dir)
+		if _, err := svc.Init("main", ""); err != nil {
+			t.Fatalf("Init() error = %v", err)
+		}
+		runGit(t, dir, "config", "user.name", "Test User")
+		runGit(t, dir, "config", "user.email", "test@example.com")
+
+		if _, err := svc.AddCR("Billing CR", "billing work"); err != nil {
+			t.Fatalf("AddCR() error = %v", err)
+		}
+		if err := os.MkdirAll(filepath.Join(dir, "billing"), 0o755); err != nil {
+			t.Fatalf("mkdir billing: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "billing", "a.txt"), []byte("a\n"), 0o644); err != nil {
+			t.Fatalf("write billing/a.txt: %v", err)
+		}
+		runGit(t, dir, "add", "billing/a.txt")
+		runGit(t, dir, "commit", "-m", "feat: billing a")
+
+		runGit(t, dir, "checkout", "main")
+		runGit(t, dir, "checkout", "-b", "exploratory")
+		if err := os.MkdirAll(filepath.Join(dir, "billing"), 0o755); err != nil {
+			t.Fatalf("mkdir billing on exploratory: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "billing", "b.txt"), []byte("b\n"), 0o644); err != nil {
+			t.Fatalf("write billing/b.txt: %v", err)
+		}
+		runGit(t, dir, "add", "billing/b.txt")
+		runGit(t, dir, "commit", "-m", "feat: exploratory billing")
+
+		warnings, err := run(svc)
+		if err != nil {
+			t.Fatalf("%s() error = %v", name, err)
+		}
+		if len(warnings) == 0 {
+			t.Fatalf("%s() expected warnings", name)
+		}
+		joined := strings.Join(warnings, "\n")
+		if !strings.Contains(joined, "CR-1") || !strings.Contains(joined, "/billing") {
+			t.Fatalf("%s() unexpected warnings: %#v", name, warnings)
+		}
+		out := append([]string(nil), warnings...)
+		sort.Strings(out)
+		return out
+	}
+
+	optionsWarnings := runCase(t, "AddCRWithOptions", func(svc *Service) ([]string, error) {
+		result, err := svc.AddCRWithOptions("New billing CR", "another billing change", AddCROptions{})
+		if err != nil {
+			return nil, err
+		}
+		return result.Warnings, nil
+	})
+	optionsWithWarningsWarnings := runCase(t, "AddCRWithOptionsWithWarnings", func(svc *Service) ([]string, error) {
+		_, warnings, err := svc.AddCRWithOptionsWithWarnings("New billing CR", "another billing change", AddCROptions{})
+		if err != nil {
+			return nil, err
+		}
+		return warnings, nil
+	})
+	withWarnings := runCase(t, "AddCRWithWarnings", func(svc *Service) ([]string, error) {
+		_, warnings, err := svc.AddCRWithWarnings("New billing CR", "another billing change")
+		if err != nil {
+			return nil, err
+		}
+		return warnings, nil
+	})
+
+	if !reflect.DeepEqual(optionsWarnings, optionsWithWarningsWarnings) {
+		t.Fatalf("warnings mismatch between AddCRWithOptions and AddCRWithOptionsWithWarnings:\noptions=%#v\nwith_warnings=%#v", optionsWarnings, optionsWithWarningsWarnings)
+	}
+	if !reflect.DeepEqual(optionsWarnings, withWarnings) {
+		t.Fatalf("warnings mismatch between AddCRWithOptions and AddCRWithWarnings:\noptions=%#v\nwith_warnings=%#v", optionsWarnings, withWarnings)
 	}
 }
 
