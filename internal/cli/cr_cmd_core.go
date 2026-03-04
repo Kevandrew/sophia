@@ -592,6 +592,13 @@ func newCRStatusCmd() *cobra.Command {
 				fmt.Fprintf(cmd.OutOrStdout(), "Branch: %s\n", status.Branch)
 				fmt.Fprintf(cmd.OutOrStdout(), "Current Branch: %s\n", nonEmpty(status.CurrentBranch, "(unknown)"))
 				fmt.Fprintf(cmd.OutOrStdout(), "Branch Match: %t\n", status.BranchMatch)
+				fmt.Fprintf(cmd.OutOrStdout(), "Current Worktree: %s\n", nonEmpty(strings.TrimSpace(status.CurrentWorktreePath), "(unknown)"))
+				fmt.Fprintf(cmd.OutOrStdout(), "Owner Worktree: %s\n", nonEmpty(strings.TrimSpace(status.OwnerWorktreePath), "(not checked out in any worktree)"))
+				fmt.Fprintf(cmd.OutOrStdout(), "Owner Is Current: %t\n", status.OwnerIsCurrentWorktree)
+				fmt.Fprintf(cmd.OutOrStdout(), "Checked Out In Other Worktree: %t\n", status.CheckedOutInOtherWorktree)
+				if status.CheckedOutInOtherWorktree && strings.TrimSpace(status.SuggestedWorktreeCommand) != "" {
+					fmt.Fprintf(cmd.OutOrStdout(), "Suggested Command: %s\n", status.SuggestedWorktreeCommand)
+				}
 				fmt.Fprintf(cmd.OutOrStdout(), "Working Tree: %d modified/staged, %d untracked (dirty=%t)\n", status.ModifiedStagedCount, status.UntrackedCount, status.Dirty)
 				fmt.Fprintf(cmd.OutOrStdout(), "Tasks: %d total, %d open, %d delegated (%d pending), %d done\n", status.TasksTotal, status.TasksOpen, status.TasksDelegated, status.TasksDelegatedPending, status.TasksDone)
 				fmt.Fprintf(cmd.OutOrStdout(), "Contract Complete: %t\n", status.ContractComplete)
