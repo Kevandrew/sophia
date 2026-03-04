@@ -2360,7 +2360,7 @@ func (s *Service) stageArchiveForPRGate(cr *model.CR, policy *model.RepoPolicy) 
 	switched := false
 	if currentBranch != branch {
 		if owner != nil && !s.isCurrentWorktreePath(owner.Path) {
-			return fmt.Errorf("%w: branch %q is checked out in worktree %q", ErrBranchInOtherWorktree, branch, owner.Path)
+			return s.newBranchInOtherWorktreeError(cr.ID, branch, owner.Path, "pr_stage_archive", fmt.Sprintf("sophia cr pr sync %d", cr.ID))
 		}
 		if err := mergeGit.CheckoutBranch(branch); err != nil {
 			return err
