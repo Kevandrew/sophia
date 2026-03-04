@@ -99,10 +99,6 @@ func newCRAddCmd() *cobra.Command {
 			if err != nil {
 				return commandError(cmd, asJSON, err)
 			}
-			if parentID < 0 {
-				err := fmt.Errorf("--parent must be >= 1")
-				return commandError(cmd, asJSON, err)
-			}
 			opts := buildAddCROptions(baseRef, parentID, switchBranch, branchAlias, ownerPrefix, cmd.Flags().Changed("owner-prefix"))
 			return runCRAddFlow(cmd, asJSON, svc, args[0], description, opts, crAddRenderOptions{
 				switchBranch: switchBranch,
