@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"io"
+	"sort"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -843,12 +844,7 @@ func newCRContractSetCmd() *cobra.Command {
 					return commandError(cmd, asJSON, err)
 				}
 				if asJSON {
-					return writeJSONSuccess(cmd, map[string]any{
-						"cr_id":           id,
-						"changed_fields":  stringSliceOrEmpty(result.ChangedFields),
-						"already_applied": result.AlreadyApplied,
-						"dry_run":         dryRun,
-					})
+					return writeJSONSuccess(cmd, setCRContractResultToJSONMap(id, result))
 				}
 				if result.AlreadyApplied {
 					if dryRun {
@@ -863,6 +859,11 @@ func newCRContractSetCmd() *cobra.Command {
 					return nil
 				}
 				fmt.Fprintf(cmd.OutOrStdout(), "Updated CR %d contract fields: %s\n", id, strings.Join(result.ChangedFields, ", "))
+				if result.DriftRecorded {
+					fmt.Fprintln(cmd.OutOrStdout(), "CR contract scope drift was recorded and must be acknowledged before merge.")
+					fmt.Fprintf(cmd.OutOrStdout(), "Next: sophia cr contract drift list %d\n", id)
+					fmt.Fprintf(cmd.OutOrStdout(), "Next: sophia cr contract drift ack %d %d --reason \"accepted scope update\"\n", id, result.DriftID)
+				}
 				return nil
 			})
 		},
@@ -952,6 +953,46 @@ func newCRContractDriftCmd() *cobra.Command {
 	return driftCmd
 }
 
+func scopeDelta(beforeScope, afterScope []string) (added []string, removed []string) {
+	beforeScope = normalizeScopeValues(beforeScope)
+	afterScope = normalizeScopeValues(afterScope)
+	beforeSet := make(map[string]struct{}, len(beforeScope))
+	afterSet := make(map[string]struct{}, len(afterScope))
+	for _, scope := range beforeScope {
+		beforeSet[scope] = struct{}{}
+	}
+	for _, scope := range afterScope {
+		afterSet[scope] = struct{}{}
+		if _, ok := beforeSet[scope]; !ok {
+			added = append(added, scope)
+		}
+	}
+	for _, scope := range beforeScope {
+		if _, ok := afterSet[scope]; !ok {
+			removed = append(removed, scope)
+		}
+	}
+	return added, removed
+}
+
+func normalizeScopeValues(values []string) []string {
+	out := make([]string, 0, len(values))
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			continue
+		}
+		if _, exists := seen[trimmed]; exists {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		out = append(out, trimmed)
+	}
+	sort.Strings(out)
+	return out
+}
+
 func newCRContractDriftListCmd() *cobra.Command {
 	var asJSON bool
 	cmd := &cobra.Command{
@@ -977,9 +1018,19 @@ func newCRContractDriftListCmd() *cobra.Command {
 				fmt.Fprintf(cmd.OutOrStdout(), "No CR contract drift records for CR %d.\n", id)
 				return nil
 			}
-			fmt.Fprintln(cmd.OutOrStdout(), "DRIFT_ID\tFIELDS\tACKNOWLEDGED\tTS")
+			fmt.Fprintf(cmd.OutOrStdout(), "CR %d contract drift records:\n", id)
 			for _, drift := range drifts {
-				fmt.Fprintf(cmd.OutOrStdout(), "%d\t%s\t%t\t%s\n", drift.ID, strings.Join(drift.Fields, ","), drift.Acknowledged, drift.TS)
+				added, removed := scopeDelta(drift.BeforeScope, drift.AfterScope)
+				fmt.Fprintf(cmd.OutOrStdout(), "Drift #%d\n", drift.ID)
+				fmt.Fprintf(cmd.OutOrStdout(), "  fields: %s\n", nonEmpty(strings.Join(drift.Fields, ","), "(none)"))
+				fmt.Fprintf(cmd.OutOrStdout(), "  reason: %s\n", nonEmpty(strings.TrimSpace(drift.Reason), "(none)"))
+				fmt.Fprintf(cmd.OutOrStdout(), "  acknowledged: %t\n", drift.Acknowledged)
+				fmt.Fprintf(cmd.OutOrStdout(), "  recorded_at: %s\n", nonEmpty(strings.TrimSpace(drift.TS), "(unknown)"))
+				fmt.Fprintf(cmd.OutOrStdout(), "  scope_added: %s\n", nonEmpty(strings.Join(added, ", "), "(none)"))
+				fmt.Fprintf(cmd.OutOrStdout(), "  scope_removed: %s\n", nonEmpty(strings.Join(removed, ", "), "(none)"))
+				if !drift.Acknowledged {
+					fmt.Fprintf(cmd.OutOrStdout(), "  next: sophia cr contract drift ack %d %d --reason \"accepted scope update\"\n", id, drift.ID)
+				}
 			}
 			return nil
 		},

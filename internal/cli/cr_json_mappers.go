@@ -258,6 +258,33 @@ func crContractDriftMaps(drifts []model.CRContractDrift) []map[string]any {
 	return out
 }
 
+func setCRContractResultToJSONMap(crID int, result *service.SetCRContractResult) map[string]any {
+	if result == nil {
+		return map[string]any{
+			"cr_id":              crID,
+			"changed_fields":     []string{},
+			"already_applied":    false,
+			"dry_run":            false,
+			"scope_changed":      false,
+			"baseline_frozen":    false,
+			"drift_recorded":     false,
+			"drift_id":           0,
+			"drift_ack_required": false,
+		}
+	}
+	return map[string]any{
+		"cr_id":              crID,
+		"changed_fields":     stringSliceOrEmpty(result.ChangedFields),
+		"already_applied":    result.AlreadyApplied,
+		"dry_run":            result.DryRun,
+		"scope_changed":      result.ScopeChanged,
+		"baseline_frozen":    result.BaselineFrozen,
+		"drift_recorded":     result.DriftRecorded,
+		"drift_id":           result.DriftID,
+		"drift_ack_required": result.DriftAckRequired,
+	}
+}
+
 func prLinkToJSONMap(pr model.CRPRLink) map[string]any {
 	return map[string]any{
 		"provider":                    pr.Provider,

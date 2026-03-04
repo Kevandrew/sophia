@@ -1,0 +1,114 @@
+schema_version: sophia.cr_archive.v1
+notice: Historical archive snapshot. Corrections are append-only revisions.
+archived_at: "2026-03-04T18:46:49Z"
+revision: 1
+cr:
+    id: 89
+    uid: cr_21a13da3-6aac-4412-bcb3-a3c14a7a3056
+    title: Improve contract baseline drift UX for scope updates
+    description: Prevent noisy/unexpected CR contract drift records for legitimate scope updates and provide a clearer, deterministic workflow before/after first checkpoint.
+    status: merged
+    base_branch: main
+    base_ref: main
+    base_commit: 8158d0f4c50ec8dd39af06ad86d131961c780088
+    branch: cr-improve-contract-baseline-drift-ux-for-scope-upd-21a1
+    merged_at: "2026-03-04T18:46:49Z"
+    merged_by: Kevandrew <143258544+Kevandrew@users.noreply.github.com>
+contract:
+    why: Reduce noisy scope-drift UX by making post-checkpoint CR scope updates deterministic while preserving explicit manual drift acknowledgment.
+    scope:
+        - docs
+        - internal/cli
+        - internal/service
+        - internal/store
+    non_goals:
+        - Do not auto-acknowledge CR contract drift records.
+        - Do not remove CR drift records from audit history.
+    invariants:
+        - Manual cr contract drift ack remains required before merge when CR drift is recorded.
+        - Post-freeze scope updates still require --change-reason.
+    blast_radius: CR contract set/list UX, validation scope-source selection, and docs for post-checkpoint scope updates.
+    test_plan: go test ./internal/service -run 'ContractDrift|ValidateCR|ScopeDrift' -count=1 && go test ./internal/cli -run 'CRContractDrift|contract set' -count=1 && go test ./... -count=1 && go vet ./...
+    rollback_plan: Revert the CR-89 merge commit to restore prior scope-source and contract-drift UX behavior.
+tasks:
+    - id: 1
+      title: Service scope-source semantics after CR drift acknowledgment
+      status: done
+      contract:
+        intent: Harden semantic reliability for trust-check evidence matching and concurrent metadata writes
+        acceptance_criteria:
+            - Atomic YAML writes use collision-safe temp-file creation under concurrent SaveCR calls
+            - Restrictive go test selectors (for example -run) do not satisfy full-suite trust check requirements
+            - Trust check evidence recognizes semantically equivalent full-suite go test commands with non-restrictive flags
+        scope:
+            - internal/service/service_checks_test.go
+            - internal/service/service_trust.go
+            - internal/store/store.go
+      checkpoint:
+        commit: fcab4fe2
+        at: "2026-03-04T18:39:38Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_checks_test.go
+            - internal/service/service_trust.go
+            - internal/store/store.go
+    - id: 2
+      title: Improve contract set and drift-list operator UX
+      status: done
+      contract:
+        intent: Normalize drift-list scope delta output for stable, readable operator guidance
+        acceptance_criteria:
+            - scopeDelta output is deduplicated and lexicographically stable when legacy metadata contains repeated scope entries
+        scope:
+            - internal/cli/cr_cmd_core.go
+            - internal/cli/cr_contract_drift_helpers_test.go
+      checkpoint:
+        commit: 4ae9f514
+        at: "2026-03-04T18:39:42Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/cr_cmd_core.go
+            - internal/cli/cr_contract_drift_helpers_test.go
+    - id: 3
+      title: Regression tests and docs for post-checkpoint scope updates
+      status: done
+      contract:
+        intent: Lock behavior with regression coverage and document explicit post-checkpoint scope-update workflow.
+        acceptance_criteria:
+            - Service/CLI tests cover scope-source behavior and contract-set/drift-list UX; docs explain change-reason plus drift list/ack workflow.
+        scope:
+            - docs/cli-reference.md
+            - docs/troubleshooting.md
+            - docs/workflow.md
+            - internal/cli/cr_contract_drift_cli_test.go
+            - internal/service/service_contract_validation_test.go
+            - internal/service/service_cr_contract_drift_test.go
+      checkpoint:
+        commit: cf220f82
+        at: "2026-03-04T18:22:14Z"
+        source: task_checkpoint
+        scope:
+            - docs/cli-reference.md
+            - docs/troubleshooting.md
+            - docs/workflow.md
+    - id: 4
+      title: Regression assertion for additive contract-set JSON fields
+      status: done
+      contract:
+        intent: Ensure CLI JSON regression coverage includes additive contract-set drift metadata fields
+        acceptance_criteria:
+            - cr contract set --json dry-run payload asserts presence of additive drift metadata keys
+        scope:
+            - internal/cli/cr_json_agent_batch_test.go
+      checkpoint:
+        commit: eb5d90ac
+        at: "2026-03-04T18:24:50Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/cr_json_agent_batch_test.go
+git_summary:
+    base_parent: 566d6c2571bb9b02d0c3072c5f35a185db968918
+    cr_parent: 4ae9f514b3362c0e751a66b160f41288d1a2f1e0
+    files_changed: []
+    diffstat:
+        summary: 0 files changed, 0 insertions(+), 0 deletions(-)

@@ -62,6 +62,10 @@ sophia cr merge abort <cr-id>
 - PR closed but CR still in progress: run `sophia cr pr reopen <id>` (or `sophia cr pr reconcile <id> --mode create` if it was closed/deleted remotely).
 - No merge permission for finalize: hand off to reviewer merge on PR page; run `sophia cr pr status <id>` afterward to reconcile local CR merged state.
 - Worktree ownership conflict while switching/reopening: run `sophia cr where <id>` and use the returned `suggested_command` to route into the owner worktree.
+- Post-first-checkpoint scope update blocked or merge blocked by drift:
+  - Re-run scope update with `--change-reason`.
+  - Inspect pending drift records with `sophia cr contract drift list <id>`.
+  - Acknowledge required drift with `sophia cr contract drift ack <id> <drift-id> --reason "..."`.
 
 ## Useful machine-readable checks
 

@@ -176,3 +176,93 @@ func TestTrustCheckStatusCRUsesRuntimeStatusStoreProvider(t *testing.T) {
 		t.Fatalf("expected non-empty guidance for none check mode, got %#v", report.Guidance)
 	}
 }
+
+func TestTrustCheckStatusCRAcceptsEquivalentGoTestCommandEvidence(t *testing.T) {
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	runGit(t, dir, "config", "user.name", "Test User")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+	writePolicyFileForTest(t, dir, `version: v1
+trust:
+  mode: advisory
+  checks:
+    freshness_hours: 24
+    definitions:
+      - key: unit_tests
+        command: "go test ./..."
+        tiers: [low, medium, high]
+        allow_exit_codes: [0]
+`)
+	cr, err := svc.AddCR("trust equivalent go test", "")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	exitCode := 0
+	if _, err := svc.AddEvidence(cr.ID, AddEvidenceOptions{
+		Type:     evidenceTypeCommandRun,
+		Command:  "go test   ./...   -count=1 -v",
+		ExitCode: &exitCode,
+		Summary:  "full suite with non-restrictive flags",
+	}); err != nil {
+		t.Fatalf("AddEvidence() error = %v", err)
+	}
+
+	report, err := svc.TrustCheckStatusCR(cr.ID)
+	if err != nil {
+		t.Fatalf("TrustCheckStatusCR() error = %v", err)
+	}
+	if len(report.CheckResults) != 1 {
+		t.Fatalf("expected one check result, got %#v", report.CheckResults)
+	}
+	if report.CheckResults[0].Status != policyTrustCheckStatusPass {
+		t.Fatalf("expected pass status, got %#v", report.CheckResults[0])
+	}
+}
+
+func TestTrustCheckStatusCRRejectsRestrictiveGoTestSelectors(t *testing.T) {
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	runGit(t, dir, "config", "user.name", "Test User")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+	writePolicyFileForTest(t, dir, `version: v1
+trust:
+  mode: advisory
+  checks:
+    freshness_hours: 24
+    definitions:
+      - key: unit_tests
+        command: "go test ./..."
+        tiers: [low, medium, high]
+        allow_exit_codes: [0]
+`)
+	cr, err := svc.AddCR("trust restrictive go test", "")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	exitCode := 0
+	if _, err := svc.AddEvidence(cr.ID, AddEvidenceOptions{
+		Type:     evidenceTypeCommandRun,
+		Command:  "go test ./... -run TestOnlyThis",
+		ExitCode: &exitCode,
+		Summary:  "targeted run should not satisfy full suite requirement",
+	}); err != nil {
+		t.Fatalf("AddEvidence() error = %v", err)
+	}
+
+	report, err := svc.TrustCheckStatusCR(cr.ID)
+	if err != nil {
+		t.Fatalf("TrustCheckStatusCR() error = %v", err)
+	}
+	if len(report.CheckResults) != 1 {
+		t.Fatalf("expected one check result, got %#v", report.CheckResults)
+	}
+	if report.CheckResults[0].Status != policyTrustCheckStatusMissing {
+		t.Fatalf("expected missing status, got %#v", report.CheckResults[0])
+	}
+}

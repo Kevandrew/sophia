@@ -353,9 +353,14 @@ func (s *Service) SetCRContract(id int, patch ContractPatch) ([]string, error) {
 
 func (s *Service) SetCRContractWithOptions(id int, patch ContractPatch, opts SetCRContractOptions) (*SetCRContractResult, error) {
 	result := &SetCRContractResult{
-		ChangedFields:  []string{},
-		AlreadyApplied: false,
-		DryRun:         opts.DryRun,
+		ChangedFields:    []string{},
+		AlreadyApplied:   false,
+		DryRun:           opts.DryRun,
+		ScopeChanged:     false,
+		BaselineFrozen:   false,
+		DriftRecorded:    false,
+		DriftID:          0,
+		DriftAckRequired: false,
 	}
 	if err := s.withMutationLock(func() error {
 		cr, err := s.loadCRForMutation(id)
@@ -384,7 +389,10 @@ func (s *Service) SetCRContractWithOptions(id int, patch ContractPatch, opts Set
 			changeReason = strings.TrimSpace(*patch.ChangeReason)
 		}
 		scopeChanged := !equalStringSlices(beforeScope, nextContract.Scope)
-		if !crContractBaselineIsEmpty(cr.ContractBaseline) && scopeChanged && changeReason == "" {
+		baselineFrozen := !crContractBaselineIsEmpty(cr.ContractBaseline)
+		result.ScopeChanged = scopeChanged
+		result.BaselineFrozen = baselineFrozen
+		if baselineFrozen && scopeChanged && changeReason == "" {
 			return fmt.Errorf("change reason is required when updating CR contract scope after first checkpoint freeze")
 		}
 		if opts.DryRun {
@@ -411,7 +419,7 @@ func (s *Service) SetCRContractWithOptions(id int, patch ContractPatch, opts Set
 			Ref:     fmt.Sprintf("cr:%d", id),
 			Meta:    meta,
 		})
-		if !crContractBaselineIsEmpty(cr.ContractBaseline) && scopeChanged {
+		if baselineFrozen && scopeChanged {
 			drift := model.CRContractDrift{
 				ID:          nextCRContractDriftID(cr.ContractDrifts),
 				TS:          now,
@@ -434,6 +442,9 @@ func (s *Service) SetCRContractWithOptions(id int, patch ContractPatch, opts Set
 					"reason":   changeReason,
 				},
 			})
+			result.DriftRecorded = true
+			result.DriftID = drift.ID
+			result.DriftAckRequired = true
 		}
 		return s.activeLifecycleStoreProvider().SaveCR(cr)
 	}); err != nil {

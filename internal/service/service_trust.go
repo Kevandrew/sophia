@@ -469,11 +469,13 @@ func latestTrustCheckEvidence(evidence []model.EvidenceEntry, command string) (m
 		bestTime time.Time
 		found    bool
 	)
+	required := normalizeTrustCheckCommand(command)
 	for _, entry := range evidence {
 		if strings.TrimSpace(entry.Type) != evidenceTypeCommandRun {
 			continue
 		}
-		if strings.TrimSpace(entry.Command) != strings.TrimSpace(command) {
+		observed := normalizeTrustCheckCommand(entry.Command)
+		if !trustCheckCommandMatches(required, observed) {
 			continue
 		}
 		current := parseRFC3339OrZero(entry.TS)
@@ -484,6 +486,88 @@ func latestTrustCheckEvidence(evidence []model.EvidenceEntry, command string) (m
 		}
 	}
 	return best, found
+}
+
+func normalizeTrustCheckCommand(command string) string {
+	return strings.Join(strings.Fields(strings.TrimSpace(command)), " ")
+}
+
+func trustCheckCommandMatches(required, observed string) bool {
+	required = normalizeTrustCheckCommand(required)
+	observed = normalizeTrustCheckCommand(observed)
+	if required == "" || observed == "" {
+		return false
+	}
+	if observed == required {
+		return true
+	}
+	if !strings.HasPrefix(observed, required+" ") {
+		return false
+	}
+	suffix := strings.TrimSpace(strings.TrimPrefix(observed, required))
+	if suffix == "" {
+		return true
+	}
+	requiredTokens := strings.Fields(required)
+	if len(requiredTokens) >= 2 && requiredTokens[0] == "go" && requiredTokens[1] == "test" {
+		return goTestSuffixIsNonRestrictive(strings.Fields(suffix))
+	}
+	return false
+}
+
+func goTestSuffixIsNonRestrictive(tokens []string) bool {
+	allowedFlags := map[string]bool{
+		"-count":        true,
+		"-cover":        false,
+		"-covermode":    true,
+		"-coverpkg":     true,
+		"-coverprofile": true,
+		"-cpu":          true,
+		"-json":         false,
+		"-p":            true,
+		"-parallel":     true,
+		"-race":         false,
+		"-shuffle":      true,
+		"-timeout":      true,
+		"-v":            false,
+		"-vet":          true,
+	}
+	for i := 0; i < len(tokens); i++ {
+		token := strings.TrimSpace(tokens[i])
+		if token == "" || !strings.HasPrefix(token, "-") {
+			return false
+		}
+		name := token
+		hasInlineValue := false
+		inlineValue := ""
+		if idx := strings.Index(token, "="); idx > 0 {
+			name = token[:idx]
+			hasInlineValue = true
+			inlineValue = strings.TrimSpace(token[idx+1:])
+		}
+		takesValue, ok := allowedFlags[name]
+		if !ok {
+			return false
+		}
+		if !takesValue {
+			continue
+		}
+		if hasInlineValue {
+			if inlineValue == "" {
+				return false
+			}
+			continue
+		}
+		if i+1 >= len(tokens) {
+			return false
+		}
+		next := strings.TrimSpace(tokens[i+1])
+		if next == "" || strings.HasPrefix(next, "-") {
+			return false
+		}
+		i++
+	}
+	return true
 }
 
 func evaluateTrustReviewDepth(cr *model.CR, trust model.PolicyTrust, riskTier string) TrustReviewDepthResult {
