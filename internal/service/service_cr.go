@@ -51,6 +51,13 @@ func adaptAddCRResult(result *AddCRResult) (*model.CR, []string) {
 	return result.CR, append([]string(nil), result.Warnings...)
 }
 
+func normalizeAddCROptions(opts AddCROptions) AddCROptions {
+	_, noSwitch, switchBranch := servicecr.NormalizeSwitchFlags("", opts.NoSwitch, opts.Switch)
+	opts.NoSwitch = noSwitch
+	opts.Switch = switchBranch
+	return opts
+}
+
 func (s *Service) AddCRWithOptions(title, description string, opts AddCROptions) (*AddCRResult, error) {
 	var result *AddCRResult
 	if err := s.withMutationLock(func() error {
@@ -67,6 +74,7 @@ func (s *Service) addCRWithOptionsUnlocked(title, description string, opts AddCR
 	if err := servicecr.ValidateAddRequest(title, opts.BaseRef, opts.ParentCRID, opts.BranchAlias, opts.OwnerPrefixSet); err != nil {
 		return nil, err
 	}
+	opts = normalizeAddCROptions(opts)
 	bootstrap, err := s.ensureLazyLocalBootstrapForCRMutation()
 	if err != nil {
 		return nil, err
@@ -125,7 +133,7 @@ func (s *Service) addCRWithOptionsUnlocked(title, description string, opts AddCR
 	if strings.TrimSpace(opts.BranchAlias) != "" && lifecycleGit.BranchExists(branch) {
 		return nil, fmt.Errorf("branch %q already exists", branch)
 	}
-	switchBranch := servicecr.ShouldSwitch(opts.NoSwitch, opts.Switch)
+	switchBranch := opts.Switch
 
 	if switchBranch {
 		if err := lifecycleGit.CreateBranchFrom(branch, baseContext.baseCommit); err != nil {
