@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -73,7 +74,15 @@ func newCRSwitchCmd() *cobra.Command {
 					if !asJSON && errorsIs(err, service.ErrWorkingTreeDirty) {
 						fmt.Fprintln(cmd.OutOrStdout(), "Working tree is dirty. Commit changes or run `git stash`, then retry.")
 					} else if !asJSON && errorsIs(err, service.ErrBranchInOtherWorktree) {
-						fmt.Fprintln(cmd.OutOrStdout(), "Target branch is already checked out in another worktree. Run this command from that worktree path.")
+						var details *service.BranchInOtherWorktreeError
+						if errors.As(err, &details) {
+							fmt.Fprintf(cmd.OutOrStdout(), "Target branch is already checked out in worktree: %s\n", nonEmpty(strings.TrimSpace(details.OwnerWorktreePath), "(unknown)"))
+							if suggested := strings.TrimSpace(details.SuggestedCommand); suggested != "" {
+								fmt.Fprintf(cmd.OutOrStdout(), "Run: %s\n", suggested)
+							}
+						} else {
+							fmt.Fprintln(cmd.OutOrStdout(), "Target branch is already checked out in another worktree. Run this command from that worktree path.")
+						}
 					}
 					return commandError(cmd, asJSON, err)
 				}
@@ -106,7 +115,15 @@ func newCRReopenCmd() *cobra.Command {
 					if !asJSON && errorsIs(err, service.ErrWorkingTreeDirty) {
 						fmt.Fprintln(cmd.OutOrStdout(), "Working tree is dirty. Commit changes or run `git stash`, then retry.")
 					} else if !asJSON && errorsIs(err, service.ErrBranchInOtherWorktree) {
-						fmt.Fprintln(cmd.OutOrStdout(), "Target branch is already checked out in another worktree. Reopen from that worktree path.")
+						var details *service.BranchInOtherWorktreeError
+						if errors.As(err, &details) {
+							fmt.Fprintf(cmd.OutOrStdout(), "Target branch is already checked out in worktree: %s\n", nonEmpty(strings.TrimSpace(details.OwnerWorktreePath), "(unknown)"))
+							if suggested := strings.TrimSpace(details.SuggestedCommand); suggested != "" {
+								fmt.Fprintf(cmd.OutOrStdout(), "Run: %s\n", suggested)
+							}
+						} else {
+							fmt.Fprintln(cmd.OutOrStdout(), "Target branch is already checked out in another worktree. Reopen from that worktree path.")
+						}
 					}
 					return commandError(cmd, asJSON, err)
 				}
@@ -122,6 +139,50 @@ func newCRReopenCmd() *cobra.Command {
 			})
 		},
 	}
+	cmd.Flags().BoolVar(&asJSON, "json", false, "Output in JSON format")
+	return cmd
+}
+
+func newCRWhereCmd() *cobra.Command {
+	var asJSON bool
+
+	cmd := &cobra.Command{
+		Use:   "where [id]",
+		Short: "Show where a CR branch is currently checked out",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return withOptionalCRIDAndService(cmd, asJSON, args, "id", func(id int, svc *service.Service) error {
+				view, err := svc.WhereCR(id)
+				if err != nil {
+					return commandError(cmd, asJSON, err)
+				}
+				if asJSON {
+					return writeJSONSuccess(cmd, map[string]any{
+						"cr_id":                         view.CRID,
+						"cr_uid":                        view.CRUID,
+						"title":                         view.Title,
+						"branch":                        view.Branch,
+						"current_worktree_path":         view.CurrentWorktreePath,
+						"owner_worktree_path":           view.OwnerWorktreePath,
+						"owner_is_current_worktree":     view.OwnerIsCurrentWorktree,
+						"checked_out_in_other_worktree": view.CheckedOutInOtherWorktree,
+						"suggested_command":             view.SuggestedCommand,
+					})
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "CR %d: %s\n", view.CRID, nonEmpty(view.Title, "(untitled)"))
+				fmt.Fprintf(cmd.OutOrStdout(), "Branch: %s\n", nonEmpty(view.Branch, "(missing)"))
+				fmt.Fprintf(cmd.OutOrStdout(), "Current Worktree: %s\n", nonEmpty(strings.TrimSpace(view.CurrentWorktreePath), "(unknown)"))
+				fmt.Fprintf(cmd.OutOrStdout(), "Owner Worktree: %s\n", nonEmpty(strings.TrimSpace(view.OwnerWorktreePath), "(not checked out in any worktree)"))
+				fmt.Fprintf(cmd.OutOrStdout(), "Owner Is Current: %t\n", view.OwnerIsCurrentWorktree)
+				fmt.Fprintf(cmd.OutOrStdout(), "Checked Out In Other Worktree: %t\n", view.CheckedOutInOtherWorktree)
+				if suggested := strings.TrimSpace(view.SuggestedCommand); suggested != "" {
+					fmt.Fprintf(cmd.OutOrStdout(), "Suggested Command: %s\n", suggested)
+				}
+				return nil
+			})
+		},
+	}
+
 	cmd.Flags().BoolVar(&asJSON, "json", false, "Output in JSON format")
 	return cmd
 }
