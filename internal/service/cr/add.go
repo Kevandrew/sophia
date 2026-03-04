@@ -38,14 +38,30 @@ func ValidateAddRequest(title, baseRef string, parentCRID int, branchAlias strin
 	return nil
 }
 
-func ShouldSwitch(noSwitch, switchFlag bool) bool {
-	switchBranch := true
-	if noSwitch {
-		switchBranch = false
+const (
+	SwitchModeSwitch   = "switch"
+	SwitchModeNoSwitch = "no_switch"
+)
+
+func NormalizeSwitchFlags(mode string, noSwitch, switchFlag bool) (string, bool, bool) {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case SwitchModeSwitch:
+		return SwitchModeSwitch, false, true
+	case SwitchModeNoSwitch:
+		return SwitchModeNoSwitch, true, false
 	}
 	if switchFlag {
-		switchBranch = true
+		return SwitchModeSwitch, false, true
 	}
+	if noSwitch {
+		return SwitchModeNoSwitch, true, false
+	}
+	// Backward-compatible default for service-level AddCRWithOptions callers.
+	return SwitchModeSwitch, false, true
+}
+
+func ShouldSwitch(noSwitch, switchFlag bool) bool {
+	_, _, switchBranch := NormalizeSwitchFlags("", noSwitch, switchFlag)
 	return switchBranch
 }
 
