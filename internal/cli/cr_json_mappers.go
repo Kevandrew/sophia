@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"strings"
+
 	clijson "sophia/internal/cli/json"
 	"sophia/internal/model"
 	"sophia/internal/service"
@@ -302,13 +304,17 @@ func prReadyBlockedToJSONMap(crID int, err *service.PRReadyBlockedError) map[str
 	if reasonCode == "" {
 		reasonCode = "pre_implementation_no_checkpoints"
 	}
+	reason := err.Reason
+	if strings.TrimSpace(reason) == "" {
+		reason = "CR has no task checkpoint commits yet; keep PR draft until implementation checkpoints exist."
+	}
 	return map[string]any{
 		"cr_id": crID,
 		"action_required": map[string]any{
 			"type":               "manual",
 			"name":               "ready_pr_blocked",
 			"reason_code":        reasonCode,
-			"reason":             err.Reason,
+			"reason":             reason,
 			"suggested_commands": stringSliceOrEmpty(err.SuggestedCommands),
 		},
 	}
