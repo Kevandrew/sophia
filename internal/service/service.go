@@ -58,6 +58,15 @@ type NoMergeInProgressError struct {
 	Summary      string
 }
 
+type BranchInOtherWorktreeError struct {
+	CRID                int
+	Branch              string
+	OwnerWorktreePath   string
+	CurrentWorktreePath string
+	Operation           string
+	SuggestedCommand    string
+}
+
 type DoctorFinding struct {
 	Code    string
 	Message string

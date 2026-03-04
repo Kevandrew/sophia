@@ -16,6 +16,7 @@ This is the canonical day-to-day author loop for Sophia.
 ```bash
 sophia cr add "<title>" --description "<why>"
 sophia cr switch <cr-id>
+sophia cr where <cr-id>
 ```
 
 If the repository has not been explicitly initialized, `sophia cr add` bootstraps local metadata automatically.
@@ -103,6 +104,7 @@ sophia cr evidence add [<cr-id>|<cr-uid>] \
 - `pre_staged_changes`: unstage first (`git restore --staged <file>`), then retry with explicit scope.
 - `no_task_scope_matches`: use `--path` or `--patch-file` with actual changed files, or update task scope.
 - `merge_in_progress`: use `sophia cr merge status <cr-id>`, then `merge resume` or `merge abort` before other mutations.
+- `branch_in_other_worktree`: run `sophia cr where <cr-id>` and execute the suggested command from the owner worktree path.
 
 ## Merge recovery
 

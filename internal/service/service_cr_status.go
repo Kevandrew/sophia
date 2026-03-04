@@ -25,43 +25,48 @@ type WhyView struct {
 }
 
 type CRStatusView struct {
-	ID                    int
-	UID                   string
-	Title                 string
-	Status                string
-	BaseBranch            string
-	BaseRef               string
-	BaseCommit            string
-	ParentCRID            int
-	ParentStatus          string
-	Branch                string
-	CurrentBranch         string
-	BranchMatch           bool
-	ModifiedStagedCount   int
-	UntrackedCount        int
-	Dirty                 bool
-	TasksTotal            int
-	TasksOpen             int
-	TasksDone             int
-	TasksDelegated        int
-	TasksDelegatedPending int
-	ContractComplete      bool
-	ContractMissingFields []string
-	ValidationValid       bool
-	ValidationErrors      int
-	ValidationWarnings    int
-	RiskTier              string
-	RiskScore             int
-	MergeBlocked          bool
-	MergeBlockers         []string
-	LifecycleState        string
-	AbandonedAt           string
-	AbandonedBy           string
-	AbandonedReason       string
-	PRLinkageState        string
-	ActionRequired        string
-	ActionReason          string
-	SuggestedCommands     []string
+	ID                        int
+	UID                       string
+	Title                     string
+	Status                    string
+	BaseBranch                string
+	BaseRef                   string
+	BaseCommit                string
+	ParentCRID                int
+	ParentStatus              string
+	Branch                    string
+	CurrentBranch             string
+	BranchMatch               bool
+	OwnerWorktreePath         string
+	CurrentWorktreePath       string
+	OwnerIsCurrentWorktree    bool
+	CheckedOutInOtherWorktree bool
+	SuggestedWorktreeCommand  string
+	ModifiedStagedCount       int
+	UntrackedCount            int
+	Dirty                     bool
+	TasksTotal                int
+	TasksOpen                 int
+	TasksDone                 int
+	TasksDelegated            int
+	TasksDelegatedPending     int
+	ContractComplete          bool
+	ContractMissingFields     []string
+	ValidationValid           bool
+	ValidationErrors          int
+	ValidationWarnings        int
+	RiskTier                  string
+	RiskScore                 int
+	MergeBlocked              bool
+	MergeBlockers             []string
+	LifecycleState            string
+	AbandonedAt               string
+	AbandonedBy               string
+	AbandonedReason           string
+	PRLinkageState            string
+	ActionRequired            string
+	ActionReason              string
+	SuggestedCommands         []string
 }
 
 func (s *Service) WhyCR(id int) (*WhyView, error) {
@@ -122,6 +127,12 @@ func (s *Service) StatusCR(id int) (*CRStatusView, error) {
 	if err != nil {
 		return nil, err
 	}
+	worktreeContext, err := s.resolveBranchWorktreeContext(cr.ID, cr.Branch, fmt.Sprintf("sophia cr switch %d", cr.ID))
+	if err != nil {
+		worktreeContext = &branchWorktreeContext{
+			CurrentWorktreePath: strings.TrimSpace(s.git.WorkDir),
+		}
+	}
 
 	modifiedStagedCount := 0
 	untrackedCount := 0
@@ -157,33 +168,38 @@ func (s *Service) StatusCR(id int) (*CRStatusView, error) {
 	}
 	missingFields := missingCRContractFields(cr.Contract, policy.Contract.RequiredFields)
 	view := &CRStatusView{
-		ID:                    cr.ID,
-		UID:                   strings.TrimSpace(cr.UID),
-		Title:                 cr.Title,
-		Status:                cr.Status,
-		BaseBranch:            cr.BaseBranch,
-		BaseRef:               strings.TrimSpace(cr.BaseRef),
-		BaseCommit:            strings.TrimSpace(cr.BaseCommit),
-		ParentCRID:            cr.ParentCRID,
-		Branch:                cr.Branch,
-		CurrentBranch:         currentBranch,
-		BranchMatch:           strings.TrimSpace(currentBranch) != "" && currentBranch == cr.Branch,
-		ModifiedStagedCount:   modifiedStagedCount,
-		UntrackedCount:        untrackedCount,
-		Dirty:                 modifiedStagedCount > 0 || untrackedCount > 0,
-		TasksTotal:            len(cr.Subtasks),
-		TasksOpen:             tasksOpen,
-		TasksDone:             tasksDone,
-		TasksDelegated:        tasksDelegated,
-		TasksDelegatedPending: tasksDelegatedPending,
-		ContractComplete:      len(missingFields) == 0,
-		ContractMissingFields: missingFields,
-		LifecycleState:        strings.TrimSpace(cr.Status),
-		AbandonedAt:           strings.TrimSpace(cr.AbandonedAt),
-		AbandonedBy:           strings.TrimSpace(cr.AbandonedBy),
-		AbandonedReason:       strings.TrimSpace(cr.AbandonedReason),
-		ValidationValid:       true,
-		RiskTier:              "-",
+		ID:                        cr.ID,
+		UID:                       strings.TrimSpace(cr.UID),
+		Title:                     cr.Title,
+		Status:                    cr.Status,
+		BaseBranch:                cr.BaseBranch,
+		BaseRef:                   strings.TrimSpace(cr.BaseRef),
+		BaseCommit:                strings.TrimSpace(cr.BaseCommit),
+		ParentCRID:                cr.ParentCRID,
+		Branch:                    cr.Branch,
+		CurrentBranch:             currentBranch,
+		BranchMatch:               strings.TrimSpace(currentBranch) != "" && currentBranch == cr.Branch,
+		OwnerWorktreePath:         worktreeContext.OwnerWorktreePath,
+		CurrentWorktreePath:       worktreeContext.CurrentWorktreePath,
+		OwnerIsCurrentWorktree:    worktreeContext.OwnerIsCurrentWorktree,
+		CheckedOutInOtherWorktree: worktreeContext.CheckedOutInOtherWorktree,
+		SuggestedWorktreeCommand:  worktreeContext.SuggestedCommand,
+		ModifiedStagedCount:       modifiedStagedCount,
+		UntrackedCount:            untrackedCount,
+		Dirty:                     modifiedStagedCount > 0 || untrackedCount > 0,
+		TasksTotal:                len(cr.Subtasks),
+		TasksOpen:                 tasksOpen,
+		TasksDone:                 tasksDone,
+		TasksDelegated:            tasksDelegated,
+		TasksDelegatedPending:     tasksDelegatedPending,
+		ContractComplete:          len(missingFields) == 0,
+		ContractMissingFields:     missingFields,
+		LifecycleState:            strings.TrimSpace(cr.Status),
+		AbandonedAt:               strings.TrimSpace(cr.AbandonedAt),
+		AbandonedBy:               strings.TrimSpace(cr.AbandonedBy),
+		AbandonedReason:           strings.TrimSpace(cr.AbandonedReason),
+		ValidationValid:           true,
+		RiskTier:                  "-",
 	}
 	if cr.ParentCRID > 0 {
 		parent, parentErr := statusStore.LoadCR(cr.ParentCRID)

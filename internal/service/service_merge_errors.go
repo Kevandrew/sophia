@@ -93,3 +93,37 @@ func (e *NoMergeInProgressError) Details() map[string]any {
 		"worktree_path": strings.TrimSpace(e.WorktreePath),
 	}
 }
+
+func (e *BranchInOtherWorktreeError) Error() string {
+	if e == nil {
+		return ErrBranchInOtherWorktree.Error()
+	}
+	branch := nonEmptyTrimmed(e.Branch, "(unknown branch)")
+	owner := nonEmptyTrimmed(e.OwnerWorktreePath, "(unknown worktree)")
+	summary := fmt.Sprintf("%s: branch %q is checked out in worktree %q", ErrBranchInOtherWorktree, branch, owner)
+	if op := strings.TrimSpace(e.Operation); op != "" {
+		summary = fmt.Sprintf("%s during %s", summary, op)
+	}
+	return summary
+}
+
+func (e *BranchInOtherWorktreeError) Is(target error) bool {
+	return target == ErrBranchInOtherWorktree
+}
+
+func (e *BranchInOtherWorktreeError) Details() map[string]any {
+	if e == nil {
+		return map[string]any{}
+	}
+	out := map[string]any{
+		"branch":                strings.TrimSpace(e.Branch),
+		"owner_worktree_path":   strings.TrimSpace(e.OwnerWorktreePath),
+		"current_worktree_path": strings.TrimSpace(e.CurrentWorktreePath),
+		"operation":             strings.TrimSpace(e.Operation),
+		"suggested_command":     strings.TrimSpace(e.SuggestedCommand),
+	}
+	if e.CRID > 0 {
+		out["cr_id"] = e.CRID
+	}
+	return out
+}

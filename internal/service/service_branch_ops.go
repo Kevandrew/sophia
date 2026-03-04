@@ -213,7 +213,7 @@ func (s *Service) migrateCRBranchUnlocked(id int, dryRun bool) (*BranchMigrateVi
 		return nil, ownerErr
 	}
 	if owner != nil && !s.isCurrentWorktreePath(owner.Path) {
-		return nil, fmt.Errorf("%w: branch %q is checked out in worktree %q", ErrBranchInOtherWorktree, cr.Branch, owner.Path)
+		return nil, s.newBranchInOtherWorktreeError(cr.ID, cr.Branch, owner.Path, "cr_branch_migrate", fmt.Sprintf("sophia cr branch migrate %d", cr.ID))
 	}
 	if err := s.git.RenameBranch(cr.Branch, target); err != nil {
 		return nil, err

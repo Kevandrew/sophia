@@ -742,8 +742,12 @@ func crStatusToJSONMap(status *service.CRStatusView) map[string]any {
 		"branch":          status.Branch,
 		"branch_identity": branchIdentityToJSONMap(status.Branch, status.UID),
 		"branch_context": map[string]any{
-			"current_branch": status.CurrentBranch,
-			"branch_match":   status.BranchMatch,
+			"current_branch":                status.CurrentBranch,
+			"current_worktree_path":         status.CurrentWorktreePath,
+			"branch_match":                  status.BranchMatch,
+			"owner_worktree_path":           status.OwnerWorktreePath,
+			"owner_is_current_worktree":     status.OwnerIsCurrentWorktree,
+			"checked_out_in_other_worktree": status.CheckedOutInOtherWorktree,
 		},
 		"working_tree": map[string]any{
 			"modified_staged_count": status.ModifiedStagedCount,

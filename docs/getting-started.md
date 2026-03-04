@@ -18,6 +18,7 @@ Use this mental model:
 sophia cr add "Add jittered retries for outbound API calls" \
   --description "Reduce transient failure retries without overloading providers"
 sophia cr switch <cr-id>
+sophia cr where <cr-id>
 ```
 
 On first use in an uninitialized Git repository, Sophia lazily bootstraps local metadata.

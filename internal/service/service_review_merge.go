@@ -450,7 +450,7 @@ func (s *Service) switchCRUnlocked(id int) (*model.CR, error) {
 			return nil, ownerErr
 		}
 		if owner != nil && !s.isCurrentWorktreePath(owner.Path) {
-			return nil, fmt.Errorf("%w: branch %q is checked out in worktree %q", ErrBranchInOtherWorktree, cr.Branch, owner.Path)
+			return nil, s.newBranchInOtherWorktreeError(cr.ID, cr.Branch, owner.Path, "cr_switch", fmt.Sprintf("sophia cr switch %d", cr.ID))
 		}
 		if err := s.git.CheckoutBranch(cr.Branch); err != nil {
 			return nil, err
@@ -523,7 +523,7 @@ func (s *Service) reopenCRUnlocked(id int) (*model.CR, error) {
 			return nil, ownerErr
 		}
 		if owner != nil && !s.isCurrentWorktreePath(owner.Path) {
-			return nil, fmt.Errorf("%w: branch %q is checked out in worktree %q", ErrBranchInOtherWorktree, cr.Branch, owner.Path)
+			return nil, s.newBranchInOtherWorktreeError(cr.ID, cr.Branch, owner.Path, "cr_reopen", fmt.Sprintf("sophia cr reopen %d", cr.ID))
 		}
 		if err := s.git.CheckoutBranch(cr.Branch); err != nil {
 			return nil, err

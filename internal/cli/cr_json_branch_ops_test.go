@@ -241,6 +241,56 @@ func TestCRBranchFormatPreservesOwnerPrefixForExistingCR(t *testing.T) {
 	}
 }
 
+func TestCRSwitchJSONWorktreeConflictIncludesStructuredDetails(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	svc := service.New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	runGit(t, dir, "config", "user.name", "Test User")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+
+	cr, err := svc.AddCR("Switch conflict details", "json branch conflict")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	runGit(t, dir, "checkout", "main")
+	wtDir := filepath.Join(t.TempDir(), "wt-switch-json")
+	runGit(t, dir, "worktree", "add", wtDir, cr.Branch)
+
+	out, _, runErr := runCLI(t, dir, "cr", "switch", "1", "--json")
+	if runErr == nil {
+		t.Fatalf("expected switch conflict error, output=%s", out)
+	}
+	env := decodeEnvelope(t, out)
+	if env.OK || env.Error == nil {
+		t.Fatalf("expected structured error envelope, got %#v", env)
+	}
+	if env.Error.Code != "branch_in_other_worktree" {
+		t.Fatalf("expected branch_in_other_worktree code, got %#v", env.Error.Code)
+	}
+	if env.Error.Details == nil {
+		t.Fatalf("expected error details for branch conflict, got %#v", env.Error)
+	}
+	if gotID, _ := env.Error.Details["cr_id"].(float64); int(gotID) != 1 {
+		t.Fatalf("expected cr_id=1 in details, got %#v", env.Error.Details["cr_id"])
+	}
+	if branch, _ := env.Error.Details["branch"].(string); branch != cr.Branch {
+		t.Fatalf("expected branch %q in details, got %#v", cr.Branch, env.Error.Details["branch"])
+	}
+	if ownerPath, _ := env.Error.Details["owner_worktree_path"].(string); !samePathForTest(ownerPath, wtDir) {
+		t.Fatalf("expected owner_worktree_path %q, got %#v", wtDir, env.Error.Details["owner_worktree_path"])
+	}
+	if operation, _ := env.Error.Details["operation"].(string); operation != "cr_switch" {
+		t.Fatalf("expected operation=cr_switch, got %#v", env.Error.Details["operation"])
+	}
+	suggested, _ := env.Error.Details["suggested_command"].(string)
+	if !strings.Contains(suggested, "sophia cr switch 1") {
+		t.Fatalf("expected suggested switch command in details, got %#v", env.Error.Details["suggested_command"])
+	}
+}
+
 func TestCRBaseSetAndRestackCommands(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
