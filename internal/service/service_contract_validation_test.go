@@ -80,6 +80,59 @@ func TestValidateCRDetectsScopeDriftAsError(t *testing.T) {
 	}
 }
 
+func TestValidateCRIgnoresSophiaTrackedArchivePathForScopeDrift(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	cr, err := svc.AddCR("Archive scope drift", "ignore Sophia archive paths")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	scope := []string{"internal/service"}
+	why := "Contain service changes."
+	nonGoals := []string{"No docs changes"}
+	invariants := []string{"No API changes"}
+	blast := "service only"
+	testPlan := "go test ./..."
+	rollback := "revert"
+	if _, err := svc.SetCRContract(cr.ID, ContractPatch{
+		Why:          &why,
+		Scope:        &scope,
+		NonGoals:     &nonGoals,
+		Invariants:   &invariants,
+		BlastRadius:  &blast,
+		TestPlan:     &testPlan,
+		RollbackPlan: &rollback,
+	}); err != nil {
+		t.Fatalf("SetCRContract() error = %v", err)
+	}
+
+	archivePath := filepath.Join(dir, ".sophia-tracked", "cr", "cr-1.v1.yaml")
+	if err := os.MkdirAll(filepath.Dir(archivePath), 0o755); err != nil {
+		t.Fatalf("mkdir archive dir: %v", err)
+	}
+	if err := os.WriteFile(archivePath, []byte("schema_version: sophia.cr_archive.v1\n"), 0o644); err != nil {
+		t.Fatalf("write archive file: %v", err)
+	}
+	runGit(t, dir, "add", ".sophia-tracked/cr/cr-1.v1.yaml")
+	runGit(t, dir, "-c", "user.name=Test User", "-c", "user.email=test@example.com", "commit", "-m", "chore: archive metadata")
+
+	report, err := svc.ValidateCR(cr.ID)
+	if err != nil {
+		t.Fatalf("ValidateCR() error = %v", err)
+	}
+	if !report.Valid {
+		t.Fatalf("expected validation success, got errors %#v", report.Errors)
+	}
+	if containsAny(report.Errors, "scope drift") {
+		t.Fatalf("expected no scope drift error from .sophia-tracked path, got %#v", report.Errors)
+	}
+}
+
 func TestValidateCRWarnsOnTaskScopeMismatch(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
