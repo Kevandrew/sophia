@@ -1053,6 +1053,59 @@ func TestStageArchiveForPRGateFullDiffGuardrailBlocksCommit(t *testing.T) {
 	}
 }
 
+func TestStageArchiveForPRGateBranchOwnerConflictIncludesDetails(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	svc := New(dir)
+	mergeGit := newFakeMergeGit("Test User <test@example.com>", "main")
+	mergeGit.worktrees["cr-63-test"] = &gitx.Worktree{
+		Path:   filepath.Join(t.TempDir(), "wt-owner"),
+		Branch: "cr-63-test",
+	}
+	svc.overrideMergeRuntimeProvidersForTests(mergeGit, nil, func(root string) mergeRuntimeGit {
+		return mergeGit
+	})
+
+	policy := &model.RepoPolicy{
+		Merge: model.PolicyMerge{
+			Mode: "pr_gate",
+		},
+		Archive: model.PolicyArchive{
+			Enabled: boolPtr(true),
+			Path:    ".sophia-tracked/cr",
+			Format:  "yaml",
+		},
+	}
+	cr := &model.CR{
+		ID:         63,
+		BaseBranch: "main",
+		Branch:     "cr-63-test",
+	}
+	err := svc.stageArchiveForPRGate(cr, policy)
+	if err == nil {
+		t.Fatalf("expected branch ownership conflict error")
+	}
+	if !errors.Is(err, ErrBranchInOtherWorktree) {
+		t.Fatalf("expected ErrBranchInOtherWorktree, got %v", err)
+	}
+	var details *BranchInOtherWorktreeError
+	if !errors.As(err, &details) {
+		t.Fatalf("expected BranchInOtherWorktreeError details, got %T", err)
+	}
+	if details.CRID != cr.ID {
+		t.Fatalf("expected cr id %d, got %d", cr.ID, details.CRID)
+	}
+	if details.Operation != "pr_stage_archive" {
+		t.Fatalf("expected operation pr_stage_archive, got %q", details.Operation)
+	}
+	if details.OwnerWorktreePath != mergeGit.worktrees["cr-63-test"].Path {
+		t.Fatalf("expected owner worktree path %q, got %q", mergeGit.worktrees["cr-63-test"].Path, details.OwnerWorktreePath)
+	}
+	if !strings.Contains(details.SuggestedCommand, "sophia cr pr sync 63") {
+		t.Fatalf("expected suggested command to target cr pr sync 63, got %q", details.SuggestedCommand)
+	}
+}
+
 func TestPushBranchIfNeededPushesLocalAheadCommit(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()

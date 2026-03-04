@@ -33,6 +33,12 @@ func TestStatusCRBranchContextUnavailableReturnsValidationBlockers(t *testing.T)
 	if !status.MergeBlocked {
 		t.Fatalf("expected merge blocked in fallback mode")
 	}
+	if strings.TrimSpace(status.OwnerWorktreePath) != "" {
+		t.Fatalf("expected empty owner worktree path when branch context is unavailable, got %q", status.OwnerWorktreePath)
+	}
+	if status.CheckedOutInOtherWorktree {
+		t.Fatalf("expected checked_out_in_other_worktree=false without owner worktree")
+	}
 
 	foundValidationBlocker := false
 	foundBranchUnavailable := false
