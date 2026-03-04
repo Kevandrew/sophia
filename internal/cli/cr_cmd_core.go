@@ -3,7 +3,6 @@ package cli
 import (
 	"fmt"
 	"io"
-	clicr "sophia/internal/cli/cr"
 	"sort"
 	"strings"
 
