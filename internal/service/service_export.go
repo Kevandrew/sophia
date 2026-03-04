@@ -4,8 +4,8 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -32,6 +32,8 @@ const (
 	exportIncludeValidation  = model.CRBundleIncludeValidation
 
 	exportSchemaV1 = model.CRBundleSchemaV1
+
+	exportNDJSONMaxLineBytes = 32 * 1024 * 1024
 )
 
 type ExportCROptions struct {
@@ -479,7 +481,10 @@ func marshalExportBundleYAML(bundle *CRExportBundle) ([]byte, error) {
 	if err := decoder.Decode(&value); err != nil {
 		return nil, fmt.Errorf("decode json export payload: %w", err)
 	}
-	value = normalizeExportYAMLValue(value)
+	value, err = normalizeExportYAMLValue(value)
+	if err != nil {
+		return nil, err
+	}
 	root := jsonValueToYAMLNode(value)
 	if root == nil {
 		root = &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!null", Value: "null"}
@@ -528,6 +533,28 @@ func jsonValueToYAMLNode(value any) *yaml.Node {
 		return &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!null", Value: "null"}
 	case float64:
 		return &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!float", Value: strconv.FormatFloat(typed, 'g', -1, 64)}
+	case float32:
+		return &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!float", Value: strconv.FormatFloat(float64(typed), 'g', -1, 64)}
+	case int:
+		return &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!int", Value: strconv.FormatInt(int64(typed), 10)}
+	case int8:
+		return &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!int", Value: strconv.FormatInt(int64(typed), 10)}
+	case int16:
+		return &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!int", Value: strconv.FormatInt(int64(typed), 10)}
+	case int32:
+		return &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!int", Value: strconv.FormatInt(int64(typed), 10)}
+	case int64:
+		return &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!int", Value: strconv.FormatInt(typed, 10)}
+	case uint:
+		return &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!int", Value: strconv.FormatUint(uint64(typed), 10)}
+	case uint8:
+		return &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!int", Value: strconv.FormatUint(uint64(typed), 10)}
+	case uint16:
+		return &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!int", Value: strconv.FormatUint(uint64(typed), 10)}
+	case uint32:
+		return &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!int", Value: strconv.FormatUint(uint64(typed), 10)}
+	case uint64:
+		return &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!int", Value: strconv.FormatUint(typed, 10)}
 	default:
 		encoded, err := json.Marshal(typed)
 		if err != nil {
@@ -541,21 +568,21 @@ func jsonValueToYAMLNode(value any) *yaml.Node {
 	}
 }
 
-func normalizeExportYAMLValue(value any) any {
+func normalizeExportYAMLValue(value any) (any, error) {
 	root, ok := value.(map[string]any)
 	if !ok {
-		return value
+		return value, nil
 	}
 	rawCRYAML, _ := root["cr_yaml"].(string)
 	if strings.TrimSpace(rawCRYAML) == "" {
-		return root
+		return root, nil
 	}
 	var crValue any
 	if err := yaml.Unmarshal([]byte(rawCRYAML), &crValue); err != nil {
-		return root
+		return nil, fmt.Errorf("normalize export yaml cr payload: parse cr_yaml: %w", err)
 	}
 	root["cr"] = normalizeYAMLValue(crValue)
-	return root
+	return root, nil
 }
 
 func marshalExportBundleNDJSON(bundle *CRExportBundle) ([]byte, error) {
@@ -737,25 +764,16 @@ func normalizeYAMLValue(value any) any {
 }
 
 func decodeExportBundleNDJSON(raw []byte) (*CRExportBundle, error) {
-	reader := bufio.NewReader(bytes.NewReader(raw))
+	scanner := bufio.NewScanner(bytes.NewReader(raw))
+	scanner.Buffer(make([]byte, 0, 64*1024), exportNDJSONMaxLineBytes)
 	var bundle CRExportBundle
 	hasMeta := false
 	lineNo := 0
 	seenSingleton := map[string]struct{}{}
-	for {
-		line, err := reader.ReadString('\n')
-		if err != nil && err != io.EOF {
-			return nil, fmt.Errorf("scan ndjson payload: %w", err)
-		}
-		if len(line) == 0 && err == io.EOF {
-			break
-		}
+	for scanner.Scan() {
 		lineNo++
-		line = strings.TrimSpace(line)
+		line := strings.TrimSpace(scanner.Text())
 		if line == "" {
-			if err == io.EOF {
-				break
-			}
 			continue
 		}
 		var payload map[string]json.RawMessage
@@ -879,9 +897,12 @@ func decodeExportBundleNDJSON(raw []byte) (*CRExportBundle, error) {
 		default:
 			return nil, fmt.Errorf("decode ndjson line %d: unsupported record type %q", lineNo, recordType)
 		}
-		if err == io.EOF {
-			break
+	}
+	if err := scanner.Err(); err != nil {
+		if errors.Is(err, bufio.ErrTooLong) {
+			return nil, fmt.Errorf("decode as ndjson: record exceeds max line bytes (%d)", exportNDJSONMaxLineBytes)
 		}
+		return nil, fmt.Errorf("scan ndjson payload: %w", err)
 	}
 	if !hasMeta {
 		return nil, fmt.Errorf("decode as ndjson: missing meta record")
