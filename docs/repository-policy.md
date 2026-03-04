@@ -66,6 +66,11 @@ Practical guidance:
 - `merge.require_ready_for_review` (default `true`)
 - `merge.require_passing_checks` (default `true`)
 
+PR readiness behavior in `pr_gate` mode:
+- `sophia cr merge` / `sophia cr pr open` / `sophia cr pr sync` keep early publication draft-first.
+- `sophia cr pr ready` requires at least one task checkpoint commit on the CR before promotion.
+- When blocked, automation can key off `reason_code=pre_implementation_no_checkpoints`.
+
 Repository CI guidance for `pr_gate`:
 - PR checks should run from GitHub Actions `pull_request` events and treat draft PRs as non-ready.
 - Use `ready_for_review` in workflow triggers so checks run as soon as a draft PR is promoted.

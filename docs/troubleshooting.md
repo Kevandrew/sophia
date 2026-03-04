@@ -57,6 +57,11 @@ sophia cr merge abort <cr-id>
 - `gh` auth failure: run `gh auth status` and `gh auth login`, then retry `cr merge`/`cr pr` command.
 - Missing `origin` or push denied: verify remote with `git remote -v`, then `git push -u origin <cr-branch>` and retry.
 - Gate blocked in `pr_gate` mode: inspect `sophia cr pr status <id>` for approvals/checks/draft blockers.
+- `sophia cr pr ready` blocked with `pre_implementation_no_checkpoints`:
+  - run `sophia cr task list <id>`
+  - complete implementation checkpoint(s), e.g. `sophia cr task done <id> <task-id> --from-contract`
+  - retry `sophia cr pr ready <id>`
+  - keep PR draft for visibility-only publication before checkpoints exist
 - No CI checks shown on an open PR: confirm PR state is not draft. This repository's `CI` workflow is skipped while `pull_request.draft == true` and runs after `ready_for_review`.
 - PR accidentally marked ready: run `sophia cr pr unready <id>` to return to draft, then `sophia cr pr status <id>`.
 - PR closed but CR still in progress: run `sophia cr pr reopen <id>` (or `sophia cr pr reconcile <id> --mode create` if it was closed/deleted remotely).
