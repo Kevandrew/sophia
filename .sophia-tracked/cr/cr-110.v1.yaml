@@ -1,0 +1,153 @@
+schema_version: sophia.cr_archive.v1
+notice: Historical archive snapshot. Corrections are append-only revisions.
+archived_at: "2026-03-04T17:12:21Z"
+revision: 1
+cr:
+    id: 110
+    uid: cr_86983929-978b-4a28-864e-11b46d7c294b
+    title: Complete PR lifecycle controls in CLI
+    description: Add missing PR lifecycle commands (unready/draft reversal and close/reopen flows) so PR-gated workflows are fully manageable via Sophia without manual gh fallbacks.
+    status: merged
+    base_branch: main
+    base_ref: main
+    base_commit: b7cfe001f75c1ebb4911bc614cb053020e4dc331
+    branch: cr-complete-pr-lifecycle-controls-in-cli-8698
+    merged_at: "2026-03-04T17:12:21Z"
+    merged_by: Kevandrew <143258544+Kevandrew@users.noreply.github.com>
+contract:
+    why: Complete PR lifecycle controls in Sophia CLI so PR-gated teams can move between draft, ready, closed, and reopened states without leaving Sophia command surfaces. Done means unready and close/reopen operations are available, status remains deterministic, and merge gating continues to behave correctly.
+    scope:
+        - docs/cli-reference.md
+        - docs/troubleshooting.md
+        - docs/workflow.md
+        - internal/cli
+        - internal/cli/cr_cmd_pr.go
+        - internal/service/service_pr_gate.go
+        - internal/service/service_pr_gate_test.go
+        - internal/service/service_review_merge.go
+    non_goals:
+        - No auto-ready behavior after PR open or sync.
+        - No migration away from current GitHub-backed PR provider in this CR.
+        - No new remote policy model beyond existing pr_gate rules.
+        - No unrelated rewrite of merge status reporting.
+    invariants:
+        - Existing pr open, sync, ready, and status commands remain backward compatible.
+        - Local CR metadata stays consistent with remote PR state reconciliation.
+        - PR lifecycle mutations remain explicit user actions only.
+        - Permission and auth failures remain structured and machine readable.
+    blast_radius: PR command surface, PR gate service operations, JSON status/action metadata, merge-gate interactions, and workflow docs. Failure modes include stale status, incorrect gate blocking, and failed remote lifecycle transitions.
+    risk_critical_scopes:
+        - internal/service/service_pr_gate.go
+    risk_tier_hint: medium
+    risk_rationale: Touches PR gate state transitions and reconciliation paths that can block or unblock merges across team workflows.
+    test_plan: go test ./internal/service -run 'PR|Merge|Gate' -count=1 && go test ./internal/cli -run 'PR' -count=1 && go test ./... -count=1 && go vet ./...
+    rollback_plan: Revert the [CR-110] merge commit and fall back to current PR lifecycle command set.
+tasks:
+    - id: 1
+      title: Add CLI commands for pr unready, close, and reopen
+      status: done
+      contract:
+        intent: Expose missing PR lifecycle controls in the Sophia CLI command surface.
+        acceptance_criteria:
+            - help output documents the intended lifecycle usage for each command.
+            - pr command group includes unready, close, and reopen with id selectors.
+        scope:
+            - internal/cli/cr_cmd_pr.go
+            - internal/cli/root.go
+      checkpoint:
+        commit: 679e3e80
+        at: "2026-03-04T17:09:59Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/cr_cmd_pr.go
+    - id: 2
+      title: Implement service operations for reversible PR lifecycle
+      status: done
+      contract:
+        intent: Implement service methods that execute unready, close, and reopen through the provider path.
+        acceptance_criteria:
+            - auth and permission failures remain explicit and machine-readable.
+            - service can move PR from ready back to draft and can close and reopen linked PRs.
+        scope:
+            - internal/service/service_pr_gate.go
+      checkpoint:
+        commit: db9a3172
+        at: "2026-03-04T17:10:05Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_pr_gate.go
+    - id: 3
+      title: Extend PR status and action metadata for new states
+      status: done
+      contract:
+        intent: Expose updated lifecycle state and action metadata through status outputs.
+        acceptance_criteria:
+            - JSON action_required payload remains stable for automation consumers.
+            - pr status reflects reversible draft and close or reopen state transitions.
+        scope:
+            - internal/cli/cr_cmd_pr.go
+            - internal/service/service_pr_gate.go
+      checkpoint:
+        at: "2026-03-04T17:10:13Z"
+        source: task_no_checkpoint
+    - id: 4
+      title: Integrate lifecycle updates with pr_gate merge semantics
+      status: done
+      contract:
+        intent: Ensure new PR lifecycle controls integrate cleanly with existing merge and finalize semantics.
+        acceptance_criteria:
+            - merge and finalize flows respect updated PR lifecycle states without metadata corruption.
+            - status reconciliation after remote lifecycle actions remains deterministic.
+        scope:
+            - internal/service/service_pr_gate.go
+            - internal/service/service_review_merge.go
+      checkpoint:
+        at: "2026-03-04T17:10:20Z"
+        source: task_no_checkpoint
+    - id: 5
+      title: Add regression tests for PR lifecycle controls
+      status: done
+      contract:
+        intent: Cover happy paths and failure paths for new lifecycle commands and preserve existing behavior.
+        acceptance_criteria:
+            - existing pr open sync ready and status flows remain green.
+            - tests cover success, auth-required, and permission-denied paths for unready close and reopen.
+        scope:
+            - internal/cli
+            - internal/service
+        acceptance_checks:
+            - go_vet
+            - unit_tests
+      checkpoint:
+        commit: 341f77b1
+        at: "2026-03-04T17:10:25Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/cr_json_pr_gate_test.go
+            - internal/service/service_pr_gate_test.go
+    - id: 6
+      title: Update workflow and troubleshooting documentation
+      status: done
+      contract:
+        intent: Document operational usage and recovery guidance for reversible PR lifecycle controls.
+        acceptance_criteria:
+            - troubleshooting docs cover accidental ready transitions and recovery sequence.
+            - workflow docs include when to use unready close and reopen in pr_gate repos.
+        scope:
+            - docs/cli-reference.md
+            - docs/troubleshooting.md
+            - docs/workflow.md
+      checkpoint:
+        commit: 326f98c9
+        at: "2026-03-04T17:10:32Z"
+        source: task_checkpoint
+        scope:
+            - docs/cli-reference.md
+            - docs/troubleshooting.md
+            - docs/workflow.md
+git_summary:
+    base_parent: b7cfe001f75c1ebb4911bc614cb053020e4dc331
+    cr_parent: 326f98c92cf18f57f77870a3162647a127afd206
+    files_changed: []
+    diffstat:
+        summary: 0 files changed, 0 insertions(+), 0 deletions(-)
