@@ -3,6 +3,8 @@ package cli
 import (
 	"fmt"
 	"io"
+	clicr "sophia/internal/cli/cr"
+	"sort"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -953,35 +955,43 @@ func newCRContractDriftCmd() *cobra.Command {
 }
 
 func scopeDelta(beforeScope, afterScope []string) (added []string, removed []string) {
+	beforeScope = normalizeScopeValues(beforeScope)
+	afterScope = normalizeScopeValues(afterScope)
 	beforeSet := make(map[string]struct{}, len(beforeScope))
 	afterSet := make(map[string]struct{}, len(afterScope))
 	for _, scope := range beforeScope {
-		scope = strings.TrimSpace(scope)
-		if scope == "" {
-			continue
-		}
 		beforeSet[scope] = struct{}{}
 	}
 	for _, scope := range afterScope {
-		scope = strings.TrimSpace(scope)
-		if scope == "" {
-			continue
-		}
 		afterSet[scope] = struct{}{}
 		if _, ok := beforeSet[scope]; !ok {
 			added = append(added, scope)
 		}
 	}
 	for _, scope := range beforeScope {
-		scope = strings.TrimSpace(scope)
-		if scope == "" {
-			continue
-		}
 		if _, ok := afterSet[scope]; !ok {
 			removed = append(removed, scope)
 		}
 	}
 	return added, removed
+}
+
+func normalizeScopeValues(values []string) []string {
+	out := make([]string, 0, len(values))
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			continue
+		}
+		if _, exists := seen[trimmed]; exists {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		out = append(out, trimmed)
+	}
+	sort.Strings(out)
+	return out
 }
 
 func newCRContractDriftListCmd() *cobra.Command {
