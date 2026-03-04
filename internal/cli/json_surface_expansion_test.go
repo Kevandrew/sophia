@@ -393,6 +393,12 @@ func TestCRMutationCommandsSupportJSON(t *testing.T) {
 	if !env.OK {
 		t.Fatalf("expected ok envelope from child add --json, got %#v", env)
 	}
+	if got := int(jsonNumberField(t, env.Data, "parent_cr_id")); got != 1 {
+		t.Fatalf("expected parent_cr_id=1 in child add payload, got %d", got)
+	}
+	if switched, ok := env.Data["switched"].(bool); !ok || switched {
+		t.Fatalf("expected switched=false for child add default mode, got %#v", env.Data["switched"])
+	}
 	childCR, ok := env.Data["cr"].(map[string]any)
 	if !ok {
 		t.Fatalf("expected child cr object, got %#v", env.Data["cr"])

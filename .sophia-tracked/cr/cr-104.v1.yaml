@@ -1,0 +1,89 @@
+schema_version: sophia.cr_archive.v1
+notice: Historical archive snapshot. Corrections are append-only revisions.
+archived_at: "2026-03-04T16:55:23Z"
+revision: 1
+cr:
+    id: 104
+    uid: cr_aa529a60-6852-40f5-a120-00ad658f11a5
+    title: Unify CLI cr add and child add wiring
+    description: Replace duplicated command execution paths for cr add and cr child add with one shared add command engine.
+    status: merged
+    base_branch: main
+    base_ref: main
+    base_commit: 279650bc787fac6d35416e05b6e705384cb5241e
+    branch: cr-unify-cli-cr-add-and-child-add-wiring-aa52
+    merged_at: "2026-03-04T16:55:23Z"
+    merged_by: Kevandrew <143258544+Kevandrew@users.noreply.github.com>
+contract:
+    why: The CLI currently duplicates most add command flow between root add and child add. This increases maintenance cost and creates drift risk for behavior, errors, and JSON output. This CR introduces a shared add command execution path with mode-specific parent resolution while preserving command UX and output contracts.
+    scope:
+        - internal/cli/cr_cmd_core.go
+        - internal/cli/cr_json_branch_ops_test.go
+        - internal/cli/cr_json_delegate_stack_test.go
+        - internal/cli/json_surface_expansion_test.go
+    non_goals:
+        - Do not alter service-level add behavior.
+        - Do not change user-facing command names or flag sets.
+    invariants:
+        - child add still errors with actionable guidance when no active CR context exists.
+        - cr add and cr child add keep existing text/JSON behavior.
+    blast_radius: CLI add command constructors, parent context resolution path, and JSON/text render expectations.
+    risk_tier_hint: medium
+    risk_rationale: Touches command wiring and user-facing add intake paths.
+    test_plan: go test ./internal/cli ./internal/service
+    rollback_plan: Revert the merge commit for this CR to restore duplicated command handlers.
+tasks:
+    - id: 1
+      title: Create shared internal add command executor for root and child modes
+      status: done
+      contract:
+        intent: Consolidate add command execution flow behind one shared internal runner.
+        acceptance_criteria:
+            - Both add commands call one common execution path for option build + service invocation.
+        scope:
+            - internal/cli/cr_cmd_core.go
+      checkpoint:
+        commit: ef8a5e51
+        at: "2026-03-04T16:51:36Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/cr_cmd_core.go
+    - id: 2
+      title: Preserve parent resolution and error semantics for child add
+      status: done
+      contract:
+        intent: Keep child-mode parent resolution behavior and no-active-context errors unchanged.
+        acceptance_criteria:
+            - No-active-context child add error messaging remains actionable and stable.
+        scope:
+            - internal/cli/cr_cmd_core.go
+            - internal/cli/cr_json_delegate_stack_test.go
+      checkpoint:
+        commit: f0468940
+        at: "2026-03-04T16:51:40Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/cr_json_delegate_stack_test.go
+    - id: 3
+      title: Protect JSON and text output parity after dedupe
+      status: done
+      contract:
+        intent: Ensure output format parity is retained after command deduplication.
+        acceptance_criteria:
+            - CLI tests confirm no output regressions for add and child add.
+        scope:
+            - internal/cli/cr_json_branch_ops_test.go
+            - internal/cli/json_surface_expansion_test.go
+      checkpoint:
+        commit: 67791aba
+        at: "2026-03-04T16:51:45Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/cr_json_branch_ops_test.go
+            - internal/cli/json_surface_expansion_test.go
+git_summary:
+    base_parent: 279650bc787fac6d35416e05b6e705384cb5241e
+    cr_parent: 67791aba241aa3c0a9576f4cd68a975e3f4d99c7
+    files_changed: []
+    diffstat:
+        summary: 0 files changed, 0 insertions(+), 0 deletions(-)

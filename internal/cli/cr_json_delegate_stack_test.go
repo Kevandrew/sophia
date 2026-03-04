@@ -42,6 +42,23 @@ func TestCRChildAddAndStackJSON(t *testing.T) {
 	}
 }
 
+func TestCRChildAddWithoutActiveContextReturnsActionableError(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	svc := service.New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	_, _, runErr := runCLI(t, dir, "cr", "child", "add", "Child without context")
+	if runErr == nil {
+		t.Fatalf("expected child add to fail without active CR context")
+	}
+	if !strings.Contains(runErr.Error(), "current branch is not a CR branch; run `sophia cr switch <id>` or use `sophia cr add <title> --parent <id>`") {
+		t.Fatalf("expected actionable no-active-context guidance, got %v", runErr)
+	}
+}
+
 func TestCRTaskDelegateAndUndelegateCommands(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()

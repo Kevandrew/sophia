@@ -89,6 +89,48 @@ func TestCRAddDefaultsToNoSwitchAndSupportsSwitchFlag(t *testing.T) {
 	}
 }
 
+func TestCRChildAddDefaultsToNoSwitchAndSupportsSwitchFlag(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	svc := service.New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	parentOut, _, parentErr := runCLI(t, dir, "cr", "add", "Parent context", "--switch")
+	if parentErr != nil {
+		t.Fatalf("parent cr add --switch error = %v\noutput=%s", parentErr, parentOut)
+	}
+	parentBranch := runGit(t, dir, "branch", "--show-current")
+	if strings.TrimSpace(parentBranch) == "" || parentBranch == "main" {
+		t.Fatalf("expected to be switched to parent CR branch, got %q", parentBranch)
+	}
+
+	out, _, runErr := runCLI(t, dir, "cr", "child", "add", "Child no switch")
+	if runErr != nil {
+		t.Fatalf("child add default error = %v\noutput=%s", runErr, out)
+	}
+	if !strings.Contains(out, "Run: sophia cr switch 2") {
+		t.Fatalf("expected switch guidance for child add output, got %q", out)
+	}
+	current := runGit(t, dir, "branch", "--show-current")
+	if current != parentBranch {
+		t.Fatalf("expected to remain on parent branch %q, got %q", parentBranch, current)
+	}
+
+	out, _, runErr = runCLI(t, dir, "cr", "child", "add", "Child switch", "--switch")
+	if runErr != nil {
+		t.Fatalf("child add --switch error = %v\noutput=%s", runErr, out)
+	}
+	if !strings.Contains(out, "Active branch: ") {
+		t.Fatalf("expected active branch output for child add --switch, got %q", out)
+	}
+	current = runGit(t, dir, "branch", "--show-current")
+	if current == parentBranch || current == "main" {
+		t.Fatalf("expected switch to child branch, got %q", current)
+	}
+}
+
 func TestCRAddNoInitShowsBootstrapNoticeOnce(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()

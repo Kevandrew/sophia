@@ -19,6 +19,8 @@ type crAddRenderOptions struct {
 	parentCRID      int
 }
 
+type crAddParentResolver func(*service.Service) (int, error)
+
 func buildAddCROptions(baseRef string, parentCRID int, switchBranch bool, branchAlias string, ownerPrefix string, ownerPrefixSet bool) service.AddCROptions {
 	return clicr.BuildAddCROptions(clicr.AddOptionsInput{
 		BaseRef:        baseRef,
@@ -81,6 +83,41 @@ func runCRAddFlow(
 	return nil
 }
 
+func runCRAddCommand(
+	cmd *cobra.Command,
+	asJSON bool,
+	title string,
+	description string,
+	baseRef string,
+	switchBranch bool,
+	branchAlias string,
+	ownerPrefix string,
+	childMode bool,
+	includeParentID bool,
+	resolveParent crAddParentResolver,
+) error {
+	svc, err := newServiceForCmd(cmd)
+	if err != nil {
+		return commandError(cmd, asJSON, err)
+	}
+
+	parentCRID := 0
+	if resolveParent != nil {
+		parentCRID, err = resolveParent(svc)
+		if err != nil {
+			return commandError(cmd, asJSON, err)
+		}
+	}
+
+	opts := buildAddCROptions(baseRef, parentCRID, switchBranch, branchAlias, ownerPrefix, cmd.Flags().Changed("owner-prefix"))
+	return runCRAddFlow(cmd, asJSON, svc, title, description, opts, crAddRenderOptions{
+		switchBranch:    switchBranch,
+		childMode:       childMode,
+		includeParentID: includeParentID,
+		parentCRID:      parentCRID,
+	})
+}
+
 func newCRAddCmd() *cobra.Command {
 	var description string
 	var baseRef string
@@ -95,14 +132,21 @@ func newCRAddCmd() *cobra.Command {
 		Short: "Create a new change request",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			svc, err := newServiceForCmd(cmd)
-			if err != nil {
-				return commandError(cmd, asJSON, err)
-			}
-			opts := buildAddCROptions(baseRef, parentID, switchBranch, branchAlias, ownerPrefix, cmd.Flags().Changed("owner-prefix"))
-			return runCRAddFlow(cmd, asJSON, svc, args[0], description, opts, crAddRenderOptions{
-				switchBranch: switchBranch,
-			})
+			return runCRAddCommand(
+				cmd,
+				asJSON,
+				args[0],
+				description,
+				baseRef,
+				switchBranch,
+				branchAlias,
+				ownerPrefix,
+				false,
+				false,
+				func(_ *service.Service) (int, error) {
+					return parentID, nil
+				},
+			)
 		},
 	}
 
@@ -242,24 +286,28 @@ func newCRChildAddCmd() *cobra.Command {
 		Short: "Create a child CR from the current CR",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			svc, err := newServiceForCmd(cmd)
-			if err != nil {
-				return commandError(cmd, asJSON, err)
-			}
-			ctx, ctxErr := svc.CurrentCR()
-			if ctxErr != nil {
-				if errorsIs(ctxErr, service.ErrNoActiveCRContext) {
-					ctxErr = fmt.Errorf("current branch is not a CR branch; run `sophia cr switch <id>` or use `sophia cr add <title> --parent <id>`")
-				}
-				return commandError(cmd, asJSON, ctxErr)
-			}
-			opts := buildAddCROptions("", ctx.CR.ID, switchBranch, branchAlias, ownerPrefix, cmd.Flags().Changed("owner-prefix"))
-			return runCRAddFlow(cmd, asJSON, svc, args[0], description, opts, crAddRenderOptions{
-				switchBranch:    switchBranch,
-				childMode:       true,
-				includeParentID: true,
-				parentCRID:      ctx.CR.ID,
-			})
+			return runCRAddCommand(
+				cmd,
+				asJSON,
+				args[0],
+				description,
+				"",
+				switchBranch,
+				branchAlias,
+				ownerPrefix,
+				true,
+				true,
+				func(svc *service.Service) (int, error) {
+					ctx, ctxErr := svc.CurrentCR()
+					if ctxErr != nil {
+						if errorsIs(ctxErr, service.ErrNoActiveCRContext) {
+							ctxErr = fmt.Errorf("current branch is not a CR branch; run `sophia cr switch <id>` or use `sophia cr add <title> --parent <id>`")
+						}
+						return 0, ctxErr
+					}
+					return ctx.CR.ID, nil
+				},
+			)
 		},
 	}
 
