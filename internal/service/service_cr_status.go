@@ -129,7 +129,9 @@ func (s *Service) StatusCR(id int) (*CRStatusView, error) {
 	}
 	worktreeContext, err := s.resolveBranchWorktreeContext(cr.ID, cr.Branch, fmt.Sprintf("sophia cr switch %d", cr.ID))
 	if err != nil {
-		return nil, err
+		worktreeContext = &branchWorktreeContext{
+			CurrentWorktreePath: strings.TrimSpace(s.git.WorkDir),
+		}
 	}
 
 	modifiedStagedCount := 0
