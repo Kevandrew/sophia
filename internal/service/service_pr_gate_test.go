@@ -1029,6 +1029,119 @@ func TestPRReadySucceedsWhenTaskCheckpointCommitExists(t *testing.T) {
 	}
 }
 
+func TestPRReadySucceedsForResolvedAggregateParentWithoutDirectCheckpoint(t *testing.T) {
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "SOPHIA.yaml"), []byte("version: v1\nmerge:\n  mode: pr_gate\narchive:\n  enabled: false\n"), 0o644); err != nil {
+		t.Fatalf("write SOPHIA.yaml: %v", err)
+	}
+	cr, err := svc.AddCR("Aggregate parent ready allowed", "delegated proof path")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	loaded, err := svc.store.LoadCR(cr.ID)
+	if err != nil {
+		t.Fatalf("LoadCR() error = %v", err)
+	}
+	loaded.PR.Number = 65
+	loaded.PR.Repo = "acme/repo"
+	loaded.Subtasks = []model.Subtask{
+		{
+			ID:     1,
+			Title:  "Delegated implementation",
+			Status: model.TaskStatusDone,
+			Delegations: []model.TaskDelegation{
+				{ChildCRID: 201, ChildTaskID: 1},
+			},
+		},
+	}
+	if err := svc.store.SaveCR(loaded); err != nil {
+		t.Fatalf("SaveCR() error = %v", err)
+	}
+
+	readyCalledMarker := filepath.Join(t.TempDir(), "ready-called")
+	installFakeGHCommand(t, fmt.Sprintf(strings.Join([]string{
+		"#!/bin/sh",
+		"if [ \"$1\" = \"-R\" ]; then",
+		"  shift",
+		"  shift",
+		"fi",
+		"if [ \"$1\" = \"pr\" ] && [ \"$2\" = \"ready\" ]; then",
+		"  printf 'called' > %q",
+		"  exit 0",
+		"fi",
+		"if [ \"$1\" = \"pr\" ] && [ \"$2\" = \"view\" ]; then",
+		"  echo '{\"number\":65,\"url\":\"https://github.com/acme/repo/pull/65\",\"state\":\"OPEN\",\"isDraft\":false,\"headRefOid\":\"def456\",\"headRefName\":\"cr-1-aggregate-parent-ready\",\"baseRefName\":\"main\",\"author\":{\"login\":\"bot\"},\"latestReviews\":[],\"statusCheckRollup\":[]}'",
+		"  exit 0",
+		"fi",
+		"echo \"unexpected gh args: $@\" >&2",
+		"exit 1",
+	}, "\n"), readyCalledMarker))
+
+	status, err := svc.PRReady(cr.ID)
+	if err != nil {
+		t.Fatalf("PRReady() error = %v", err)
+	}
+	if status == nil || status.Draft {
+		t.Fatalf("expected non-draft status from aggregate parent PRReady, got %#v", status)
+	}
+	if _, statErr := os.Stat(readyCalledMarker); statErr != nil {
+		t.Fatalf("expected gh pr ready invocation marker, stat err=%v", statErr)
+	}
+}
+
+func TestPRReadyBlocksAggregateParentWhenDelegatedChildrenStillPending(t *testing.T) {
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "SOPHIA.yaml"), []byte("version: v1\nmerge:\n  mode: pr_gate\narchive:\n  enabled: false\n"), 0o644); err != nil {
+		t.Fatalf("write SOPHIA.yaml: %v", err)
+	}
+	cr, err := svc.AddCR("Aggregate parent ready blocked", "delegated pending path")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	loaded, err := svc.store.LoadCR(cr.ID)
+	if err != nil {
+		t.Fatalf("LoadCR() error = %v", err)
+	}
+	loaded.PR.Number = 66
+	loaded.PR.Repo = "acme/repo"
+	loaded.Subtasks = []model.Subtask{
+		{
+			ID:     1,
+			Title:  "Delegated implementation",
+			Status: model.TaskStatusDelegated,
+			Delegations: []model.TaskDelegation{
+				{ChildCRID: 202, ChildTaskID: 1},
+			},
+		},
+	}
+	if err := svc.store.SaveCR(loaded); err != nil {
+		t.Fatalf("SaveCR() error = %v", err)
+	}
+
+	status, err := svc.PRReady(cr.ID)
+	if status != nil {
+		t.Fatalf("expected nil status when readiness is blocked, got %#v", status)
+	}
+	if err == nil {
+		t.Fatalf("expected PRReady() to return blocked error")
+	}
+	var blocked *PRReadyBlockedError
+	if !errors.As(err, &blocked) {
+		t.Fatalf("expected PRReadyBlockedError, got %T (%v)", err, err)
+	}
+	if blocked.ReasonCode != prReadyBlockedReasonNoCheckpoints {
+		t.Fatalf("expected reason code %q, got %q", prReadyBlockedReasonNoCheckpoints, blocked.ReasonCode)
+	}
+}
+
 func TestClassifyPRLinkageStatusMarksClosedUnmergedPRsStale(t *testing.T) {
 	t.Parallel()
 	svc := &Service{}

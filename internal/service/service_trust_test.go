@@ -241,6 +241,61 @@ func TestTrustReportPenalizesDelegatedPendingTasks(t *testing.T) {
 	}
 }
 
+func TestTrustReportTreatsResolvedAggregateParentAsProof(t *testing.T) {
+	t.Parallel()
+	cr := &model.CR{
+		ID:       44,
+		Contract: validTrustContract(),
+		Subtasks: []model.Subtask{
+			{
+				ID:     1,
+				Status: model.TaskStatusDone,
+				Delegations: []model.TaskDelegation{
+					{ChildCRID: 301, ChildTaskID: 1},
+				},
+			},
+		},
+	}
+	report := buildTrustReport(cr, &ValidationReport{
+		Impact: &ImpactReport{
+			FilesChanged: 1,
+			RiskTier:     "low",
+			Signals:      []RiskSignal{{Code: "large_change_set", Points: 2}},
+		},
+	}, &diffSummary{
+		Files: []string{"internal/service/a.go"},
+	}, nil)
+
+	req := trustRequirementByKey(t, report, "task_checkpoint_exception_justified")
+	if !req.Satisfied {
+		t.Fatalf("expected aggregate parent delegated completion to satisfy checkpoint exception requirement, got %#v", req)
+	}
+	dimension := trustDimensionByCode(t, report, "task_proof_chain")
+	if containsAny(dimension.Reasons, "missing checkpoint commit without rationale") {
+		t.Fatalf("did not expect missing-checkpoint penalty for resolved aggregate parent, got %#v", dimension.Reasons)
+	}
+	if !containsAny(dimension.Reasons, "aggregate parent proof is satisfied by merged delegated child CRs") {
+		t.Fatalf("expected aggregate parent proof reason, got %#v", dimension.Reasons)
+	}
+}
+
+func TestAssessAggregateParentTasksRejectsDirectCheckpointTasks(t *testing.T) {
+	t.Parallel()
+	assessment := assessAggregateParentTasks([]model.Subtask{
+		{
+			ID:               1,
+			Status:           model.TaskStatusDone,
+			CheckpointCommit: "abc123",
+			Delegations: []model.TaskDelegation{
+				{ChildCRID: 401, ChildTaskID: 1},
+			},
+		},
+	})
+	if assessment.IsAggregateParent {
+		t.Fatalf("expected direct checkpoint task to disqualify aggregate parent assessment, got %#v", assessment)
+	}
+}
+
 func TestTrustReportNoTaskCanStillBeNeedsAttention(t *testing.T) {
 	t.Parallel()
 	cr := &model.CR{

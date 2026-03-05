@@ -375,11 +375,11 @@ func (s *Service) PRReady(id int) (*PRStatusView, error) {
 	if cr.PR.Number <= 0 {
 		return nil, fmt.Errorf("cr %d has no linked PR", id)
 	}
-	if !hasImplementationCheckpointProgress(cr) {
+	if !hasImplementationCheckpointProgress(cr) && !hasAggregateParentImplementationProof(cr) {
 		return nil, &PRReadyBlockedError{
 			CRID:              cr.ID,
 			ReasonCode:        prReadyBlockedReasonNoCheckpoints,
-			Reason:            "CR has no task checkpoint commits yet; keep PR draft until implementation checkpoints exist.",
+			Reason:            "CR has no direct implementation checkpoints yet; keep PR draft until implementation proof exists.",
 			SuggestedCommands: prReadyBlockedSuggestedCommands(cr.ID),
 		}
 	}
