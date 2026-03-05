@@ -2469,7 +2469,13 @@ func (s *Service) reconcileRemoteMergedPR(cr *model.CR, status *PRStatusView) er
 	if err := s.store.SaveCR(cr); err != nil {
 		return err
 	}
-	return s.syncCRRef(cr)
+	if err := s.syncCRRef(cr); err != nil {
+		return err
+	}
+	if err := s.backfillChildrenAfterParentMerge(cr); err != nil {
+		return err
+	}
+	return s.syncDelegatedTasksAfterChildMerge(cr.ID)
 }
 
 func (s *Service) pushBranchIfNeeded(cr *model.CR) error {
