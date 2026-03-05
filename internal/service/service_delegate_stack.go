@@ -46,6 +46,9 @@ type StackNodeView struct {
 	TasksDone             int
 	TasksDelegated        int
 	TasksDelegatedPending int
+	IsAggregateParent     bool
+	ResolvedChildCRIDs    []int
+	PendingChildCRIDs     []int
 }
 
 type StackView struct {
@@ -324,6 +327,9 @@ func (s *Service) StackCR(id int) (*StackView, error) {
 			TasksDone:             status.TasksDone,
 			TasksDelegated:        status.TasksDelegated,
 			TasksDelegatedPending: status.TasksDelegatedPending,
+			IsAggregateParent:     status.IsAggregateParent,
+			ResolvedChildCRIDs:    append([]int(nil), status.AggregateResolvedChildren...),
+			PendingChildCRIDs:     append([]int(nil), status.AggregatePendingChildren...),
 		}
 		nodes = append(nodes, node)
 		for _, childID := range children[cr.ID] {
@@ -438,6 +444,10 @@ func (s *Service) pendingDelegationChildIDs(task model.Subtask) []int {
 }
 
 func (s *Service) syncDelegatedTasksAfterChildMerge(childCRID int) error {
+	return s.syncDelegatedTasksAfterChildMergeWithOptions(childCRID, false)
+}
+
+func (s *Service) syncDelegatedTasksAfterChildMergeWithOptions(childCRID int, includeMergedParents bool) error {
 	if childCRID <= 0 {
 		return nil
 	}
@@ -454,7 +464,7 @@ func (s *Service) syncDelegatedTasksAfterChildMerge(childCRID int) error {
 	actor := s.git.Actor()
 	for i := range crs {
 		cr := crs[i]
-		if cr.Status != model.StatusInProgress {
+		if cr.Status != model.StatusInProgress && !(includeMergedParents && cr.Status == model.StatusMerged) {
 			continue
 		}
 
@@ -509,6 +519,26 @@ func (s *Service) syncDelegatedTasksAfterChildMerge(childCRID int) error {
 		}
 		cr.UpdatedAt = now
 		if err := s.store.SaveCR(&cr); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Service) repairDelegatedParentTaskState() error {
+	crs, err := s.store.ListCRs()
+	if err != nil {
+		return err
+	}
+	mergedChildIDs := make([]int, 0, len(crs))
+	for _, cr := range crs {
+		if cr.Status == model.StatusMerged {
+			mergedChildIDs = append(mergedChildIDs, cr.ID)
+		}
+	}
+	sort.Ints(mergedChildIDs)
+	for _, childCRID := range mergedChildIDs {
+		if err := s.syncDelegatedTasksAfterChildMergeWithOptions(childCRID, true); err != nil {
 			return err
 		}
 	}
