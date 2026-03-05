@@ -1514,6 +1514,81 @@ func TestStageArchiveForPRGateSkipsWhenArchiveDisabled(t *testing.T) {
 	}
 }
 
+func TestPROpenDoesNotCreateArchiveStagingCommitWhenArchiveEnabled(t *testing.T) {
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "SOPHIA.yaml"), []byte("version: v1\nmerge:\n  mode: pr_gate\narchive:\n  enabled: true\n  path: .sophia-tracked/cr\n  format: yaml\n"), 0o644); err != nil {
+		t.Fatalf("write SOPHIA.yaml: %v", err)
+	}
+
+	runGit(t, dir, "config", "user.name", "Test User")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("seed\n"), 0o644); err != nil {
+		t.Fatalf("write README.md: %v", err)
+	}
+	runGit(t, dir, "add", "README.md")
+	runGit(t, dir, "commit", "-m", "seed")
+	remoteDir := filepath.Join(t.TempDir(), "origin.git")
+	runGit(t, dir, "init", "--bare", remoteDir)
+	runGit(t, dir, "remote", "add", "origin", remoteDir)
+	runGit(t, dir, "push", "-u", "origin", "main")
+
+	cr, err := svc.AddCR("PR open without archive staging commit", "stack hygiene")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+
+	headBefore := runGit(t, dir, "rev-parse", "HEAD")
+	branchName := strings.TrimSpace(cr.Branch)
+	installFakeGHCommand(t, fmt.Sprintf(strings.Join([]string{
+		"#!/bin/sh",
+		"if [ \"$1\" = \"-R\" ]; then",
+		"  shift",
+		"  shift",
+		"fi",
+		"if [ \"$1\" = \"pr\" ] && [ \"$2\" = \"list\" ]; then",
+		"  echo '[]'",
+		"  exit 0",
+		"fi",
+		"if [ \"$1\" = \"pr\" ] && [ \"$2\" = \"create\" ]; then",
+		"  echo 'https://github.com/acme/repo/pull/77'",
+		"  exit 0",
+		"fi",
+		"if [ \"$1\" = \"pr\" ] && [ \"$2\" = \"view\" ]; then",
+		"  echo '{\"number\":77,\"url\":\"https://github.com/acme/repo/pull/77\",\"state\":\"OPEN\",\"isDraft\":true,\"body\":\"\",\"headRefOid\":\"%s\",\"headRefName\":\"%s\",\"baseRefName\":\"main\",\"author\":{\"login\":\"bot\"},\"latestReviews\":[],\"statusCheckRollup\":[]}'",
+		"  exit 0",
+		"fi",
+		"if [ \"$1\" = \"pr\" ] && [ \"$2\" = \"edit\" ]; then",
+		"  exit 0",
+		"fi",
+		"echo \"unexpected gh args: $@\" >&2",
+		"exit 1",
+	}, "\n"), headBefore, branchName))
+
+	status, err := svc.PROpen(cr.ID, true)
+	if err != nil {
+		t.Fatalf("PROpen() error = %v", err)
+	}
+	if status == nil || status.Number != 77 {
+		t.Fatalf("expected linked PR #77, got %#v", status)
+	}
+
+	headAfter := runGit(t, dir, "rev-parse", "HEAD")
+	if headAfter != headBefore {
+		t.Fatalf("expected PR open to keep branch HEAD unchanged, before=%s after=%s", headBefore, headAfter)
+	}
+	archivePath := filepath.Join(dir, ".sophia-tracked", "cr", fmt.Sprintf("cr-%d.v1.yaml", cr.ID))
+	if _, statErr := os.Stat(archivePath); !os.IsNotExist(statErr) {
+		t.Fatalf("expected no pre-merge archive artifact on branch, stat err=%v", statErr)
+	}
+	if log := runGit(t, dir, "log", "--oneline", "-1"); strings.Contains(log, "archive artifact for PR review") {
+		t.Fatalf("expected no archive staging commit in branch history, got %q", log)
+	}
+}
+
 func TestStageArchiveForPRGateWritesV2ArchiveWhenFullDiffEnabled(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
