@@ -1,0 +1,73 @@
+schema_version: sophia.cr_archive.v1
+notice: Historical archive snapshot. Corrections are append-only revisions.
+archived_at: "2026-03-05T03:13:56Z"
+revision: 1
+cr:
+    id: 122
+    uid: cr_e345e484-f9af-43ea-a78e-0508dce38539
+    title: Eliminate silent fallback semantics in repair and checkpoint intent
+    description: Track and remove high-suspicion silent fallbacks that can degrade chronology or intent metadata without explicit operator signal.
+    status: merged
+    base_branch: main
+    base_ref: main
+    base_commit: dbdc6181be0170c6c34324eb327fee97b4e8d642
+    branch: cr-eliminate-silent-fallback-semantics-in-repair-an-e345
+    merged_at: "2026-03-05T03:13:56Z"
+    merged_by: Kevandrew <143258544+Kevandrew@users.noreply.github.com>
+contract:
+    why: Eliminate two silent fallback paths that can change semantic meaning without a visible operator signal. Specifically, prevent repair from fabricating historical timestamps and prevent task checkpoint commit type from quietly collapsing to chore when no explicit type is provided. The outcome is stronger trust in chronology and intent metadata while retaining deterministic, operator-friendly workflows.
+    scope:
+        - internal/cli
+        - internal/service
+        - internal/service/service_maintenance.go
+        - internal/service/service_messages.go
+    non_goals:
+        - No behavioral changes to unrelated fallback paths (anchors, diff chunk mapping, or UI date sorting sentinels) in this CR.
+        - No broad refactor of service package structure.
+        - No merge-mode changes; PR-gate workflow semantics remain intact.
+    invariants:
+        - Any degraded or inferred state must be surfaced explicitly to operators.
+        - Checkpoint commit messages remain deterministic and parseable by current tooling.
+        - Repair remains non-destructive and deterministic for existing metadata.
+    blast_radius: Affects repair metadata reconstruction and task checkpoint commit message classification. Surfaces include repair outputs, CR chronology ordering inputs, task checkpoint footers/subjects, and validation/review trust context for commit intent labels.
+    risk_tier_hint: medium
+    risk_rationale: Changes touch metadata chronology and commit intent semantics used across review and audit surfaces.
+    test_plan: go test ./... && go vet ./...
+    rollback_plan: Revert the merge commits for child CRs and parent CR in stack order.
+tasks:
+    - id: 1
+      title: Remove silent timestamp fabrication in repair flow via child CR-123
+      status: delegated
+      contract:
+        intent: Track the chronology-integrity slice delegated to child CR-123.
+        acceptance_criteria:
+            - CR-123 merges with explicit degraded-state handling for missing repair timestamps.
+            - Parent CR evidence and review context link the chronology fix to this delegated task.
+        scope:
+            - internal/service
+            - internal/service/service_maintenance.go
+      delegated:
+        - child_cr_id: 123
+          child_cr_uid: cr_639492ae-952e-4d2b-a709-cf14216eee53
+          child_task_id: 4
+    - id: 2
+      title: Remove silent commit-type fallback in checkpoint flow via child CR-124
+      status: delegated
+      contract:
+        intent: Track the checkpoint-intent slice delegated to child CR-124.
+        acceptance_criteria:
+            - CR-124 merges with explicit commit-type resolution behavior for uninferable checkpoints.
+            - Parent CR review context preserves intent traceability across stack.
+        scope:
+            - internal/service
+            - internal/service/service_messages.go
+      delegated:
+        - child_cr_id: 124
+          child_cr_uid: cr_f1544df0-113e-4044-95dc-ff3cbb1eefaf
+          child_task_id: 4
+git_summary:
+    base_parent: dbdc6181be0170c6c34324eb327fee97b4e8d642
+    cr_parent: 67ff8b610159fcf222e262e0aa650e144ffc6799
+    files_changed: []
+    diffstat:
+        summary: 0 files changed, 0 insertions(+), 0 deletions(-)
