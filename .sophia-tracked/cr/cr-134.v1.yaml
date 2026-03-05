@@ -1,0 +1,97 @@
+schema_version: sophia.cr_archive.v1
+notice: Historical archive snapshot. Corrections are append-only revisions.
+archived_at: "2026-03-05T22:52:04Z"
+revision: 1
+cr:
+    id: 134
+    uid: cr_a8638fb6-844c-479d-83de-1dfca0e68e08
+    title: Remote child merge sync for delegated parent tasks
+    description: Run delegated-parent completion sync when child CRs are merged remotely through PR reconciliation.
+    status: merged
+    base_branch: main
+    base_ref: cr-stacked-parent-child-cr-workflow-and-aggregate-p-8284
+    base_commit: c13dfeddbee2c4dc8275e1bb0aee3156c3abb519
+    branch: cr-remote-child-merge-sync-for-delegated-parent-tas-a863
+    merged_at: "2026-03-05T22:52:04Z"
+    merged_by: Kevandrew <143258544+Kevandrew@users.noreply.github.com>
+contract:
+    why: Parent delegated tasks currently auto-complete only on the local child merge path. When child PRs are merged remotely, the child CR becomes merged but the parent task remains delegated forever. This child fixes that lifecycle gap.
+    scope:
+        - internal/service
+    non_goals:
+        - No PR archive/history cleanup in this child CR.
+        - No readiness or trust heuristic changes in this child CR.
+    invariants:
+        - Delegation linkage stays intact after parent task auto-completion.
+        - Remote and local child merges converge on the same parent-task terminal state.
+    blast_radius: Touches remote merge reconciliation and delegated-task completion. Failure modes are duplicate completion events, missed parent sync, or incorrect completion when one of several child delegations is still pending.
+    risk_tier_hint: medium
+    risk_rationale: Changes child-merge reconciliation behavior for stacked CRs.
+    test_plan: go test ./internal/service
+    rollback_plan: Revert this child CR merge commit and restore the previous remote child-merge reconciliation behavior.
+tasks:
+    - id: 1
+      title: Call delegated-parent sync from remote merge reconciliation
+      status: done
+      contract:
+        intent: Wire the existing delegated-parent completion routine into remote PR merge reconciliation.
+        acceptance_criteria:
+            - Remote merged child CRs trigger delegated-parent completion sync after merge state is persisted.
+            - Sync runs exactly once per reconciliation path and is safe if the child is already merged.
+        scope:
+            - internal/service
+      checkpoint:
+        commit: b12eb8e0
+        at: "2026-03-05T22:35:44Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_pr_gate.go
+    - id: 2
+      title: Protect multi-child delegated completion rules
+      status: done
+      contract:
+        intent: Ensure parent tasks only auto-complete when every linked child is merged.
+        acceptance_criteria:
+            - A parent task completes automatically once the last pending child is merged remotely.
+            - A parent task with one merged child and one unmerged child remains delegated.
+        scope:
+            - internal/service
+      checkpoint:
+        at: "2026-03-05T22:35:49Z"
+        source: task_no_checkpoint
+    - id: 3
+      title: Add remote child merge regression tests
+      status: done
+      contract:
+        intent: Cover remote merge reconciliation for stacked delegated parents.
+        acceptance_criteria:
+            - Tests cover one-child and multi-child delegation cases.
+            - Tests fail if remote child merges stop completing eligible parent tasks.
+        scope:
+            - internal/service
+      checkpoint:
+        commit: f62b1a55
+        at: "2026-03-05T22:35:44Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_pr_gate_test.go
+    - id: 4
+      title: Resolve delegated parent tasks after remote child merges
+      status: done
+      contract:
+        intent: Make remote child PR merges run the same delegated-parent completion sync as local child merges.
+        acceptance_criteria:
+            - Existing local child merge behavior remains unchanged.
+            - Remote reconciliation preserves delegation linkage metadata and records an auditable parent-task completion event.
+            - When a child CR is merged remotely, any parent delegated task that now has no pending children is auto-completed.
+        scope:
+            - internal/service
+      checkpoint:
+        at: "2026-03-05T22:35:49Z"
+        source: task_no_checkpoint
+git_summary:
+    base_parent: c13dfeddbee2c4dc8275e1bb0aee3156c3abb519
+    cr_parent: f62b1a55413f2aaa86a3e6d08a834bd76f24c4fc
+    files_changed: []
+    diffstat:
+        summary: 0 files changed, 0 insertions(+), 0 deletions(-)

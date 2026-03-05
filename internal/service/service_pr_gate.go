@@ -375,11 +375,11 @@ func (s *Service) PRReady(id int) (*PRStatusView, error) {
 	if cr.PR.Number <= 0 {
 		return nil, fmt.Errorf("cr %d has no linked PR", id)
 	}
-	if !hasImplementationCheckpointProgress(cr) {
+	if !hasImplementationCheckpointProgress(cr) && !hasAggregateParentImplementationProof(cr) {
 		return nil, &PRReadyBlockedError{
 			CRID:              cr.ID,
 			ReasonCode:        prReadyBlockedReasonNoCheckpoints,
-			Reason:            "CR has no task checkpoint commits yet; keep PR draft until implementation checkpoints exist.",
+			Reason:            "CR has no direct implementation checkpoints yet; keep PR draft until implementation proof exists.",
 			SuggestedCommands: prReadyBlockedSuggestedCommands(cr.ID),
 		}
 	}
@@ -1416,9 +1416,6 @@ func (s *Service) openOrSyncPRForCR(cr *model.CR, policy *model.RepoPolicy, appr
 		return nil, fmt.Errorf("cr is required")
 	}
 	hadLinkedPR := cr.PR.Number > 0
-	if err := s.stageArchiveForPRGate(cr, policy); err != nil {
-		return nil, err
-	}
 	ctx, err := s.buildPRContextView(cr)
 	if err != nil {
 		return nil, err
@@ -2469,7 +2466,13 @@ func (s *Service) reconcileRemoteMergedPR(cr *model.CR, status *PRStatusView) er
 	if err := s.store.SaveCR(cr); err != nil {
 		return err
 	}
-	return s.syncCRRef(cr)
+	if err := s.syncCRRef(cr); err != nil {
+		return err
+	}
+	if err := s.backfillChildrenAfterParentMerge(cr); err != nil {
+		return err
+	}
+	return s.syncDelegatedTasksAfterChildMerge(cr.ID)
 }
 
 func (s *Service) pushBranchIfNeeded(cr *model.CR) error {

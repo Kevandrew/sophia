@@ -363,6 +363,89 @@ func TestBuildCRDashboardSnapshotIncludesSelectedCRLifecycleActions(t *testing.T
 	}
 }
 
+func TestCRShowAndDashboardSnapshotsIncludeStackNativity(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	svc := service.New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	parent, err := svc.AddCR("Stack parent", "root integration")
+	if err != nil {
+		t.Fatalf("AddCR(parent) error = %v", err)
+	}
+	setValidContractCLI(t, svc, parent.ID)
+	task, err := svc.AddTask(parent.ID, "delegate UI slice")
+	if err != nil {
+		t.Fatalf("AddTask(parent) error = %v", err)
+	}
+	setValidTaskContractCLI(t, svc, parent.ID, task.ID)
+
+	child, _, err := svc.AddCRWithOptionsWithWarnings("Stack child", "leaf implementation", service.AddCROptions{ParentCRID: parent.ID})
+	if err != nil {
+		t.Fatalf("AddCR(child) error = %v", err)
+	}
+	setValidContractCLI(t, svc, child.ID)
+	if _, err := svc.DelegateTaskToChild(parent.ID, task.ID, child.ID); err != nil {
+		t.Fatalf("DelegateTaskToChild() error = %v", err)
+	}
+
+	_, payload, err := buildCRShowSnapshot(svc, parent.ID, defaultCRShowEventsLimit, defaultCRShowCheckpointsLimit)
+	if err != nil {
+		t.Fatalf("buildCRShowSnapshot(parent) error = %v", err)
+	}
+	nativity := mapStringAny(payload["stack_nativity"])
+	if got, _ := nativity["role"].(string); got != "aggregate_parent" {
+		t.Fatalf("expected parent role aggregate_parent, got %#v", nativity["role"])
+	}
+	if got, _ := nativity["pending_child_count"].(int); got != 1 {
+		t.Fatalf("expected pending_child_count=1, got %#v", nativity["pending_child_count"])
+	}
+
+	_, childPayload, err := buildCRShowSnapshot(svc, child.ID, defaultCRShowEventsLimit, defaultCRShowCheckpointsLimit)
+	if err != nil {
+		t.Fatalf("buildCRShowSnapshot(child) error = %v", err)
+	}
+	childNativity := mapStringAny(childPayload["stack_nativity"])
+	if got, _ := childNativity["role"].(string); got != "child" {
+		t.Fatalf("expected child role, got %#v", childNativity["role"])
+	}
+	if got, _ := childNativity["parent_cr_id"].(int); got != parent.ID {
+		t.Fatalf("expected child parent_cr_id=%d, got %#v", parent.ID, childNativity["parent_cr_id"])
+	}
+
+	dashboard, selectedID, err := buildCRDashboardSnapshot(svc, model.CRSearchQuery{}, defaultCRListLimit, defaultCRTimelineLimit, parent.ID)
+	if err != nil {
+		t.Fatalf("buildCRDashboardSnapshot() error = %v", err)
+	}
+	if selectedID != parent.ID {
+		t.Fatalf("expected selected parent id %d, got %d", parent.ID, selectedID)
+	}
+	rows, ok := dashboard["crs"].([]map[string]any)
+	if !ok || len(rows) < 2 {
+		t.Fatalf("expected dashboard rows, got %#v", dashboard["crs"])
+	}
+	var parentRow, childRow map[string]any
+	for _, row := range rows {
+		if got, _ := row["id"].(int); got == parent.ID {
+			parentRow = row
+		}
+		if got, _ := row["id"].(int); got == child.ID {
+			childRow = row
+		}
+	}
+	if len(parentRow) == 0 || len(childRow) == 0 {
+		t.Fatalf("expected parent and child rows, got %#v", rows)
+	}
+	if got, _ := mapStringAny(parentRow["stack_nativity"])["role"].(string); got != "aggregate_parent" {
+		t.Fatalf("expected parent row aggregate_parent, got %#v", parentRow["stack_nativity"])
+	}
+	if got, _ := mapStringAny(childRow["stack_nativity"])["role"].(string); got != "child" {
+		t.Fatalf("expected child row child role, got %#v", childRow["stack_nativity"])
+	}
+}
+
 func TestCRShowTemplateIsSingleFileWithInlineAssets(t *testing.T) {
 	t.Parallel()
 	doc, err := buildCRShowHTMLDocument(embeddedCRShowHTMLTemplate, map[string]any{
@@ -382,6 +465,8 @@ func TestCRShowTemplateIsSingleFileWithInlineAssets(t *testing.T) {
 		"Raw JSON Payload",
 		"read-only local report",
 		"id=\"close-preview-btn\"",
+		"Stack Role",
+		"Lineage",
 		"EventSource",
 		"/__sophia_events?mode=cr&id=",
 	} {
@@ -395,6 +480,47 @@ func TestCRShowTemplateIsSingleFileWithInlineAssets(t *testing.T) {
 	} {
 		if strings.Contains(doc, forbidden) {
 			t.Fatalf("expected no remote script dependency in template; found %q", forbidden)
+		}
+	}
+}
+
+func TestCRListTemplateIncludesStackNativityLabels(t *testing.T) {
+	t.Parallel()
+	doc, err := buildCRListHTMLDocument(embeddedCRListHTMLTemplate, map[string]any{
+		"generated_at": "2026-03-03T00:00:00Z",
+		"dashboard": map[string]any{
+			"counts":  map[string]any{"list_returned": 1, "timeline_returned": 0},
+			"filters": map[string]any{},
+		},
+		"crs": []map[string]any{
+			{
+				"id":         101,
+				"title":      "Stack root",
+				"status":     "in_progress",
+				"risk_tier":  "medium",
+				"branch":     "cr-stack-root",
+				"updated_at": "2026-03-03T00:00:00Z",
+				"tasks":      map[string]any{"done": 1, "total": 2},
+				"stack_nativity": map[string]any{
+					"role":                "aggregate_parent",
+					"role_label":          "Aggregate Parent",
+					"is_aggregate_parent": true,
+					"pending_child_count": 1,
+				},
+			},
+		},
+		"timeline": []map[string]any{},
+	})
+	if err != nil {
+		t.Fatalf("buildCRListHTMLDocument() error = %v", err)
+	}
+	for _, required := range []string{
+		"Stack Role",
+		"Lineage",
+		"Aggregate Parent",
+	} {
+		if !strings.Contains(doc, required) {
+			t.Fatalf("expected generated list html to contain %q", required)
 		}
 	}
 }

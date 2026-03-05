@@ -50,6 +50,9 @@ type CRStatusView struct {
 	TasksDone                 int
 	TasksDelegated            int
 	TasksDelegatedPending     int
+	IsAggregateParent         bool
+	AggregateResolvedChildren []int
+	AggregatePendingChildren  []int
 	ContractComplete          bool
 	ContractMissingFields     []string
 	ValidationValid           bool
@@ -201,6 +204,10 @@ func (s *Service) StatusCR(id int) (*CRStatusView, error) {
 		ValidationValid:           true,
 		RiskTier:                  "-",
 	}
+	aggregateParent := s.aggregateParentViewForCR(cr)
+	view.IsAggregateParent = aggregateParent.IsAggregateParent
+	view.AggregateResolvedChildren = append([]int(nil), aggregateParent.ResolvedChildCRIDs...)
+	view.AggregatePendingChildren = append([]int(nil), aggregateParent.PendingChildCRIDs...)
 	if cr.ParentCRID > 0 {
 		parent, parentErr := statusStore.LoadCR(cr.ParentCRID)
 		if parentErr != nil {

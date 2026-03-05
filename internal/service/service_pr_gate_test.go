@@ -619,6 +619,195 @@ func TestPRStatusReturnsNoLinkedPRActionMetadata(t *testing.T) {
 	}
 }
 
+func TestReconcileRemoteMergedPRCompletesDelegatedParentTask(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	runGit(t, dir, "config", "user.name", "Test User")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+
+	parent, err := svc.AddCR("Parent refactor", "umbrella intent")
+	if err != nil {
+		t.Fatalf("AddCR(parent) error = %v", err)
+	}
+	setValidContract(t, svc, parent.ID)
+	parentTask, err := svc.AddTask(parent.ID, "Split service layer")
+	if err != nil {
+		t.Fatalf("AddTask(parent) error = %v", err)
+	}
+	setValidTaskContract(t, svc, parent.ID, parentTask.ID)
+
+	if err := os.WriteFile(filepath.Join(dir, "parent.txt"), []byte("parent\n"), 0o644); err != nil {
+		t.Fatalf("write parent file: %v", err)
+	}
+	runGit(t, dir, "add", "parent.txt")
+	runGit(t, dir, "commit", "-m", "feat: parent intent commit")
+
+	child, _, err := svc.AddCRWithOptionsWithWarnings("Child slice", "delegated implementation", AddCROptions{ParentCRID: parent.ID})
+	if err != nil {
+		t.Fatalf("AddCR(child) error = %v", err)
+	}
+	setValidContract(t, svc, child.ID)
+	if _, err := svc.DelegateTaskToChild(parent.ID, parentTask.ID, child.ID); err != nil {
+		t.Fatalf("DelegateTaskToChild() error = %v", err)
+	}
+
+	if err := os.WriteFile(filepath.Join(dir, "child.txt"), []byte("child\n"), 0o644); err != nil {
+		t.Fatalf("write child file: %v", err)
+	}
+	runGit(t, dir, "add", "child.txt")
+	runGit(t, dir, "commit", "-m", "feat: child implementation")
+
+	child, err = svc.store.LoadCR(child.ID)
+	if err != nil {
+		t.Fatalf("LoadCR(child) error = %v", err)
+	}
+	head, err := svc.git.ResolveRef("HEAD")
+	if err != nil {
+		t.Fatalf("RevParse(HEAD) error = %v", err)
+	}
+	status := &PRStatusView{
+		Merged:       true,
+		MergedAt:     svc.timestamp(),
+		MergedCommit: strings.TrimSpace(head),
+	}
+	if err := svc.reconcileRemoteMergedPR(child, status); err != nil {
+		t.Fatalf("reconcileRemoteMergedPR(child) error = %v", err)
+	}
+
+	reloadedParent, err := svc.store.LoadCR(parent.ID)
+	if err != nil {
+		t.Fatalf("LoadCR(parent) error = %v", err)
+	}
+	taskIndex := indexOfTask(reloadedParent.Subtasks, parentTask.ID)
+	if taskIndex < 0 {
+		t.Fatalf("expected parent task %d to exist", parentTask.ID)
+	}
+	if reloadedParent.Subtasks[taskIndex].Status != model.TaskStatusDone {
+		t.Fatalf("expected delegated parent task auto-completed after remote child merge, got %#v", reloadedParent.Subtasks[taskIndex])
+	}
+	if strings.TrimSpace(reloadedParent.Subtasks[taskIndex].CompletedAt) == "" {
+		t.Fatalf("expected delegated parent task completed_at to be set, got %#v", reloadedParent.Subtasks[taskIndex])
+	}
+}
+
+func TestReconcileRemoteMergedPRWaitsForAllDelegatedChildren(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	runGit(t, dir, "config", "user.name", "Test User")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+
+	parent, err := svc.AddCR("Parent refactor", "umbrella intent")
+	if err != nil {
+		t.Fatalf("AddCR(parent) error = %v", err)
+	}
+	setValidContract(t, svc, parent.ID)
+	parentTask, err := svc.AddTask(parent.ID, "Split service layer")
+	if err != nil {
+		t.Fatalf("AddTask(parent) error = %v", err)
+	}
+	setValidTaskContract(t, svc, parent.ID, parentTask.ID)
+
+	if err := os.WriteFile(filepath.Join(dir, "parent.txt"), []byte("parent\n"), 0o644); err != nil {
+		t.Fatalf("write parent file: %v", err)
+	}
+	runGit(t, dir, "add", "parent.txt")
+	runGit(t, dir, "commit", "-m", "feat: parent intent commit")
+
+	childOne, _, err := svc.AddCRWithOptionsWithWarnings("Child one", "delegated implementation", AddCROptions{ParentCRID: parent.ID})
+	if err != nil {
+		t.Fatalf("AddCR(childOne) error = %v", err)
+	}
+	setValidContract(t, svc, childOne.ID)
+	if _, err := svc.DelegateTaskToChild(parent.ID, parentTask.ID, childOne.ID); err != nil {
+		t.Fatalf("DelegateTaskToChild(childOne) error = %v", err)
+	}
+
+	if err := os.WriteFile(filepath.Join(dir, "child-one.txt"), []byte("child one\n"), 0o644); err != nil {
+		t.Fatalf("write child one file: %v", err)
+	}
+	runGit(t, dir, "add", "child-one.txt")
+	runGit(t, dir, "commit", "-m", "feat: child one implementation")
+	childOneHead, err := svc.git.ResolveRef("HEAD")
+	if err != nil {
+		t.Fatalf("RevParse(HEAD child one) error = %v", err)
+	}
+
+	childTwo, _, err := svc.AddCRWithOptionsWithWarnings("Child two", "delegated implementation", AddCROptions{ParentCRID: parent.ID})
+	if err != nil {
+		t.Fatalf("AddCR(childTwo) error = %v", err)
+	}
+	setValidContract(t, svc, childTwo.ID)
+	if _, err := svc.DelegateTaskToChild(parent.ID, parentTask.ID, childTwo.ID); err != nil {
+		t.Fatalf("DelegateTaskToChild(childTwo) error = %v", err)
+	}
+
+	if err := os.WriteFile(filepath.Join(dir, "child-two.txt"), []byte("child two\n"), 0o644); err != nil {
+		t.Fatalf("write child two file: %v", err)
+	}
+	runGit(t, dir, "add", "child-two.txt")
+	runGit(t, dir, "commit", "-m", "feat: child two implementation")
+	childTwoHead, err := svc.git.ResolveRef("HEAD")
+	if err != nil {
+		t.Fatalf("RevParse(HEAD child two) error = %v", err)
+	}
+
+	reloadedChildOne, err := svc.store.LoadCR(childOne.ID)
+	if err != nil {
+		t.Fatalf("LoadCR(childOne) error = %v", err)
+	}
+	if err := svc.reconcileRemoteMergedPR(reloadedChildOne, &PRStatusView{
+		Merged:       true,
+		MergedAt:     svc.timestamp(),
+		MergedCommit: strings.TrimSpace(childOneHead),
+	}); err != nil {
+		t.Fatalf("reconcileRemoteMergedPR(childOne) error = %v", err)
+	}
+
+	reloadedParent, err := svc.store.LoadCR(parent.ID)
+	if err != nil {
+		t.Fatalf("LoadCR(parent after child one) error = %v", err)
+	}
+	taskIndex := indexOfTask(reloadedParent.Subtasks, parentTask.ID)
+	if taskIndex < 0 {
+		t.Fatalf("expected parent task %d to exist", parentTask.ID)
+	}
+	if reloadedParent.Subtasks[taskIndex].Status != model.TaskStatusDelegated {
+		t.Fatalf("expected parent task to remain delegated until all children merge, got %#v", reloadedParent.Subtasks[taskIndex])
+	}
+
+	reloadedChildTwo, err := svc.store.LoadCR(childTwo.ID)
+	if err != nil {
+		t.Fatalf("LoadCR(childTwo) error = %v", err)
+	}
+	if err := svc.reconcileRemoteMergedPR(reloadedChildTwo, &PRStatusView{
+		Merged:       true,
+		MergedAt:     svc.timestamp(),
+		MergedCommit: strings.TrimSpace(childTwoHead),
+	}); err != nil {
+		t.Fatalf("reconcileRemoteMergedPR(childTwo) error = %v", err)
+	}
+
+	reloadedParent, err = svc.store.LoadCR(parent.ID)
+	if err != nil {
+		t.Fatalf("LoadCR(parent after child two) error = %v", err)
+	}
+	taskIndex = indexOfTask(reloadedParent.Subtasks, parentTask.ID)
+	if taskIndex < 0 {
+		t.Fatalf("expected parent task %d to exist", parentTask.ID)
+	}
+	if reloadedParent.Subtasks[taskIndex].Status != model.TaskStatusDone {
+		t.Fatalf("expected parent task done after all delegated children merge, got %#v", reloadedParent.Subtasks[taskIndex])
+	}
+}
+
 func TestPRStatusReturnsStaleWhenLinkedPRNotFound(t *testing.T) {
 	dir := t.TempDir()
 	svc := New(dir)
@@ -837,6 +1026,119 @@ func TestPRReadySucceedsWhenTaskCheckpointCommitExists(t *testing.T) {
 	}
 	if _, statErr := os.Stat(readyCalledMarker); statErr != nil {
 		t.Fatalf("expected gh pr ready invocation marker, stat err=%v", statErr)
+	}
+}
+
+func TestPRReadySucceedsForResolvedAggregateParentWithoutDirectCheckpoint(t *testing.T) {
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "SOPHIA.yaml"), []byte("version: v1\nmerge:\n  mode: pr_gate\narchive:\n  enabled: false\n"), 0o644); err != nil {
+		t.Fatalf("write SOPHIA.yaml: %v", err)
+	}
+	cr, err := svc.AddCR("Aggregate parent ready allowed", "delegated proof path")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	loaded, err := svc.store.LoadCR(cr.ID)
+	if err != nil {
+		t.Fatalf("LoadCR() error = %v", err)
+	}
+	loaded.PR.Number = 65
+	loaded.PR.Repo = "acme/repo"
+	loaded.Subtasks = []model.Subtask{
+		{
+			ID:     1,
+			Title:  "Delegated implementation",
+			Status: model.TaskStatusDone,
+			Delegations: []model.TaskDelegation{
+				{ChildCRID: 201, ChildTaskID: 1},
+			},
+		},
+	}
+	if err := svc.store.SaveCR(loaded); err != nil {
+		t.Fatalf("SaveCR() error = %v", err)
+	}
+
+	readyCalledMarker := filepath.Join(t.TempDir(), "ready-called")
+	installFakeGHCommand(t, fmt.Sprintf(strings.Join([]string{
+		"#!/bin/sh",
+		"if [ \"$1\" = \"-R\" ]; then",
+		"  shift",
+		"  shift",
+		"fi",
+		"if [ \"$1\" = \"pr\" ] && [ \"$2\" = \"ready\" ]; then",
+		"  printf 'called' > %q",
+		"  exit 0",
+		"fi",
+		"if [ \"$1\" = \"pr\" ] && [ \"$2\" = \"view\" ]; then",
+		"  echo '{\"number\":65,\"url\":\"https://github.com/acme/repo/pull/65\",\"state\":\"OPEN\",\"isDraft\":false,\"headRefOid\":\"def456\",\"headRefName\":\"cr-1-aggregate-parent-ready\",\"baseRefName\":\"main\",\"author\":{\"login\":\"bot\"},\"latestReviews\":[],\"statusCheckRollup\":[]}'",
+		"  exit 0",
+		"fi",
+		"echo \"unexpected gh args: $@\" >&2",
+		"exit 1",
+	}, "\n"), readyCalledMarker))
+
+	status, err := svc.PRReady(cr.ID)
+	if err != nil {
+		t.Fatalf("PRReady() error = %v", err)
+	}
+	if status == nil || status.Draft {
+		t.Fatalf("expected non-draft status from aggregate parent PRReady, got %#v", status)
+	}
+	if _, statErr := os.Stat(readyCalledMarker); statErr != nil {
+		t.Fatalf("expected gh pr ready invocation marker, stat err=%v", statErr)
+	}
+}
+
+func TestPRReadyBlocksAggregateParentWhenDelegatedChildrenStillPending(t *testing.T) {
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "SOPHIA.yaml"), []byte("version: v1\nmerge:\n  mode: pr_gate\narchive:\n  enabled: false\n"), 0o644); err != nil {
+		t.Fatalf("write SOPHIA.yaml: %v", err)
+	}
+	cr, err := svc.AddCR("Aggregate parent ready blocked", "delegated pending path")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	loaded, err := svc.store.LoadCR(cr.ID)
+	if err != nil {
+		t.Fatalf("LoadCR() error = %v", err)
+	}
+	loaded.PR.Number = 66
+	loaded.PR.Repo = "acme/repo"
+	loaded.Subtasks = []model.Subtask{
+		{
+			ID:     1,
+			Title:  "Delegated implementation",
+			Status: model.TaskStatusDelegated,
+			Delegations: []model.TaskDelegation{
+				{ChildCRID: 202, ChildTaskID: 1},
+			},
+		},
+	}
+	if err := svc.store.SaveCR(loaded); err != nil {
+		t.Fatalf("SaveCR() error = %v", err)
+	}
+
+	status, err := svc.PRReady(cr.ID)
+	if status != nil {
+		t.Fatalf("expected nil status when readiness is blocked, got %#v", status)
+	}
+	if err == nil {
+		t.Fatalf("expected PRReady() to return blocked error")
+	}
+	var blocked *PRReadyBlockedError
+	if !errors.As(err, &blocked) {
+		t.Fatalf("expected PRReadyBlockedError, got %T (%v)", err, err)
+	}
+	if blocked.ReasonCode != prReadyBlockedReasonNoCheckpoints {
+		t.Fatalf("expected reason code %q, got %q", prReadyBlockedReasonNoCheckpoints, blocked.ReasonCode)
 	}
 }
 
@@ -1209,6 +1511,81 @@ func TestStageArchiveForPRGateSkipsWhenArchiveDisabled(t *testing.T) {
 	}
 	if err := svc.stageArchiveForPRGate(cr, policy); err != nil {
 		t.Fatalf("stageArchiveForPRGate() error = %v", err)
+	}
+}
+
+func TestPROpenDoesNotCreateArchiveStagingCommitWhenArchiveEnabled(t *testing.T) {
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "SOPHIA.yaml"), []byte("version: v1\nmerge:\n  mode: pr_gate\narchive:\n  enabled: true\n  path: .sophia-tracked/cr\n  format: yaml\n"), 0o644); err != nil {
+		t.Fatalf("write SOPHIA.yaml: %v", err)
+	}
+
+	runGit(t, dir, "config", "user.name", "Test User")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("seed\n"), 0o644); err != nil {
+		t.Fatalf("write README.md: %v", err)
+	}
+	runGit(t, dir, "add", "README.md")
+	runGit(t, dir, "commit", "-m", "seed")
+	remoteDir := filepath.Join(t.TempDir(), "origin.git")
+	runGit(t, dir, "init", "--bare", remoteDir)
+	runGit(t, dir, "remote", "add", "origin", remoteDir)
+	runGit(t, dir, "push", "-u", "origin", "main")
+
+	cr, err := svc.AddCR("PR open without archive staging commit", "stack hygiene")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+
+	headBefore := runGit(t, dir, "rev-parse", "HEAD")
+	branchName := strings.TrimSpace(cr.Branch)
+	installFakeGHCommand(t, fmt.Sprintf(strings.Join([]string{
+		"#!/bin/sh",
+		"if [ \"$1\" = \"-R\" ]; then",
+		"  shift",
+		"  shift",
+		"fi",
+		"if [ \"$1\" = \"pr\" ] && [ \"$2\" = \"list\" ]; then",
+		"  echo '[]'",
+		"  exit 0",
+		"fi",
+		"if [ \"$1\" = \"pr\" ] && [ \"$2\" = \"create\" ]; then",
+		"  echo 'https://github.com/acme/repo/pull/77'",
+		"  exit 0",
+		"fi",
+		"if [ \"$1\" = \"pr\" ] && [ \"$2\" = \"view\" ]; then",
+		"  echo '{\"number\":77,\"url\":\"https://github.com/acme/repo/pull/77\",\"state\":\"OPEN\",\"isDraft\":true,\"body\":\"\",\"headRefOid\":\"%s\",\"headRefName\":\"%s\",\"baseRefName\":\"main\",\"author\":{\"login\":\"bot\"},\"latestReviews\":[],\"statusCheckRollup\":[]}'",
+		"  exit 0",
+		"fi",
+		"if [ \"$1\" = \"pr\" ] && [ \"$2\" = \"edit\" ]; then",
+		"  exit 0",
+		"fi",
+		"echo \"unexpected gh args: $@\" >&2",
+		"exit 1",
+	}, "\n"), headBefore, branchName))
+
+	status, err := svc.PROpen(cr.ID, true)
+	if err != nil {
+		t.Fatalf("PROpen() error = %v", err)
+	}
+	if status == nil || status.Number != 77 {
+		t.Fatalf("expected linked PR #77, got %#v", status)
+	}
+
+	headAfter := runGit(t, dir, "rev-parse", "HEAD")
+	if headAfter != headBefore {
+		t.Fatalf("expected PR open to keep branch HEAD unchanged, before=%s after=%s", headBefore, headAfter)
+	}
+	archivePath := filepath.Join(dir, ".sophia-tracked", "cr", fmt.Sprintf("cr-%d.v1.yaml", cr.ID))
+	if _, statErr := os.Stat(archivePath); !os.IsNotExist(statErr) {
+		t.Fatalf("expected no pre-merge archive artifact on branch, stat err=%v", statErr)
+	}
+	if log := runGit(t, dir, "log", "--oneline", "-1"); strings.Contains(log, "archive artifact for PR review") {
+		t.Fatalf("expected no archive staging commit in branch history, got %q", log)
 	}
 }
 

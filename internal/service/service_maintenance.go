@@ -320,6 +320,17 @@ func (s *Service) RepairFromGit(baseBranch string, refresh bool) (*RepairReport,
 		}
 		allCRs = append(allCRs, *cr)
 	}
+	if err := s.repairDelegatedParentTaskState(); err != nil {
+		return nil, err
+	}
+	allCRs = allCRs[:0]
+	refreshedCRs, listErr := s.store.ListCRs()
+	if listErr != nil {
+		return nil, listErr
+	}
+	for _, cr := range refreshedCRs {
+		allCRs = append(allCRs, cr)
+	}
 	if err := s.syncAllCRRefs(allCRs); err != nil {
 		return nil, err
 	}

@@ -159,6 +159,26 @@ func delegationLaunchToJSONMap(launch crShowDelegationLaunchView) map[string]any
 	}
 }
 
+func stackNativityToJSONMap(view service.StackNativityView) map[string]any {
+	return map[string]any{
+		"role":                  view.Role,
+		"role_label":            view.RoleLabel,
+		"is_child":              view.IsChild,
+		"is_root_parent":        view.IsRootParent,
+		"is_aggregate_parent":   view.IsAggregateParent,
+		"parent_cr_id":          view.ParentCRID,
+		"parent_title":          view.ParentTitle,
+		"parent_branch":         view.ParentBranch,
+		"parent_status":         view.ParentStatus,
+		"child_cr_ids":          intSliceOrEmpty(view.ChildCRIDs),
+		"resolved_child_cr_ids": intSliceOrEmpty(view.ResolvedChildCRIDs),
+		"pending_child_cr_ids":  intSliceOrEmpty(view.PendingChildCRIDs),
+		"child_count":           view.ChildCount,
+		"resolved_child_count":  view.ResolvedChildCount,
+		"pending_child_count":   view.PendingChildCount,
+	}
+}
+
 func delegationSnapshotToJSONMap(runs []model.DelegationRun) map[string]any {
 	recentRuns := make([]map[string]any, 0, len(runs))
 	currentRun := map[string]any{}
@@ -933,6 +953,13 @@ func crStatusToJSONMap(status *service.CRStatusView) map[string]any {
 			"delegated":         status.TasksDelegated,
 			"delegated_pending": status.TasksDelegatedPending,
 		},
+		"aggregate_parent": map[string]any{
+			"enabled":           status.IsAggregateParent,
+			"resolved_children": intSliceOrEmpty(status.AggregateResolvedChildren),
+			"pending_children":  intSliceOrEmpty(status.AggregatePendingChildren),
+			"resolved_count":    len(status.AggregateResolvedChildren),
+			"pending_count":     len(status.AggregatePendingChildren),
+		},
 		"contract": map[string]any{
 			"complete":       status.ContractComplete,
 			"missing_fields": stringSliceOrEmpty(status.ContractMissingFields),
@@ -1291,6 +1318,7 @@ func crPackToJSONMap(view *service.CRPackView) map[string]any {
 		"contract":           contractToJSONMap(view.Contract),
 		"tasks":              tasks,
 		"delegation":         delegationSnapshotToJSONMap(view.DelegationRuns),
+		"stack_nativity":     stackNativityToJSONMap(view.StackNativity),
 		"anchors":            anchors,
 		"status":             crStatusToJSONMap(view.Status),
 		"recent_events":      events,

@@ -118,6 +118,40 @@ sophia cr evidence add [<cr-id>|<cr-uid>] \
   --attachment _docs/cr-<cr-id>-evidence/tests.log
 ```
 
+## Stacked parent / child workflow
+
+Use this when one parent CR owns multiple independently reviewable child CRs.
+
+Topology:
+- Parent CR branch is the integration branch for the stack.
+- Child CR branches are based on the parent branch.
+- Child PRs target the parent branch.
+- Parent PR targets `main`.
+
+Typical sequence:
+1. Open the parent CR and define the parent contract.
+2. Create child CRs with `--parent` (or `sophia cr child add`) for each reviewable slice.
+3. Delegate parent tasks to child CRs when the parent work is fulfilled in children.
+4. Implement and merge children into the parent branch.
+5. Refresh later children after earlier child merges so the stack stays current:
+
+```bash
+sophia cr refresh <child-cr-id>
+```
+
+6. Reconcile remote merges into local metadata before further mutation:
+
+```bash
+sophia cr pr status <cr-id>
+sophia cr status <cr-id> --json
+```
+
+Aggregate-parent semantics:
+- A parent with delegated child tasks and no direct implementation checkpoints is an aggregate parent.
+- Aggregate parents are valid integration CRs. They do not need fake implementation commits purely to become ready.
+- Once delegated child CRs are merged, parent delegated tasks should reconcile into resolved state automatically.
+- If state looks stale after remote child merges, reconcile or refresh before editing metadata by hand.
+
 ## If you see X, do Y
 
 - `task_contract_incomplete`: run `sophia cr task contract set [<cr-id>|<cr-uid>] <task-id> ...` and provide missing fields.
@@ -155,9 +189,6 @@ sophia cr merge <cr-id>
 
 Behavior in `pr_gate` mode:
 - Pushes CR branch to `origin` if needed.
-- Stages/commits `cr-<id>.v1.yaml` archive artifact on CR branch when archive policy is enabled.
-  - When `archive.include_full_diffs=true`, archive payload uses schema `sophia.cr_archive.v2` with full diff snapshot metadata.
-  - Full diff payloads over `8 MiB` are rejected before commit with deterministic guardrail errors.
 - Creates or syncs a draft PR and updates only Sophia-managed body section.
 - Returns PR URL plus gate status (approvals/checks/draft readiness).
 - Repository CI checks run on PR lifecycle events only after PR is non-draft (`ready_for_review` or non-draft open/sync events).
@@ -178,6 +209,7 @@ sophia cr pr status <cr-id>
 Lifecycle guidance:
 - Use `pr ready` only for explicit reviewer handoff.
 - `pr ready` can be blocked with `reason_code=pre_implementation_no_checkpoints` until at least one task checkpoint commit exists for the CR.
+- Aggregate parents are the exception: if delegated child CRs provide the implementation proof and all delegated work is resolved, the parent can be ready without direct parent checkpoints.
 - Keep pre-implementation PRs in draft; checkpoint implementation (`sophia cr task done ...`) before promoting ready-for-review.
 - If marked ready too early, run `pr unready` to move back to draft.
 - Use `pr close` when intentionally pausing/cancelling the PR without merging.
