@@ -41,6 +41,7 @@ type CRPackView struct {
 	CR                *model.CR
 	Contract          model.Contract
 	Tasks             []model.Subtask
+	DelegationRuns    []model.DelegationRun
 	Anchors           *CRRangeAnchorsView
 	Status            *CRStatusView
 	RecentEvents      []model.Event
@@ -108,6 +109,7 @@ func (s *Service) PackCR(id int, opts PackOptions) (*CRPackView, error) {
 		CR:                review.CR,
 		Contract:          review.CR.Contract,
 		Tasks:             tasks,
+		DelegationRuns:    cloneDelegationRunsForPack(review.CR.DelegationRuns),
 		Anchors:           anchors,
 		Status:            status,
 		RecentEvents:      events,
@@ -121,6 +123,25 @@ func (s *Service) PackCR(id int, opts PackOptions) (*CRPackView, error) {
 		Trust:             review.Trust,
 		Warnings:          warnings,
 	}, nil
+}
+
+func cloneDelegationRunsForPack(runs []model.DelegationRun) []model.DelegationRun {
+	if len(runs) == 0 {
+		return nil
+	}
+	cloned := make([]model.DelegationRun, 0, len(runs))
+	for _, run := range runs {
+		cloned = append(cloned, cloneDelegationRun(run))
+	}
+	sort.SliceStable(cloned, func(i, j int) bool {
+		ti := parseRFC3339OrZero(cloned[i].UpdatedAt)
+		tj := parseRFC3339OrZero(cloned[j].UpdatedAt)
+		if !ti.Equal(tj) {
+			return tj.Before(ti)
+		}
+		return cloned[i].ID > cloned[j].ID
+	})
+	return cloned
 }
 
 func normalizePackOptions(opts PackOptions) (int, int, error) {
