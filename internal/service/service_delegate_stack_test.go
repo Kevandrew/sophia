@@ -3,6 +3,7 @@ package service
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -201,5 +202,171 @@ func TestStackCRIncludesChildAndDelegationBlockers(t *testing.T) {
 	}
 	if stack.Nodes[1].ID != child.ID || stack.Nodes[1].Depth != 1 {
 		t.Fatalf("unexpected child node %#v", stack.Nodes[1])
+	}
+}
+
+func TestRepairDelegatedParentTaskStateRepairsMergedAggregateParent(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	parent, err := svc.AddCR("Parent", "aggregate parent")
+	if err != nil {
+		t.Fatalf("AddCR(parent) error = %v", err)
+	}
+	setValidContract(t, svc, parent.ID)
+	parentTask, err := svc.AddTask(parent.ID, "delegated child work")
+	if err != nil {
+		t.Fatalf("AddTask(parent) error = %v", err)
+	}
+	setValidTaskContract(t, svc, parent.ID, parentTask.ID)
+
+	child, _, err := svc.AddCRWithOptionsWithWarnings("Child", "delegated implementation", AddCROptions{ParentCRID: parent.ID})
+	if err != nil {
+		t.Fatalf("AddCR(child) error = %v", err)
+	}
+	setValidContract(t, svc, child.ID)
+	if _, err := svc.DelegateTaskToChild(parent.ID, parentTask.ID, child.ID); err != nil {
+		t.Fatalf("DelegateTaskToChild() error = %v", err)
+	}
+
+	parentCR, err := svc.store.LoadCR(parent.ID)
+	if err != nil {
+		t.Fatalf("LoadCR(parent) error = %v", err)
+	}
+	childCR, err := svc.store.LoadCR(child.ID)
+	if err != nil {
+		t.Fatalf("LoadCR(child) error = %v", err)
+	}
+	childCR.Status = model.StatusMerged
+	childCR.MergedAt = svc.timestamp()
+	childCR.MergedBy = "tester"
+	childCR.MergedCommit = "childmerged"
+	if err := svc.store.SaveCR(childCR); err != nil {
+		t.Fatalf("SaveCR(child merged) error = %v", err)
+	}
+
+	taskIndex := indexOfTask(parentCR.Subtasks, parentTask.ID)
+	if taskIndex < 0 {
+		t.Fatalf("expected parent task %d", parentTask.ID)
+	}
+	parentCR.Status = model.StatusMerged
+	parentCR.MergedAt = svc.timestamp()
+	parentCR.MergedBy = "tester"
+	parentCR.MergedCommit = "parentmerged"
+	parentCR.Subtasks[taskIndex].Status = model.TaskStatusDelegated
+	parentCR.Subtasks[taskIndex].CompletedAt = ""
+	parentCR.Subtasks[taskIndex].CompletedBy = ""
+	if err := svc.store.SaveCR(parentCR); err != nil {
+		t.Fatalf("SaveCR(parent stale merged) error = %v", err)
+	}
+
+	if err := svc.repairDelegatedParentTaskState(); err != nil {
+		t.Fatalf("repairDelegatedParentTaskState() error = %v", err)
+	}
+
+	repairedParent, err := svc.store.LoadCR(parent.ID)
+	if err != nil {
+		t.Fatalf("LoadCR(repaired parent) error = %v", err)
+	}
+	repairedTask := repairedParent.Subtasks[taskIndex]
+	if repairedTask.Status != model.TaskStatusDone {
+		t.Fatalf("expected repaired task done, got %#v", repairedTask)
+	}
+	if strings.TrimSpace(repairedTask.CompletedAt) == "" || strings.TrimSpace(repairedTask.CompletedBy) == "" {
+		t.Fatalf("expected repaired completion metadata, got %#v", repairedTask)
+	}
+	if len(repairedTask.Delegations) != 1 || repairedTask.Delegations[0].ChildCRID != child.ID {
+		t.Fatalf("expected delegation linkage preserved, got %#v", repairedTask.Delegations)
+	}
+}
+
+func TestStatusCRMarksAggregateParentResolvedAndPendingChildren(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	parent, err := svc.AddCR("Parent", "aggregate status")
+	if err != nil {
+		t.Fatalf("AddCR(parent) error = %v", err)
+	}
+	setValidContract(t, svc, parent.ID)
+
+	taskResolved, err := svc.AddTask(parent.ID, "resolved delegate")
+	if err != nil {
+		t.Fatalf("AddTask(resolved) error = %v", err)
+	}
+	setValidTaskContract(t, svc, parent.ID, taskResolved.ID)
+	taskPending, err := svc.AddTask(parent.ID, "pending delegate")
+	if err != nil {
+		t.Fatalf("AddTask(pending) error = %v", err)
+	}
+	setValidTaskContract(t, svc, parent.ID, taskPending.ID)
+
+	childResolved, _, err := svc.AddCRWithOptionsWithWarnings("Child resolved", "delegated implementation", AddCROptions{ParentCRID: parent.ID})
+	if err != nil {
+		t.Fatalf("AddCR(childResolved) error = %v", err)
+	}
+	setValidContract(t, svc, childResolved.ID)
+	childPending, _, err := svc.AddCRWithOptionsWithWarnings("Child pending", "delegated implementation", AddCROptions{ParentCRID: parent.ID})
+	if err != nil {
+		t.Fatalf("AddCR(childPending) error = %v", err)
+	}
+	setValidContract(t, svc, childPending.ID)
+
+	if _, err := svc.DelegateTaskToChild(parent.ID, taskResolved.ID, childResolved.ID); err != nil {
+		t.Fatalf("DelegateTaskToChild(resolved) error = %v", err)
+	}
+	if _, err := svc.DelegateTaskToChild(parent.ID, taskPending.ID, childPending.ID); err != nil {
+		t.Fatalf("DelegateTaskToChild(pending) error = %v", err)
+	}
+
+	childResolvedCR, err := svc.store.LoadCR(childResolved.ID)
+	if err != nil {
+		t.Fatalf("LoadCR(childResolved) error = %v", err)
+	}
+	childResolvedCR.Status = model.StatusMerged
+	childResolvedCR.MergedAt = svc.timestamp()
+	childResolvedCR.MergedBy = "tester"
+	childResolvedCR.MergedCommit = "childresolved"
+	if err := svc.store.SaveCR(childResolvedCR); err != nil {
+		t.Fatalf("SaveCR(childResolved merged) error = %v", err)
+	}
+	if err := svc.syncDelegatedTasksAfterChildMerge(childResolved.ID); err != nil {
+		t.Fatalf("syncDelegatedTasksAfterChildMerge() error = %v", err)
+	}
+
+	status, err := svc.StatusCR(parent.ID)
+	if err != nil {
+		t.Fatalf("StatusCR() error = %v", err)
+	}
+	if !status.IsAggregateParent {
+		t.Fatalf("expected aggregate parent status, got %#v", status)
+	}
+	if got := joinIntIDs(status.AggregateResolvedChildren); got != strconv.Itoa(childResolved.ID) {
+		t.Fatalf("expected resolved children [%d], got %v", childResolved.ID, status.AggregateResolvedChildren)
+	}
+	if got := joinIntIDs(status.AggregatePendingChildren); got != strconv.Itoa(childPending.ID) {
+		t.Fatalf("expected pending children [%d], got %v", childPending.ID, status.AggregatePendingChildren)
+	}
+
+	stack, err := svc.StackCR(parent.ID)
+	if err != nil {
+		t.Fatalf("StackCR() error = %v", err)
+	}
+	if len(stack.Nodes) == 0 || !stack.Nodes[0].IsAggregateParent {
+		t.Fatalf("expected aggregate parent node, got %#v", stack.Nodes)
+	}
+	if got := joinIntIDs(stack.Nodes[0].ResolvedChildCRIDs); got != strconv.Itoa(childResolved.ID) {
+		t.Fatalf("expected stack resolved children [%d], got %v", childResolved.ID, stack.Nodes[0].ResolvedChildCRIDs)
+	}
+	if got := joinIntIDs(stack.Nodes[0].PendingChildCRIDs); got != strconv.Itoa(childPending.ID) {
+		t.Fatalf("expected stack pending children [%d], got %v", childPending.ID, stack.Nodes[0].PendingChildCRIDs)
 	}
 }
