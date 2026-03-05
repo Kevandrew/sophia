@@ -7,6 +7,7 @@ import (
 	_ "embed"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html"
 	"io"
@@ -39,6 +40,7 @@ const (
 	defaultCRShowCheckpointsLimit                = 10
 	defaultCRShowSSEPollInterval                 = 2 * time.Second
 	defaultCRShowSSEKeepaliveInterval            = 15 * time.Second
+	defaultCRShowDelegationRuntime               = "mock"
 )
 
 func newCRShowCmd() *cobra.Command {
@@ -146,7 +148,7 @@ func runCRShowPerCR(cmd *cobra.Command, asJSON bool, noOpen bool, svc *service.S
 	closeReason := ""
 	var server *crShowServer
 	if openAttempted {
-		server, err = startCRShowServerWithLiveRoutes(
+		server, err = startCRShowServerWithLiveRoutesAndLaunch(
 			func() (string, error) {
 				livePayload, _, snapshotErr := buildCRDashboardSnapshot(svc, model.CRSearchQuery{}, defaultCRListLimit, defaultCRTimelineLimit, id)
 				if snapshotErr != nil {
@@ -175,6 +177,7 @@ func runCRShowPerCR(cmd *cobra.Command, asJSON bool, noOpen bool, svc *service.S
 				}
 				return livePayload, nil
 			},
+			buildCRShowPerCRLaunchHandler(svc, view),
 		)
 		if err != nil {
 			return commandError(cmd, asJSON, fmt.Errorf("start localhost preview: %w", err))
@@ -360,8 +363,282 @@ func buildCRShowSnapshot(svc *service.Service, id int, eventsLimit int, checkpoi
 	}
 	payload := crPackToJSONMap(view)
 	payload["cr"] = crToJSONMap(view.CR)
+	payload["delegation_launch"] = delegationLaunchToJSONMap(buildCRShowDelegationLaunchView(view))
 	payload["generated_at"] = time.Now().UTC().Format(time.RFC3339)
 	return view, payload, nil
+}
+
+func buildCRShowPerCRLaunchHandler(svc *service.Service, view *service.CRPackView) crShowLaunchHandler {
+	if svc == nil || view == nil || view.CR == nil {
+		return nil
+	}
+	crID := view.CR.ID
+	return func(r *http.Request) (map[string]any, int, error) {
+		input, err := decodeCRShowDelegationLaunchInput(r)
+		if err != nil {
+			return nil, http.StatusBadRequest, err
+		}
+		if input.CRID != 0 && input.CRID != crID {
+			return nil, http.StatusBadRequest, fmt.Errorf("launch request targets cr %d but preview is bound to cr %d", input.CRID, crID)
+		}
+		currentView, err := svc.PackCR(crID, service.PackOptions{})
+		if err != nil {
+			return nil, http.StatusInternalServerError, err
+		}
+		if currentView == nil || currentView.CR == nil {
+			return nil, http.StatusInternalServerError, fmt.Errorf("cr %d is unavailable", crID)
+		}
+		launch := buildCRShowDelegationLaunchView(currentView)
+		if !launch.Available {
+			return nil, http.StatusConflict, errors.New(nonEmpty(launch.Reason, "delegation launch is unavailable"))
+		}
+		request, selectedTaskIDs, err := buildCRShowDelegationRequest(currentView, input.TaskIDs)
+		if err != nil {
+			return nil, http.StatusBadRequest, err
+		}
+		run, err := svc.StartDelegation(crID, request)
+		if err != nil {
+			return nil, http.StatusInternalServerError, err
+		}
+		return map[string]any{
+			"cr_id":               crID,
+			"runtime":             request.Runtime,
+			"selected_task_ids":   intSliceOrEmpty(selectedTaskIDs),
+			"default_task_ids":    intSliceOrEmpty(launch.DefaultTaskIDs),
+			"defaulted_selection": len(input.TaskIDs) == 0,
+			"run":                 delegationRunToJSONMap(run),
+		}, http.StatusAccepted, nil
+	}
+}
+
+func decodeCRShowDelegationLaunchInput(r *http.Request) (crShowDelegationLaunchInput, error) {
+	var input crShowDelegationLaunchInput
+	if r == nil || r.Body == nil {
+		return input, nil
+	}
+	defer r.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(r.Body, 64<<10))
+	if err != nil {
+		return input, fmt.Errorf("read launch request: %w", err)
+	}
+	if len(bytes.TrimSpace(body)) == 0 {
+		return input, nil
+	}
+	if err := json.Unmarshal(body, &input); err != nil {
+		return input, fmt.Errorf("decode launch request: %w", err)
+	}
+	return input, nil
+}
+
+func buildCRShowDelegationLaunchView(view *service.CRPackView) crShowDelegationLaunchView {
+	launch := crShowDelegationLaunchView{
+		Runtime:   defaultCRShowDelegationRuntime,
+		SkillRefs: []string{"sophia"},
+	}
+	if view == nil || view.CR == nil {
+		launch.Reason = "cr preview payload is unavailable"
+		return launch
+	}
+	for _, task := range view.Tasks {
+		launch.AllTaskIDs = append(launch.AllTaskIDs, task.ID)
+		if strings.TrimSpace(task.Status) != model.TaskStatusDone {
+			launch.OpenTaskIDs = append(launch.OpenTaskIDs, task.ID)
+		}
+	}
+	if len(launch.OpenTaskIDs) > 0 {
+		launch.DefaultTaskIDs = append([]int(nil), launch.OpenTaskIDs...)
+	} else {
+		launch.DefaultTaskIDs = append([]int(nil), launch.AllTaskIDs...)
+	}
+	switch strings.TrimSpace(view.CR.Status) {
+	case model.StatusMerged:
+		launch.Reason = "merged crs cannot launch new delegations"
+		return launch
+	case model.StatusAbandoned:
+		launch.Reason = "abandoned crs must be reopened before delegation"
+		return launch
+	}
+	launch.Available = true
+	return launch
+}
+
+func buildCRShowDelegationRequest(view *service.CRPackView, selectedTaskIDs []int) (model.DelegationRequest, []int, error) {
+	launch := buildCRShowDelegationLaunchView(view)
+	if !launch.Available {
+		return model.DelegationRequest{}, nil, errors.New(nonEmpty(launch.Reason, "delegation launch is unavailable"))
+	}
+	selection, err := normalizeCRShowDelegationSelection(view, selectedTaskIDs, launch.DefaultTaskIDs)
+	if err != nil {
+		return model.DelegationRequest{}, nil, err
+	}
+	request := model.DelegationRequest{
+		Runtime:              launch.Runtime,
+		TaskIDs:              append([]int(nil), selection...),
+		WorkflowInstructions: buildCRShowDelegationWorkflowInstructions(view, selection),
+		SkillRefs:            append([]string(nil), launch.SkillRefs...),
+		Metadata: map[string]string{
+			"source":            "cr_show",
+			"launch_surface":    "localhost_preview",
+			"cr_id":             strconv.Itoa(view.CR.ID),
+			"cr_uid":            strings.TrimSpace(view.CR.UID),
+			"selected_task_ids": joinIntCSV(selection),
+		},
+	}
+	return request, selection, nil
+}
+
+func normalizeCRShowDelegationSelection(view *service.CRPackView, selectedTaskIDs []int, defaultTaskIDs []int) ([]int, error) {
+	if view == nil || view.CR == nil {
+		return nil, fmt.Errorf("cr preview payload is unavailable")
+	}
+	raw := selectedTaskIDs
+	if len(raw) == 0 {
+		raw = defaultTaskIDs
+	}
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	taskByID := make(map[int]model.Subtask, len(view.Tasks))
+	for _, task := range view.Tasks {
+		taskByID[task.ID] = task
+	}
+	selected := make([]int, 0, len(raw))
+	seen := make(map[int]struct{}, len(raw))
+	for _, id := range raw {
+		if id <= 0 {
+			return nil, fmt.Errorf("task ids must be positive integers")
+		}
+		if _, ok := taskByID[id]; !ok {
+			return nil, fmt.Errorf("task %d is not part of cr %d", id, view.CR.ID)
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		selected = append(selected, id)
+	}
+	return selected, nil
+}
+
+func buildCRShowDelegationWorkflowInstructions(view *service.CRPackView, selectedTaskIDs []int) string {
+	if view == nil || view.CR == nil {
+		return ""
+	}
+	var b strings.Builder
+	writeWorkflowLine := func(line string) {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			return
+		}
+		b.WriteString(line)
+		b.WriteString("\n")
+	}
+	writeWorkflowLine("You are executing a Sophia delegation launched from `cr show`.")
+	writeWorkflowLine("Treat the CR contract as the source of truth for scope, invariants, blast radius, and completion criteria.")
+	writeWorkflowLine("Use Sophia locally for additional context or follow-up state, but do not widen scope beyond the contract and selected tasks.")
+	writeWorkflowLine("")
+	writeWorkflowLine(fmt.Sprintf("CR %d: %s", view.CR.ID, view.CR.Title))
+	writeWorkflowLine(fmt.Sprintf("Base branch: %s", nonEmpty(strings.TrimSpace(view.CR.BaseRef), strings.TrimSpace(view.CR.BaseBranch))))
+	if why := strings.TrimSpace(view.Contract.Why); why != "" {
+		writeWorkflowLine("Why:")
+		writeWorkflowLine(why)
+	}
+	writeWorkflowBullets(&b, "Scope", view.Contract.Scope)
+	writeWorkflowBullets(&b, "Non-goals", view.Contract.NonGoals)
+	writeWorkflowBullets(&b, "Invariants", view.Contract.Invariants)
+	if blast := strings.TrimSpace(view.Contract.BlastRadius); blast != "" {
+		writeWorkflowLine("Blast radius:")
+		writeWorkflowLine(blast)
+	}
+	if testPlan := strings.TrimSpace(view.Contract.TestPlan); testPlan != "" {
+		writeWorkflowLine("Test plan:")
+		writeWorkflowLine(testPlan)
+	}
+	selectedTasks := selectCRShowDelegationTasks(view.Tasks, selectedTaskIDs)
+	if len(selectedTasks) == 0 {
+		writeWorkflowLine("Selected task set: none explicitly selected; operate against the CR contract directly.")
+	} else {
+		writeWorkflowLine("Selected tasks:")
+		for _, task := range selectedTasks {
+			writeWorkflowLine(fmt.Sprintf("- Task %d: %s", task.ID, task.Title))
+			if intent := strings.TrimSpace(task.Contract.Intent); intent != "" {
+				writeWorkflowLine("  intent: " + intent)
+			}
+			if len(task.Contract.Scope) > 0 {
+				writeWorkflowLine("  scope: " + strings.Join(task.Contract.Scope, ", "))
+			}
+			if len(task.Contract.AcceptanceCriteria) > 0 {
+				writeWorkflowLine("  acceptance: " + strings.Join(task.Contract.AcceptanceCriteria, " | "))
+			}
+			if len(task.Contract.AcceptanceChecks) > 0 {
+				writeWorkflowLine("  checks: " + strings.Join(task.Contract.AcceptanceChecks, ", "))
+			}
+		}
+	}
+	writeWorkflowLine("")
+	writeWorkflowLine("Return a concise completion summary and any blockers if the work cannot be completed within the selected scope.")
+	return strings.TrimSpace(b.String())
+}
+
+func writeWorkflowBullets(b *strings.Builder, label string, values []string) {
+	values = normalizeCRShowStringList(values)
+	if b == nil || len(values) == 0 {
+		return
+	}
+	b.WriteString(label)
+	b.WriteString(":\n")
+	for _, value := range values {
+		b.WriteString("- ")
+		b.WriteString(value)
+		b.WriteString("\n")
+	}
+}
+
+func normalizeCRShowStringList(values []string) []string {
+	out := make([]string, 0, len(values))
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			continue
+		}
+		if _, ok := seen[trimmed]; ok {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		out = append(out, trimmed)
+	}
+	return out
+}
+
+func selectCRShowDelegationTasks(tasks []model.Subtask, selectedTaskIDs []int) []model.Subtask {
+	if len(selectedTaskIDs) == 0 {
+		return nil
+	}
+	byID := make(map[int]model.Subtask, len(tasks))
+	for _, task := range tasks {
+		byID[task.ID] = task
+	}
+	selected := make([]model.Subtask, 0, len(selectedTaskIDs))
+	for _, id := range selectedTaskIDs {
+		task, ok := byID[id]
+		if !ok {
+			continue
+		}
+		selected = append(selected, task)
+	}
+	return selected
+}
+
+func joinIntCSV(values []int) string {
+	if len(values) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(values))
+	for _, value := range values {
+		parts = append(parts, strconv.Itoa(value))
+	}
+	return strings.Join(parts, ",")
 }
 
 func buildCRDashboardSnapshot(svc *service.Service, query model.CRSearchQuery, listLimit int, timelineLimit int, selectedHint int) (map[string]any, int, error) {
@@ -641,6 +918,21 @@ type crShowServer struct {
 
 type crShowSnapshotRenderer func() (map[string]any, error)
 type crShowCRSnapshotRenderer func(id int) (map[string]any, error)
+type crShowLaunchHandler func(r *http.Request) (map[string]any, int, error)
+type crShowDelegationLaunchInput struct {
+	CRID    int   `json:"cr_id"`
+	TaskIDs []int `json:"task_ids"`
+}
+
+type crShowDelegationLaunchView struct {
+	Available      bool
+	Reason         string
+	Runtime        string
+	DefaultTaskIDs []int
+	OpenTaskIDs    []int
+	AllTaskIDs     []int
+	SkillRefs      []string
+}
 
 func startCRShowServer(render func() (string, error)) (*crShowServer, error) {
 	return startCRShowServerWithRoutes(render, nil)
@@ -655,6 +947,16 @@ func startCRShowServerWithLiveRoutes(
 	renderCR func(id int) (string, error),
 	snapshotRoot crShowSnapshotRenderer,
 	snapshotCR crShowCRSnapshotRenderer,
+) (*crShowServer, error) {
+	return startCRShowServerWithLiveRoutesAndLaunch(renderRoot, renderCR, snapshotRoot, snapshotCR, nil)
+}
+
+func startCRShowServerWithLiveRoutesAndLaunch(
+	renderRoot func() (string, error),
+	renderCR func(id int) (string, error),
+	snapshotRoot crShowSnapshotRenderer,
+	snapshotCR crShowCRSnapshotRenderer,
+	launchHandler crShowLaunchHandler,
 ) (*crShowServer, error) {
 	if renderRoot == nil {
 		return nil, fmt.Errorf("render callback is required")
@@ -708,6 +1010,39 @@ func startCRShowServerWithLiveRoutes(
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"ok":true}`))
+	})
+	mux.HandleFunc("/__sophia_delegate_launch", func(w http.ResponseWriter, r *http.Request) {
+		if launchHandler == nil {
+			http.NotFound(w, r)
+			return
+		}
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", http.MethodPost)
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		payload, statusCode, err := launchHandler(r)
+		if statusCode <= 0 {
+			statusCode = http.StatusOK
+		}
+		w.Header().Set("Cache-Control", "no-store, max-age=0")
+		w.Header().Set("Pragma", "no-cache")
+		w.Header().Set("Content-Type", "application/json")
+		if err != nil {
+			w.WriteHeader(statusCode)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": false,
+				"error": map[string]any{
+					"message": strings.TrimSpace(err.Error()),
+				},
+			})
+			return
+		}
+		w.WriteHeader(statusCode)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":   true,
+			"data": payload,
+		})
 	})
 	mux.HandleFunc("/__sophia_events", func(w http.ResponseWriter, r *http.Request) {
 		if snapshotRoot == nil && snapshotCR == nil {
