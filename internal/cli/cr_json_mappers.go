@@ -159,6 +159,46 @@ func delegationLaunchToJSONMap(launch crShowDelegationLaunchView) map[string]any
 	}
 }
 
+func delegationSnapshotToJSONMap(runs []model.DelegationRun) map[string]any {
+	recentRuns := make([]map[string]any, 0, len(runs))
+	currentRun := map[string]any{}
+	total := len(runs)
+	running := 0
+	terminal := 0
+	for _, run := range runs {
+		if isDelegationRunTerminal(run.Status) {
+			terminal++
+		} else {
+			running++
+			if len(currentRun) == 0 {
+				currentRun = delegationRunToJSONMap(&run)
+			}
+		}
+		recentRuns = append(recentRuns, delegationRunToJSONMap(&run))
+	}
+	return map[string]any{
+		"current_run": currentRun,
+		"recent_runs": recentRuns,
+		"counts": map[string]any{
+			"total":    total,
+			"running":  running,
+			"terminal": terminal,
+		},
+	}
+}
+
+func isDelegationRunTerminal(status string) bool {
+	switch strings.TrimSpace(status) {
+	case model.DelegationRunStatusCompleted,
+		model.DelegationRunStatusFailed,
+		model.DelegationRunStatusBlocked,
+		model.DelegationRunStatusCancelled:
+		return true
+	default:
+		return false
+	}
+}
+
 func taskContractFieldsToJSONMap(contract model.TaskContract) map[string]any {
 	return map[string]any{
 		"intent":              contract.Intent,
@@ -1250,6 +1290,7 @@ func crPackToJSONMap(view *service.CRPackView) map[string]any {
 		},
 		"contract":           contractToJSONMap(view.Contract),
 		"tasks":              tasks,
+		"delegation":         delegationSnapshotToJSONMap(view.DelegationRuns),
 		"anchors":            anchors,
 		"status":             crStatusToJSONMap(view.Status),
 		"recent_events":      events,
