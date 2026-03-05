@@ -41,6 +41,7 @@ func newRepairCmd() *cobra.Command {
 					"highest_cr_id":   report.HighestCRID,
 					"next_id":         report.NextID,
 					"repaired_cr_ids": intSliceOrEmpty(report.RepairedCRIDs),
+					"warnings":        stringSliceOrEmpty(report.Warnings),
 					"refreshed":       refresh,
 				})
 			}
@@ -57,6 +58,12 @@ func newRepairCmd() *cobra.Command {
 					ids = append(ids, fmt.Sprintf("%d", id))
 				}
 				fmt.Fprintf(cmd.OutOrStdout(), "Repaired IDs: %s\n", strings.Join(ids, ", "))
+			}
+			if len(report.Warnings) > 0 {
+				fmt.Fprintln(cmd.OutOrStdout(), "Warnings:")
+				for _, warning := range report.Warnings {
+					fmt.Fprintf(cmd.OutOrStdout(), "- %s\n", warning)
+				}
 			}
 			return nil
 		},

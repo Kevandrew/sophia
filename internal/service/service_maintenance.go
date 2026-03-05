@@ -165,6 +165,7 @@ func (s *Service) RepairFromGit(baseBranch string, refresh bool) (*RepairReport,
 		BaseBranch:    targetBase,
 		Scanned:       len(commits),
 		RepairedCRIDs: []int{},
+		Warnings:      []string{},
 	}
 
 	uidBackfilledSet := map[int]struct{}{}
@@ -181,7 +182,7 @@ func (s *Service) RepairFromGit(baseBranch string, refresh bool) (*RepairReport,
 			continue
 		}
 		if strings.TrimSpace(existing.CreatedAt) == "" {
-			existing.CreatedAt = s.timestamp()
+			report.Warnings = appendUniqueString(report.Warnings, fmt.Sprintf("CR %d has empty created_at; repair preserved unknown chronology while backfilling metadata", id))
 		}
 		existing.UpdatedAt = s.timestamp()
 		if err := s.store.SaveCR(existing); err != nil {
@@ -206,12 +207,15 @@ func (s *Service) RepairFromGit(baseBranch string, refresh bool) (*RepairReport,
 
 		description := intentFromCommitBody(commit.Body)
 		notes := notesFromCommitBody(commit.Body)
-		subtasks := subtasksFromCommitBody(commit.Body, commit.When, commit.Author)
-		when := nonEmptyTrimmed(commit.When, s.timestamp())
+		when, timestampSource := normalizeRepairCommitTimestamp(commit.When)
+		subtasks := subtasksFromCommitBody(commit.Body, when, commit.Author)
 		actor := nonEmptyTrimmed(commit.Author, "unknown")
 		filesTouched := 0
 		if count, countErr := s.git.ChangedFileCount(commit.Hash); countErr == nil {
 			filesTouched = count
+		}
+		if timestampSource != "commit_author_time" {
+			report.Warnings = appendUniqueString(report.Warnings, fmt.Sprintf("CR %d commit %s has %s timestamp metadata; chronology fields remain explicit/unknown", id, shortHash(commit.Hash), timestampSource))
 		}
 
 		title := titleFromSubjectOrBody(commit.Subject, commit.Body)
@@ -262,6 +266,9 @@ func (s *Service) RepairFromGit(baseBranch string, refresh bool) (*RepairReport,
 			if strings.TrimSpace(cr.CreatedAt) == "" {
 				cr.CreatedAt = when
 			}
+			if strings.TrimSpace(cr.CreatedAt) == "" {
+				report.Warnings = appendUniqueString(report.Warnings, fmt.Sprintf("CR %d repaired without created_at; chronology remains unknown", id))
+			}
 			cr.Events = append([]model.Event{}, existing.Events...)
 			if _, backfilled := uidBackfilledSet[id]; !backfilled {
 				report.Updated++
@@ -275,12 +282,22 @@ func (s *Service) RepairFromGit(baseBranch string, refresh bool) (*RepairReport,
 		if _, baseErr := s.ensureCRBaseFields(cr, false); baseErr != nil {
 			return nil, baseErr
 		}
+		eventMeta := map[string]string{
+			"repair_timestamp_source": timestampSource,
+		}
+		if strings.TrimSpace(cr.CreatedAt) == "" {
+			eventMeta["repair_created_at_state"] = "unknown"
+		}
+		if strings.TrimSpace(cr.MergedAt) == "" {
+			eventMeta["repair_merged_at_state"] = "unknown"
+		}
 		cr.Events = append(cr.Events, model.Event{
 			TS:      s.timestamp(),
 			Actor:   s.git.Actor(),
 			Type:    model.EventTypeCRRepaired,
 			Summary: fmt.Sprintf("Repaired CR %d from git commit %s", id, shortHash(commit.Hash)),
 			Ref:     fmt.Sprintf("cr:%d", id),
+			Meta:    eventMeta,
 		})
 
 		if err := s.store.SaveCR(cr); err != nil {
@@ -317,6 +334,17 @@ func (s *Service) RepairFromGit(baseBranch string, refresh bool) (*RepairReport,
 	report.NextID = idx.NextID
 	sort.Ints(report.RepairedCRIDs)
 	return report, nil
+}
+
+func normalizeRepairCommitTimestamp(raw string) (string, string) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return "", "missing"
+	}
+	if parseRFC3339OrZero(trimmed).IsZero() {
+		return "", "invalid"
+	}
+	return trimmed, "commit_author_time"
 }
 
 func (s *Service) InstallHook(forceOverwrite bool) (string, error) {

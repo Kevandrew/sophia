@@ -1,0 +1,109 @@
+schema_version: sophia.cr_archive.v1
+notice: Historical archive snapshot. Corrections are append-only revisions.
+archived_at: "2026-03-05T03:05:56Z"
+revision: 1
+cr:
+    id: 123
+    uid: cr_639492ae-952e-4d2b-a709-cf14216eee53
+    title: 'Repair: make missing historical timestamps explicit during metadata recovery'
+    description: Replace silent timestamp fabrication during repair with explicit degraded-state signaling so chronology is trustworthy.
+    status: merged
+    base_branch: main
+    base_ref: cr-eliminate-silent-fallback-semantics-in-repair-an-e345
+    base_commit: dbdc6181be0170c6c34324eb327fee97b4e8d642
+    branch: cr-repair-make-missing-historical-timestamps-explic-6394
+    merged_at: "2026-03-05T03:05:56Z"
+    merged_by: Kevandrew <143258544+Kevandrew@users.noreply.github.com>
+contract:
+    why: Repair-from-git should preserve chronology semantics and never silently fabricate historical timestamps. When commit time is unavailable or malformed, the degraded state must be represented explicitly so reviewers and operators can distinguish unknown chronology from known chronology. This CR focuses on making timestamp recovery behavior explicit and auditable while preserving deterministic repair execution.
+    scope:
+        - internal/cli
+        - internal/model
+        - internal/service
+        - internal/service/service_maintenance.go
+    non_goals:
+        - No broad refactor of CR repair flow beyond timestamp semantics.
+        - No changes to checkpoint commit type behavior.
+        - No changes to unrelated fallback mechanisms in diff or anchor resolution.
+    invariants:
+        - Degraded timestamp states must be visible to operators or downstream readers.
+        - Historical ordering must not be rewritten silently by now-based fabrication.
+        - Repair must continue to process legacy metadata without crashing.
+    blast_radius: Affects repair import semantics, CR created/updated/merged timestamp fields, and any review/dashboard ordering that consumes repaired timestamps.
+    risk_tier_hint: medium
+    risk_rationale: Touches metadata chronology fields that influence review and audit interpretation.
+    test_plan: go test ./... && go vet ./...
+    rollback_plan: Revert this child CR merge commit.
+tasks:
+    - id: 1
+      title: Represent missing or invalid commit timestamps as explicit degraded metadata state
+      status: done
+      contract:
+        intent: Detect timestamp absence/parse failure during repair and encode it as explicit degraded state metadata.
+        acceptance_criteria:
+            - Repair does not substitute current wall-clock time for missing historical commit timestamps.
+            - The degraded timestamp condition is surfaced in machine-readable repair event metadata and report warnings.
+        scope:
+            - internal/service/service.go
+            - internal/service/service_maintenance.go
+      checkpoint:
+        commit: 8cd18129
+        at: "2026-03-05T02:57:41Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service.go
+            - internal/service/service_maintenance.go
+    - id: 2
+      title: Remove now-based timestamp fabrication from repair synthesis and backfill paths
+      status: done
+      contract:
+        intent: Eliminate silent now-based fallback when reconstructing CR CreatedAt/MergedAt during repair.
+        acceptance_criteria:
+            - Any fallback path that remains is explicit, deterministic, and operator-visible.
+            - Repaired CR records preserve known timestamps and avoid synthetic chronology for unknown fields.
+        scope:
+            - internal/service/service_maintenance.go
+      checkpoint:
+        at: "2026-03-05T02:57:45Z"
+        source: task_no_checkpoint
+    - id: 3
+      title: Add regression tests for repair chronology behavior under missing timestamp inputs
+      status: done
+      contract:
+        intent: Add focused tests that lock expected chronology outcomes for missing timestamp cases.
+        acceptance_criteria:
+            - CLI JSON repair payload includes warnings field for machine-readable degradation visibility.
+            - Targeted tests cover both new CR reconstruction and existing record backfill scenarios.
+            - Tests fail if repair reintroduces timestamp fabrication.
+        scope:
+            - internal/cli/json_surface_expansion_test.go
+            - internal/cli/repair.go
+            - internal/service/service_integrity_repair_test.go
+      checkpoint:
+        commit: 430653bb
+        at: "2026-03-05T02:57:52Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/json_surface_expansion_test.go
+            - internal/cli/repair.go
+            - internal/service/service_integrity_repair_test.go
+    - id: 4
+      title: Remove silent timestamp fabrication in repair flow via child CR-123
+      status: done
+      contract:
+        intent: Represent delegated parent task linkage from CR-122 for the timestamp-integrity slice.
+        acceptance_criteria:
+            - Child CR-123 captures and implements timestamp-integrity behavior through its implementation tasks.
+            - Delegation trace remains explicit between parent CR-122 task 1 and child CR-123 task 4.
+        scope:
+            - internal/service
+            - internal/service/service_maintenance.go
+      checkpoint:
+        at: "2026-03-05T02:58:04Z"
+        source: task_no_checkpoint
+git_summary:
+    base_parent: dbdc6181be0170c6c34324eb327fee97b4e8d642
+    cr_parent: 430653bbde64e0ffd22f73f4b02c19d1cf28ffa2
+    files_changed: []
+    diffstat:
+        summary: 0 files changed, 0 insertions(+), 0 deletions(-)

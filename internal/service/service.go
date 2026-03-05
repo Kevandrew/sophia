@@ -145,6 +145,7 @@ type RepairReport struct {
 	NextID        int
 	HighestCRID   int
 	RepairedCRIDs []int
+	Warnings      []string
 }
 
 type InitOptions struct {
