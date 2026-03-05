@@ -6,6 +6,12 @@ import (
 	"strings"
 )
 
+type taskCommitTypeResolution struct {
+	CommitType string
+	Source     string
+	Fallback   bool
+}
+
 func nextTaskID(tasks []model.Subtask) int {
 	maxID := 0
 	for _, task := range tasks {
@@ -115,8 +121,9 @@ func taskStatusMarker(status string) string {
 	}
 }
 
-func buildTaskCheckpointMessage(cr *model.CR, task *model.Subtask, commitTypeOverride, scopeMode string, chunkCount int) string {
-	taskType := resolveTaskCommitType(task, commitTypeOverride)
+func buildTaskCheckpointMessage(cr *model.CR, task *model.Subtask, commitTypeOverride, scopeMode string, chunkCount int) (string, taskCommitTypeResolution) {
+	taskTypeResolution := resolveTaskCommitType(task, commitTypeOverride)
+	taskType := taskTypeResolution.CommitType
 	attempt := taskCheckpointAttempt(cr, task.ID)
 	taskIdentifier := fmt.Sprintf("task-%d", task.ID)
 	if attempt > 1 {
@@ -144,8 +151,13 @@ func buildTaskCheckpointMessage(cr *model.CR, task *model.Subtask, commitTypeOve
 		fmt.Fprintf(&b, "Sophia-Task-Chunk-Count: %d\n", chunkCount)
 	}
 	fmt.Fprintf(&b, "Sophia-Task: %d\n", task.ID)
+	fmt.Fprintf(&b, "Sophia-Task-Commit-Type: %s\n", taskTypeResolution.CommitType)
+	fmt.Fprintf(&b, "Sophia-Task-Commit-Type-Source: %s\n", taskTypeResolution.Source)
+	if taskTypeResolution.Fallback {
+		fmt.Fprintf(&b, "Sophia-Task-Commit-Type-Warning: defaulted to chore due missing explicit or inferable commit type token\n")
+	}
 	fmt.Fprintf(&b, "Sophia-Intent: %s\n", strings.TrimSpace(cr.Title))
-	return b.String()
+	return b.String(), taskTypeResolution
 }
 
 func taskCheckpointAttempt(cr *model.CR, taskID int) int {
@@ -169,20 +181,32 @@ func inferTaskCommitType(taskTitle string) string {
 	return "chore"
 }
 
-func resolveTaskCommitType(task *model.Subtask, commitTypeOverride string) string {
+func resolveTaskCommitType(task *model.Subtask, commitTypeOverride string) taskCommitTypeResolution {
 	if normalized, ok := normalizeTaskCommitTypeToken(commitTypeOverride); ok {
-		return normalized
+		return taskCommitTypeResolution{
+			CommitType: normalized,
+			Source:     "explicit_override",
+		}
 	}
-	if task == nil {
-		return "chore"
+	if task != nil {
+		if inferred, ok := inferTaskCommitTypeToken(task.Title); ok {
+			return taskCommitTypeResolution{
+				CommitType: inferred,
+				Source:     "task_title",
+			}
+		}
+		if inferred, ok := inferTaskCommitTypeToken(task.Contract.Intent); ok {
+			return taskCommitTypeResolution{
+				CommitType: inferred,
+				Source:     "task_contract_intent",
+			}
+		}
 	}
-	if inferred, ok := inferTaskCommitTypeToken(task.Title); ok {
-		return inferred
+	return taskCommitTypeResolution{
+		CommitType: "chore",
+		Source:     "default_chore",
+		Fallback:   true,
 	}
-	if inferred, ok := inferTaskCommitTypeToken(task.Contract.Intent); ok {
-		return inferred
-	}
-	return "chore"
 }
 
 func inferTaskCommitTypeToken(raw string) (string, bool) {
