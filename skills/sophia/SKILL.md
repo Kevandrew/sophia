@@ -75,6 +75,11 @@ If `merge.mode=pr_gate` (PR-first repo):
 6. Do not auto-run `sophia cr pr ready` immediately after `sophia cr merge <id> --approve-pr-open`.
 7. If user lacks merge permission, hand off at PR URL and use `sophia cr pr status <id>` / `sophia cr status <id> --json` to reconcile remote outcomes.
 
+Aggregate-parent exception:
+- A parent CR can be a pure integration branch whose implementation is fulfilled entirely by delegated child CRs.
+- When all delegated child CRs are merged and the parent validates cleanly, the parent can be ready without direct parent checkpoint commits.
+- Do not manufacture no-op parent commits just to satisfy readiness. Child CRs are the proof chain; the parent is the integration branch.
+
 If `merge.mode=local`:
 1. Follow the normal local merge path after validate/review.
 2. PR commands are optional and not the primary merge lifecycle.
@@ -390,10 +395,18 @@ For very large efforts, do not keep expanding one CR forever. Split into stacked
 - Use delegation when parent tasks are fulfilled by child CRs.
 
 Recommended split flow:
-1. Open anchor CR with shared groundwork only.
-2. Create child CRs using `--parent` (or `cr child add`) per intent slice.
+1. Open a parent CR that acts as the integration branch for the stack.
+2. Create child CRs using `--parent` (or `cr child add`) per intent slice; each child branches from the parent branch.
 3. Delegate parent tasks to child CRs when ownership crosses CR boundaries.
-4. Merge children first when delegated rules allow, then merge parent.
+4. Open child PRs against the parent branch; open the parent PR against `main`.
+5. Merge child PRs into the parent branch first when delegated rules allow.
+6. Refresh or reconcile later children after earlier child merges so the stack stays clean.
+7. Merge the parent PR to `main` only after delegated child work is fully resolved.
+
+Aggregate-parent guidance:
+- A parent with delegated child tasks and no direct implementation checkpoints is an aggregate parent.
+- Aggregate parents should read as integration branches, not unfinished implementation branches.
+- If remote child merges leave parent task state looking stale, reconcile first (`sophia cr pr status <id>`, `sophia cr status <id> --json`, `sophia cr refresh <id>`) before editing history manually.
 
 Recommended task taxonomy for larger CRs:
 1. Repository/repo-context discovery and path resolution.
