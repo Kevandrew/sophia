@@ -58,6 +58,16 @@ func TestRepairFromGitRebuildsCRsAndRealignsIndex(t *testing.T) {
 	if repaired.Branch != "kevandrew/cr-2-existing-intent" {
 		t.Fatalf("expected repaired branch from footer, got %#v", repaired.Branch)
 	}
+	if len(repaired.Events) == 0 {
+		t.Fatalf("expected repaired events to include repair marker, got %#v", repaired.Events)
+	}
+	lastEvent := repaired.Events[len(repaired.Events)-1]
+	if lastEvent.Type != model.EventTypeCRRepaired {
+		t.Fatalf("expected last event type %q, got %#v", model.EventTypeCRRepaired, lastEvent)
+	}
+	if got := strings.TrimSpace(lastEvent.Meta["repair_timestamp_source"]); got != "commit_author_time" {
+		t.Fatalf("expected repair_timestamp_source=commit_author_time, got %q event=%#v", got, lastEvent)
+	}
 	if len(repaired.Notes) != 1 || repaired.Notes[0] != "recovered note" {
 		t.Fatalf("unexpected repaired notes: %#v", repaired.Notes)
 	}
@@ -96,11 +106,13 @@ func TestRepairBackfillsMissingUIDOnExistingCRMetadata(t *testing.T) {
 	loaded.UID = ""
 	loaded.BaseRef = ""
 	loaded.BaseCommit = ""
+	loaded.CreatedAt = ""
 	if err := svc.store.SaveCR(loaded); err != nil {
 		t.Fatalf("SaveCR(clear uid/base) error = %v", err)
 	}
 
-	if _, err := svc.RepairFromGit("main", false); err != nil {
+	report, err := svc.RepairFromGit("main", false)
+	if err != nil {
 		t.Fatalf("RepairFromGit() error = %v", err)
 	}
 
@@ -113,6 +125,22 @@ func TestRepairBackfillsMissingUIDOnExistingCRMetadata(t *testing.T) {
 	}
 	if strings.TrimSpace(repaired.BaseRef) == "" || strings.TrimSpace(repaired.BaseCommit) == "" {
 		t.Fatalf("expected repair to backfill base metadata, got %#v", repaired)
+	}
+	if strings.TrimSpace(repaired.CreatedAt) != "" {
+		t.Fatalf("expected repair to preserve unknown created_at instead of fabricating timestamp, got %#v", repaired)
+	}
+	if len(report.Warnings) == 0 {
+		t.Fatalf("expected repair warning for preserved unknown chronology, got %#v", report)
+	}
+	foundChronologyWarning := false
+	for _, warning := range report.Warnings {
+		if strings.Contains(warning, "empty created_at") {
+			foundChronologyWarning = true
+			break
+		}
+	}
+	if !foundChronologyWarning {
+		t.Fatalf("expected chronology warning in repair report, got %#v", report.Warnings)
 	}
 }
 
@@ -218,5 +246,45 @@ func TestRepairFromGitLegacyCommitWithoutBaseOrParentFootersStillReconstructs(t 
 	}
 	if strings.TrimSpace(repaired.BaseRef) == "" || strings.TrimSpace(repaired.BaseCommit) == "" {
 		t.Fatalf("expected base metadata backfilled for legacy repair, got %#v", repaired)
+	}
+}
+
+func TestNormalizeRepairCommitTimestamp(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name       string
+		raw        string
+		wantValue  string
+		wantSource string
+	}{
+		{
+			name:       "valid timestamp",
+			raw:        "2026-03-05T10:15:42+08:00",
+			wantValue:  "2026-03-05T10:15:42+08:00",
+			wantSource: "commit_author_time",
+		},
+		{
+			name:       "missing timestamp",
+			raw:        "",
+			wantValue:  "",
+			wantSource: "missing",
+		},
+		{
+			name:       "invalid timestamp",
+			raw:        "not-a-time",
+			wantValue:  "",
+			wantSource: "invalid",
+		},
+	}
+
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			gotValue, gotSource := normalizeRepairCommitTimestamp(test.raw)
+			if gotValue != test.wantValue || gotSource != test.wantSource {
+				t.Fatalf("normalizeRepairCommitTimestamp(%q) = (%q, %q), want (%q, %q)", test.raw, gotValue, gotSource, test.wantValue, test.wantSource)
+			}
+		})
 	}
 }

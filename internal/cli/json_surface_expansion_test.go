@@ -80,6 +80,9 @@ func TestRootCommandsSupportJSON(t *testing.T) {
 	if _, ok := env.Data["repaired_cr_ids"]; !ok {
 		t.Fatalf("expected repaired_cr_ids in repair payload, got %#v", env.Data)
 	}
+	if _, ok := env.Data["warnings"]; !ok {
+		t.Fatalf("expected warnings in repair payload, got %#v", env.Data)
+	}
 }
 
 func TestValidateRecordFlagControlsEventRecording(t *testing.T) {
