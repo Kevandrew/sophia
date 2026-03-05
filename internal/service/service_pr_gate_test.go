@@ -619,6 +619,195 @@ func TestPRStatusReturnsNoLinkedPRActionMetadata(t *testing.T) {
 	}
 }
 
+func TestReconcileRemoteMergedPRCompletesDelegatedParentTask(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	runGit(t, dir, "config", "user.name", "Test User")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+
+	parent, err := svc.AddCR("Parent refactor", "umbrella intent")
+	if err != nil {
+		t.Fatalf("AddCR(parent) error = %v", err)
+	}
+	setValidContract(t, svc, parent.ID)
+	parentTask, err := svc.AddTask(parent.ID, "Split service layer")
+	if err != nil {
+		t.Fatalf("AddTask(parent) error = %v", err)
+	}
+	setValidTaskContract(t, svc, parent.ID, parentTask.ID)
+
+	if err := os.WriteFile(filepath.Join(dir, "parent.txt"), []byte("parent\n"), 0o644); err != nil {
+		t.Fatalf("write parent file: %v", err)
+	}
+	runGit(t, dir, "add", "parent.txt")
+	runGit(t, dir, "commit", "-m", "feat: parent intent commit")
+
+	child, _, err := svc.AddCRWithOptionsWithWarnings("Child slice", "delegated implementation", AddCROptions{ParentCRID: parent.ID})
+	if err != nil {
+		t.Fatalf("AddCR(child) error = %v", err)
+	}
+	setValidContract(t, svc, child.ID)
+	if _, err := svc.DelegateTaskToChild(parent.ID, parentTask.ID, child.ID); err != nil {
+		t.Fatalf("DelegateTaskToChild() error = %v", err)
+	}
+
+	if err := os.WriteFile(filepath.Join(dir, "child.txt"), []byte("child\n"), 0o644); err != nil {
+		t.Fatalf("write child file: %v", err)
+	}
+	runGit(t, dir, "add", "child.txt")
+	runGit(t, dir, "commit", "-m", "feat: child implementation")
+
+	child, err = svc.store.LoadCR(child.ID)
+	if err != nil {
+		t.Fatalf("LoadCR(child) error = %v", err)
+	}
+	head, err := svc.git.ResolveRef("HEAD")
+	if err != nil {
+		t.Fatalf("RevParse(HEAD) error = %v", err)
+	}
+	status := &PRStatusView{
+		Merged:       true,
+		MergedAt:     svc.timestamp(),
+		MergedCommit: strings.TrimSpace(head),
+	}
+	if err := svc.reconcileRemoteMergedPR(child, status); err != nil {
+		t.Fatalf("reconcileRemoteMergedPR(child) error = %v", err)
+	}
+
+	reloadedParent, err := svc.store.LoadCR(parent.ID)
+	if err != nil {
+		t.Fatalf("LoadCR(parent) error = %v", err)
+	}
+	taskIndex := indexOfTask(reloadedParent.Subtasks, parentTask.ID)
+	if taskIndex < 0 {
+		t.Fatalf("expected parent task %d to exist", parentTask.ID)
+	}
+	if reloadedParent.Subtasks[taskIndex].Status != model.TaskStatusDone {
+		t.Fatalf("expected delegated parent task auto-completed after remote child merge, got %#v", reloadedParent.Subtasks[taskIndex])
+	}
+	if strings.TrimSpace(reloadedParent.Subtasks[taskIndex].CompletedAt) == "" {
+		t.Fatalf("expected delegated parent task completed_at to be set, got %#v", reloadedParent.Subtasks[taskIndex])
+	}
+}
+
+func TestReconcileRemoteMergedPRWaitsForAllDelegatedChildren(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	runGit(t, dir, "config", "user.name", "Test User")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+
+	parent, err := svc.AddCR("Parent refactor", "umbrella intent")
+	if err != nil {
+		t.Fatalf("AddCR(parent) error = %v", err)
+	}
+	setValidContract(t, svc, parent.ID)
+	parentTask, err := svc.AddTask(parent.ID, "Split service layer")
+	if err != nil {
+		t.Fatalf("AddTask(parent) error = %v", err)
+	}
+	setValidTaskContract(t, svc, parent.ID, parentTask.ID)
+
+	if err := os.WriteFile(filepath.Join(dir, "parent.txt"), []byte("parent\n"), 0o644); err != nil {
+		t.Fatalf("write parent file: %v", err)
+	}
+	runGit(t, dir, "add", "parent.txt")
+	runGit(t, dir, "commit", "-m", "feat: parent intent commit")
+
+	childOne, _, err := svc.AddCRWithOptionsWithWarnings("Child one", "delegated implementation", AddCROptions{ParentCRID: parent.ID})
+	if err != nil {
+		t.Fatalf("AddCR(childOne) error = %v", err)
+	}
+	setValidContract(t, svc, childOne.ID)
+	if _, err := svc.DelegateTaskToChild(parent.ID, parentTask.ID, childOne.ID); err != nil {
+		t.Fatalf("DelegateTaskToChild(childOne) error = %v", err)
+	}
+
+	if err := os.WriteFile(filepath.Join(dir, "child-one.txt"), []byte("child one\n"), 0o644); err != nil {
+		t.Fatalf("write child one file: %v", err)
+	}
+	runGit(t, dir, "add", "child-one.txt")
+	runGit(t, dir, "commit", "-m", "feat: child one implementation")
+	childOneHead, err := svc.git.ResolveRef("HEAD")
+	if err != nil {
+		t.Fatalf("RevParse(HEAD child one) error = %v", err)
+	}
+
+	childTwo, _, err := svc.AddCRWithOptionsWithWarnings("Child two", "delegated implementation", AddCROptions{ParentCRID: parent.ID})
+	if err != nil {
+		t.Fatalf("AddCR(childTwo) error = %v", err)
+	}
+	setValidContract(t, svc, childTwo.ID)
+	if _, err := svc.DelegateTaskToChild(parent.ID, parentTask.ID, childTwo.ID); err != nil {
+		t.Fatalf("DelegateTaskToChild(childTwo) error = %v", err)
+	}
+
+	if err := os.WriteFile(filepath.Join(dir, "child-two.txt"), []byte("child two\n"), 0o644); err != nil {
+		t.Fatalf("write child two file: %v", err)
+	}
+	runGit(t, dir, "add", "child-two.txt")
+	runGit(t, dir, "commit", "-m", "feat: child two implementation")
+	childTwoHead, err := svc.git.ResolveRef("HEAD")
+	if err != nil {
+		t.Fatalf("RevParse(HEAD child two) error = %v", err)
+	}
+
+	reloadedChildOne, err := svc.store.LoadCR(childOne.ID)
+	if err != nil {
+		t.Fatalf("LoadCR(childOne) error = %v", err)
+	}
+	if err := svc.reconcileRemoteMergedPR(reloadedChildOne, &PRStatusView{
+		Merged:       true,
+		MergedAt:     svc.timestamp(),
+		MergedCommit: strings.TrimSpace(childOneHead),
+	}); err != nil {
+		t.Fatalf("reconcileRemoteMergedPR(childOne) error = %v", err)
+	}
+
+	reloadedParent, err := svc.store.LoadCR(parent.ID)
+	if err != nil {
+		t.Fatalf("LoadCR(parent after child one) error = %v", err)
+	}
+	taskIndex := indexOfTask(reloadedParent.Subtasks, parentTask.ID)
+	if taskIndex < 0 {
+		t.Fatalf("expected parent task %d to exist", parentTask.ID)
+	}
+	if reloadedParent.Subtasks[taskIndex].Status != model.TaskStatusDelegated {
+		t.Fatalf("expected parent task to remain delegated until all children merge, got %#v", reloadedParent.Subtasks[taskIndex])
+	}
+
+	reloadedChildTwo, err := svc.store.LoadCR(childTwo.ID)
+	if err != nil {
+		t.Fatalf("LoadCR(childTwo) error = %v", err)
+	}
+	if err := svc.reconcileRemoteMergedPR(reloadedChildTwo, &PRStatusView{
+		Merged:       true,
+		MergedAt:     svc.timestamp(),
+		MergedCommit: strings.TrimSpace(childTwoHead),
+	}); err != nil {
+		t.Fatalf("reconcileRemoteMergedPR(childTwo) error = %v", err)
+	}
+
+	reloadedParent, err = svc.store.LoadCR(parent.ID)
+	if err != nil {
+		t.Fatalf("LoadCR(parent after child two) error = %v", err)
+	}
+	taskIndex = indexOfTask(reloadedParent.Subtasks, parentTask.ID)
+	if taskIndex < 0 {
+		t.Fatalf("expected parent task %d to exist", parentTask.ID)
+	}
+	if reloadedParent.Subtasks[taskIndex].Status != model.TaskStatusDone {
+		t.Fatalf("expected parent task done after all delegated children merge, got %#v", reloadedParent.Subtasks[taskIndex])
+	}
+}
+
 func TestPRStatusReturnsStaleWhenLinkedPRNotFound(t *testing.T) {
 	dir := t.TempDir()
 	svc := New(dir)
