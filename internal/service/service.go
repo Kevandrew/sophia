@@ -10,32 +10,34 @@ import (
 )
 
 type Service struct {
-	store                *store.Store
-	git                  *gitx.Client
-	trustSvc             *trustDomain
-	mergeSvc             *mergeDomain
-	taskLifecycleSvc     *taskLifecycleDomain
-	taskStore            taskLifecycleStoreProvider
-	taskGit              taskLifecycleGitProvider
-	taskMergeGuard       func(*model.CR) error
-	lifecycleStore       lifecycleRuntimeStore
-	lifecycleGit         lifecycleRuntimeGit
-	statusStore          statusRuntimeStore
-	statusGit            statusRuntimeGit
-	mergeStore           mergeRuntimeStore
-	mergeGit             mergeRuntimeGit
-	mergeGitFactory      mergeRuntimeGitFactory
-	lifecycleStoreCustom bool
-	lifecycleGitCustom   bool
-	statusStoreCustom    bool
-	statusGitCustom      bool
-	mergeStoreCustom     bool
-	mergeGitCustom       bool
-	mergeFactoryCustom   bool
-	now                  func() time.Time
-	repoRoot             string
-	legacySophiaDir      string
-	sharedLocalSophiaDir string
+	store                    *store.Store
+	git                      *gitx.Client
+	trustSvc                 *trustDomain
+	mergeSvc                 *mergeDomain
+	taskLifecycleSvc         *taskLifecycleDomain
+	taskStore                taskLifecycleStoreProvider
+	taskGit                  taskLifecycleGitProvider
+	taskMergeGuard           func(*model.CR) error
+	lifecycleStore           lifecycleRuntimeStore
+	lifecycleGit             lifecycleRuntimeGit
+	statusStore              statusRuntimeStore
+	statusGit                statusRuntimeGit
+	mergeStore               mergeRuntimeStore
+	mergeGit                 mergeRuntimeGit
+	mergeGitFactory          mergeRuntimeGitFactory
+	delegationRuntimes       map[string]DelegationRuntime
+	lifecycleStoreCustom     bool
+	lifecycleGitCustom       bool
+	statusStoreCustom        bool
+	statusGitCustom          bool
+	mergeStoreCustom         bool
+	mergeGitCustom           bool
+	mergeFactoryCustom       bool
+	delegationRuntimesCustom bool
+	now                      func() time.Time
+	repoRoot                 string
+	legacySophiaDir          string
+	sharedLocalSophiaDir     string
 }
 
 type MergeConflictError struct {

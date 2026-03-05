@@ -1,0 +1,128 @@
+schema_version: sophia.cr_archive.v1
+notice: Historical archive snapshot. Corrections are append-only revisions.
+archived_at: "2026-03-05T22:11:46Z"
+revision: 1
+cr:
+    id: 127
+    uid: cr_3c349d35-7782-434d-bc94-dd7397d09e1e
+    title: Delegated execution from cr show via a runtime-agnostic Sophia control plane
+    description: Create the Sophia-side delegation control plane for cr show with a backend-agnostic runtime contract, live run visibility, and explicit reconciliation semantics.
+    status: merged
+    base_branch: main
+    base_ref: main
+    base_commit: d2d42a367e14440422e045acacfe071a0b6c6868
+    branch: cr-delegated-execution-from-cr-show-via-a-runtime-a-3c34
+    merged_at: "2026-03-05T22:11:46Z"
+    merged_by: Kevandrew <143258544+Kevandrew@users.noreply.github.com>
+contract:
+    why: |-
+        Enable Sophia to launch and track delegated work directly from `sophia cr show` without coupling the product surface to any one agent runtime. The immediate outcome is a real Sophia-owned control plane for delegation: users can start a run from the CR preview, observe what the worker is doing, inspect how it ended, and keep CR intent as the source of truth.
+        This stack is intentionally infrastructure-first. It does not lock the implementation to Codex, Pi, or OpenCode, and it does not require a production worker integration in the first milestone. Instead, it establishes the runtime-neutral request, event, and result contracts that future adapters must fit.
+    scope:
+        - internal/cli
+        - internal/model
+        - internal/service
+        - internal/store
+    non_goals:
+        - No automatic task completion from delegated runs in v1.
+        - No dashboard-wide delegation UI beyond shared read-model support.
+        - No production Codex, Pi, or OpenCode adapter in this stack.
+    invariants:
+        - Delegation metadata stays runtime-agnostic and does not embed provider-native wire shapes.
+        - Existing child-CR delegation semantics continue to work unchanged.
+        - Sophia remains the source of truth for CR intent, task state, and merge decisions.
+    blast_radius: Touches CR/task metadata and local persistence for delegation runs, `cr show` localhost preview routes and payloads, read-only/live HTML rendering, and new CLI read surfaces for delegation status. Failure modes include stale or partial live status, ambiguous run state transitions, and accidental over-coupling to a single runtime.
+    risk_critical_scopes:
+        - internal/cli
+        - internal/service
+    risk_tier_hint: medium
+    risk_rationale: Touches CR metadata, live localhost preview behavior, and new orchestration state surfaces.
+    test_plan: go test ./internal/model ./internal/store ./internal/service ./internal/cli && go test ./...
+    rollback_plan: Revert the delegation-control-plane stack and remove persisted delegation-run fields and read surfaces introduced by this stack.
+tasks:
+    - id: 1
+      title: Define delegation run model and persistence
+      status: delegated
+      contract:
+        intent: Introduce runtime-neutral delegation run/request/event/result metadata that Sophia can persist independently of any worker backend.
+        acceptance_criteria:
+            - Delegation run metadata can be created, reloaded, and linked to a CR without referencing a concrete worker implementation.
+            - Existing child-CR delegation behavior remains unchanged.
+            - Run lifecycle states and stored events/results are explicit and machine-readable.
+        scope:
+            - internal/model
+            - internal/service
+            - internal/store
+      delegated:
+        - child_cr_id: 128
+          child_cr_uid: cr_521e0394-49dc-40e5-90f8-0368f954b9ba
+          child_task_id: 5
+    - id: 2
+      title: Define the runtime adapter contract and mock worker
+      status: delegated
+      contract:
+        intent: Add the internal runtime interface and a deterministic mock worker so delegation orchestration can be exercised without a real agent backend.
+        acceptance_criteria:
+            - Mock-worker tests prove the control plane works without Codex, Pi, or OpenCode.
+            - Normalized progress events cover launch, step/progress, blocker, and terminal states.
+            - Sophia can start a delegation through a backend-agnostic service boundary.
+        scope:
+            - internal/service
+      delegated:
+        - child_cr_id: 129
+          child_cr_uid: cr_3bce655d-e39f-4382-bb80-b43b31dcd317
+          child_task_id: 5
+    - id: 3
+      title: Add a delegation launch surface to cr show
+      status: delegated
+      contract:
+        intent: Let the existing localhost CR preview create a delegation run and carry the normalized request payload derived from the CR snapshot.
+        acceptance_criteria:
+            - A user can launch delegation from the per-CR preview without editing metadata by hand.
+            - Launch payloads are derived from CR/task/validation/trust context rather than ad-hoc prompt text.
+            - Launch wiring works against the runtime abstraction, not a concrete worker.
+        scope:
+            - internal/cli
+      delegated:
+        - child_cr_id: 130
+          child_cr_uid: cr_205f7f38-ca6b-47c2-b964-b0b4c7ce7b15
+          child_task_id: 5
+    - id: 4
+      title: Render live delegation status in cr show
+      status: delegated
+      contract:
+        intent: Extend the current SSE-backed CR preview so it renders persisted and live delegation state as part of the per-CR report.
+        acceptance_criteria:
+            - Live status rendering does not depend on backend-native event formats.
+            - Refreshing or reopening the preview preserves historical delegation runs from persisted state.
+            - cr show displays current run state, progress, and recent activity from normalized delegation events.
+        scope:
+            - internal/cli
+            - internal/service
+      delegated:
+        - child_cr_id: 131
+          child_cr_uid: cr_b957bd06-5df2-4de9-abae-d06a07d219e5
+          child_task_id: 5
+    - id: 5
+      title: Add delegation inspection and reconciliation surfaces
+      status: delegated
+      contract:
+        intent: Expose read-only CLI surfaces and define how delegation outcomes are recorded back into Sophia without auto-completing tasks.
+        acceptance_criteria:
+            - Delegation runs can be listed and inspected outside the browser preview.
+            - Terminal run summaries are persisted as explicit Sophia artifacts/events.
+            - v1 leaves task completion as an explicit Sophia decision rather than an implicit runtime side effect.
+        scope:
+            - internal/cli
+            - internal/model
+            - internal/service
+      delegated:
+        - child_cr_id: 132
+          child_cr_uid: cr_9db7fca5-6529-4760-8cec-770feed29ae7
+          child_task_id: 5
+git_summary:
+    base_parent: d2d42a367e14440422e045acacfe071a0b6c6868
+    cr_parent: d27d90dcf1f7ea14c93d0217d13a7d4405385f37
+    files_changed: []
+    diffstat:
+        summary: 0 files changed, 0 insertions(+), 0 deletions(-)

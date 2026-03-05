@@ -1,0 +1,112 @@
+schema_version: sophia.cr_archive.v1
+notice: Historical archive snapshot. Corrections are append-only revisions.
+archived_at: "2026-03-05T21:15:53Z"
+revision: 1
+cr:
+    id: 129
+    uid: cr_3bce655d-e39f-4382-bb80-b43b31dcd317
+    title: Runtime adapter contract and mock worker
+    description: Define the backend-agnostic delegation runtime interface and a deterministic mock implementation.
+    status: merged
+    base_branch: main
+    base_ref: cr-delegated-execution-from-cr-show-via-a-runtime-a-3c34
+    base_commit: 1393ee0d8993d4bc39ae135e1e7e2c47dd242ddf
+    branch: cr-runtime-adapter-contract-and-mock-worker-3bce
+    merged_at: "2026-03-05T21:15:53Z"
+    merged_by: Kevandrew <143258544+Kevandrew@users.noreply.github.com>
+contract:
+    why: Define the internal delegation runtime boundary Sophia will use for any future worker backend, and ship a deterministic mock implementation so the control plane can be developed and tested without Codex, Pi, or OpenCode. This child decides the contract shape, not the first production adapter.
+    scope:
+        - internal/service
+    non_goals:
+        - No browser launch UI in this child CR.
+        - No real external worker process or app-server integration.
+    invariants:
+        - Normalized events are sufficient for UI rendering without backend-native payload inspection.
+        - The runtime contract is not overfit to one provider.
+    blast_radius: Touches service orchestration and test harnesses for delegation execution. Failure modes are overfitting the interface to one backend, incomplete progress semantics, or a mock that cannot exercise real UI state transitions.
+    risk_tier_hint: medium
+    risk_rationale: Defines the adapter seam every future backend must implement.
+    test_plan: go test ./internal/service
+    rollback_plan: Revert this child CR merge commit and remove the runtime contract and mock worker introduced here.
+tasks:
+    - id: 1
+      title: Define the runtime interface
+      status: done
+      contract:
+        intent: Add a backend-agnostic runtime contract for starting, streaming, and cancelling delegation runs.
+        acceptance_criteria:
+            - The interface does not require backend-specific thread or session identifiers in Sophia call sites.
+            - The interface supports launch, progress, terminal result, and cancellation semantics.
+        scope:
+            - internal/service
+      checkpoint:
+        at: "2026-03-05T21:09:40Z"
+        source: task_no_checkpoint
+    - id: 2
+      title: Normalize delegation progress events
+      status: done
+      contract:
+        intent: Define the event vocabulary Sophia will render regardless of runtime backend.
+        acceptance_criteria:
+            - Normalized events are stable enough to back both CLI and browser read surfaces.
+            - Progress events cover run start, plan or step updates, blockers, and completion or failure.
+        scope:
+            - internal/service
+      checkpoint:
+        at: "2026-03-05T21:09:41Z"
+        source: task_no_checkpoint
+    - id: 3
+      title: Implement a deterministic mock worker
+      status: done
+      contract:
+        intent: Add a mock runtime that emits predictable progress and terminal results for tests and UI development.
+        acceptance_criteria:
+            - Mock behavior is deterministic enough for stable tests.
+            - Mock runs can simulate success, failure, and blocked states.
+        scope:
+            - internal/service
+      checkpoint:
+        at: "2026-03-05T21:09:41Z"
+        source: task_no_checkpoint
+    - id: 4
+      title: Add orchestration tests for runtime integration
+      status: done
+      contract:
+        intent: Verify that runtime events are persisted and surfaced through the service layer.
+        acceptance_criteria:
+            - No real external worker backend is required in test coverage.
+            - Tests prove service orchestration works with the mock runtime end-to-end.
+        scope:
+            - internal/service
+      checkpoint:
+        commit: 62d72629
+        at: "2026-03-05T21:09:34Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_delegation_runtime_test.go
+    - id: 5
+      title: Define the runtime adapter contract and mock worker
+      status: done
+      contract:
+        intent: Add the internal runtime interface and a deterministic mock worker so delegation orchestration can be exercised without a real agent backend.
+        acceptance_criteria:
+            - Mock-worker tests prove the control plane works without Codex, Pi, or OpenCode.
+            - Normalized progress events cover launch, step/progress, blocker, and terminal states.
+            - Sophia can start a delegation through a backend-agnostic service boundary.
+        scope:
+            - internal/service
+      checkpoint:
+        commit: f120ba28
+        at: "2026-03-05T21:09:34Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service.go
+            - internal/service/service_delegation.go
+            - internal/service/service_delegation_runtime.go
+git_summary:
+    base_parent: 1393ee0d8993d4bc39ae135e1e7e2c47dd242ddf
+    cr_parent: f120ba28f4bdde3d52f4373460d10e01da248c15
+    files_changed: []
+    diffstat:
+        summary: 0 files changed, 0 insertions(+), 0 deletions(-)

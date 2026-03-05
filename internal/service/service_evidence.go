@@ -18,6 +18,7 @@ const (
 	evidenceTypeBenchmark        = "benchmark"
 	evidenceTypeReproductionStep = "reproduction_steps"
 	evidenceTypeReviewSample     = "review_sample"
+	evidenceTypeDelegationResult = "delegation_result"
 )
 
 type AddEvidenceOptions struct {
@@ -33,10 +34,10 @@ type AddEvidenceOptions struct {
 func normalizeEvidenceType(raw string) (string, error) {
 	value := strings.ToLower(strings.TrimSpace(raw))
 	switch value {
-	case evidenceTypeCommandRun, evidenceTypeManualNote, evidenceTypeEnvironment, evidenceTypeBenchmark, evidenceTypeReproductionStep, evidenceTypeReviewSample:
+	case evidenceTypeCommandRun, evidenceTypeManualNote, evidenceTypeEnvironment, evidenceTypeBenchmark, evidenceTypeReproductionStep, evidenceTypeReviewSample, evidenceTypeDelegationResult:
 		return value, nil
 	default:
-		return "", fmt.Errorf("%w: %q (allowed: %s, %s, %s, %s, %s, %s)", ErrInvalidEvidenceType, raw, evidenceTypeCommandRun, evidenceTypeManualNote, evidenceTypeEnvironment, evidenceTypeBenchmark, evidenceTypeReproductionStep, evidenceTypeReviewSample)
+		return "", fmt.Errorf("%w: %q (allowed: %s, %s, %s, %s, %s, %s, %s)", ErrInvalidEvidenceType, raw, evidenceTypeCommandRun, evidenceTypeManualNote, evidenceTypeEnvironment, evidenceTypeBenchmark, evidenceTypeReproductionStep, evidenceTypeReviewSample, evidenceTypeDelegationResult)
 	}
 }
 

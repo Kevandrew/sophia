@@ -260,6 +260,27 @@
       border-color: var(--ink-4);
     }
 
+    .btn-delegate {
+      background: #111827;
+      border-color: #111827;
+      color: #ffffff;
+    }
+
+    .btn-delegate:hover {
+      background: #1f2937;
+      border-color: #1f2937;
+    }
+
+    .btn-delegate:disabled {
+      opacity: .55;
+      cursor: wait;
+    }
+
+    .delegate-status {
+      font-family: var(--mono);
+      font-size: 10.5px;
+    }
+
     .btn-close:disabled {
       opacity: .5;
       cursor: wait;
@@ -614,6 +635,81 @@
       margin-top: 2px;
     }
 
+    .run-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .run-card {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px 14px;
+      display: grid;
+      gap: 8px;
+      background: var(--bg);
+    }
+
+    .run-top {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .run-id {
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--ink-4);
+    }
+
+    .run-summary {
+      font-size: 13px;
+      color: var(--ink-2);
+      line-height: 1.45;
+    }
+
+    .run-events {
+      display: grid;
+      gap: 6px;
+    }
+
+    .run-event {
+      padding: 8px 10px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: var(--bg-subtle);
+      display: grid;
+      gap: 3px;
+    }
+
+    .run-event-kind {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--ink-4);
+    }
+
+    .run-event-summary {
+      font-size: 12px;
+      color: var(--ink-2);
+      line-height: 1.4;
+    }
+
+    .run-history-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .run-history-item {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 12px;
+      display: grid;
+      gap: 6px;
+      background: var(--bg-subtle);
+    }
+
     .meta-chip {
       font-family: var(--mono);
       font-size: 10px;
@@ -897,6 +993,8 @@
     <div class="topbar-actions">
       <span class="tag neutral" id="hero-status">—</span>
       <span class="tag" id="hero-risk">—</span>
+      <span class="tag neutral delegate-status" id="delegate-status" hidden>delegate idle</span>
+      <button type="button" class="btn-close btn-delegate" id="delegate-btn" hidden>Get this done</button>
       <button type="button" class="btn-close" id="close-preview-btn">
         <svg width="10" height="10" viewBox="0 0 10 10" fill="none" xmlns="http://www.w3.org/2000/svg">
           <path d="M1 1L9 9M9 1L1 9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
@@ -998,10 +1096,24 @@
           <span class="section-label">Tasks</span>
           <span class="tag neutral" id="task-count-tag">0 / 0</span>
         </div>
-        <div class="section-body">
+      <div class="section-body">
           <div class="task-list" id="tasks-list">
             <div class="empty-state">No tasks</div>
           </div>
+        </div>
+      </div>
+
+      <!-- DELEGATION -->
+      <div class="section">
+        <div class="section-header">
+          <span class="section-label">Delegation</span>
+          <span class="tag neutral" id="delegation-count-tag">0 runs</span>
+        </div>
+        <div class="section-body">
+          <div class="run-list" id="delegation-current">
+            <div class="empty-state">No delegation runs yet</div>
+          </div>
+          <div class="run-history-list" id="delegation-history"></div>
         </div>
       </div>
 
@@ -1215,11 +1327,104 @@
       }
 
       var liveSource = null;
+      var delegateLastStatus = null;
+      var delegateInFlight = false;
       function setLiveHint(state) {
         var hintEl = document.getElementById("live-hint");
         if (!hintEl) return;
         var value = text(state, "").trim();
         hintEl.textContent = value ? (" · " + value) : "";
+      }
+
+      function setDelegateStatus(label, cls) {
+        var statusEl = document.getElementById("delegate-status");
+        if (!statusEl) return;
+        var value = text(label, "").trim();
+        if (!value) {
+          statusEl.hidden = true;
+          statusEl.textContent = "";
+          statusEl.className = "tag neutral delegate-status";
+          return;
+        }
+        statusEl.hidden = false;
+        statusEl.textContent = value;
+        statusEl.className = "tag " + (cls || "neutral") + " delegate-status";
+      }
+
+      function delegationStatusClass(status) {
+        status = text(status, "").trim().toLowerCase();
+        if (status === "completed") return "pass";
+        if (status === "blocked") return "warn";
+        if (status === "failed" || status === "cancelled") return "fail";
+        if (status === "running" || status === "queued") return "blue";
+        return "neutral";
+      }
+
+      function applyDelegationLaunchState(launch, cr) {
+        var button = document.getElementById("delegate-btn");
+        if (!button) return;
+        var config = asObject(launch);
+        var available = Boolean(config.available) && !delegateInFlight;
+        button.hidden = !Boolean(config.available) && !delegateLastStatus;
+        if (button.hidden) {
+          setDelegateStatus("", "neutral");
+          return;
+        }
+        button.disabled = !available;
+        button.textContent = delegateInFlight ? "Launching…" : (delegateLastStatus ? "Run again" : "Get this done");
+        button.title = Boolean(config.available) ? "Launch a delegated agent run for this CR" : text(config.reason, "");
+        if (delegateLastStatus) {
+          setDelegateStatus(text(delegateLastStatus.label, ""), text(delegateLastStatus.className, "neutral"));
+          return;
+        }
+        if (Boolean(config.available)) {
+          setDelegateStatus("delegate ready", "blue");
+        } else {
+          setDelegateStatus(text(config.reason, "delegate unavailable"), "warn");
+        }
+      }
+
+      function launchDelegation() {
+        var payload = window.__sophiaCRPayload || {};
+        var cr = asObject(payload.cr);
+        var launch = asObject(payload.delegation_launch);
+        if (!launch.available || delegateInFlight) return;
+        delegateInFlight = true;
+        delegateLastStatus = null;
+        applyDelegationLaunchState(launch, cr);
+        fetch("/__sophia_delegate_launch", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            cr_id: cr.id,
+            task_ids: asArray(launch.default_task_ids)
+          })
+        }).then(function (response) {
+          return response.json().catch(function () { return {}; }).then(function (body) {
+            if (!response.ok || !body.ok) {
+              var err = asObject(body.error);
+              throw new Error(text(err.message, "delegation launch failed"));
+            }
+            return asObject(body.data);
+          });
+        }).then(function (data) {
+          var run = asObject(data.run);
+          var runStatus = text(run.status, "started");
+          delegateLastStatus = {
+            label: "delegate " + runStatus,
+            className: delegationStatusClass(runStatus)
+          };
+          applyDelegationLaunchState(launch, cr);
+        }).catch(function (err) {
+          delegateLastStatus = {
+            label: text(err && err.message, "delegation launch failed"),
+            className: "fail"
+          };
+          setDelegateStatus(text(err && err.message, "delegation launch failed"), "fail");
+        }).finally(function () {
+          delegateInFlight = false;
+          applyDelegationLaunchState(asObject(window.__sophiaCRPayload && window.__sophiaCRPayload.delegation_launch), asObject(window.__sophiaCRPayload && window.__sophiaCRPayload.cr));
+        });
       }
 
       function closePreview() {
@@ -1235,15 +1440,19 @@
       }
 
       document.getElementById("close-preview-btn").addEventListener("click", closePreview);
+      document.getElementById("delegate-btn").addEventListener("click", launchDelegation);
 
       function renderCR(nextPayload) {
         var payload = asObject(nextPayload);
+        window.__sophiaCRPayload = payload;
         var cr = asObject(payload.cr);
         var contract = asObject(payload.contract);
         var status = asObject(payload.status);
         var validation = asObject(payload.validation);
         var trust = asObject(payload.trust);
         var tasks = asArray(payload.tasks);
+        var delegationLaunch = asObject(payload.delegation_launch);
+        var delegation = asObject(payload.delegation);
 
         // Title
         document.title = text(cr.title, "CR Report") + " · Sophia";
@@ -1262,6 +1471,7 @@
           riskEl.textContent = "risk · " + riskTier;
           riskEl.className = "tag " + (riskTier === "high" ? "fail" : riskTier === "medium" ? "warn" : riskTier === "low" ? "pass" : "neutral");
         }
+        applyDelegationLaunchState(delegationLaunch, cr);
 
         // Hero
         setText("hero-title", cr.title, "Untitled CR");
@@ -1352,6 +1562,83 @@
                 taskMeta.length ? "<div class='task-meta'>" + taskMeta.join("") + "</div>" : "",
                 "</article>"
               ].join("");
+            }).join("");
+          }
+        }
+
+        var delegationCounts = asObject(delegation.counts);
+        var delegationRuns = asArray(delegation.recent_runs);
+        var currentRun = asObject(delegation.current_run);
+        var delegationCountTag = document.getElementById("delegation-count-tag");
+        if (delegationCountTag) {
+          var totalRuns = Number(delegationCounts.total || delegationRuns.length || 0);
+          var runningRuns = Number(delegationCounts.running || 0);
+          delegationCountTag.textContent = totalRuns + " runs";
+          delegationCountTag.className = "tag " + (runningRuns > 0 ? "blue" : totalRuns > 0 ? "neutral" : "neutral");
+        }
+
+        function renderRunEvent(event) {
+          var item = asObject(event);
+          var metaBits = [];
+          if (item.step) metaBits.push("step:" + text(item.step, ""));
+          if (item.ts) metaBits.push(formatRelativeLocal(item.ts));
+          return [
+            "<div class='run-event'>",
+            "<span class='run-event-kind'>" + esc(item.kind || "event") + "</span>",
+            "<div class='run-event-summary'>" + esc(item.summary || item.message || "(no summary)") + "</div>",
+            metaBits.length ? "<div class='task-meta'>" + metaBits.map(function (bit) { return "<span class='meta-chip'>" + esc(bit) + "</span>"; }).join("") + "</div>" : "",
+            "</div>"
+          ].join("");
+        }
+
+        function renderRunCard(run, highlight) {
+          var item = asObject(run);
+          var result = asObject(item.result);
+          var status = text(item.status, "unknown");
+          var request = asObject(item.request);
+          var summary = text(result.summary || item.summary || "", "");
+          var events = asArray(item.events).slice(-5).reverse();
+          var meta = [];
+          if (request.runtime) meta.push("<span class='meta-chip'>runtime:" + esc(request.runtime) + "</span>");
+          if (request.task_ids && asArray(request.task_ids).length) meta.push("<span class='meta-chip'>tasks:" + esc(asArray(request.task_ids).join(",")) + "</span>");
+          if (item.updated_at) meta.push("<span class='meta-chip' title='" + esc(formatAbsoluteLocal(item.updated_at)) + "'>updated:" + esc(formatRelativeLocal(item.updated_at)) + "</span>");
+          if (result.files_changed && asArray(result.files_changed).length) meta.push("<span class='meta-chip'>files:" + esc(String(asArray(result.files_changed).length)) + "</span>");
+          if (result.blockers && asArray(result.blockers).length) meta.push("<span class='meta-chip'>blockers:" + esc(String(asArray(result.blockers).length)) + "</span>");
+          return [
+            "<article class='" + (highlight ? "run-card" : "run-history-item") + "'>",
+            "<div class='run-top'>",
+            "<span class='tag " + delegationStatusClass(status) + "'><span class='dot'></span>" + esc(status.replace(/_/g, " ")) + "</span>",
+            item.id ? "<span class='run-id'>" + esc(item.id) + "</span>" : "",
+            "</div>",
+            summary ? "<div class='run-summary'>" + esc(summary) + "</div>" : "",
+            meta.length ? "<div class='task-meta'>" + meta.join("") + "</div>" : "",
+            events.length ? "<div class='run-events'>" + events.map(renderRunEvent).join("") + "</div>" : "",
+            "</article>"
+          ].join("");
+        }
+
+        var delegationCurrentEl = document.getElementById("delegation-current");
+        if (delegationCurrentEl) {
+          if (!Object.keys(currentRun).length) {
+            delegationCurrentEl.innerHTML = delegationRuns.length
+              ? "<div class='empty-state'>No run currently in flight</div>"
+              : "<div class='empty-state'>No delegation runs yet</div>";
+          } else {
+            delegationCurrentEl.innerHTML = renderRunCard(currentRun, true);
+          }
+        }
+
+        var delegationHistoryEl = document.getElementById("delegation-history");
+        if (delegationHistoryEl) {
+          var historyRuns = delegationRuns.filter(function (run) {
+            var item = asObject(run);
+            return !currentRun.id || item.id !== currentRun.id;
+          }).slice(0, 6);
+          if (!historyRuns.length) {
+            delegationHistoryEl.innerHTML = "";
+          } else {
+            delegationHistoryEl.innerHTML = historyRuns.map(function (run) {
+              return renderRunCard(run, false);
             }).join("");
           }
         }

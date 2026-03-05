@@ -89,6 +89,116 @@ func taskDelegationMaps(delegations []model.TaskDelegation) []map[string]any {
 	return out
 }
 
+func delegationRunEventToJSONMap(event model.DelegationRunEvent) map[string]any {
+	return map[string]any{
+		"id":      event.ID,
+		"ts":      event.TS,
+		"kind":    event.Kind,
+		"summary": event.Summary,
+		"message": event.Message,
+		"step":    event.Step,
+		"meta":    mapStringStringOrEmpty(event.Meta),
+	}
+}
+
+func delegationRunEventMaps(events []model.DelegationRunEvent) []map[string]any {
+	out := make([]map[string]any, 0, len(events))
+	for _, event := range events {
+		out = append(out, delegationRunEventToJSONMap(event))
+	}
+	return out
+}
+
+func delegationResultToJSONMap(result *model.DelegationResult) map[string]any {
+	if result == nil {
+		return map[string]any{}
+	}
+	return map[string]any{
+		"status":              result.Status,
+		"summary":             result.Summary,
+		"files_changed":       stringSliceOrEmpty(result.FilesChanged),
+		"validation_errors":   stringSliceOrEmpty(result.ValidationErrors),
+		"validation_warnings": stringSliceOrEmpty(result.ValidationWarnings),
+		"blockers":            stringSliceOrEmpty(result.Blockers),
+		"metadata":            mapStringStringOrEmpty(result.Metadata),
+	}
+}
+
+func delegationRunToJSONMap(run *model.DelegationRun) map[string]any {
+	if run == nil {
+		return map[string]any{}
+	}
+	return map[string]any{
+		"id":          run.ID,
+		"status":      run.Status,
+		"created_at":  run.CreatedAt,
+		"created_by":  run.CreatedBy,
+		"updated_at":  run.UpdatedAt,
+		"finished_at": run.FinishedAt,
+		"request": map[string]any{
+			"runtime":               run.Request.Runtime,
+			"task_ids":              intSliceOrEmpty(run.Request.TaskIDs),
+			"workflow_instructions": run.Request.WorkflowInstructions,
+			"skill_refs":            stringSliceOrEmpty(run.Request.SkillRefs),
+			"metadata":              mapStringStringOrEmpty(run.Request.Metadata),
+		},
+		"events": delegationRunEventMaps(run.Events),
+		"result": delegationResultToJSONMap(run.Result),
+	}
+}
+
+func delegationLaunchToJSONMap(launch crShowDelegationLaunchView) map[string]any {
+	return map[string]any{
+		"available":        launch.Available,
+		"reason":           launch.Reason,
+		"runtime":          launch.Runtime,
+		"default_task_ids": intSliceOrEmpty(launch.DefaultTaskIDs),
+		"open_task_ids":    intSliceOrEmpty(launch.OpenTaskIDs),
+		"all_task_ids":     intSliceOrEmpty(launch.AllTaskIDs),
+		"skill_refs":       stringSliceOrEmpty(launch.SkillRefs),
+	}
+}
+
+func delegationSnapshotToJSONMap(runs []model.DelegationRun) map[string]any {
+	recentRuns := make([]map[string]any, 0, len(runs))
+	currentRun := map[string]any{}
+	total := len(runs)
+	running := 0
+	terminal := 0
+	for _, run := range runs {
+		if isDelegationRunTerminal(run.Status) {
+			terminal++
+		} else {
+			running++
+			if len(currentRun) == 0 {
+				currentRun = delegationRunToJSONMap(&run)
+			}
+		}
+		recentRuns = append(recentRuns, delegationRunToJSONMap(&run))
+	}
+	return map[string]any{
+		"current_run": currentRun,
+		"recent_runs": recentRuns,
+		"counts": map[string]any{
+			"total":    total,
+			"running":  running,
+			"terminal": terminal,
+		},
+	}
+}
+
+func isDelegationRunTerminal(status string) bool {
+	switch strings.TrimSpace(status) {
+	case model.DelegationRunStatusCompleted,
+		model.DelegationRunStatusFailed,
+		model.DelegationRunStatusBlocked,
+		model.DelegationRunStatusCancelled:
+		return true
+	default:
+		return false
+	}
+}
+
 func taskContractFieldsToJSONMap(contract model.TaskContract) map[string]any {
 	return map[string]any{
 		"intent":              contract.Intent,
@@ -1180,6 +1290,7 @@ func crPackToJSONMap(view *service.CRPackView) map[string]any {
 		},
 		"contract":           contractToJSONMap(view.Contract),
 		"tasks":              tasks,
+		"delegation":         delegationSnapshotToJSONMap(view.DelegationRuns),
 		"anchors":            anchors,
 		"status":             crStatusToJSONMap(view.Status),
 		"recent_events":      events,

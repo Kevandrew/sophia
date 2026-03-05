@@ -1,0 +1,117 @@
+schema_version: sophia.cr_archive.v1
+notice: Historical archive snapshot. Corrections are append-only revisions.
+archived_at: "2026-03-05T21:52:44Z"
+revision: 1
+cr:
+    id: 131
+    uid: cr_b957bd06-5df2-4de9-abae-d06a07d219e5
+    title: cr show live delegation status
+    description: Render live and historical delegation progress inside the existing per-CR localhost preview.
+    status: merged
+    base_branch: main
+    base_ref: cr-delegated-execution-from-cr-show-via-a-runtime-a-3c34
+    base_commit: 53c126f9a18b10f13db0ce2c767bf38bd75d5b11
+    branch: cr-cr-show-live-delegation-status-b957
+    merged_at: "2026-03-05T21:52:44Z"
+    merged_by: Kevandrew <143258544+Kevandrew@users.noreply.github.com>
+contract:
+    why: Extend the current SSE-backed CR preview so it renders live and historical delegation status as part of the existing per-CR report. This child is about read-model and UI rendering, not launch mechanics or terminal reconciliation policy.
+    scope:
+        - internal/cli
+        - internal/service
+    non_goals:
+        - No backend-native event rendering.
+        - No launch-route work in this child CR.
+    invariants:
+        - Existing non-delegation preview updates remain stable.
+        - Live status is derived from normalized Sophia delegation events.
+    blast_radius: Touches `cr show` snapshot payloads, SSE updates, and frontend rendering for run history and progress. Failure modes are stale status, unreadable event presentation, or UI logic that depends on backend-native event names.
+    risk_tier_hint: medium
+    risk_rationale: Adds live observability to the per-CR preview without changing dashboard semantics.
+    test_plan: go test ./internal/cli ./internal/service
+    rollback_plan: Revert this child CR merge commit and remove delegation-run payload/SSE rendering from cr show.
+tasks:
+    - id: 1
+      title: Extend the CR snapshot with delegation data
+      status: done
+      contract:
+        intent: Add current and recent delegation runs to the per-CR payload used by `cr show`.
+        acceptance_criteria:
+            - Payloads remain normalized and backend-agnostic.
+            - Reloading the page shows persisted delegation history.
+        scope:
+            - internal/cli/cr_json_mappers.go
+            - internal/service
+      checkpoint:
+        commit: 857623b9
+        at: "2026-03-05T21:49:42Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/cr_json_mappers.go
+            - internal/service/service_pack.go
+    - id: 2
+      title: Publish delegation updates through SSE
+      status: done
+      contract:
+        intent: Extend the existing localhost event stream to push delegation-run updates.
+        acceptance_criteria:
+            - Live updates are emitted when delegation state changes.
+            - SSE behavior remains stable for existing non-delegation preview updates.
+        scope:
+            - internal/cli/cr_cmd_show.go
+      checkpoint:
+        at: "2026-03-05T21:49:43Z"
+        source: task_no_checkpoint
+    - id: 3
+      title: Render live status and recent activity
+      status: done
+      contract:
+        intent: Add UI for run state, progress steps, recent activity, and terminal summaries.
+        acceptance_criteria:
+            - Rendering uses normalized Sophia event types rather than backend-native payloads.
+            - The UI distinguishes running, completed, failed, blocked, and cancelled states.
+        scope:
+            - internal/cli/templates/cr_show.html
+      checkpoint:
+        commit: 663944bd
+        at: "2026-03-05T21:49:43Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/templates/cr_show.html
+    - id: 4
+      title: Add live-preview status tests
+      status: done
+      contract:
+        intent: Verify snapshot and SSE rendering behavior for historical and in-flight runs.
+        acceptance_criteria:
+            - Existing CR preview rendering remains unaffected when no delegation runs exist.
+            - Tests cover empty, running, completed, and failed delegation states.
+        scope:
+            - internal/cli
+      checkpoint:
+        commit: d217365b
+        at: "2026-03-05T21:49:43Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/cr_show_delegation_status_test.go
+    - id: 5
+      title: Render live delegation status in cr show
+      status: done
+      contract:
+        intent: Extend the current SSE-backed CR preview so it renders persisted and live delegation state as part of the per-CR report.
+        acceptance_criteria:
+            - Live status rendering does not depend on backend-native event formats.
+            - Refreshing or reopening the preview preserves historical delegation runs from persisted state.
+            - cr show displays current run state, progress, and recent activity from normalized delegation events.
+        scope:
+            - internal/cli
+            - internal/service
+      checkpoint:
+        at: "2026-03-05T21:49:43Z"
+        source: task_no_checkpoint
+git_summary:
+    base_parent: 53c126f9a18b10f13db0ce2c767bf38bd75d5b11
+    cr_parent: d217365be7c30e0f0714e3329c08570dacef4e65
+    files_changed: []
+    diffstat:
+        summary: 0 files changed, 0 insertions(+), 0 deletions(-)

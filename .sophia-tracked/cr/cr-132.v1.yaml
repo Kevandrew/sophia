@@ -1,0 +1,124 @@
+schema_version: sophia.cr_archive.v1
+notice: Historical archive snapshot. Corrections are append-only revisions.
+archived_at: "2026-03-05T22:08:59Z"
+revision: 1
+cr:
+    id: 132
+    uid: cr_9db7fca5-6529-4760-8cec-770feed29ae7
+    title: Delegation inspection and reconciliation surfaces
+    description: Expose delegation run inspection and terminal-result reconciliation without auto-completing tasks.
+    status: merged
+    base_branch: main
+    base_ref: cr-delegated-execution-from-cr-show-via-a-runtime-a-3c34
+    base_commit: 1e9b115166e686269f01e2f9908d531a1bb4734f
+    branch: cr-delegation-inspection-and-reconciliation-surface-9db7
+    merged_at: "2026-03-05T22:08:59Z"
+    merged_by: Kevandrew <143258544+Kevandrew@users.noreply.github.com>
+contract:
+    why: Add operator-facing read surfaces and explicit reconciliation semantics for delegation outcomes so Sophia can record what happened without silently changing CR or task state. This child defines the v1 handoff contract from a run back into Sophia.
+    scope:
+        - internal/cli
+        - internal/model
+        - internal/service
+    non_goals:
+        - No automatic task completion or merge advancement in response to a run.
+        - No production worker adapter work.
+    invariants:
+        - Task completion remains an explicit Sophia action.
+        - Terminal results are auditable from both CLI and CR history.
+    blast_radius: Touches CLI read surfaces, persisted terminal summaries, and CR evidence/event reconciliation. Failure modes are ambiguous terminal summaries, missing operator inspection paths, or accidental auto-completion of delegated tasks.
+    risk_tier_hint: medium
+    risk_rationale: Defines how delegation results are inspected and recorded back into Sophia.
+    test_plan: go test ./internal/cli ./internal/service ./internal/model
+    rollback_plan: Revert this child CR merge commit and remove delegation inspection and reconciliation surfaces introduced here.
+tasks:
+    - id: 1
+      title: Add delegation inspection commands
+      status: done
+      contract:
+        intent: Expose read-only CLI surfaces for listing and inspecting delegation runs.
+        acceptance_criteria:
+            - JSON output is stable enough for future automation and tests.
+            - Operators can inspect runs without the browser preview.
+        scope:
+            - internal/cli
+      checkpoint:
+        commit: a0d5ab35
+        at: "2026-03-05T22:06:41Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/cr.go
+            - internal/cli/cr_cmd_delegate.go
+            - internal/cli/cr_cmd_evidence.go
+    - id: 2
+      title: Persist terminal result summaries
+      status: done
+      contract:
+        intent: Store structured end-state summaries for completed, failed, blocked, and cancelled runs.
+        acceptance_criteria:
+            - Stored results do not auto-complete tasks or mutate child-CR delegation state.
+            - Terminal results capture status and summary details needed for later reconciliation.
+        scope:
+            - internal/model
+            - internal/service
+      checkpoint:
+        commit: fc3c2752
+        at: "2026-03-05T22:06:08Z"
+        source: task_checkpoint
+        scope:
+            - internal/model/types.go
+            - internal/service/service_delegation.go
+            - internal/service/service_evidence.go
+    - id: 3
+      title: Record CR-facing reconciliation artifacts
+      status: done
+      contract:
+        intent: Write explicit CR events and evidence entries that describe how a delegation ended.
+        acceptance_criteria:
+            - CR history makes delegation outcomes auditable.
+            - v1 keeps task completion as an explicit follow-up action rather than an automatic side effect.
+        scope:
+            - internal/service
+      checkpoint:
+        at: "2026-03-05T22:06:15Z"
+        source: task_no_checkpoint
+    - id: 4
+      title: Add CLI and reconciliation tests
+      status: done
+      contract:
+        intent: Cover run inspection output and terminal-result reconciliation behavior.
+        acceptance_criteria:
+            - Tests prove successful and failed runs are both inspectable and auditable.
+            - Tests prove task completion state is unchanged by delegation results alone.
+        scope:
+            - internal/cli
+            - internal/service
+      checkpoint:
+        commit: b98c7af9
+        at: "2026-03-05T22:06:08Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/cr_json_delegation_test.go
+            - internal/service/service_delegation_test.go
+    - id: 5
+      title: Add delegation inspection and reconciliation surfaces
+      status: done
+      contract:
+        intent: Expose read-only CLI surfaces and define how delegation outcomes are recorded back into Sophia without auto-completing tasks.
+        acceptance_criteria:
+            - Delegation runs can be listed and inspected outside the browser preview.
+            - Terminal run summaries are persisted as explicit Sophia artifacts/events.
+            - v1 leaves task completion as an explicit Sophia decision rather than an implicit runtime side effect.
+        scope:
+            - internal/cli
+            - internal/model
+            - internal/service
+      checkpoint:
+        at: "2026-03-05T22:06:16Z"
+        source: task_no_checkpoint
+git_summary:
+    base_parent: 1e9b115166e686269f01e2f9908d531a1bb4734f
+    cr_parent: a0d5ab355e655cfc59a9670ecc5c134553dddb7d
+    files_changed: []
+    diffstat:
+        summary: 0 files changed, 0 insertions(+), 0 deletions(-)
