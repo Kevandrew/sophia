@@ -260,6 +260,27 @@
       border-color: var(--ink-4);
     }
 
+    .btn-delegate {
+      background: #111827;
+      border-color: #111827;
+      color: #ffffff;
+    }
+
+    .btn-delegate:hover {
+      background: #1f2937;
+      border-color: #1f2937;
+    }
+
+    .btn-delegate:disabled {
+      opacity: .55;
+      cursor: wait;
+    }
+
+    .delegate-status {
+      font-family: var(--mono);
+      font-size: 10.5px;
+    }
+
     .btn-close:disabled {
       opacity: .5;
       cursor: wait;
@@ -897,6 +918,8 @@
     <div class="topbar-actions">
       <span class="tag neutral" id="hero-status">—</span>
       <span class="tag" id="hero-risk">—</span>
+      <span class="tag neutral delegate-status" id="delegate-status" hidden>delegate idle</span>
+      <button type="button" class="btn-close btn-delegate" id="delegate-btn" hidden>Get this done</button>
       <button type="button" class="btn-close" id="close-preview-btn">
         <svg width="10" height="10" viewBox="0 0 10 10" fill="none" xmlns="http://www.w3.org/2000/svg">
           <path d="M1 1L9 9M9 1L1 9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
@@ -1215,11 +1238,104 @@
       }
 
       var liveSource = null;
+      var delegateLastStatus = null;
+      var delegateInFlight = false;
       function setLiveHint(state) {
         var hintEl = document.getElementById("live-hint");
         if (!hintEl) return;
         var value = text(state, "").trim();
         hintEl.textContent = value ? (" · " + value) : "";
+      }
+
+      function setDelegateStatus(label, cls) {
+        var statusEl = document.getElementById("delegate-status");
+        if (!statusEl) return;
+        var value = text(label, "").trim();
+        if (!value) {
+          statusEl.hidden = true;
+          statusEl.textContent = "";
+          statusEl.className = "tag neutral delegate-status";
+          return;
+        }
+        statusEl.hidden = false;
+        statusEl.textContent = value;
+        statusEl.className = "tag " + (cls || "neutral") + " delegate-status";
+      }
+
+      function delegationStatusClass(status) {
+        status = text(status, "").trim().toLowerCase();
+        if (status === "completed") return "pass";
+        if (status === "blocked") return "warn";
+        if (status === "failed" || status === "cancelled") return "fail";
+        if (status === "running" || status === "queued") return "blue";
+        return "neutral";
+      }
+
+      function applyDelegationLaunchState(launch, cr) {
+        var button = document.getElementById("delegate-btn");
+        if (!button) return;
+        var config = asObject(launch);
+        var available = Boolean(config.available) && !delegateInFlight;
+        button.hidden = !Boolean(config.available) && !delegateLastStatus;
+        if (button.hidden) {
+          setDelegateStatus("", "neutral");
+          return;
+        }
+        button.disabled = !available;
+        button.textContent = delegateInFlight ? "Launching…" : (delegateLastStatus ? "Run again" : "Get this done");
+        button.title = Boolean(config.available) ? "Launch a delegated agent run for this CR" : text(config.reason, "");
+        if (delegateLastStatus) {
+          setDelegateStatus(text(delegateLastStatus.label, ""), text(delegateLastStatus.className, "neutral"));
+          return;
+        }
+        if (Boolean(config.available)) {
+          setDelegateStatus("delegate ready", "blue");
+        } else {
+          setDelegateStatus(text(config.reason, "delegate unavailable"), "warn");
+        }
+      }
+
+      function launchDelegation() {
+        var payload = window.__sophiaCRPayload || {};
+        var cr = asObject(payload.cr);
+        var launch = asObject(payload.delegation_launch);
+        if (!launch.available || delegateInFlight) return;
+        delegateInFlight = true;
+        delegateLastStatus = null;
+        applyDelegationLaunchState(launch, cr);
+        fetch("/__sophia_delegate_launch", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            cr_id: cr.id,
+            task_ids: asArray(launch.default_task_ids)
+          })
+        }).then(function (response) {
+          return response.json().catch(function () { return {}; }).then(function (body) {
+            if (!response.ok || !body.ok) {
+              var err = asObject(body.error);
+              throw new Error(text(err.message, "delegation launch failed"));
+            }
+            return asObject(body.data);
+          });
+        }).then(function (data) {
+          var run = asObject(data.run);
+          var runStatus = text(run.status, "started");
+          delegateLastStatus = {
+            label: "delegate " + runStatus,
+            className: delegationStatusClass(runStatus)
+          };
+          applyDelegationLaunchState(launch, cr);
+        }).catch(function (err) {
+          delegateLastStatus = {
+            label: text(err && err.message, "delegation launch failed"),
+            className: "fail"
+          };
+          setDelegateStatus(text(err && err.message, "delegation launch failed"), "fail");
+        }).finally(function () {
+          delegateInFlight = false;
+          applyDelegationLaunchState(asObject(window.__sophiaCRPayload && window.__sophiaCRPayload.delegation_launch), asObject(window.__sophiaCRPayload && window.__sophiaCRPayload.cr));
+        });
       }
 
       function closePreview() {
@@ -1235,15 +1351,18 @@
       }
 
       document.getElementById("close-preview-btn").addEventListener("click", closePreview);
+      document.getElementById("delegate-btn").addEventListener("click", launchDelegation);
 
       function renderCR(nextPayload) {
         var payload = asObject(nextPayload);
+        window.__sophiaCRPayload = payload;
         var cr = asObject(payload.cr);
         var contract = asObject(payload.contract);
         var status = asObject(payload.status);
         var validation = asObject(payload.validation);
         var trust = asObject(payload.trust);
         var tasks = asArray(payload.tasks);
+        var delegationLaunch = asObject(payload.delegation_launch);
 
         // Title
         document.title = text(cr.title, "CR Report") + " · Sophia";
@@ -1262,6 +1381,7 @@
           riskEl.textContent = "risk · " + riskTier;
           riskEl.className = "tag " + (riskTier === "high" ? "fail" : riskTier === "medium" ? "warn" : riskTier === "low" ? "pass" : "neutral");
         }
+        applyDelegationLaunchState(delegationLaunch, cr);
 
         // Hero
         setText("hero-title", cr.title, "Untitled CR");

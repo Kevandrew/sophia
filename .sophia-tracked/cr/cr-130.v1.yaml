@@ -1,0 +1,115 @@
+schema_version: sophia.cr_archive.v1
+notice: Historical archive snapshot. Corrections are append-only revisions.
+archived_at: "2026-03-05T21:42:05Z"
+revision: 1
+cr:
+    id: 130
+    uid: cr_205f7f38-ca6b-47c2-b964-b0b4c7ce7b15
+    title: cr show delegation launch surface
+    description: Add the per-CR localhost preview entrypoint that launches a delegation run through the runtime abstraction.
+    status: merged
+    base_branch: main
+    base_ref: cr-delegated-execution-from-cr-show-via-a-runtime-a-3c34
+    base_commit: de7a3c6e80360aa814e3d34415b96cd7d0f19f56
+    branch: cr-cr-show-delegation-launch-surface-205f
+    merged_at: "2026-03-05T21:42:05Z"
+    merged_by: Kevandrew <143258544+Kevandrew@users.noreply.github.com>
+contract:
+    why: Add the actual per-CR launch surface in `cr show` so a user can trigger delegation from the existing localhost preview. This child is responsible for request construction and route wiring, not for live progress rendering after launch.
+    scope:
+        - internal/cli
+    non_goals:
+        - No backend-specific request shaping.
+        - No live status timeline rendering in this child CR.
+    invariants:
+        - Launch payloads are derived from Sophia CR state, not ad-hoc prompt text.
+        - The launch surface works through the runtime abstraction only.
+    blast_radius: Touches `cr show` HTTP routes, launch payload shaping, and the per-CR template action surface. Failure modes are malformed launch payloads, accidental coupling to backend-native request shapes, or broken preview behavior when delegation is unavailable.
+    risk_tier_hint: medium
+    risk_rationale: Changes the per-CR localhost preview control surface and launch wiring.
+    test_plan: go test ./internal/cli ./internal/service
+    rollback_plan: Revert this child CR merge commit and remove the delegation launch action and routes from cr show.
+tasks:
+    - id: 1
+      title: Add a delegation action to the CR preview
+      status: done
+      contract:
+        intent: Expose a clear per-CR launch action in the existing `cr show` UI.
+        acceptance_criteria:
+            - The UI degrades cleanly when delegation launch is unavailable.
+            - The launch control is only shown in per-CR mode and is tied to a concrete CR id.
+        scope:
+            - internal/cli/templates/cr_show.html
+      checkpoint:
+        commit: f3fb9030
+        at: "2026-03-05T21:31:07Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/templates/cr_show.html
+    - id: 2
+      title: Build normalized delegation launch payloads
+      status: done
+      contract:
+        intent: Construct the runtime-neutral request from the CR pack snapshot and selected task context.
+        acceptance_criteria:
+            - Launch payloads include CR and task contract context needed for scoped delegation.
+            - Payload building does not reference a concrete worker wire format.
+        scope:
+            - internal/cli/cr_cmd_show.go
+            - internal/cli/cr_json_mappers.go
+      checkpoint:
+        commit: dcf367e4
+        at: "2026-03-05T21:31:07Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/cr_cmd_show.go
+            - internal/cli/cr_json_mappers.go
+    - id: 3
+      title: Add localhost launch routes
+      status: done
+      contract:
+        intent: Wire the `cr show` local server to create delegation runs through the runtime abstraction.
+        acceptance_criteria:
+            - Launching a run persists a new delegation record and returns a stable run identity.
+            - The route works against the mock runtime from the service layer.
+        scope:
+            - internal/cli/cr_cmd_show.go
+      checkpoint:
+        at: "2026-03-05T21:31:08Z"
+        source: task_no_checkpoint
+    - id: 4
+      title: Add launch-flow tests
+      status: done
+      contract:
+        intent: Cover successful launch, unavailable-launch, and malformed-input cases for the preview action.
+        acceptance_criteria:
+            - Launch tests do not require a concrete external worker backend.
+            - Tests prove the page can trigger a run without breaking existing CR preview behavior.
+        scope:
+            - internal/cli
+      checkpoint:
+        commit: a3577bd1
+        at: "2026-03-05T21:31:08Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/cr_show_delegate_test.go
+    - id: 5
+      title: Add a delegation launch surface to cr show
+      status: done
+      contract:
+        intent: Let the existing localhost CR preview create a delegation run and carry the normalized request payload derived from the CR snapshot.
+        acceptance_criteria:
+            - A user can launch delegation from the per-CR preview without editing metadata by hand.
+            - Launch payloads are derived from CR/task/validation/trust context rather than ad-hoc prompt text.
+            - Launch wiring works against the runtime abstraction, not a concrete worker.
+        scope:
+            - internal/cli
+      checkpoint:
+        at: "2026-03-05T21:31:08Z"
+        source: task_no_checkpoint
+git_summary:
+    base_parent: de7a3c6e80360aa814e3d34415b96cd7d0f19f56
+    cr_parent: a3577bd13984eea37044457660909ac048a284c5
+    files_changed: []
+    diffstat:
+        summary: 0 files changed, 0 insertions(+), 0 deletions(-)
