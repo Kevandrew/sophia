@@ -450,10 +450,9 @@ func TestCRShowTemplateIsSingleFileWithInlineAssets(t *testing.T) {
 	t.Parallel()
 	doc, err := buildCRShowHTMLDocument(embeddedCRShowHTMLTemplate, map[string]any{
 		"generated_at": "2026-03-03T00:00:00Z",
-		"cr": map[string]any{
-			"id":    101,
-			"title": "Template inline test",
-		},
+		"cr_id":        101,
+		"snapshot_url": "/__sophia_snapshot?mode=cr&id=101",
+		"events_url":   "/__sophia_events?mode=cr&id=101",
 	})
 	if err != nil {
 		t.Fatalf("buildCRShowHTMLDocument() error = %v", err)
@@ -461,14 +460,14 @@ func TestCRShowTemplateIsSingleFileWithInlineAssets(t *testing.T) {
 
 	for _, required := range []string{
 		"<style>",
-		"<script id=\"cr-show-data\" type=\"application/json\">",
+		"<script id=\"cr-show-bootstrap\" type=\"application/json\">",
 		"Raw JSON Payload",
 		"read-only local report",
 		"id=\"close-preview-btn\"",
 		"Stack Role",
 		"Lineage",
 		"EventSource",
-		"/__sophia_events?mode=cr&id=",
+		"/__sophia_snapshot?mode=cr",
 	} {
 		if !strings.Contains(doc, required) {
 			t.Fatalf("expected generated html to contain %q", required)
@@ -488,28 +487,8 @@ func TestCRListTemplateIncludesStackNativityLabels(t *testing.T) {
 	t.Parallel()
 	doc, err := buildCRListHTMLDocument(embeddedCRListHTMLTemplate, map[string]any{
 		"generated_at": "2026-03-03T00:00:00Z",
-		"dashboard": map[string]any{
-			"counts":  map[string]any{"list_returned": 1, "timeline_returned": 0},
-			"filters": map[string]any{},
-		},
-		"crs": []map[string]any{
-			{
-				"id":         101,
-				"title":      "Stack root",
-				"status":     "in_progress",
-				"risk_tier":  "medium",
-				"branch":     "cr-stack-root",
-				"updated_at": "2026-03-03T00:00:00Z",
-				"tasks":      map[string]any{"done": 1, "total": 2},
-				"stack_nativity": map[string]any{
-					"role":                "aggregate_parent",
-					"role_label":          "Aggregate Parent",
-					"is_aggregate_parent": true,
-					"pending_child_count": 1,
-				},
-			},
-		},
-		"timeline": []map[string]any{},
+		"snapshot_url": "/__sophia_snapshot?mode=dashboard",
+		"events_url":   "/__sophia_events?mode=dashboard",
 	})
 	if err != nil {
 		t.Fatalf("buildCRListHTMLDocument() error = %v", err)
@@ -517,7 +496,7 @@ func TestCRListTemplateIncludesStackNativityLabels(t *testing.T) {
 	for _, required := range []string{
 		"Stack Role",
 		"Lineage",
-		"Aggregate Parent",
+		"/__sophia_snapshot?mode=dashboard",
 	} {
 		if !strings.Contains(doc, required) {
 			t.Fatalf("expected generated list html to contain %q", required)
@@ -528,14 +507,10 @@ func TestCRListTemplateIncludesStackNativityLabels(t *testing.T) {
 func TestCRListTemplateIsSingleFileWithInlineAssets(t *testing.T) {
 	t.Parallel()
 	doc, err := buildCRListHTMLDocument(embeddedCRListHTMLTemplate, map[string]any{
-		"generated_at": "2026-03-03T00:00:00Z",
-		"dashboard": map[string]any{
-			"selected_cr_id": 101,
-		},
-		"selected_cr": map[string]any{
-			"id":    101,
-			"title": "Dashboard template test",
-		},
+		"generated_at":   "2026-03-03T00:00:00Z",
+		"selected_cr_id": 101,
+		"snapshot_url":   "/__sophia_snapshot?mode=dashboard",
+		"events_url":     "/__sophia_events?mode=dashboard",
 	})
 	if err != nil {
 		t.Fatalf("buildCRListHTMLDocument() error = %v", err)
@@ -543,12 +518,12 @@ func TestCRListTemplateIsSingleFileWithInlineAssets(t *testing.T) {
 
 	for _, required := range []string{
 		"<style>",
-		"<script id=\"cr-list-data\" type=\"application/json\">",
+		"<script id=\"cr-list-bootstrap\" type=\"application/json\">",
 		"Raw JSON Payload",
 		"read-only local report",
 		"id=\"close-preview-btn\"",
 		"EventSource",
-		"/__sophia_events?mode=dashboard",
+		"/__sophia_snapshot?mode=dashboard",
 	} {
 		if !strings.Contains(doc, required) {
 			t.Fatalf("expected generated html to contain %q", required)
@@ -784,6 +759,54 @@ func TestCRShowServerSSEUsesCRRouteSnapshot(t *testing.T) {
 	}
 	if !strings.Contains(eventData, "\"cr_id\":42") {
 		t.Fatalf("expected cr_id 42 payload, got %q", eventData)
+	}
+}
+
+func TestCRShowServerSnapshotEndpointReturnsJSON(t *testing.T) {
+	t.Parallel()
+	server, err := startCRShowServerWithLiveRoutes(
+		func() (string, error) { return "<!doctype html><html><body>dashboard</body></html>", nil },
+		func(id int) (string, error) {
+			return fmt.Sprintf("<!doctype html><html><body>cr-%d</body></html>", id), nil
+		},
+		func() (map[string]any, error) {
+			return map[string]any{"mode": "dashboard", "counts": map[string]any{"list_total": 3}}, nil
+		},
+		func(id int) (map[string]any, error) {
+			return map[string]any{"mode": "cr", "cr_id": id}, nil
+		},
+	)
+	if err != nil {
+		t.Fatalf("startCRShowServerWithLiveRoutes() error = %v", err)
+	}
+	defer server.Shutdown()
+
+	resp, err := http.Get(server.URL + "/__sophia_snapshot?mode=dashboard")
+	if err != nil {
+		t.Fatalf("GET dashboard snapshot error = %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected dashboard snapshot status 200, got %d", resp.StatusCode)
+	}
+	bodyRaw, _ := io.ReadAll(resp.Body)
+	body := string(bodyRaw)
+	if !strings.Contains(body, "\"mode\":\"dashboard\"") {
+		t.Fatalf("expected dashboard snapshot payload, got %q", body)
+	}
+
+	respCR, err := http.Get(server.URL + "/__sophia_snapshot?mode=cr&id=42")
+	if err != nil {
+		t.Fatalf("GET cr snapshot error = %v", err)
+	}
+	defer respCR.Body.Close()
+	if respCR.StatusCode != http.StatusOK {
+		t.Fatalf("expected cr snapshot status 200, got %d", respCR.StatusCode)
+	}
+	bodyCRRaw, _ := io.ReadAll(respCR.Body)
+	bodyCR := string(bodyCRRaw)
+	if !strings.Contains(bodyCR, "\"cr_id\":42") {
+		t.Fatalf("expected cr snapshot payload, got %q", bodyCR)
 	}
 }
 
