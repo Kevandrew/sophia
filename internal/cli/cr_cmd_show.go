@@ -150,18 +150,18 @@ func runCRShowPerCR(cmd *cobra.Command, asJSON bool, noOpen bool, svc *service.S
 	if openAttempted {
 		server, err = startCRShowServerWithLiveRoutesAndLaunch(
 			func() (string, error) {
-				livePayload, _, snapshotErr := buildCRDashboardSnapshot(svc, model.CRSearchQuery{}, defaultCRListLimit, defaultCRTimelineLimit, id)
+				_, _, snapshotErr := buildCRDashboardSnapshot(svc, model.CRSearchQuery{}, defaultCRListLimit, defaultCRTimelineLimit, id)
 				if snapshotErr != nil {
 					return "", snapshotErr
 				}
-				return buildCRListHTMLDocument(embeddedCRListHTMLTemplate, livePayload)
+				return buildCRListHTMLDocument(embeddedCRListHTMLTemplate, buildCRShowBootstrap(crShowModeDashboard, 0))
 			},
 			func(routeCRID int) (string, error) {
-				_, livePayload, snapshotErr := buildCRShowSnapshot(svc, routeCRID, eventsLimit, checkpointsLimit)
+				view, _, snapshotErr := buildCRShowSnapshot(svc, routeCRID, eventsLimit, checkpointsLimit)
 				if snapshotErr != nil {
 					return "", snapshotErr
 				}
-				return buildCRShowHTMLDocument(embeddedCRShowHTMLTemplate, livePayload)
+				return buildCRShowHTMLDocument(embeddedCRShowHTMLTemplate, buildCRShowBootstrap(crShowModePerCR, view.CR.ID))
 			},
 			func() (map[string]any, error) {
 				livePayload, _, snapshotErr := buildCRDashboardSnapshot(svc, model.CRSearchQuery{}, defaultCRListLimit, defaultCRTimelineLimit, id)
@@ -258,18 +258,18 @@ func runCRShowDashboard(cmd *cobra.Command, asJSON bool, noOpen bool, svc *servi
 	if openAttempted {
 		server, err = startCRShowServerWithLiveRoutes(
 			func() (string, error) {
-				livePayload, _, snapshotErr := buildCRDashboardSnapshot(svc, query, listLimit, timelineLimit, selectedHint)
+				_, _, snapshotErr := buildCRDashboardSnapshot(svc, query, listLimit, timelineLimit, selectedHint)
 				if snapshotErr != nil {
 					return "", snapshotErr
 				}
-				return buildCRListHTMLDocument(embeddedCRListHTMLTemplate, livePayload)
+				return buildCRListHTMLDocument(embeddedCRListHTMLTemplate, buildCRShowBootstrap(crShowModeDashboard, selectedCRID))
 			},
 			func(routeCRID int) (string, error) {
-				_, livePayload, snapshotErr := buildCRShowSnapshot(svc, routeCRID, eventsLimit, checkpointsLimit)
+				view, _, snapshotErr := buildCRShowSnapshot(svc, routeCRID, eventsLimit, checkpointsLimit)
 				if snapshotErr != nil {
 					return "", snapshotErr
 				}
-				return buildCRShowHTMLDocument(embeddedCRShowHTMLTemplate, livePayload)
+				return buildCRShowHTMLDocument(embeddedCRShowHTMLTemplate, buildCRShowBootstrap(crShowModePerCR, view.CR.ID))
 			},
 			func() (map[string]any, error) {
 				livePayload, _, snapshotErr := buildCRDashboardSnapshot(svc, query, listLimit, timelineLimit, selectedHint)
@@ -939,6 +939,28 @@ type crShowDelegationLaunchView struct {
 	SkillRefs      []string
 }
 
+func buildCRShowBootstrap(mode crShowMode, id int) map[string]any {
+	bootstrap := map[string]any{
+		"mode":          string(mode),
+		"close_url":     "/__sophia_close",
+		"snapshot_root": "/__sophia_snapshot",
+	}
+	switch mode {
+	case crShowModePerCR:
+		bootstrap["cr_id"] = id
+		bootstrap["snapshot_url"] = fmt.Sprintf("/__sophia_snapshot?mode=cr&id=%d", id)
+		bootstrap["events_url"] = fmt.Sprintf("/__sophia_events?mode=cr&id=%d", id)
+		bootstrap["delegate_launch_url"] = "/__sophia_delegate_launch"
+	case crShowModeDashboard:
+		if id > 0 {
+			bootstrap["selected_cr_id"] = id
+		}
+		bootstrap["snapshot_url"] = "/__sophia_snapshot?mode=dashboard"
+		bootstrap["events_url"] = "/__sophia_events?mode=dashboard"
+	}
+	return bootstrap
+}
+
 func startCRShowServer(render func() (string, error)) (*crShowServer, error) {
 	return startCRShowServerWithRoutes(render, nil)
 }
@@ -1048,6 +1070,31 @@ func startCRShowServerWithLiveRoutesAndLaunch(
 			"ok":   true,
 			"data": payload,
 		})
+	})
+	mux.HandleFunc("/__sophia_snapshot", func(w http.ResponseWriter, r *http.Request) {
+		if snapshotRoot == nil && snapshotCR == nil {
+			http.NotFound(w, r)
+			return
+		}
+		if r.Method != http.MethodGet {
+			w.Header().Set("Allow", http.MethodGet)
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		renderSnapshot, snapshotErr := resolveCRShowSnapshotRenderer(r, snapshotRoot, snapshotCR)
+		if snapshotErr != nil {
+			http.Error(w, snapshotErr.Error(), http.StatusBadRequest)
+			return
+		}
+		payload, snapshotErr := renderSnapshot()
+		if snapshotErr != nil {
+			http.Error(w, fmt.Sprintf("render snapshot: %v", snapshotErr), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Cache-Control", "no-store, max-age=0")
+		w.Header().Set("Pragma", "no-cache")
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(payload)
 	})
 	mux.HandleFunc("/__sophia_events", func(w http.ResponseWriter, r *http.Request) {
 		if snapshotRoot == nil && snapshotCR == nil {
@@ -1308,47 +1355,27 @@ func openCRShowInBrowser(targetURL string) error {
 	return cmd.Process.Release()
 }
 
-func buildCRShowHTMLDocument(templateHTML string, payload map[string]any) (string, error) {
+func buildCRShowHTMLDocument(templateHTML string, bootstrap map[string]any) (string, error) {
 	title := "Sophia CR Report"
-	if crRaw, ok := payload["cr"].(map[string]any); ok {
-		crID := "-"
-		switch v := crRaw["id"].(type) {
-		case int:
-			crID = strconv.Itoa(v)
-		case int64:
-			crID = strconv.FormatInt(v, 10)
-		case float64:
-			crID = strconv.Itoa(int(v))
-		}
-		crTitle := strings.TrimSpace(stringValue(crRaw["title"]))
-		if crTitle == "" {
-			crTitle = "Untitled CR"
-		}
-		title = fmt.Sprintf("CR-%s %s", crID, crTitle)
+	if id := strings.TrimSpace(stringValue(bootstrap["cr_id"])); id != "" {
+		title = fmt.Sprintf("CR-%s Report", id)
 	}
-	return buildCRShowDocument(templateHTML, payload, title)
+	return buildCRShowDocument(templateHTML, bootstrap, title)
 }
 
-func buildCRListHTMLDocument(templateHTML string, payload map[string]any) (string, error) {
-	title := "Sophia CR Dashboard"
-	if selected, ok := payload["selected_cr"].(map[string]any); ok {
-		selectedTitle := strings.TrimSpace(stringValue(selected["title"]))
-		if selectedTitle != "" {
-			title = fmt.Sprintf("Sophia Dashboard · %s", selectedTitle)
-		}
-	}
-	return buildCRShowDocument(templateHTML, payload, title)
+func buildCRListHTMLDocument(templateHTML string, bootstrap map[string]any) (string, error) {
+	return buildCRShowDocument(templateHTML, bootstrap, "Sophia CR Dashboard")
 }
 
-func buildCRShowDocument(templateHTML string, payload map[string]any, title string) (string, error) {
-	encoded, err := json.Marshal(payload)
+func buildCRShowDocument(templateHTML string, bootstrap map[string]any, title string) (string, error) {
+	encoded, err := json.Marshal(bootstrap)
 	if err != nil {
 		return "", err
 	}
 	var escaped bytes.Buffer
 	json.HTMLEscape(&escaped, encoded)
 
-	generatedAt := strings.TrimSpace(stringValue(payload["generated_at"]))
+	generatedAt := strings.TrimSpace(stringValue(bootstrap["generated_at"]))
 	if generatedAt == "" {
 		generatedAt = time.Now().UTC().Format(time.RFC3339)
 	}
@@ -1359,7 +1386,7 @@ func buildCRShowDocument(templateHTML string, payload map[string]any, title stri
 	}
 	doc = strings.ReplaceAll(doc, "__TITLE__", html.EscapeString(title))
 	doc = strings.ReplaceAll(doc, "__GENERATED_AT__", html.EscapeString(generatedAt))
-	doc = strings.ReplaceAll(doc, "__PAYLOAD_JSON__", escaped.String())
+	doc = strings.ReplaceAll(doc, "__BOOTSTRAP_JSON__", escaped.String())
 	return doc, nil
 }
 
