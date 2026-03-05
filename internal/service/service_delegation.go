@@ -326,9 +326,7 @@ func validateDelegationEventTransition(status, kind string) error {
 		return nil
 	case model.DelegationRunStatusRunning:
 		switch kind {
-		case model.DelegationEventKindRunStarted,
-			model.DelegationEventKindRunCompleted,
-			model.DelegationEventKindRunFailed:
+		case model.DelegationEventKindRunStarted:
 			return fmt.Errorf("delegation run in progress cannot record event %q", kind)
 		default:
 			return nil
