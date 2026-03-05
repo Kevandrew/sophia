@@ -510,21 +510,24 @@ func newCRStackCmd() *cobra.Command {
 				nodes := make([]map[string]any, 0, len(stack.Nodes))
 				for _, node := range stack.Nodes {
 					nodes = append(nodes, map[string]any{
-						"id":                      node.ID,
-						"uid":                     node.UID,
-						"parent_cr_id":            node.ParentCRID,
-						"title":                   node.Title,
-						"status":                  node.Status,
-						"branch":                  node.Branch,
-						"depth":                   node.Depth,
-						"children":                node.Children,
-						"merge_blocked":           node.MergeBlocked,
-						"merge_blockers":          node.MergeBlockers,
-						"tasks_total":             node.TasksTotal,
-						"tasks_open":              node.TasksOpen,
-						"tasks_done":              node.TasksDone,
-						"tasks_delegated":         node.TasksDelegated,
-						"tasks_delegated_pending": node.TasksDelegatedPending,
+						"id":                          node.ID,
+						"uid":                         node.UID,
+						"parent_cr_id":                node.ParentCRID,
+						"title":                       node.Title,
+						"status":                      node.Status,
+						"branch":                      node.Branch,
+						"depth":                       node.Depth,
+						"children":                    node.Children,
+						"merge_blocked":               node.MergeBlocked,
+						"merge_blockers":              node.MergeBlockers,
+						"tasks_total":                 node.TasksTotal,
+						"tasks_open":                  node.TasksOpen,
+						"tasks_done":                  node.TasksDone,
+						"tasks_delegated":             node.TasksDelegated,
+						"tasks_delegated_pending":     node.TasksDelegatedPending,
+						"aggregate_parent":            node.IsAggregateParent,
+						"aggregate_resolved_children": intSliceOrEmpty(node.ResolvedChildCRIDs),
+						"aggregate_pending_children":  intSliceOrEmpty(node.PendingChildCRIDs),
 					})
 				}
 				return writeJSONSuccess(cmd, map[string]any{
@@ -539,6 +542,9 @@ func newCRStackCmd() *cobra.Command {
 				indent := strings.Repeat("  ", node.Depth)
 				fmt.Fprintf(cmd.OutOrStdout(), "%s- CR %d [%s] %s\n", indent, node.ID, node.Status, node.Title)
 				fmt.Fprintf(cmd.OutOrStdout(), "%s  branch=%s tasks=%d open=%d delegated=%d(%d pending) done=%d merge_blocked=%t\n", indent, node.Branch, node.TasksTotal, node.TasksOpen, node.TasksDelegated, node.TasksDelegatedPending, node.TasksDone, node.MergeBlocked)
+				if node.IsAggregateParent {
+					fmt.Fprintf(cmd.OutOrStdout(), "%s  aggregate_parent resolved_children=%v pending_children=%v\n", indent, node.ResolvedChildCRIDs, node.PendingChildCRIDs)
+				}
 				if len(node.MergeBlockers) > 0 {
 					for _, blocker := range node.MergeBlockers {
 						fmt.Fprintf(cmd.OutOrStdout(), "%s  blocker: %s\n", indent, blocker)
@@ -648,6 +654,11 @@ func newCRStatusCmd() *cobra.Command {
 				}
 				fmt.Fprintf(cmd.OutOrStdout(), "Working Tree: %d modified/staged, %d untracked (dirty=%t)\n", status.ModifiedStagedCount, status.UntrackedCount, status.Dirty)
 				fmt.Fprintf(cmd.OutOrStdout(), "Tasks: %d total, %d open, %d delegated (%d pending), %d done\n", status.TasksTotal, status.TasksOpen, status.TasksDelegated, status.TasksDelegatedPending, status.TasksDone)
+				if status.IsAggregateParent {
+					fmt.Fprintf(cmd.OutOrStdout(), "Aggregate Parent: true (resolved children=%v pending children=%v)\n", status.AggregateResolvedChildren, status.AggregatePendingChildren)
+				} else {
+					fmt.Fprintln(cmd.OutOrStdout(), "Aggregate Parent: false")
+				}
 				fmt.Fprintf(cmd.OutOrStdout(), "Contract Complete: %t\n", status.ContractComplete)
 				if len(status.ContractMissingFields) == 0 {
 					fmt.Fprintln(cmd.OutOrStdout(), "Contract Missing Fields: (none)")

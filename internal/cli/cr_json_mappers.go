@@ -933,6 +933,13 @@ func crStatusToJSONMap(status *service.CRStatusView) map[string]any {
 			"delegated":         status.TasksDelegated,
 			"delegated_pending": status.TasksDelegatedPending,
 		},
+		"aggregate_parent": map[string]any{
+			"enabled":           status.IsAggregateParent,
+			"resolved_children": intSliceOrEmpty(status.AggregateResolvedChildren),
+			"pending_children":  intSliceOrEmpty(status.AggregatePendingChildren),
+			"resolved_count":    len(status.AggregateResolvedChildren),
+			"pending_count":     len(status.AggregatePendingChildren),
+		},
 		"contract": map[string]any{
 			"complete":       status.ContractComplete,
 			"missing_fields": stringSliceOrEmpty(status.ContractMissingFields),
