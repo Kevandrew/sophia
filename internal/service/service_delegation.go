@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sophia/internal/model"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -117,10 +118,12 @@ func (s *Service) FinishDelegationRun(crID int, runID string, result model.Deleg
 			return err
 		}
 		now := s.timestamp()
+		actor := s.activeLifecycleGitProvider().Actor()
 		run.Status = normalized.Status
 		run.Result = &normalized
 		run.UpdatedAt = now
 		run.FinishedAt = now
+		recordDelegationRunCompletionArtifacts(cr, *run, actor, now)
 		cr.UpdatedAt = now
 		if err := s.activeLifecycleStoreProvider().SaveCR(cr); err != nil {
 			return err
@@ -425,6 +428,86 @@ func cloneHQIntentSnapshot(snapshot *model.HQIntentSnapshot) model.HQIntentSnaps
 		return cloned.Subtasks[i].ID < cloned.Subtasks[j].ID
 	})
 	return cloned
+}
+
+func recordDelegationRunCompletionArtifacts(cr *model.CR, run model.DelegationRun, actor, now string) {
+	if cr == nil {
+		return
+	}
+	evidence := model.EvidenceEntry{
+		TS:      now,
+		Actor:   actor,
+		Type:    evidenceTypeDelegationResult,
+		Summary: delegationRunAuditSummary(run),
+	}
+	cr.Evidence = append(cr.Evidence, evidence)
+	cr.Events = append(cr.Events, model.Event{
+		TS:      now,
+		Actor:   actor,
+		Type:    model.EventTypeDelegationRunFinished,
+		Summary: delegationRunEventSummary(run),
+		Ref:     fmt.Sprintf("delegation_run:%s", run.ID),
+		Meta:    delegationRunEventMeta(run),
+	})
+}
+
+func delegationRunAuditSummary(run model.DelegationRun) string {
+	resultSummary := run.Status
+	if run.Result != nil && strings.TrimSpace(run.Result.Summary) != "" {
+		resultSummary = strings.TrimSpace(run.Result.Summary)
+	}
+	summary := fmt.Sprintf("Delegation %s %s via %s: %s", strings.TrimSpace(run.ID), strings.TrimSpace(run.Status), nonEmptyTrimmed(run.Request.Runtime, "-"), resultSummary)
+	details := make([]string, 0, 3)
+	if run.Result != nil && len(run.Result.FilesChanged) > 0 {
+		details = append(details, fmt.Sprintf("files changed: %d", len(run.Result.FilesChanged)))
+	}
+	if run.Result != nil && len(run.Result.Blockers) > 0 {
+		details = append(details, fmt.Sprintf("blockers: %d", len(run.Result.Blockers)))
+	}
+	if len(run.Request.TaskIDs) > 0 {
+		details = append(details, fmt.Sprintf("tasks: %s", joinIntIDs(run.Request.TaskIDs)))
+	}
+	if len(details) == 0 {
+		return summary
+	}
+	return fmt.Sprintf("%s (%s)", summary, strings.Join(details, "; "))
+}
+
+func delegationRunEventSummary(run model.DelegationRun) string {
+	return truncateSummary(delegationRunAuditSummary(run), 120)
+}
+
+func delegationRunEventMeta(run model.DelegationRun) map[string]string {
+	meta := map[string]string{
+		"run_id":  strings.TrimSpace(run.ID),
+		"runtime": strings.TrimSpace(run.Request.Runtime),
+		"status":  strings.TrimSpace(run.Status),
+	}
+	if len(run.Request.TaskIDs) > 0 {
+		meta["task_ids"] = joinIntIDs(run.Request.TaskIDs)
+		meta["task_count"] = strconv.Itoa(len(run.Request.TaskIDs))
+	}
+	if run.Result == nil {
+		return meta
+	}
+	if strings.TrimSpace(run.Result.Summary) != "" {
+		meta["result_summary"] = truncateSummary(strings.TrimSpace(run.Result.Summary), 120)
+	}
+	if len(run.Result.FilesChanged) > 0 {
+		meta["files_changed_count"] = strconv.Itoa(len(run.Result.FilesChanged))
+		meta["files_changed"] = strings.Join(run.Result.FilesChanged, ",")
+	}
+	if len(run.Result.ValidationErrors) > 0 {
+		meta["validation_errors_count"] = strconv.Itoa(len(run.Result.ValidationErrors))
+	}
+	if len(run.Result.ValidationWarnings) > 0 {
+		meta["validation_warnings_count"] = strconv.Itoa(len(run.Result.ValidationWarnings))
+	}
+	if len(run.Result.Blockers) > 0 {
+		meta["blockers_count"] = strconv.Itoa(len(run.Result.Blockers))
+		meta["blockers"] = strings.Join(run.Result.Blockers, ",")
+	}
+	return meta
 }
 
 func newDelegationRunID() (string, error) {

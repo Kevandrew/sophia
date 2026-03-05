@@ -1,6 +1,7 @@
 package service
 
 import (
+	"strings"
 	"testing"
 
 	"sophia/internal/model"
@@ -276,6 +277,9 @@ func TestFinishDelegationRunAllowsQueuedCancellation(t *testing.T) {
 	if finished.Status != model.DelegationRunStatusCancelled {
 		t.Fatalf("expected cancelled status, got %#v", finished)
 	}
+	if finished.Result == nil || finished.Result.Summary != "cancelled before start" {
+		t.Fatalf("expected cancelled result summary, got %#v", finished.Result)
+	}
 }
 
 func TestAppendDelegationRunEventRejectsTerminalRun(t *testing.T) {
@@ -311,5 +315,121 @@ func TestAppendDelegationRunEventRejectsTerminalRun(t *testing.T) {
 		Message: "too late",
 	}); err == nil {
 		t.Fatalf("expected append on terminal run to fail")
+	}
+}
+
+func TestFinishDelegationRunRecordsCRArtifactsWithoutMutatingTaskState(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	cr, err := svc.AddCRWithOptions("Delegation fixture", "audit delegation completion", AddCROptions{NoSwitch: true})
+	if err != nil {
+		t.Fatalf("AddCRWithOptions() error = %v", err)
+	}
+	task, err := svc.AddTask(cr.CR.ID, "delegate me")
+	if err != nil {
+		t.Fatalf("AddTask() error = %v", err)
+	}
+	run, err := svc.CreateDelegationRun(cr.CR.ID, model.DelegationRequest{
+		Runtime: "mock",
+		TaskIDs: []int{task.ID},
+	})
+	if err != nil {
+		t.Fatalf("CreateDelegationRun() error = %v", err)
+	}
+	if _, err := svc.AppendDelegationRunEvent(cr.CR.ID, run.ID, model.DelegationRunEvent{
+		Kind:    model.DelegationEventKindRunStarted,
+		Summary: "worker started",
+	}); err != nil {
+		t.Fatalf("AppendDelegationRunEvent(start) error = %v", err)
+	}
+
+	_, err = svc.FinishDelegationRun(cr.CR.ID, run.ID, model.DelegationResult{
+		Status:       model.DelegationRunStatusCompleted,
+		Summary:      "applied scoped change",
+		FilesChanged: []string{"internal/cli/cr_cmd_delegate.go"},
+	})
+	if err != nil {
+		t.Fatalf("FinishDelegationRun() error = %v", err)
+	}
+
+	loaded, err := svc.store.LoadCR(cr.CR.ID)
+	if err != nil {
+		t.Fatalf("LoadCR() error = %v", err)
+	}
+	if len(loaded.Evidence) != 1 {
+		t.Fatalf("expected one evidence entry, got %#v", loaded.Evidence)
+	}
+	entry := loaded.Evidence[0]
+	if entry.Type != evidenceTypeDelegationResult {
+		t.Fatalf("expected %q evidence type, got %#v", evidenceTypeDelegationResult, entry)
+	}
+	if !strings.Contains(entry.Summary, run.ID) || !strings.Contains(entry.Summary, "applied scoped change") {
+		t.Fatalf("expected evidence summary to reference run and result, got %#v", entry)
+	}
+	lastEvent := loaded.Events[len(loaded.Events)-1]
+	if lastEvent.Type != model.EventTypeDelegationRunFinished {
+		t.Fatalf("expected final event type %q, got %#v", model.EventTypeDelegationRunFinished, lastEvent)
+	}
+	if lastEvent.Ref != "delegation_run:"+run.ID {
+		t.Fatalf("expected delegation run ref, got %#v", lastEvent)
+	}
+	if got := lastEvent.Meta["status"]; got != model.DelegationRunStatusCompleted {
+		t.Fatalf("expected completed status meta, got %#v", lastEvent.Meta)
+	}
+	if got := lastEvent.Meta["task_ids"]; got != "1" {
+		t.Fatalf("expected task_ids meta, got %#v", lastEvent.Meta)
+	}
+	if got := lastEvent.Meta["files_changed_count"]; got != "1" {
+		t.Fatalf("expected files_changed_count meta, got %#v", lastEvent.Meta)
+	}
+	if len(loaded.Subtasks) != 1 || loaded.Subtasks[0].Status != model.TaskStatusOpen {
+		t.Fatalf("expected task state unchanged, got %#v", loaded.Subtasks)
+	}
+}
+
+func TestFinishDelegationRunRecordsCancelledArtifacts(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	cr, err := svc.AddCRWithOptions("Delegation fixture", "audit delegation cancellation", AddCROptions{NoSwitch: true})
+	if err != nil {
+		t.Fatalf("AddCRWithOptions() error = %v", err)
+	}
+	run, err := svc.CreateDelegationRun(cr.CR.ID, model.DelegationRequest{Runtime: "mock"})
+	if err != nil {
+		t.Fatalf("CreateDelegationRun() error = %v", err)
+	}
+
+	_, err = svc.FinishDelegationRun(cr.CR.ID, run.ID, model.DelegationResult{
+		Status:  model.DelegationRunStatusCancelled,
+		Summary: "cancelled before start",
+	})
+	if err != nil {
+		t.Fatalf("FinishDelegationRun(cancelled) error = %v", err)
+	}
+
+	loaded, err := svc.store.LoadCR(cr.CR.ID)
+	if err != nil {
+		t.Fatalf("LoadCR() error = %v", err)
+	}
+	if len(loaded.Evidence) != 1 {
+		t.Fatalf("expected one evidence entry, got %#v", loaded.Evidence)
+	}
+	if loaded.Evidence[0].Type != evidenceTypeDelegationResult {
+		t.Fatalf("expected delegation evidence type, got %#v", loaded.Evidence[0])
+	}
+	lastEvent := loaded.Events[len(loaded.Events)-1]
+	if lastEvent.Type != model.EventTypeDelegationRunFinished {
+		t.Fatalf("expected cancellation event, got %#v", lastEvent)
+	}
+	if got := lastEvent.Meta["status"]; got != model.DelegationRunStatusCancelled {
+		t.Fatalf("expected cancelled status meta, got %#v", lastEvent.Meta)
 	}
 }

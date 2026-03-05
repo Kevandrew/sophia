@@ -56,8 +56,9 @@ const (
 	EventTypeTaskContractDriftRecorded     = "task_contract_drift_recorded"
 	EventTypeTaskContractDriftAcknowledged = "task_contract_drift_acknowledged"
 
-	EventTypeEvidenceAdded = "evidence_added"
-	EventTypePatchApplied  = "patch_applied"
+	EventTypeDelegationRunFinished = "delegation_run_finished"
+	EventTypeEvidenceAdded         = "evidence_added"
+	EventTypePatchApplied          = "patch_applied"
 
 	EventTypeHQSynced = "hq_synced"
 	EventTypeHQPulled = "hq_pulled"
