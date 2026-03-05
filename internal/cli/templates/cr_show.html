@@ -635,6 +635,81 @@
       margin-top: 2px;
     }
 
+    .run-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .run-card {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px 14px;
+      display: grid;
+      gap: 8px;
+      background: var(--bg);
+    }
+
+    .run-top {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .run-id {
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--ink-4);
+    }
+
+    .run-summary {
+      font-size: 13px;
+      color: var(--ink-2);
+      line-height: 1.45;
+    }
+
+    .run-events {
+      display: grid;
+      gap: 6px;
+    }
+
+    .run-event {
+      padding: 8px 10px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: var(--bg-subtle);
+      display: grid;
+      gap: 3px;
+    }
+
+    .run-event-kind {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--ink-4);
+    }
+
+    .run-event-summary {
+      font-size: 12px;
+      color: var(--ink-2);
+      line-height: 1.4;
+    }
+
+    .run-history-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .run-history-item {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 12px;
+      display: grid;
+      gap: 6px;
+      background: var(--bg-subtle);
+    }
+
     .meta-chip {
       font-family: var(--mono);
       font-size: 10px;
@@ -1021,10 +1096,24 @@
           <span class="section-label">Tasks</span>
           <span class="tag neutral" id="task-count-tag">0 / 0</span>
         </div>
-        <div class="section-body">
+      <div class="section-body">
           <div class="task-list" id="tasks-list">
             <div class="empty-state">No tasks</div>
           </div>
+        </div>
+      </div>
+
+      <!-- DELEGATION -->
+      <div class="section">
+        <div class="section-header">
+          <span class="section-label">Delegation</span>
+          <span class="tag neutral" id="delegation-count-tag">0 runs</span>
+        </div>
+        <div class="section-body">
+          <div class="run-list" id="delegation-current">
+            <div class="empty-state">No delegation runs yet</div>
+          </div>
+          <div class="run-history-list" id="delegation-history"></div>
         </div>
       </div>
 
@@ -1363,6 +1452,7 @@
         var trust = asObject(payload.trust);
         var tasks = asArray(payload.tasks);
         var delegationLaunch = asObject(payload.delegation_launch);
+        var delegation = asObject(payload.delegation);
 
         // Title
         document.title = text(cr.title, "CR Report") + " · Sophia";
@@ -1472,6 +1562,83 @@
                 taskMeta.length ? "<div class='task-meta'>" + taskMeta.join("") + "</div>" : "",
                 "</article>"
               ].join("");
+            }).join("");
+          }
+        }
+
+        var delegationCounts = asObject(delegation.counts);
+        var delegationRuns = asArray(delegation.recent_runs);
+        var currentRun = asObject(delegation.current_run);
+        var delegationCountTag = document.getElementById("delegation-count-tag");
+        if (delegationCountTag) {
+          var totalRuns = Number(delegationCounts.total || delegationRuns.length || 0);
+          var runningRuns = Number(delegationCounts.running || 0);
+          delegationCountTag.textContent = totalRuns + " runs";
+          delegationCountTag.className = "tag " + (runningRuns > 0 ? "blue" : totalRuns > 0 ? "neutral" : "neutral");
+        }
+
+        function renderRunEvent(event) {
+          var item = asObject(event);
+          var metaBits = [];
+          if (item.step) metaBits.push("step:" + text(item.step, ""));
+          if (item.ts) metaBits.push(formatRelativeLocal(item.ts));
+          return [
+            "<div class='run-event'>",
+            "<span class='run-event-kind'>" + esc(item.kind || "event") + "</span>",
+            "<div class='run-event-summary'>" + esc(item.summary || item.message || "(no summary)") + "</div>",
+            metaBits.length ? "<div class='task-meta'>" + metaBits.map(function (bit) { return "<span class='meta-chip'>" + esc(bit) + "</span>"; }).join("") + "</div>" : "",
+            "</div>"
+          ].join("");
+        }
+
+        function renderRunCard(run, highlight) {
+          var item = asObject(run);
+          var result = asObject(item.result);
+          var status = text(item.status, "unknown");
+          var request = asObject(item.request);
+          var summary = text(result.summary || item.summary || "", "");
+          var events = asArray(item.events).slice(-5).reverse();
+          var meta = [];
+          if (request.runtime) meta.push("<span class='meta-chip'>runtime:" + esc(request.runtime) + "</span>");
+          if (request.task_ids && asArray(request.task_ids).length) meta.push("<span class='meta-chip'>tasks:" + esc(asArray(request.task_ids).join(",")) + "</span>");
+          if (item.updated_at) meta.push("<span class='meta-chip' title='" + esc(formatAbsoluteLocal(item.updated_at)) + "'>updated:" + esc(formatRelativeLocal(item.updated_at)) + "</span>");
+          if (result.files_changed && asArray(result.files_changed).length) meta.push("<span class='meta-chip'>files:" + esc(String(asArray(result.files_changed).length)) + "</span>");
+          if (result.blockers && asArray(result.blockers).length) meta.push("<span class='meta-chip'>blockers:" + esc(String(asArray(result.blockers).length)) + "</span>");
+          return [
+            "<article class='" + (highlight ? "run-card" : "run-history-item") + "'>",
+            "<div class='run-top'>",
+            "<span class='tag " + delegationStatusClass(status) + "'><span class='dot'></span>" + esc(status.replace(/_/g, " ")) + "</span>",
+            item.id ? "<span class='run-id'>" + esc(item.id) + "</span>" : "",
+            "</div>",
+            summary ? "<div class='run-summary'>" + esc(summary) + "</div>" : "",
+            meta.length ? "<div class='task-meta'>" + meta.join("") + "</div>" : "",
+            events.length ? "<div class='run-events'>" + events.map(renderRunEvent).join("") + "</div>" : "",
+            "</article>"
+          ].join("");
+        }
+
+        var delegationCurrentEl = document.getElementById("delegation-current");
+        if (delegationCurrentEl) {
+          if (!Object.keys(currentRun).length) {
+            delegationCurrentEl.innerHTML = delegationRuns.length
+              ? "<div class='empty-state'>No run currently in flight</div>"
+              : "<div class='empty-state'>No delegation runs yet</div>";
+          } else {
+            delegationCurrentEl.innerHTML = renderRunCard(currentRun, true);
+          }
+        }
+
+        var delegationHistoryEl = document.getElementById("delegation-history");
+        if (delegationHistoryEl) {
+          var historyRuns = delegationRuns.filter(function (run) {
+            var item = asObject(run);
+            return !currentRun.id || item.id !== currentRun.id;
+          }).slice(0, 6);
+          if (!historyRuns.length) {
+            delegationHistoryEl.innerHTML = "";
+          } else {
+            delegationHistoryEl.innerHTML = historyRuns.map(function (run) {
+              return renderRunCard(run, false);
             }).join("");
           }
         }
