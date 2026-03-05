@@ -89,6 +89,35 @@ func TestCRReadWriteRoundTrip(t *testing.T) {
 		BaseBranch:  "main",
 		Branch:      "sophia/cr-1",
 		Notes:       []string{"started"},
+		DelegationRuns: []model.DelegationRun{
+			{
+				ID:        "dr_roundtrip",
+				Status:    model.DelegationRunStatusRunning,
+				CreatedAt: "2026-01-01T00:00:00Z",
+				CreatedBy: "user",
+				UpdatedAt: "2026-01-01T00:01:00Z",
+				Request: model.DelegationRequest{
+					Runtime:   "mock",
+					TaskIDs:   []int{1},
+					SkillRefs: []string{"/Users/example/.agents/skills/sophia/SKILL.md"},
+					IntentSnapshot: &model.HQIntentSnapshot{
+						Title: "Add retries",
+						Contract: model.HQIntentContractSnapshot{
+							Why:   "Improve resilience",
+							Scope: []string{"internal/service"},
+						},
+					},
+				},
+				Events: []model.DelegationRunEvent{
+					{ID: 1, TS: "2026-01-01T00:00:10Z", Kind: model.DelegationEventKindRunStarted, Summary: "started"},
+				},
+				Result: &model.DelegationResult{
+					Status:       model.DelegationRunStatusCompleted,
+					Summary:      "complete",
+					FilesChanged: []string{"internal/service/retries.go"},
+				},
+			},
+		},
 		Subtasks: []model.Subtask{
 			{ID: 1, Title: "Code", Status: model.TaskStatusOpen, CreatedAt: "2026-01-01T00:00:00Z", UpdatedAt: "2026-01-01T00:00:00Z", CreatedBy: "user"},
 		},
@@ -116,6 +145,15 @@ func TestCRReadWriteRoundTrip(t *testing.T) {
 	}
 	if len(loaded.Events) != 1 || loaded.Events[0].Type != "cr_created" {
 		t.Fatalf("expected event round-trip, got %#v", loaded.Events)
+	}
+	if len(loaded.DelegationRuns) != 1 {
+		t.Fatalf("expected delegation run round-trip, got %#v", loaded.DelegationRuns)
+	}
+	if got := loaded.DelegationRuns[0].Request.Runtime; got != "mock" {
+		t.Fatalf("expected delegation runtime mock, got %q", got)
+	}
+	if got := loaded.DelegationRuns[0].Result; got == nil || got.Status != model.DelegationRunStatusCompleted {
+		t.Fatalf("expected completed delegation result, got %#v", loaded.DelegationRuns[0].Result)
 	}
 }
 
