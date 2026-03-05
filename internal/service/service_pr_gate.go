@@ -1416,9 +1416,6 @@ func (s *Service) openOrSyncPRForCR(cr *model.CR, policy *model.RepoPolicy, appr
 		return nil, fmt.Errorf("cr is required")
 	}
 	hadLinkedPR := cr.PR.Number > 0
-	if err := s.stageArchiveForPRGate(cr, policy); err != nil {
-		return nil, err
-	}
 	ctx, err := s.buildPRContextView(cr)
 	if err != nil {
 		return nil, err
