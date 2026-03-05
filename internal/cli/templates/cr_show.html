@@ -1035,6 +1035,14 @@
               <span class="field-key">Base</span>
               <span class="field-val"><code class="field-mono" id="intent-base">—</code></span>
             </div>
+            <div class="field-row">
+              <span class="field-key">Stack Role</span>
+              <span class="field-val" id="intent-stack-role">—</span>
+            </div>
+            <div class="field-row">
+              <span class="field-key">Lineage</span>
+              <span class="field-val" id="intent-stack-lineage">—</span>
+            </div>
           </div>
         </div>
       </div>
@@ -1453,6 +1461,7 @@
         var tasks = asArray(payload.tasks);
         var delegationLaunch = asObject(payload.delegation_launch);
         var delegation = asObject(payload.delegation);
+        var nativity = asObject(payload.stack_nativity);
 
         // Title
         document.title = text(cr.title, "CR Report") + " · Sophia";
@@ -1481,6 +1490,9 @@
         var heroMeta = document.getElementById("hero-meta-tags");
         if (heroMeta) {
           var tags = [];
+          if (nativity.role_label) tags.push(tagHTML(nativity.role_label, nativity.is_aggregate_parent ? "blue" : nativity.is_child ? "warn" : nativity.is_root_parent ? "pass" : "neutral"));
+          if (Number(nativity.pending_child_count || 0) > 0) tags.push(tagHTML("pending children · " + Number(nativity.pending_child_count || 0), "warn"));
+          else if (Number(nativity.child_count || 0) > 0) tags.push(tagHTML("children · " + Number(nativity.child_count || 0), "neutral"));
           if (cr.author) tags.push(tagHTML(cr.author));
           if (cr.created_at) tags.push(tagHTML(formatRelativeLocal(cr.created_at), "neutral"));
           heroMeta.innerHTML = tags.join("");
@@ -1492,6 +1504,21 @@
         var base = text(cr.base_ref, text(cr.base_branch, "—"));
         var commit = text(cr.base_commit, "");
         document.getElementById("intent-base").textContent = base + (commit ? " @ " + commit.slice(0, 8) : "");
+        setText("intent-stack-role", nativity.role_label, "Standalone CR");
+        var lineageBits = [];
+        if (nativity.parent_cr_id) {
+          lineageBits.push("parent CR-" + text(nativity.parent_cr_id, "—"));
+        }
+        if (nativity.parent_branch) {
+          lineageBits.push("parent branch " + text(nativity.parent_branch, "—"));
+        }
+        if (Number(nativity.child_count || 0) > 0) {
+          lineageBits.push("children " + Number(nativity.child_count || 0));
+        }
+        if (Number(nativity.resolved_child_count || 0) > 0 || Number(nativity.pending_child_count || 0) > 0) {
+          lineageBits.push("resolved " + Number(nativity.resolved_child_count || 0) + " / pending " + Number(nativity.pending_child_count || 0));
+        }
+        setText("intent-stack-lineage", lineageBits.join(" · "), "No stack lineage");
 
         var previewWarnings = dedupeStringList(
           asArray(payload.warnings).concat(asArray(asObject(payload.anchors).warnings))

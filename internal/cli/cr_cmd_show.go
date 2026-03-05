@@ -682,7 +682,7 @@ func buildCRDashboardSnapshot(svc *service.Service, query model.CRSearchQuery, l
 		if !ok {
 			continue
 		}
-		rows = append(rows, buildDashboardCRRow(result, cr))
+		rows = append(rows, buildDashboardCRRow(svc, result, cr))
 	}
 
 	selectedCRID := 0
@@ -699,9 +699,9 @@ func buildCRDashboardSnapshot(svc *service.Service, query model.CRSearchQuery, l
 	if selectedCRID > 0 {
 		if cr, ok := crByID[selectedCRID]; ok {
 			if result, hasResult := resultByID[selectedCRID]; hasResult {
-				selected = buildDashboardSelectedCR(result, cr)
+				selected = buildDashboardSelectedCR(svc, result, cr)
 			} else {
-				selected = buildDashboardSelectedCR(model.CRSearchResult{
+				selected = buildDashboardSelectedCR(svc, model.CRSearchResult{
 					ID:         cr.ID,
 					UID:        cr.UID,
 					Title:      cr.Title,
@@ -841,10 +841,14 @@ type dashboardTimelineEntry struct {
 	CRStatus string
 }
 
-func buildDashboardCRRow(result model.CRSearchResult, cr model.CR) map[string]any {
+func buildDashboardCRRow(svc *service.Service, result model.CRSearchResult, cr model.CR) map[string]any {
 	lastEventAt := ""
 	if n := len(cr.Events); n > 0 {
 		lastEventAt = cr.Events[n-1].TS
+	}
+	nativity := service.StackNativityView{}
+	if svc != nil {
+		nativity = svc.StackNativityForCLI(&cr)
 	}
 	return map[string]any{
 		"id":                  result.ID,
@@ -865,6 +869,7 @@ func buildDashboardCRRow(result model.CRSearchResult, cr model.CR) map[string]an
 		"contract_non_goals":  stringSliceOrEmpty(cr.Contract.NonGoals),
 		"contract_invariants": stringSliceOrEmpty(cr.Contract.Invariants),
 		"last_event_at":       lastEventAt,
+		"stack_nativity":      stackNativityToJSONMap(nativity),
 		"tasks": map[string]any{
 			"total": result.TasksTotal,
 			"open":  result.TasksOpen,
@@ -873,8 +878,8 @@ func buildDashboardCRRow(result model.CRSearchResult, cr model.CR) map[string]an
 	}
 }
 
-func buildDashboardSelectedCR(result model.CRSearchResult, cr model.CR) map[string]any {
-	return buildDashboardCRRow(result, cr)
+func buildDashboardSelectedCR(svc *service.Service, result model.CRSearchResult, cr model.CR) map[string]any {
+	return buildDashboardCRRow(svc, result, cr)
 }
 
 func parseRFC3339OrZero(raw string) time.Time {

@@ -564,16 +564,25 @@
   /* CR row HTML */
   function crRowHTML(cr) {
     var scls=statusClass(cr.status), rcls=riskClass(cr.risk_tier);
+    var nativity=asObject(cr.stack_nativity);
     var tasks=asObject(cr.tasks);
     var done=parseInt(text(tasks.done,0),10)||0, tot=parseInt(text(tasks.total,0),10)||0;
     var pct=tot>0?Math.round(done/tot*100):0;
     var merged=isMerged(cr);
+    var nativityTag = nativity.role_label
+      ? "<span class='tag "+(nativity.is_aggregate_parent ? "blue" : nativity.is_child ? "warn" : nativity.is_root_parent ? "pass" : "neutral")+"'><span class='dot'></span>"+esc(nativity.role_label)+"</span>"
+      : "";
+    var pendingTag = parseInt(text(nativity.pending_child_count,0),10)>0
+      ? "<span class='tag warn'><span class='dot'></span>"+esc(String(nativity.pending_child_count))+" pending</span>"
+      : "";
     return [
       "<article class='cr-row"+(merged?" is-merged":"")+"' data-id='"+esc(cr.id)+"'>",
         "<div class='cr-row-top'>",
           "<span class='cr-id'>CR-"+esc(cr.id)+"</span>",
           "<span class='tag "+scls+"'><span class='dot'></span>"+esc(text(cr.status,"—"))+"</span>",
           cr.risk_tier?"<span class='tag "+rcls+"'><span class='dot'></span>"+esc(cr.risk_tier)+"</span>":"",
+          nativityTag,
+          pendingTag,
         "</div>",
         "<div class='cr-title'>"+esc(text(cr.title,"Untitled CR"))+"</div>",
         cr.description?"<div class='cr-description'>"+esc(cr.description)+"</div>":"",
@@ -658,10 +667,18 @@
     var tasks=asObject(cr.tasks), done=parseInt(text(tasks.done,0),10)||0, tot=parseInt(text(tasks.total,0),10)||0;
     var pct=tot>0?Math.round(done/tot*100):0;
     var scls=statusClass(cr.status), rcls=riskClass(cr.risk_tier);
+    var nativity=asObject(cr.stack_nativity);
     var scopeItems=asArray(cr.contract_scope);
     var scopeHTML=scopeItems.length
       ? scopeItems.map(function(s){ return "<span class='scope-chip'>"+esc(s)+"</span>"; }).join("")
       : "<span class='empty-state'>None defined</span>";
+    var lineageBits = [];
+    if (nativity.parent_cr_id) lineageBits.push("parent CR-" + text(nativity.parent_cr_id,"—"));
+    if (nativity.parent_branch) lineageBits.push("branch " + text(nativity.parent_branch,"—"));
+    if (parseInt(text(nativity.child_count,0),10)>0) lineageBits.push("children " + text(nativity.child_count,0));
+    if (parseInt(text(nativity.pending_child_count,0),10)>0 || parseInt(text(nativity.resolved_child_count,0),10)>0) {
+      lineageBits.push("resolved " + text(nativity.resolved_child_count,0) + " / pending " + text(nativity.pending_child_count,0));
+    }
 
     panelEl.innerHTML = [
       "<div class='dp-section'><div class='dp-head'>Change Request</div><div class='dp-body'>",
@@ -669,11 +686,14 @@
         "<div class='dp-tags'>",
           "<span class='tag "+scls+"'><span class='dot'></span>"+esc(text(cr.status,"—"))+"</span>",
           cr.risk_tier?"<span class='tag "+rcls+"'><span class='dot'></span>"+esc(cr.risk_tier)+" risk</span>":"",
+          nativity.role_label?"<span class='tag "+(nativity.is_aggregate_parent ? "blue" : nativity.is_child ? "warn" : nativity.is_root_parent ? "pass" : "neutral")+"'><span class='dot'></span>"+esc(nativity.role_label)+"</span>":"",
         "</div>",
         "<div class='field-rows'>",
           "<div class='field-row'><span class='field-key'>ID</span><span class='field-val'><code class='field-mono'>CR-"+esc(cr.id)+"</code></span></div>",
           "<div class='field-row'><span class='field-key'>Branch</span><span class='field-val'><code class='field-mono'>"+esc(text(cr.branch,"—"))+"</code></span></div>",
           cr.updated_at?"<div class='field-row'><span class='field-key'>Updated</span><span class='field-val' title='"+esc(fmtAbsolute(cr.updated_at))+"'>"+esc(fmtRelative(cr.updated_at))+"</span></div>":"",
+          "<div class='field-row'><span class='field-key'>Stack Role</span><span class='field-val'>"+esc(text(nativity.role_label,"Standalone CR"))+"</span></div>",
+          "<div class='field-row'><span class='field-key'>Lineage</span><span class='field-val'>"+esc(lineageBits.join(" · ") || "No stack lineage")+"</span></div>",
         "</div>",
         tot>0?[
           "<div style='margin-top:10px;'>",
