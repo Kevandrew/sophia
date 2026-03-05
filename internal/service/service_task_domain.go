@@ -509,7 +509,7 @@ func (d *taskLifecycleDomain) applyTaskCheckpointForDone(gitProvider taskLifecyc
 		return "", fmt.Errorf("%w: no staged changes after applying scope", ErrNoTaskChanges)
 	}
 
-	commitMessage := buildTaskCheckpointMessage(cr, task, strings.TrimSpace(opts.CommitType), scopeMode, len(checkpointChunks))
+	commitMessage, commitTypeResolution := buildTaskCheckpointMessage(cr, task, strings.TrimSpace(opts.CommitType), scopeMode, len(checkpointChunks))
 	if err := gitProvider.Commit(commitMessage); err != nil {
 		return "", err
 	}
@@ -539,9 +539,11 @@ func (d *taskLifecycleDomain) applyTaskCheckpointForDone(gitProvider taskLifecyc
 	}
 
 	meta := map[string]string{
-		"commit":  sha,
-		"message": strings.SplitN(commitMessage, "\n", 2)[0],
-		"scope":   strings.Join(checkpointScope, ","),
+		"commit":             sha,
+		"message":            strings.SplitN(commitMessage, "\n", 2)[0],
+		"scope":              strings.Join(checkpointScope, ","),
+		"commit_type":        commitTypeResolution.CommitType,
+		"commit_type_source": commitTypeResolution.Source,
 	}
 	if scopeMode == model.TaskScopeModeTaskContract {
 		meta["scope_source"] = model.TaskScopeModeTaskContract
@@ -550,11 +552,18 @@ func (d *taskLifecycleDomain) applyTaskCheckpointForDone(gitProvider taskLifecyc
 		meta["scope_source"] = model.TaskScopeModePatchManifest
 		meta["chunk_count"] = strconv.Itoa(len(checkpointChunks))
 	}
+	if commitTypeResolution.Fallback {
+		meta["commit_type_warning"] = "defaulted to chore due missing explicit or inferable commit type token"
+	}
+	summary := fmt.Sprintf("Checkpointed task %d as %s", taskID, sha)
+	if commitTypeResolution.Fallback {
+		summary = fmt.Sprintf("Checkpointed task %d as %s (commit type defaulted to chore)", taskID, sha)
+	}
 	cr.Events = append(cr.Events, model.Event{
 		TS:      now,
 		Actor:   actor,
 		Type:    model.EventTypeTaskCheckpointed,
-		Summary: fmt.Sprintf("Checkpointed task %d as %s", taskID, sha),
+		Summary: summary,
 		Ref:     fmt.Sprintf("task:%d", taskID),
 		Meta:    meta,
 	})

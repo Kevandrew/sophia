@@ -80,6 +80,9 @@ func TestRootCommandsSupportJSON(t *testing.T) {
 	if _, ok := env.Data["repaired_cr_ids"]; !ok {
 		t.Fatalf("expected repaired_cr_ids in repair payload, got %#v", env.Data)
 	}
+	if _, ok := env.Data["warnings"]; !ok {
+		t.Fatalf("expected warnings in repair payload, got %#v", env.Data)
+	}
 }
 
 func TestValidateRecordFlagControlsEventRecording(t *testing.T) {
@@ -567,5 +570,61 @@ func TestCRTaskDoneJSONIncludesCommitType(t *testing.T) {
 	}
 	if commitType, ok := env.Data["commit_type"].(string); !ok || commitType != "fix" {
 		t.Fatalf("expected commit_type fix, got %#v", env.Data["commit_type"])
+	}
+	if commitType, ok := env.Data["resolved_commit_type"].(string); !ok || commitType != "fix" {
+		t.Fatalf("expected resolved_commit_type fix, got %#v", env.Data["resolved_commit_type"])
+	}
+	if source, ok := env.Data["commit_type_source"].(string); !ok || source != "explicit_override" {
+		t.Fatalf("expected commit_type_source explicit_override, got %#v", env.Data["commit_type_source"])
+	}
+	if warnings, ok := env.Data["warnings"].([]any); !ok || len(warnings) != 0 {
+		t.Fatalf("expected no warnings for explicit override, got %#v", env.Data["warnings"])
+	}
+
+	out, _, runErr = runCLI(t, dir, "cr", "task", "add", "1", "Another unprefixed task", "--json")
+	if runErr != nil {
+		t.Fatalf("second cr task add --json error = %v\noutput=%s", runErr, out)
+	}
+	env = decodeEnvelope(t, out)
+	if !env.OK {
+		t.Fatalf("expected ok envelope from second task add --json, got %#v", env)
+	}
+	taskMap, ok = env.Data["task"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected task payload object for second task, got %#v", env.Data["task"])
+	}
+	taskIDFloat, ok = taskMap["id"].(float64)
+	if !ok {
+		t.Fatalf("expected numeric task id for second task, got %#v", taskMap["id"])
+	}
+	secondTaskID := int(taskIDFloat)
+	out, _, runErr = runCLI(t, dir, "cr", "task", "contract", "set", "1", strconv.Itoa(secondTaskID), "--intent", "Implement follow-up checkpoint", "--acceptance", "done", "--scope", ".", "--json")
+	if runErr != nil {
+		t.Fatalf("second cr task contract set --json error = %v\noutput=%s", runErr, out)
+	}
+	env = decodeEnvelope(t, out)
+	if !env.OK {
+		t.Fatalf("expected ok envelope from second task contract set --json, got %#v", env)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "commit_type_fallback.json"), []byte("checkpoint fallback\n"), 0o644); err != nil {
+		t.Fatalf("write commit type fallback fixture: %v", err)
+	}
+	out, _, runErr = runCLI(t, dir, "cr", "task", "done", "1", strconv.Itoa(secondTaskID), "--all", "--json")
+	if runErr != nil {
+		t.Fatalf("second cr task done --json error = %v\noutput=%s", runErr, out)
+	}
+	env = decodeEnvelope(t, out)
+	if !env.OK {
+		t.Fatalf("expected ok envelope from second task done --json, got %#v", env)
+	}
+	if commitType, ok := env.Data["resolved_commit_type"].(string); !ok || commitType != "chore" {
+		t.Fatalf("expected fallback resolved_commit_type chore, got %#v", env.Data["resolved_commit_type"])
+	}
+	if source, ok := env.Data["commit_type_source"].(string); !ok || source != "default_chore" {
+		t.Fatalf("expected fallback commit_type_source default_chore, got %#v", env.Data["commit_type_source"])
+	}
+	warnings, ok := env.Data["warnings"].([]any)
+	if !ok || len(warnings) == 0 {
+		t.Fatalf("expected fallback warnings, got %#v", env.Data["warnings"])
 	}
 }

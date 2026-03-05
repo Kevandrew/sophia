@@ -218,6 +218,77 @@ func TestDoneTaskWithCheckpointFallsBackToTaskContractIntentType(t *testing.T) {
 	}
 }
 
+func TestDoneTaskWithCheckpointMarksDefaultChoreFallbackExplicitly(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	runGit(t, dir, "config", "user.name", "Test User")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+
+	cr, err := svc.AddCR("Checkpoint fallback visibility CR", "default chore fallback visibility")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	task, err := svc.AddTask(cr.ID, "Implement checkpoint without commit token")
+	if err != nil {
+		t.Fatalf("AddTask() error = %v", err)
+	}
+	intent := "implement checkpoint metadata visibility"
+	acceptance := []string{"Fallback source is explicit when commit type cannot be inferred."}
+	scope := []string{"."}
+	if _, err := svc.SetTaskContract(cr.ID, task.ID, TaskContractPatch{
+		Intent:             &intent,
+		AcceptanceCriteria: &acceptance,
+		Scope:              &scope,
+	}); err != nil {
+		t.Fatalf("SetTaskContract() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "checkpoint-default-fallback.txt"), []byte("checkpoint\n"), 0o644); err != nil {
+		t.Fatalf("write checkpoint file: %v", err)
+	}
+
+	if _, err := svc.DoneTaskWithCheckpoint(cr.ID, task.ID, DoneTaskOptions{
+		Checkpoint: true,
+		StageAll:   true,
+	}); err != nil {
+		t.Fatalf("DoneTaskWithCheckpoint() error = %v", err)
+	}
+
+	msg := runGit(t, dir, "log", "-1", "--pretty=%B")
+	if !strings.Contains(msg, "chore(cr-1/task-1): Implement checkpoint without commit token") {
+		t.Fatalf("unexpected checkpoint subject with default fallback: %q", msg)
+	}
+	if !strings.Contains(msg, "Sophia-Task-Commit-Type-Source: default_chore") {
+		t.Fatalf("expected commit type source footer for fallback, got %q", msg)
+	}
+	if !strings.Contains(msg, "Sophia-Task-Commit-Type-Warning: defaulted to chore due missing explicit or inferable commit type token") {
+		t.Fatalf("expected commit type warning footer for fallback, got %q", msg)
+	}
+
+	loaded, err := svc.store.LoadCR(cr.ID)
+	if err != nil {
+		t.Fatalf("LoadCR() error = %v", err)
+	}
+	var checkpointEvent *model.Event
+	for index := range loaded.Events {
+		if loaded.Events[index].Type == model.EventTypeTaskCheckpointed {
+			checkpointEvent = &loaded.Events[index]
+		}
+	}
+	if checkpointEvent == nil {
+		t.Fatalf("expected checkpoint event metadata, got %#v", loaded.Events)
+	}
+	if got := strings.TrimSpace(checkpointEvent.Meta["commit_type_source"]); got != "default_chore" {
+		t.Fatalf("expected commit_type_source default_chore, got %q event=%#v", got, checkpointEvent)
+	}
+	if got := strings.TrimSpace(checkpointEvent.Meta["commit_type_warning"]); got == "" {
+		t.Fatalf("expected commit_type_warning metadata for fallback, got %#v", checkpointEvent.Meta)
+	}
+}
+
 func TestDoneTaskWithCheckpointDryRunDoesNotCreateCommit(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
