@@ -678,7 +678,18 @@ func taskDoneCheckpointSource(flags taskDoneFlags) string {
 	})
 }
 
-func writeTaskDoneResult(cmd *cobra.Command, asJSON bool, crID, taskID int, sha string, flags taskDoneFlags) error {
+func writeTaskDoneResult(cmd *cobra.Command, svc *service.Service, asJSON bool, crID, taskID int, sha string, flags taskDoneFlags) error {
+	resolvedCommitType := strings.TrimSpace(flags.commitType)
+	resolvedCommitTypeSource := ""
+	resolutionWarnings := []string{}
+	if !flags.noCheckpoint && !flags.dryRun && svc != nil {
+		taskType, taskTypeSource, taskWarnings := resolveTaskDoneCommitTypeDetails(svc, crID, taskID)
+		if strings.TrimSpace(taskType) != "" {
+			resolvedCommitType = strings.TrimSpace(taskType)
+		}
+		resolvedCommitTypeSource = strings.TrimSpace(taskTypeSource)
+		resolutionWarnings = append([]string(nil), taskWarnings...)
+	}
 	if asJSON {
 		return writeJSONSuccess(cmd, map[string]any{
 			"cr_id":                crID,
@@ -689,6 +700,9 @@ func writeTaskDoneResult(cmd *cobra.Command, asJSON bool, crID, taskID int, sha 
 			"scope_paths":          stringSliceOrEmpty(flags.scopePaths),
 			"patch_file":           strings.TrimSpace(flags.patchFile),
 			"commit_type":          strings.TrimSpace(flags.commitType),
+			"resolved_commit_type": resolvedCommitType,
+			"commit_type_source":   resolvedCommitTypeSource,
+			"warnings":             stringSliceOrEmpty(resolutionWarnings),
 			"no_checkpoint_reason": strings.TrimSpace(flags.noCheckpointReason),
 			"checkpoint_source":    taskDoneCheckpointSource(flags),
 			"dry_run":              flags.dryRun,
@@ -703,7 +717,48 @@ func writeTaskDoneResult(cmd *cobra.Command, asJSON bool, crID, taskID int, sha 
 		return nil
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "Marked task %d done in CR %d with checkpoint %s\n", taskID, crID, nonEmpty(sha, "-"))
+	if len(resolutionWarnings) > 0 {
+		for _, warning := range resolutionWarnings {
+			fmt.Fprintf(cmd.OutOrStdout(), "Warning: %s\n", warning)
+		}
+	}
 	return nil
+}
+
+func resolveTaskDoneCommitTypeDetails(svc *service.Service, crID, taskID int) (string, string, []string) {
+	tasks, err := svc.ListTasks(crID)
+	if err != nil {
+		return "", "", []string{}
+	}
+	for _, task := range tasks {
+		if task.ID != taskID {
+			continue
+		}
+		message := strings.TrimSpace(task.CheckpointMessage)
+		if message == "" {
+			return "", "", []string{}
+		}
+		taskType := strings.TrimSpace(extractCheckpointFooterValue(message, "Sophia-Task-Commit-Type"))
+		taskTypeSource := strings.TrimSpace(extractCheckpointFooterValue(message, "Sophia-Task-Commit-Type-Source"))
+		warnings := []string{}
+		if warning := strings.TrimSpace(extractCheckpointFooterValue(message, "Sophia-Task-Commit-Type-Warning")); warning != "" {
+			warnings = append(warnings, warning)
+		}
+		return taskType, taskTypeSource, warnings
+	}
+	return "", "", []string{}
+}
+
+func extractCheckpointFooterValue(message, key string) string {
+	prefix := strings.TrimSpace(key) + ":"
+	for _, raw := range strings.Split(strings.ReplaceAll(message, "\r\n", "\n"), "\n") {
+		line := strings.TrimSpace(raw)
+		if !strings.HasPrefix(line, prefix) {
+			continue
+		}
+		return strings.TrimSpace(strings.TrimPrefix(line, prefix))
+	}
+	return ""
 }
 
 func newCRTaskDoneCmd() *cobra.Command {
@@ -743,7 +798,7 @@ func newCRTaskDoneCmd() *cobra.Command {
 				if err != nil {
 					return commandError(cmd, asJSON, err)
 				}
-				return writeTaskDoneResult(cmd, asJSON, crID, taskID, sha, flags)
+				return writeTaskDoneResult(cmd, svc, asJSON, crID, taskID, sha, flags)
 			})
 		},
 	}
