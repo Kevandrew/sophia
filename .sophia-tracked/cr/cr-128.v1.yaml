@@ -1,0 +1,121 @@
+schema_version: sophia.cr_archive.v1
+notice: Historical archive snapshot. Corrections are append-only revisions.
+archived_at: "2026-03-05T21:00:18Z"
+revision: 1
+cr:
+    id: 128
+    uid: cr_521e0394-49dc-40e5-90f8-0368f954b9ba
+    title: Delegation run model and persistence
+    description: Add persisted Sophia-native delegation run metadata and service/store support.
+    status: merged
+    base_branch: main
+    base_ref: cr-delegated-execution-from-cr-show-via-a-runtime-a-3c34
+    base_commit: d2d42a367e14440422e045acacfe071a0b6c6868
+    branch: cr-delegation-run-model-and-persistence-521e
+    merged_at: "2026-03-05T21:00:18Z"
+    merged_by: Kevandrew <143258544+Kevandrew@users.noreply.github.com>
+contract:
+    why: Introduce persisted delegation-run state as first-class Sophia metadata so the rest of the stack can rely on a stable runtime-neutral record of launch intent, progress, and terminal outcome. This child defines the storage contract, not a worker implementation.
+    scope:
+        - internal/model
+        - internal/service
+        - internal/store
+    non_goals:
+        - No UI launch or live rendering in this child CR.
+        - No concrete external runtime adapter in this child CR.
+    invariants:
+        - All new metadata remains backend-agnostic.
+        - Existing CR/task YAML remains readable and compatible.
+    blast_radius: Touches CR model/storage and new service entrypoints for delegation-run persistence. Failure modes are schema drift, ambiguous lifecycle states, or leaked provider-specific fields in persisted metadata.
+    risk_tier_hint: medium
+    risk_rationale: Changes core CR metadata persistence and service read/write paths.
+    test_plan: go test ./internal/model ./internal/store ./internal/service
+    rollback_plan: Revert this child CR merge commit and remove delegation-run persistence fields and helpers introduced here.
+tasks:
+    - id: 1
+      title: Define delegation run types and lifecycle
+      status: done
+      contract:
+        intent: Add runtime-neutral model types for request, run, event, and result state.
+        acceptance_criteria:
+            - No type embeds Codex, Pi, or OpenCode-native payloads.
+            - Types explicitly model lifecycle and terminal states.
+        scope:
+            - internal/model
+      checkpoint:
+        commit: 48ac8afb
+        at: "2026-03-05T20:52:37Z"
+        source: task_checkpoint
+        scope:
+            - internal/model/types.go
+    - id: 2
+      title: Persist delegation runs and events
+      status: done
+      contract:
+        intent: Store delegation run records and append-only event history alongside existing Sophia metadata.
+        acceptance_criteria:
+            - Persistence handles empty, in-progress, and terminal runs deterministically.
+            - Runs and events survive reload and can be queried by CR id.
+        scope:
+            - internal/store
+      checkpoint:
+        commit: 563ca3fa
+        at: "2026-03-05T20:52:37Z"
+        source: task_checkpoint
+        scope:
+            - internal/store/store_test.go
+    - id: 3
+      title: Expose service methods for run creation and updates
+      status: done
+      contract:
+        intent: Add service-level APIs for creating runs, appending events, and finishing runs.
+        acceptance_criteria:
+            - Parent/child manual delegation flows remain unaffected.
+            - Service APIs enforce valid state transitions.
+        scope:
+            - internal/service
+      checkpoint:
+        commit: 79a0cea0
+        at: "2026-03-05T20:52:37Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_delegation.go
+    - id: 4
+      title: Add persistence and transition tests
+      status: done
+      contract:
+        intent: Cover persistence, reload, and lifecycle-transition behavior for delegation runs.
+        acceptance_criteria:
+            - Regression coverage proves existing CR/task metadata still loads correctly.
+            - Tests fail on invalid or out-of-order state transitions.
+        scope:
+            - internal/service
+            - internal/store
+      checkpoint:
+        commit: f8b9597e
+        at: "2026-03-05T20:52:46Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_delegation_test.go
+    - id: 5
+      title: Define delegation run model and persistence
+      status: done
+      contract:
+        intent: Introduce runtime-neutral delegation run/request/event/result metadata that Sophia can persist independently of any worker backend.
+        acceptance_criteria:
+            - Delegation run metadata can be created, reloaded, and linked to a CR without referencing a concrete worker implementation.
+            - Existing child-CR delegation behavior remains unchanged.
+            - Run lifecycle states and stored events/results are explicit and machine-readable.
+        scope:
+            - internal/model
+            - internal/service
+            - internal/store
+      checkpoint:
+        at: "2026-03-05T20:52:46Z"
+        source: task_no_checkpoint
+git_summary:
+    base_parent: d2d42a367e14440422e045acacfe071a0b6c6868
+    cr_parent: f8b9597ebae781bcf6a3952b1d3b71f0895cd9ef
+    files_changed: []
+    diffstat:
+        summary: 0 files changed, 0 insertions(+), 0 deletions(-)
