@@ -104,6 +104,69 @@ type EvidenceEntry struct {
 	Attachments []string `yaml:"attachments,omitempty"`
 }
 
+const (
+	DelegationRunStatusQueued    = "queued"
+	DelegationRunStatusRunning   = "running"
+	DelegationRunStatusCompleted = "completed"
+	DelegationRunStatusFailed    = "failed"
+	DelegationRunStatusBlocked   = "blocked"
+	DelegationRunStatusCancelled = "cancelled"
+
+	DelegationEventKindRunStarted      = "run_started"
+	DelegationEventKindPlanUpdated     = "plan_updated"
+	DelegationEventKindStepStarted     = "step_started"
+	DelegationEventKindStepCompleted   = "step_completed"
+	DelegationEventKindMessage         = "message"
+	DelegationEventKindCommandStarted  = "command_started"
+	DelegationEventKindCommandComplete = "command_completed"
+	DelegationEventKindFileChanged     = "file_changed"
+	DelegationEventKindNeedsInput      = "needs_input"
+	DelegationEventKindBlocked         = "blocked"
+	DelegationEventKindRunCompleted    = "run_completed"
+	DelegationEventKindRunFailed       = "run_failed"
+)
+
+type DelegationRequest struct {
+	Runtime              string            `yaml:"runtime,omitempty"`
+	TaskIDs              []int             `yaml:"task_ids,omitempty"`
+	IntentSnapshot       *HQIntentSnapshot `yaml:"intent_snapshot,omitempty"`
+	WorkflowInstructions string            `yaml:"workflow_instructions,omitempty"`
+	SkillRefs            []string          `yaml:"skill_refs,omitempty"`
+	Metadata             map[string]string `yaml:"metadata,omitempty"`
+}
+
+type DelegationRunEvent struct {
+	ID      int               `yaml:"id"`
+	TS      string            `yaml:"ts"`
+	Kind    string            `yaml:"kind"`
+	Summary string            `yaml:"summary,omitempty"`
+	Message string            `yaml:"message,omitempty"`
+	Step    string            `yaml:"step,omitempty"`
+	Meta    map[string]string `yaml:"meta,omitempty"`
+}
+
+type DelegationResult struct {
+	Status             string            `yaml:"status,omitempty"`
+	Summary            string            `yaml:"summary,omitempty"`
+	FilesChanged       []string          `yaml:"files_changed,omitempty"`
+	ValidationErrors   []string          `yaml:"validation_errors,omitempty"`
+	ValidationWarnings []string          `yaml:"validation_warnings,omitempty"`
+	Blockers           []string          `yaml:"blockers,omitempty"`
+	Metadata           map[string]string `yaml:"metadata,omitempty"`
+}
+
+type DelegationRun struct {
+	ID         string               `yaml:"id,omitempty"`
+	Status     string               `yaml:"status,omitempty"`
+	Request    DelegationRequest    `yaml:"request,omitempty"`
+	Events     []DelegationRunEvent `yaml:"events,omitempty"`
+	Result     *DelegationResult    `yaml:"result,omitempty"`
+	CreatedAt  string               `yaml:"created_at,omitempty"`
+	CreatedBy  string               `yaml:"created_by,omitempty"`
+	UpdatedAt  string               `yaml:"updated_at,omitempty"`
+	FinishedAt string               `yaml:"finished_at,omitempty"`
+}
+
 type CheckpointChunk struct {
 	ID       string `yaml:"id"`
 	Path     string `yaml:"path"`
@@ -293,6 +356,7 @@ type CR struct {
 	Branch            string             `yaml:"branch"`
 	Notes             []string           `yaml:"notes"`
 	Evidence          []EvidenceEntry    `yaml:"evidence,omitempty"`
+	DelegationRuns    []DelegationRun    `yaml:"delegation_runs,omitempty"`
 	Contract          Contract           `yaml:"contract,omitempty"`
 	ContractBaseline  CRContractBaseline `yaml:"contract_baseline,omitempty"`
 	ContractDrifts    []CRContractDrift  `yaml:"contract_drifts,omitempty"`
