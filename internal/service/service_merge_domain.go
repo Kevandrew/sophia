@@ -62,8 +62,9 @@ func (d *mergeDomain) mergeCRWithWarningsUnlocked(id int, keepBranch bool, overr
 	if err != nil {
 		return "", warnings, err
 	}
-	if !baseGit.BranchExists(cr.BaseBranch) {
-		return "", warnings, fmt.Errorf("base branch %q does not exist", cr.BaseBranch)
+	targetRef := d.svc.mergeTargetRef(cr)
+	if !baseGit.BranchExists(targetRef) {
+		return "", warnings, fmt.Errorf("merge target %q does not exist", targetRef)
 	}
 	if !baseGit.BranchExists(cr.Branch) {
 		return "", warnings, fmt.Errorf("cr branch %q does not exist", cr.Branch)
@@ -86,8 +87,8 @@ func (d *mergeDomain) mergeCRWithWarningsUnlocked(id int, keepBranch bool, overr
 	if err != nil {
 		return "", warnings, err
 	}
-	if strings.TrimSpace(currentBranch) != strings.TrimSpace(cr.BaseBranch) {
-		if err := mergeGit.CheckoutBranch(cr.BaseBranch); err != nil {
+	if strings.TrimSpace(currentBranch) != targetRef {
+		if err := mergeGit.CheckoutBranch(targetRef); err != nil {
 			return "", warnings, err
 		}
 	}
@@ -109,12 +110,12 @@ func (d *mergeDomain) mergeCRWithWarningsUnlocked(id int, keepBranch bool, overr
 			return "", warnings, err
 		}
 		if inProgress {
-			if persistErr := d.recordMergeConflictEvent(cr, actor, worktreePath, conflictFiles, err); persistErr != nil {
+			if persistErr := d.recordMergeConflictEvent(cr, actor, worktreePath, targetRef, conflictFiles, err); persistErr != nil {
 				return "", warnings, persistErr
 			}
 			return "", warnings, &MergeConflictError{
 				CRID:          cr.ID,
-				BaseBranch:    cr.BaseBranch,
+				BaseBranch:    targetRef,
 				CRBranch:      cr.Branch,
 				WorktreePath:  worktreePath,
 				ConflictFiles: conflictFiles,
@@ -570,12 +571,12 @@ func (d *mergeDomain) finalizeCRMergedState(cr *model.CR, validation *Validation
 	return nil
 }
 
-func (d *mergeDomain) recordMergeConflictEvent(cr *model.CR, actor, worktreePath string, conflictFiles []string, cause error) error {
+func (d *mergeDomain) recordMergeConflictEvent(cr *model.CR, actor, worktreePath, targetRef string, conflictFiles []string, cause error) error {
 	if d == nil || d.svc == nil {
 		return fmt.Errorf("merge domain is not initialized")
 	}
 	now := d.svc.timestamp()
-	meta := servicemerge.BuildConflictEventMeta(worktreePath, cr.BaseBranch, cr.Branch, conflictFiles, cause)
+	meta := servicemerge.BuildConflictEventMeta(worktreePath, targetRef, cr.Branch, conflictFiles, cause)
 	return d.svc.appendCRMutationEventAndSave(cr, model.Event{
 		TS:      now,
 		Actor:   actor,

@@ -208,7 +208,8 @@ func (s *Service) effectiveMergeGitForCR(cr *model.CR) (mergeRuntimeGit, string,
 	}
 	mergeGit := s.activeMergeGitProvider()
 	worktreePath := strings.TrimSpace(s.git.WorkDir)
-	baseOwner, err := s.branchOwnerWorktree(cr.BaseBranch)
+	targetRef := s.mergeTargetRef(cr)
+	baseOwner, err := s.branchOwnerWorktree(targetRef)
 	if err != nil {
 		return nil, "", err
 	}
@@ -220,4 +221,11 @@ func (s *Service) effectiveMergeGitForCR(cr *model.CR) (mergeRuntimeGit, string,
 		worktreePath = strings.TrimSpace(s.git.WorkDir)
 	}
 	return mergeGit, worktreePath, nil
+}
+
+func (s *Service) mergeTargetRef(cr *model.CR) string {
+	if cr == nil {
+		return ""
+	}
+	return strings.TrimSpace(nonEmptyTrimmed(cr.BaseRef, cr.BaseBranch))
 }

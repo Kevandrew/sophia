@@ -1,0 +1,98 @@
+schema_version: sophia.cr_archive.v1
+notice: Historical archive snapshot. Corrections are append-only revisions.
+archived_at: "2026-03-05T23:30:23Z"
+revision: 1
+cr:
+    id: 140
+    uid: cr_62cab734-2678-41b4-bec0-d6af9196b9a5
+    title: Fix stacked child merges landing on main instead of parent branch
+    description: E2E repro shows stacked child CR merges resolve parent task metadata but land directly on main, deleting or bypassing the parent integration branch and making the parent merge fail with an ambiguous branch error.
+    status: merged
+    base_branch: main
+    base_ref: main
+    base_commit: 080a54c8c4ffb21aa33b87b69b588a42aba9017b
+    branch: cr-fix-stacked-child-merges-landing-on-main-instead-62ca
+    merged_at: "2026-03-05T23:30:23Z"
+    merged_by: Kevandrew <143258544+Kevandrew@users.noreply.github.com>
+contract:
+    why: A stacked local workflow should merge child CRs into the parent integration branch, not directly into main. The current behavior resolves delegated parent tasks but leaves the parent branch ref missing, which breaks the final parent merge and invalidates the intended parent->child->parent->main model.
+    scope:
+        - docs/workflow.md
+        - internal/cli
+        - internal/service
+        - skills/sophia/SKILL.md
+    non_goals:
+        - No changes to PR-gated remote stack behavior unless the same root cause affects it.
+        - No unrelated refactors to stack nativity UI.
+    invariants:
+        - Child CR merges in a stacked local workflow must preserve the parent branch as the integration branch.
+        - Delegated parent task auto-resolution must continue to work after child merges.
+    blast_radius: Touches local merge target resolution, stack branch lifecycle, and stacked workflow regression coverage. Failure modes are child merges landing on main, parent refs disappearing, or delegated-parent repair regressing.
+    risk_tier_hint: high
+    risk_rationale: This breaks the core stacked workflow and can silently rewrite the merge topology in local mode.
+    test_plan: Reproduce the temp-repo stacked flow end to end and verify child merges land on the parent branch, parent branch ref survives, and the parent merge succeeds.
+    rollback_plan: Revert the CR and restore previous merge target logic if the fix regresses non-stacked merges.
+tasks:
+    - id: 1
+      title: Trace local child merge target resolution in stacked flows
+      status: done
+      contract:
+        intent: Find where local child merges choose their merge target and why stacked children are bypassing or deleting the parent branch.
+        acceptance_criteria:
+            - The code path that selects main instead of the parent branch is identified with a precise root cause.
+        scope:
+            - internal/service
+      checkpoint:
+        at: "2026-03-05T23:26:48Z"
+        source: task_no_checkpoint
+    - id: 2
+      title: Fix child merge target selection to preserve parent integration branches
+      status: done
+      contract:
+        intent: Make stacked child merges land on the parent integration branch and keep the parent branch ref intact for the final parent merge.
+        acceptance_criteria:
+            - After merging a child CR in local stacked mode, the parent branch still exists and contains the child merge.
+            - Non-stacked local merges still target main as before.
+        scope:
+            - internal/service
+      checkpoint:
+        commit: 53e3a110
+        at: "2026-03-05T23:26:48Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_merge_domain.go
+            - internal/service/service_worktree.go
+    - id: 3
+      title: Add temp-repo regression coverage for parent-child-parent local merges
+      status: done
+      contract:
+        intent: Protect the stacked local workflow with a real temp-repo regression that covers parent, child, child merge, and final parent merge.
+        acceptance_criteria:
+            - The regression fails on the reproduced bug and passes after the fix.
+        scope:
+            - internal/cli
+            - internal/service
+      checkpoint:
+        commit: 50f33f2d
+        at: "2026-03-05T23:26:48Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_delegate_stack_test.go
+    - id: 4
+      title: Document the reproduced failure and validation expectations
+      status: done
+      contract:
+        intent: Record the exact repro, failure signature, and validation expectations so future agents can reproduce the stacked merge bug quickly.
+        acceptance_criteria:
+            - The CR contains evidence of the temp-repo repro and the parent-merge ambiguous-branch failure.
+        scope:
+            - _docs/cr-140-evidence
+      checkpoint:
+        at: "2026-03-05T23:26:48Z"
+        source: task_no_checkpoint
+git_summary:
+    base_parent: 080a54c8c4ffb21aa33b87b69b588a42aba9017b
+    cr_parent: 50f33f2d7f978cb0c9e841293e1211b62a47fc8e
+    files_changed: []
+    diffstat:
+        summary: 0 files changed, 0 insertions(+), 0 deletions(-)
