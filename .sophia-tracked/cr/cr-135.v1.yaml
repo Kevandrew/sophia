@@ -1,0 +1,122 @@
+schema_version: sophia.cr_archive.v1
+notice: Historical archive snapshot. Corrections are append-only revisions.
+archived_at: "2026-03-05T22:52:47Z"
+revision: 1
+cr:
+    id: 135
+    uid: cr_2615cd81-7642-43bd-b376-4c8c5ae404ab
+    title: Aggregate parent readiness and trust semantics
+    description: Teach PR readiness, trust, and review to treat aggregate parents as integration CRs implemented through merged children.
+    status: merged
+    base_branch: main
+    base_ref: cr-stacked-parent-child-cr-workflow-and-aggregate-p-8284
+    base_commit: ee6ee3da9cbbbfc81d255f5814a7d084d254f60a
+    branch: cr-aggregate-parent-readiness-and-trust-semantics-2615
+    merged_at: "2026-03-05T22:52:47Z"
+    merged_by: Kevandrew <143258544+Kevandrew@users.noreply.github.com>
+contract:
+    why: Aggregate parents are currently blocked from ready state because they have no direct parent checkpoints, even when every child CR is merged and the parent branch is exactly the integration branch it should be. This child fixes that mismatch without loosening rules for ordinary CRs.
+    scope:
+        - internal/cli
+        - internal/service
+    non_goals:
+        - No archive staging/history cleanup in this child CR.
+        - No changes to non-stacked CR readiness rules.
+    invariants:
+        - Only aggregate parents get delegated-child proof credit.
+        - Ordinary CRs still require their own implementation checkpoints.
+    blast_radius: Touches PR ready gating, trust scoring, and review summaries. Failure modes are aggregate parents becoming ready too early or ordinary CRs bypassing existing checkpoint requirements.
+    risk_tier_hint: medium
+    risk_rationale: Changes core ready/trust heuristics for PR-gated workflows.
+    test_plan: go test ./internal/service ./internal/cli
+    rollback_plan: Revert this child CR merge commit and restore the previous parent ready/trust gating behavior.
+tasks:
+    - id: 1
+      title: Detect aggregate parent CRs
+      status: done
+      contract:
+        intent: Define and reuse one internal predicate for identifying aggregate parents.
+        acceptance_criteria:
+            - A CR with delegated tasks and no direct implementation tasks is recognized consistently across readiness and trust paths.
+            - The detection rule is testable and does not depend on ad-hoc UI logic.
+        scope:
+            - internal/service
+      checkpoint:
+        commit: 08f7817b
+        at: "2026-03-05T22:41:15Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_stack_roles.go
+    - id: 2
+      title: Relax ready gating for resolved aggregate parents
+      status: done
+      contract:
+        intent: Allow aggregate parent PRs to become ready when merged children satisfy the implementation proof model.
+        acceptance_criteria:
+            - Aggregate parents with still-pending delegated children remain blocked.
+            - Resolved aggregate parents are not blocked by `pre_implementation_no_checkpoints`.
+        scope:
+            - internal/cli
+            - internal/service
+      checkpoint:
+        commit: dcd76684
+        at: "2026-03-05T22:41:16Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_pr_gate.go
+    - id: 3
+      title: Count resolved delegated children as parent proof
+      status: done
+      contract:
+        intent: Update trust and review so resolved delegated parent tasks are not treated as pending work.
+        acceptance_criteria:
+            - Review output stops reporting merged delegated children as pending.
+            - Trust output explains aggregate-parent proof in operator-visible terms.
+        scope:
+            - internal/cli
+            - internal/service
+      checkpoint:
+        commit: b9152b50
+        at: "2026-03-05T22:41:17Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_trust.go
+    - id: 4
+      title: Add readiness and trust regression tests
+      status: done
+      contract:
+        intent: Protect aggregate-parent ready/trust behavior from regression.
+        acceptance_criteria:
+            - Tests cover aggregate parent ready success and pending-child blocked cases.
+            - Tests prove ordinary CRs still require direct checkpoints.
+        scope:
+            - internal/cli
+            - internal/service
+      checkpoint:
+        commit: ad51b8b9
+        at: "2026-03-05T22:41:24Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_pr_gate_test.go
+            - internal/service/service_trust_test.go
+    - id: 5
+      title: Teach readiness and trust about aggregate parents
+      status: done
+      contract:
+        intent: Let aggregate parent CRs prove implementation through merged child CRs instead of requiring direct parent checkpoints.
+        acceptance_criteria:
+            - Ordinary non-stacked CRs keep the existing checkpoint requirement.
+            - Parent PR ready logic no longer blocks a fully delegated, fully merged aggregate parent for missing direct checkpoints.
+            - Trust and review no longer report merged delegated children as pending parent work.
+        scope:
+            - internal/cli
+            - internal/service
+      checkpoint:
+        at: "2026-03-05T22:41:25Z"
+        source: task_no_checkpoint
+git_summary:
+    base_parent: ee6ee3da9cbbbfc81d255f5814a7d084d254f60a
+    cr_parent: b7dc8f96a3ccf2896503daf735d8064e0d791f22
+    files_changed: []
+    diffstat:
+        summary: 0 files changed, 0 insertions(+), 0 deletions(-)
