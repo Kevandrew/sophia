@@ -1,0 +1,110 @@
+schema_version: sophia.cr_archive.v1
+notice: Historical archive snapshot. Corrections are append-only revisions.
+archived_at: "2026-03-05T03:07:13Z"
+revision: 1
+cr:
+    id: 124
+    uid: cr_f1544df0-113e-4044-95dc-ff3cbb1eefaf
+    title: 'Checkpoint commits: remove silent commit-type fallback to chore'
+    description: Prevent silent intent collapse in task checkpoint commit types by requiring explicitness or emitting explicit operator-visible warnings.
+    status: merged
+    base_branch: main
+    base_ref: cr-eliminate-silent-fallback-semantics-in-repair-an-e345
+    base_commit: dbdc6181be0170c6c34324eb327fee97b4e8d642
+    branch: cr-checkpoint-commits-remove-silent-commit-type-fal-f154
+    merged_at: "2026-03-05T03:07:13Z"
+    merged_by: Kevandrew <143258544+Kevandrew@users.noreply.github.com>
+contract:
+    why: Task checkpoint commits should preserve intent signal and should not silently downgrade to chore when commit type is omitted or cannot be inferred. This CR introduces explicitness in commit type resolution so commit history semantics remain trustworthy for review, automation, and audit consumers. The result should preserve deterministic message formatting while making fallback behavior visible or policy-enforced.
+    scope:
+        - internal/cli
+        - internal/service
+        - internal/service/service_messages.go
+    non_goals:
+        - No changes to repair timestamp behavior.
+        - No expansion of allowed commit-type taxonomy beyond current supported set.
+        - No unrelated formatting refactors in checkpoint message generation.
+    invariants:
+        - Any inferred or defaulted commit type must be explicit and review-visible.
+        - Checkpoint message schema and metadata footers remain parseable by existing tooling.
+        - Explicit commit-type override continues to be authoritative.
+    blast_radius: Affects task checkpoint message generation, task-done command behavior around commit-type resolution, and review/audit interpretation of checkpoint commit intent.
+    risk_tier_hint: medium
+    risk_rationale: Touches commit intent labels that influence review quality and workflow trust.
+    test_plan: go test ./... && go vet ./...
+    rollback_plan: Revert this child CR merge commit.
+tasks:
+    - id: 1
+      title: Implement explicit commit-type resolution policy when override and inference are absent
+      status: done
+      contract:
+        intent: Define and enforce deterministic behavior for missing commit-type signals instead of silently defaulting to chore.
+        acceptance_criteria:
+            - Explicit --commit-type remains accepted and normalized against supported tokens.
+            - When commit type is missing and uninferable, behavior is explicit (warning or policy error) rather than silent fallback.
+        scope:
+            - internal/service/service_messages.go
+            - internal/service/service_task_domain.go
+      checkpoint:
+        commit: 4ccac70e
+        at: "2026-03-05T03:04:11Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_messages.go
+            - internal/service/service_task_domain.go
+    - id: 2
+      title: Expose commit-type fallback or enforcement outcome in operator-visible output
+      status: done
+      contract:
+        intent: Surface commit-type resolution outcome in outputs used by operators/reviewers.
+        acceptance_criteria:
+            - If fallback/defaulting occurs, the reason is emitted in structured output or warnings.
+            - Normal inferred and explicit paths remain low-noise without regressions.
+        scope:
+            - internal/cli/cr_cmd_task.go
+            - internal/service/service_messages.go
+            - internal/service/service_task_domain.go
+      checkpoint:
+        commit: e50995a3
+        at: "2026-03-05T03:04:12Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/cr_cmd_task.go
+    - id: 3
+      title: Add regression tests for override, inferred, and no-signal commit-type paths
+      status: done
+      contract:
+        intent: Lock commit-type resolution semantics with focused tests to prevent silent regressions.
+        acceptance_criteria:
+            - Tests cover explicit override, title/intent inference, and missing-signal behavior.
+            - Tests fail if uninferable paths silently return chore without explicit operator signal.
+        scope:
+            - internal/cli/json_surface_expansion_test.go
+            - internal/service/service_task_checkpoint_test.go
+      checkpoint:
+        commit: ee68b154
+        at: "2026-03-05T03:04:12Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/json_surface_expansion_test.go
+            - internal/service/service_task_checkpoint_test.go
+    - id: 4
+      title: Remove silent commit-type fallback in checkpoint flow via child CR-124
+      status: done
+      contract:
+        intent: Represent delegated parent task linkage from CR-122 for the commit-type intent-integrity slice.
+        acceptance_criteria:
+            - Child CR-124 captures and implements commit-type explicitness behavior through its implementation tasks.
+            - Delegation trace remains explicit between parent CR-122 task 2 and child CR-124 task 4.
+        scope:
+            - internal/service
+            - internal/service/service_messages.go
+      checkpoint:
+        at: "2026-03-05T03:04:12Z"
+        source: task_no_checkpoint
+git_summary:
+    base_parent: dbdc6181be0170c6c34324eb327fee97b4e8d642
+    cr_parent: ee68b154ab5f3d5a0bf199f57adacb54a2e68f30
+    files_changed: []
+    diffstat:
+        summary: 0 files changed, 0 insertions(+), 0 deletions(-)
