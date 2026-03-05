@@ -1,0 +1,106 @@
+schema_version: sophia.cr_archive.v1
+notice: Historical archive snapshot. Corrections are append-only revisions.
+archived_at: "2026-03-05T23:58:25Z"
+revision: 1
+cr:
+    id: 141
+    uid: cr_77751478-9d28-4400-9336-9509febdb0c7
+    title: Shell-first cr show rendering with skeletons and lazy-loaded data
+    description: Make cr show feel immediate by serving a lightweight HTML shell first, rendering skeleton states for dashboard/CR surfaces, and loading heavier snapshot sections lazily instead of embedding a large first-paint payload.
+    status: merged
+    base_branch: main
+    base_ref: main
+    base_commit: 2ffa9f4fffea473261caf328dff285877d506e5e
+    branch: cr-shell-first-cr-show-rendering-with-skeletons-and-7775
+    merged_at: "2026-03-05T23:58:25Z"
+    merged_by: Kevandrew <143258544+Kevandrew@users.noreply.github.com>
+contract:
+    why: Make `sophia cr show` feel immediate by serving a lightweight HTML shell first, then hydrating dashboard and per-CR surfaces with async snapshot fetches. The current embedded-payload approach is simple but makes the first paint path do too much work at once and ties perceived latency to full snapshot generation plus browser parse/render of a large inline JSON blob. Shell-first rendering should preserve the localhost-preview model while making the UX feel responsive and giving us a cleaner foundation for dashboard-first usage.
+    scope:
+        - internal/cli
+        - internal/cli/templates
+        - internal/service
+    non_goals:
+        - No change to CR/domain semantics or delegation behavior.
+        - No full SPA/router rewrite in this CR.
+    invariants:
+        - Per-CR and dashboard views must remain functionally equivalent to current data surfaces once hydration completes.
+        - The localhost preview must continue to work without external services or build tooling.
+    blast_radius: Touches cr show server routes, HTML bootstrap payload shape, browser hydration logic, and dashboard/per-CR first-paint behavior. Failure modes are blank pages, missing sections after hydration, stale selected-CR state, or broken live-refresh wiring.
+    risk_tier_hint: medium
+    risk_rationale: Primarily frontend/preview UX work, but it changes the bootstrap and hydration path for cr show and dashboard mode.
+    test_plan: go test ./internal/cli ./internal/service && manually verify `sophia cr show` and `sophia cr show <id>` first paint, hydration, dashboard navigation, and lazy timeline loading.
+    rollback_plan: Revert the CR to restore embedded full-payload rendering.
+tasks:
+    - id: 1
+      title: Split cr show shell HTML from heavy snapshot payload
+      status: done
+      contract:
+        intent: Separate the initial HTML shell from the heavy embedded dashboard/per-CR snapshot so first paint can happen before full data hydration.
+        acceptance_criteria:
+            - Initial HTML payload no longer embeds the full dashboard/per-CR data blob for first render.
+            - Shell contains stable placeholders/skeleton anchors for sections that hydrate later.
+        scope:
+            - internal/cli/cr_cmd_show.go
+            - internal/cli/templates/cr_list.html
+            - internal/cli/templates/cr_show.html
+      checkpoint:
+        commit: 659fd053
+        at: "2026-03-05T23:55:32Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/cr_cmd_show.go
+            - internal/cli/templates/cr_list.html
+            - internal/cli/templates/cr_show.html
+    - id: 2
+      title: Add async snapshot endpoints for dashboard and per-CR hydration
+      status: done
+      contract:
+        intent: Expose explicit JSON snapshot endpoints that the shell can fetch after first paint for dashboard and per-CR hydration.
+        acceptance_criteria:
+            - Dashboard and per-CR shells can fetch their initial data without requiring full inline snapshot embedding.
+            - Endpoint payloads preserve current data semantics needed by the existing UI.
+        scope:
+            - internal/cli/cr_cmd_show.go
+            - internal/cli/cr_json_mappers.go
+            - internal/service
+      checkpoint:
+        at: "2026-03-05T23:55:32Z"
+        source: task_no_checkpoint
+    - id: 3
+      title: Render skeleton states and lazy-load dashboard timeline/detail sections
+      status: done
+      contract:
+        intent: Replace blank/loading dead time with skeleton states and lazy-load lower-priority sections like dashboard timeline or selected detail.
+        acceptance_criteria:
+            - Dashboard shell paints immediately with visible skeletons/placeholders before full hydration completes.
+            - Heavy sections can be fetched/rendered after first paint without regressing final content parity.
+        scope:
+            - internal/cli/cr_cmd_show.go
+            - internal/cli/templates/cr_list.html
+            - internal/cli/templates/cr_show.html
+      checkpoint:
+        at: "2026-03-05T23:55:32Z"
+        source: task_no_checkpoint
+    - id: 4
+      title: Add regression coverage for shell-first hydration and no-open JSON behavior
+      status: done
+      contract:
+        intent: Protect the shell-first rendering path with regression tests so faster first paint does not break current show/dashboard behavior.
+        acceptance_criteria:
+            - Tests cover shell bootstrap, hydration endpoint responses, and no-open/json behavior for both dashboard and per-CR modes.
+        scope:
+            - internal/cli
+            - internal/service
+      checkpoint:
+        commit: 1e6b5340
+        at: "2026-03-05T23:55:32Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/cr_show_test.go
+git_summary:
+    base_parent: 2ffa9f4fffea473261caf328dff285877d506e5e
+    cr_parent: 1e6b5340cb271f6d0aa14ac5fee0952701bde6b1
+    files_changed: []
+    diffstat:
+        summary: 0 files changed, 0 insertions(+), 0 deletions(-)
