@@ -2,6 +2,7 @@ package service
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -85,8 +86,21 @@ func TestDelegateFlowAllowsChildMergeBeforeParentAndAutoCompletesParentTask(t *t
 		t.Fatalf("expected parent merge blocked by delegated child, got %v", err)
 	}
 
-	if _, err := svc.MergeCR(child.ID, false, ""); err != nil {
+	childMergeSHA, err := svc.MergeCR(child.ID, false, "")
+	if err != nil {
 		t.Fatalf("MergeCR(child) should succeed before parent when delegated, got %v", err)
+	}
+	if currentBranch := runGit(t, dir, "branch", "--show-current"); currentBranch != parent.Branch {
+		t.Fatalf("expected child merge to leave current branch on parent %q, got %q", parent.Branch, currentBranch)
+	}
+	if got := runGit(t, dir, "rev-parse", "--verify", parent.Branch); strings.TrimSpace(got) == "" {
+		t.Fatalf("expected parent branch %q to remain after child merge", parent.Branch)
+	}
+	if !gitRefContainsCommit(t, dir, parent.Branch, childMergeSHA) {
+		t.Fatalf("expected parent branch %q to contain child merge commit %q", parent.Branch, childMergeSHA)
+	}
+	if gitRefContainsCommit(t, dir, parent.BaseBranch, childMergeSHA) {
+		t.Fatalf("expected base branch %q not to contain child merge commit %q before parent merge", parent.BaseBranch, childMergeSHA)
 	}
 
 	reloadedParent, err := svc.store.LoadCR(parent.ID)
@@ -107,6 +121,20 @@ func TestDelegateFlowAllowsChildMergeBeforeParentAndAutoCompletesParentTask(t *t
 	if _, err := svc.MergeCR(parent.ID, false, ""); err != nil {
 		t.Fatalf("MergeCR(parent) after child merge error = %v", err)
 	}
+}
+
+func gitRefContainsCommit(t *testing.T, dir, ref, commit string) bool {
+	t.Helper()
+	cmd := exec.Command("git", "merge-base", "--is-ancestor", strings.TrimSpace(commit), strings.TrimSpace(ref))
+	cmd.Dir = dir
+	if err := cmd.Run(); err == nil {
+		return true
+	} else if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
+		return false
+	} else if err != nil {
+		t.Fatalf("git merge-base --is-ancestor %s %s failed: %v", commit, ref, err)
+	}
+	return false
 }
 
 func TestUndelegateTaskReturnsDelegatedTaskToOpenWhenLastLinkRemoved(t *testing.T) {
