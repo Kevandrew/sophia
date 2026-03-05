@@ -65,6 +65,7 @@ func newTaskTrustRequirement(key, title string, satisfied bool, reason, action s
 func buildInitialTrustRequirements(cr *model.CR, validation *ValidationReport, requiredCRFields []string) ([]string, []TrustRequirement) {
 	hardFailures := []string{}
 	requirements := []TrustRequirement{}
+	aggregate := assessAggregateParentTasks(cr.Subtasks)
 	if len(validation.Errors) > 0 {
 		hardFailures = append(hardFailures, fmt.Sprintf("validation errors present (%d)", len(validation.Errors)))
 		requirements = append(requirements, newTrustRequirement(
@@ -107,6 +108,17 @@ func buildInitialTrustRequirements(cr *model.CR, validation *ValidationReport, r
 		))
 	}
 	unjustifiedNoCheckpointTasks := listUnjustifiedDoneTasksWithoutCheckpoint(cr.Subtasks)
+	if aggregate.IsAggregateParent && aggregate.ResolvedDelegatedTaskCount > 0 {
+		filtered := make([]int, 0, len(unjustifiedNoCheckpointTasks))
+		for _, taskID := range unjustifiedNoCheckpointTasks {
+			task := findTaskByID(cr.Subtasks, taskID)
+			if task != nil && len(task.Delegations) > 0 && task.Status == model.TaskStatusDone {
+				continue
+			}
+			filtered = append(filtered, taskID)
+		}
+		unjustifiedNoCheckpointTasks = filtered
+	}
 	checkpointExceptionRequirement := newTrustRequirement(
 		"task_checkpoint_exception_justified",
 		"Done tasks without checkpoints include explicit rationale",
@@ -780,13 +792,16 @@ func buildTaskProofChainDimension(tasks []model.Subtask) TrustDimension {
 		return dimension
 	}
 
+	aggregate := assessAggregateParentTasks(tasks)
 	tasksDone := 0
 	unjustifiedMissingCheckpoints := 0
 	delegatedPending := false
 	for _, task := range tasks {
 		if task.Status == model.TaskStatusDone {
 			tasksDone++
-			if strings.TrimSpace(task.CheckpointCommit) == "" && strings.TrimSpace(task.CheckpointReason) == "" {
+			if strings.TrimSpace(task.CheckpointCommit) == "" &&
+				strings.TrimSpace(task.CheckpointReason) == "" &&
+				!(aggregate.IsAggregateParent && len(task.Delegations) > 0) {
 				unjustifiedMissingCheckpoints++
 			}
 		}
@@ -810,7 +825,19 @@ func buildTaskProofChainDimension(tasks []model.Subtask) TrustDimension {
 		dimension.Reasons = append(dimension.Reasons, "delegated tasks still pending")
 		dimension.RequiredActions = append(dimension.RequiredActions, "Resolve pending delegated tasks before relying on trust verdict.")
 	}
+	if aggregate.IsAggregateParent && aggregate.PendingDelegatedTaskCount == 0 && aggregate.ResolvedDelegatedTaskCount > 0 {
+		dimension.Reasons = append(dimension.Reasons, "aggregate parent proof is satisfied by merged delegated child CRs")
+	}
 	return dimension
+}
+
+func findTaskByID(tasks []model.Subtask, taskID int) *model.Subtask {
+	for i := range tasks {
+		if tasks[i].ID == taskID {
+			return &tasks[i]
+		}
+	}
+	return nil
 }
 
 func buildRiskAccountabilityDimension(contract model.Contract, impact *ImpactReport, diff *diffSummary) TrustDimension {
