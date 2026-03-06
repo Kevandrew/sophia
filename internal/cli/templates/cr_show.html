@@ -1731,8 +1731,8 @@
         if (heroMeta) {
           var tags = [];
           if (nativity.role_label) tags.push(tagHTML(nativity.role_label, nativity.is_aggregate_parent ? "blue" : nativity.is_child ? "warn" : nativity.is_root_parent ? "pass" : "neutral"));
-          if (Number(nativity.pending_child_count || 0) > 0) tags.push(tagHTML("pending children · " + Number(nativity.pending_child_count || 0), "warn"));
-          else if (Number(nativity.child_count || 0) > 0) tags.push(tagHTML("children · " + Number(nativity.child_count || 0), "neutral"));
+          if (Number(nativity.pending_child_count || 0) > 0) tags.push(tagHTML("pending child CRs · " + Number(nativity.pending_child_count || 0), "warn"));
+          else if (Number(nativity.child_count || 0) > 0) tags.push(tagHTML("child CRs · " + Number(nativity.child_count || 0), "neutral"));
           if (cr.author) tags.push(tagHTML(cr.author));
           if (cr.created_at) tags.push(tagHTML(formatRelativeLocal(cr.created_at), "neutral"));
           heroMeta.innerHTML = tags.join("");
@@ -1851,7 +1851,7 @@
         var done = tasks.filter(function (t) { return text(t.status, "") === "done"; }).length;
         var taskCountTag = document.getElementById("task-count-tag");
         var taskSectionLabel = document.getElementById("task-section-label");
-        if (taskSectionLabel) taskSectionLabel.textContent = nativity.is_aggregate_parent ? "Child CRs" : "Tasks";
+        if (taskSectionLabel) taskSectionLabel.textContent = nativity.is_aggregate_parent ? "Child CR Stack" : "Tasks";
         if (taskCountTag) {
           if (nativity.is_aggregate_parent) {
             taskCountTag.textContent = String(Number(nativity.resolved_child_count || 0)) + " resolved · " + String(Number(nativity.pending_child_count || 0)) + " pending";
@@ -1868,7 +1868,7 @@
             tasksEl.innerHTML = [
               "<section class='stack-tree-panel'>",
               "<div class='stack-panel-head'>",
-              "<div class='stack-panel-title'>Stack Work</div>",
+              "<div class='stack-panel-title'>Child CR Thread</div>",
               "<div class='stack-node-summary'>",
               tagHTML(text(nativity.role_label, "Aggregate Parent"), "blue"),
               tagHTML("children " + esc(String(nativity.child_count || 0)), "neutral"),
@@ -1879,7 +1879,7 @@
               "</section>",
               "<section class='stack-audit-panel'>",
               "<div class='stack-panel-head'>",
-              "<div class='stack-panel-title'>Delegation Audit</div>",
+              "<div class='stack-panel-title'>Delegation Links</div>",
               "</div>",
               auditHTML ? "<div class='stack-audit-list'>" + auditHTML + "</div>" : "<div class='empty-state'>No delegated task links recorded</div>",
               "</section>"
