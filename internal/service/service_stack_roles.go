@@ -203,3 +203,11 @@ func (s *Service) stackNativityForCR(cr *model.CR) StackNativityView {
 func (s *Service) StackNativityForCLI(cr *model.CR) StackNativityView {
 	return s.stackNativityForCR(cr)
 }
+
+func (s *Service) StackLineageForCLI(cr *model.CR) []StackLineageNodeView {
+	return s.stackLineageForCR(cr)
+}
+
+func (s *Service) StackTreeForCLI(cr *model.CR) *StackTreeNodeView {
+	return s.stackTreeForCR(cr)
+}

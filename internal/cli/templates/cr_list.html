@@ -190,6 +190,16 @@
     .cr-row.selected::before { background: var(--blue); }
     .cr-row.is-merged { opacity: 0.65; }
     .cr-row.is-merged:hover { opacity: 1; }
+    .cr-row.threaded-root {
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      margin: 8px 10px 0;
+      background: linear-gradient(180deg, rgba(245, 247, 250, 0.78), rgba(255, 255, 255, 0.96));
+    }
+    .cr-row.threaded-root::before {
+      background: var(--ink);
+      border-radius: 12px 0 0 12px;
+    }
     .cr-row-top { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; min-width: 0; }
     .cr-id { font-family: var(--mono); font-size: 10px; color: var(--ink-4); flex-shrink: 0; }
     .cr-title { font-size: 13px; font-weight: 600; color: var(--ink); line-height: 1.3; }
@@ -210,6 +220,38 @@
     .task-fill { height: 100%; background: var(--pass-dot); border-radius: 2px; }
     .task-fill.zero { background: var(--border-strong); }
     .task-frac { font-size: 10px; color: var(--ink-4); font-family: var(--mono); }
+    .stack-thread { border-bottom: 1px solid var(--border); }
+    .stack-thread > summary { list-style: none; cursor: pointer; user-select: none; }
+    .stack-thread > summary::-webkit-details-marker { display: none; }
+    .stack-thread-summary { display: grid; grid-template-columns: auto 1fr; align-items: stretch; }
+    .thread-toggle {
+      width: 34px; display: flex; align-items: center; justify-content: center;
+      color: var(--ink-4); font-size: 10px; border-right: 1px solid var(--border);
+      background: rgba(255,255,255,0.72);
+    }
+    .thread-toggle-caret { transition: transform 0.16s ease; }
+    .stack-thread[open] .thread-toggle-caret { transform: rotate(90deg); }
+    .thread-badge-row {
+      display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+      margin: 0 16px 10px 52px;
+    }
+    .stack-thread-body { display: grid; gap: 10px; padding: 0 12px 14px 18px; }
+    .stack-branch { position: relative; display: grid; gap: 10px; padding-left: 18px; }
+    .stack-branch::before {
+      content: ""; position: absolute; left: 4px; top: -8px; bottom: 0; width: 1px;
+      background: linear-gradient(180deg, rgba(15,23,42,0.18), rgba(15,23,42,0.04));
+    }
+    .stack-branch > .cr-row::after {
+      content: ""; position: absolute; left: -14px; top: 26px; width: 12px; height: 1px;
+      background: var(--border-strong);
+    }
+    .stack-branch-children { display: grid; gap: 10px; }
+    .cr-row.threaded-child {
+      margin: 0; border: 1px solid var(--border); border-radius: 10px; background: var(--bg);
+    }
+    .cr-row.threaded-child::before {
+      width: 2px; border-radius: 10px 0 0 10px;
+    }
 
     /* TIMELINE */
     details.timeline-wrap { border-top: 2px solid var(--border); }
@@ -625,28 +667,48 @@
     });
   }
 
+  function topLevelCRs(list) {
+    var localByID = {};
+    list.forEach(function(cr){ localByID[String(cr.id)] = cr; });
+    return list.filter(function(cr){
+      var nativity = asObject(cr.stack_nativity);
+      if (!nativity.is_child || !nativity.parent_cr_id) return true;
+      var parent = localByID[String(nativity.parent_cr_id)];
+      if (!parent) return true;
+      var parentNativity = asObject(parent.stack_nativity);
+      var parentTree = asObject(parent.stack_tree);
+      return !(parentNativity.is_aggregate_parent || parentNativity.is_root_parent || parentTree.id);
+    });
+  }
+
   /* CR row HTML */
-  function crRowHTML(cr) {
+  function crRowHTML(cr, opts) {
+    opts = asObject(opts);
     var scls=statusClass(cr.status), rcls=riskClass(cr.risk_tier);
     var nativity=asObject(cr.stack_nativity);
     var tasks=asObject(cr.tasks);
     var done=parseInt(text(tasks.done,0),10)||0, tot=parseInt(text(tasks.total,0),10)||0;
     var pct=tot>0?Math.round(done/tot*100):0;
     var merged=isMerged(cr);
+    var resolutionState = text(opts.resolution_state, "");
     var nativityTag = nativity.role_label
       ? "<span class='tag "+(nativity.is_aggregate_parent ? "blue" : nativity.is_child ? "warn" : nativity.is_root_parent ? "pass" : "neutral")+"'><span class='dot'></span>"+esc(nativity.role_label)+"</span>"
       : "";
     var pendingTag = parseInt(text(nativity.pending_child_count,0),10)>0
       ? "<span class='tag warn'><span class='dot'></span>"+esc(String(nativity.pending_child_count))+" pending</span>"
       : "";
+    var resolutionTag = resolutionState
+      ? "<span class='tag "+(resolutionState === 'resolved' ? "pass" : "warn")+"'><span class='dot'></span>"+esc(resolutionState)+"</span>"
+      : "";
     return [
-      "<article class='cr-row"+(merged?" is-merged":"")+"' data-id='"+esc(cr.id)+"'>",
+      "<article class='cr-row"+(merged?" is-merged":"")+(opts.threaded_root?" threaded-root":"")+(opts.threaded_child?" threaded-child":"")+"' data-id='"+esc(cr.id)+"'>",
         "<div class='cr-row-top'>",
           "<span class='cr-id'>CR-"+esc(cr.id)+"</span>",
           "<span class='tag "+scls+"'><span class='dot'></span>"+esc(text(cr.status,"—"))+"</span>",
           cr.risk_tier?"<span class='tag "+rcls+"'><span class='dot'></span>"+esc(cr.risk_tier)+"</span>":"",
           nativityTag,
           pendingTag,
+          resolutionTag,
         "</div>",
         "<div class='cr-title'>"+esc(text(cr.title,"Untitled CR"))+"</div>",
         cr.description?"<div class='cr-description'>"+esc(cr.description)+"</div>":"",
@@ -656,6 +718,44 @@
           tot>0?"<div class='task-bar'><div class='task-track'><div class='task-fill"+(pct===0?" zero":"")+"' style='width:"+pct+"%'></div></div><span class='task-frac'>"+done+"/"+tot+"</span></div>":"",
         "</div>",
       "</article>"
+    ].join("");
+  }
+
+  function renderStackBranch(node, depth) {
+    var item = asObject(node);
+    var cr = byID[String(item.id)] || item;
+    var children = asArray(item.children);
+    return [
+      "<div class='stack-branch depth-"+esc(depth)+"'>",
+      crRowHTML(cr, { threaded_child: true, resolution_state: item.resolution_state }),
+      children.length ? "<div class='stack-branch-children'>" + children.map(function(child){ return renderStackBranch(child, depth + 1); }).join("") + "</div>" : "",
+      "</div>"
+    ].join("");
+  }
+
+  function stackThreadHTML(cr) {
+    var tree = asObject(cr.stack_tree);
+    var nativity = asObject(cr.stack_nativity);
+    if (!tree.id) return crRowHTML(cr);
+    var children = asArray(tree.children);
+    var openByDefault = parseInt(text(nativity.pending_child_count,0),10) > 0;
+    return [
+      "<details class='stack-thread'"+(openByDefault ? " open" : "")+">",
+        "<summary>",
+          "<div class='stack-thread-summary'>",
+            "<div class='thread-toggle'><span class='thread-toggle-caret'>▶</span></div>",
+            crRowHTML(cr, { threaded_root: true }),
+          "</div>",
+          "<div class='thread-badge-row'>",
+            "<span class='tag neutral'><span class='dot'></span>"+esc(String(text(nativity.child_count,0)))+" child CRs</span>",
+            "<span class='tag pass'><span class='dot'></span>"+esc(String(text(nativity.resolved_child_count,0)))+" resolved</span>",
+            "<span class='tag "+(parseInt(text(nativity.pending_child_count,0),10)>0 ? "warn" : "neutral")+"'><span class='dot'></span>"+esc(String(text(nativity.pending_child_count,0)))+" pending</span>",
+          "</div>",
+        "</summary>",
+        "<div class='stack-thread-body'>",
+          children.map(function(child){ return renderStackBranch(child, 1); }).join(""),
+        "</div>",
+      "</details>"
     ].join("");
   }
 
@@ -672,8 +772,8 @@
   }
 
   function renderLists() {
-    var active  = sortCRs(activeCRs);
-    var history = sortCRs(mergedCRs);
+    var active  = sortCRs(topLevelCRs(activeCRs));
+    var history = sortCRs(topLevelCRs(mergedCRs));
 
     var actTag = document.getElementById("active-count-tag");
     if (actTag) actTag.textContent = String(active.length);
@@ -683,7 +783,10 @@
     var activeEl = document.getElementById("active-list");
     if (activeEl) {
       activeEl.innerHTML = active.length
-        ? active.map(crRowHTML).join("")
+        ? active.map(function(cr){
+            var nativity = asObject(cr.stack_nativity);
+            return nativity.is_aggregate_parent ? stackThreadHTML(cr) : crRowHTML(cr);
+          }).join("")
         : "<div class='empty-state' style='padding:14px 16px;'>No active CRs</div>";
       activeEl.querySelectorAll(".cr-row").forEach(function(r){
         if (r.getAttribute("data-id")===selectedId) r.classList.add("selected");
@@ -694,7 +797,10 @@
     var histEl = document.getElementById("history-list");
     if (histEl) {
       histEl.innerHTML = history.length
-        ? history.map(crRowHTML).join("")
+        ? history.map(function(cr){
+            var nativity = asObject(cr.stack_nativity);
+            return nativity.is_aggregate_parent ? stackThreadHTML(cr) : crRowHTML(cr);
+          }).join("")
         : "<div class='empty-state' style='padding:14px 16px;'>No merged CRs</div>";
       histEl.querySelectorAll(".cr-row").forEach(function(r){
         if (r.getAttribute("data-id")===selectedId) r.classList.add("selected");
@@ -744,6 +850,17 @@
       lineageBits.push("resolved " + text(nativity.resolved_child_count,0) + " / pending " + text(nativity.pending_child_count,0));
     }
 
+    var stackSummary = nativity.is_aggregate_parent ? [
+      "<div class='dp-section'><div class='dp-head'>Stack Summary</div><div class='dp-body'>",
+        "<div class='field-rows'>",
+          "<div class='field-row'><span class='field-key'>Primary Work</span><span class='field-val'>Child CRs in the threaded stack</span></div>",
+          "<div class='field-row'><span class='field-key'>Children</span><span class='field-val'>"+esc(text(nativity.child_count,0))+"</span></div>",
+          "<div class='field-row'><span class='field-key'>Resolved</span><span class='field-val'>"+esc(text(nativity.resolved_child_count,0))+"</span></div>",
+          "<div class='field-row'><span class='field-key'>Pending</span><span class='field-val'>"+esc(text(nativity.pending_child_count,0))+"</span></div>",
+        "</div>",
+      "</div></div>"
+    ].join("") : "";
+
     panelEl.innerHTML = [
       "<div class='dp-section'><div class='dp-head'>Change Request</div><div class='dp-body'>",
         "<div class='dp-title'>"+esc(text(cr.title,"Untitled CR"))+"</div>",
@@ -773,6 +890,7 @@
       "<div class='dp-section'><div class='dp-head'>Intent</div><div class='dp-body'>",
         "<div class='dp-text'>"+esc(text(cr.contract_why||cr.description,"No description."))+"</div>",
       "</div></div>",
+      stackSummary,
       "<div class='dp-section'><div class='dp-head'>Scope</div><div class='dp-body'>",
         "<div class='scope-list'>"+scopeHTML+"</div>",
       "</div></div>",

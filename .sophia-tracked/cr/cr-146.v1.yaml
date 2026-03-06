@@ -1,0 +1,119 @@
+schema_version: sophia.cr_archive.v1
+notice: Historical archive snapshot. Corrections are append-only revisions.
+archived_at: "2026-03-06T00:36:13Z"
+revision: 1
+cr:
+    id: 146
+    uid: cr_dbdc2891-9bf6-4ed3-9634-180a8b25d68d
+    title: Stack UI polish, motion, and Sophia workflow docs
+    description: Unify threaded-tree visual language across surfaces and document the aggregate-parent mental model in the Sophia skill.
+    status: merged
+    base_branch: main
+    base_ref: cr-aggregate-parent-threaded-tree-ui-for-cr-show-an-6095
+    base_commit: 35997d7ad9f41c9e5642b0731cb5eec9bdee54f2
+    branch: cr-stack-ui-polish-motion-and-sophia-workflow-docs-dbdc
+    merged_at: "2026-03-06T00:36:13Z"
+    merged_by: Kevandrew <143258544+Kevandrew@users.noreply.github.com>
+contract:
+    why: A threaded-tree redesign only works if the visual language and workflow guidance are cohesive. This child aligns terminology, styling, motion, and Sophia skill guidance so the aggregate-parent model feels intentional rather than pieced together.
+    scope:
+        - internal/cli
+        - internal/cli/templates
+        - skills/sophia
+    non_goals:
+        - No new stack data model in this child CR.
+        - No unrelated documentation cleanup.
+    invariants:
+        - Skill guidance describes aggregate parents as integration roots with child CRs as primary work units.
+        - Stack rail, nesting, and resolution cues stay consistent between show and list surfaces.
+    blast_radius: Touches visual polish, shared wording, and workflow guidance. Failure modes are inconsistent terminology, mismatched styling between surfaces, or stale skill guidance that teaches the old flat mental model.
+    risk_tier_hint: low
+    risk_rationale: Mostly styling, wording, and guidance consolidation after the main redesign slices land.
+    test_plan: go test ./internal/cli
+    rollback_plan: Revert this child CR to remove the new stack polish and guidance updates.
+tasks:
+    - id: 1
+      title: Unify stack rails, nesting, and resolution styling
+      status: done
+      contract:
+        intent: Apply a cohesive visual language to threaded stacks across show and list views.
+        acceptance_criteria:
+            - Motion or transitions reinforce structure without adding noise.
+            - Stack rails, child connectors, and resolution states feel consistent across surfaces.
+        scope:
+            - internal/cli/templates
+      checkpoint:
+        commit: 4d8e36d5
+        at: "2026-03-06T00:34:17Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/templates/cr_list.html
+            - internal/cli/templates/cr_show.html
+    - id: 2
+      title: Align aggregate-parent wording and labels
+      status: done
+      contract:
+        intent: Use consistent labels for stack roots, child CRs, and delegated audit detail.
+        acceptance_criteria:
+            - Aggregate parents no longer read like ordinary task buckets.
+            - cr show and cr list use the same stack-role vocabulary.
+        scope:
+            - internal/cli
+            - internal/cli/templates
+      checkpoint:
+        at: "2026-03-06T00:34:18Z"
+        source: task_no_checkpoint
+    - id: 3
+      title: Update the Sophia skill for threaded aggregate-parent UX
+      status: done
+      contract:
+        intent: Teach the new aggregate-parent UI model and explain that child CRs are the primary visible work units in stack-aware surfaces.
+        acceptance_criteria:
+            - Guidance stays aligned with the actual stack workflow already implemented in Sophia.
+            - skills/sophia/SKILL.md documents the aggregate-parent mental model and threaded-tree UI.
+        scope:
+            - skills/sophia
+      checkpoint:
+        commit: "20637261"
+        at: "2026-03-06T00:34:18Z"
+        source: task_checkpoint
+        scope:
+            - skills/sophia/SKILL.md
+    - id: 4
+      title: Add polish-focused regression coverage
+      status: done
+      contract:
+        intent: Protect key labels and threaded-tree hooks so the visual model does not silently drift.
+        acceptance_criteria:
+            - Coverage focuses on the new visual/system semantics rather than incidental CSS details.
+            - Tests fail if stack-role wording or threaded-tree hooks regress.
+        scope:
+            - internal/cli
+      checkpoint:
+        commit: 7e48aba8
+        at: "2026-03-06T00:34:18Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/cr_show_test.go
+    - id: 5
+      title: Polish stack visual language and document the new model
+      status: done
+      contract:
+        intent: Unify motion, styling, wording, and workflow guidance so the threaded-tree stack model feels deliberate and is taught consistently.
+        acceptance_criteria:
+            - Regression coverage locks in the intended stack nativity semantics.
+            - Skill/docs guidance explains aggregate parents as integration roots with child CRs as primary work units.
+            - cr show and cr list share a cohesive visual language for stack rails, nesting, and resolution states.
+        scope:
+            - internal/cli
+            - internal/cli/templates
+            - skills/sophia
+      checkpoint:
+        at: "2026-03-06T00:34:18Z"
+        source: task_no_checkpoint
+git_summary:
+    base_parent: 35997d7ad9f41c9e5642b0731cb5eec9bdee54f2
+    cr_parent: 7e48aba8d3f4700901109be291319772c72eb5ab
+    files_changed: []
+    diffstat:
+        summary: 0 files changed, 0 insertions(+), 0 deletions(-)

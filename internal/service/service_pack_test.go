@@ -3,6 +3,7 @@ package service
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -259,5 +260,89 @@ func TestPackCRMetadataFallbackWarnsWhenCheckpointCommitsExist(t *testing.T) {
 	}
 	if !containsStringCaseInsensitive(view.Warnings, "orphaned implementation commits") {
 		t.Fatalf("expected orphaned implementation warning, got %#v", view.Warnings)
+	}
+}
+
+func TestPackCRIncludesStackTreeAndLineage(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	runGit(t, dir, "config", "user.name", "Test User")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+
+	parent, err := svc.AddCR("Stack parent", "aggregate parent pack")
+	if err != nil {
+		t.Fatalf("AddCR(parent) error = %v", err)
+	}
+	setValidContract(t, svc, parent.ID)
+	parentTask, err := svc.AddTask(parent.ID, "delegate child")
+	if err != nil {
+		t.Fatalf("AddTask(parent) error = %v", err)
+	}
+	setValidTaskContract(t, svc, parent.ID, parentTask.ID)
+
+	child, _, err := svc.AddCRWithOptionsWithWarnings("Stack child", "first child", AddCROptions{ParentCRID: parent.ID})
+	if err != nil {
+		t.Fatalf("AddCR(child) error = %v", err)
+	}
+	setValidContract(t, svc, child.ID)
+	if _, err := svc.DelegateTaskToChild(parent.ID, parentTask.ID, child.ID); err != nil {
+		t.Fatalf("DelegateTaskToChild() error = %v", err)
+	}
+
+	grandchild, _, err := svc.AddCRWithOptionsWithWarnings("Stack grandchild", "nested child", AddCROptions{ParentCRID: child.ID})
+	if err != nil {
+		t.Fatalf("AddCR(grandchild) error = %v", err)
+	}
+	setValidContract(t, svc, grandchild.ID)
+
+	parentView, err := svc.PackCR(parent.ID, PackOptions{})
+	if err != nil {
+		t.Fatalf("PackCR(parent) error = %v", err)
+	}
+	if parentView.StackTree == nil {
+		t.Fatalf("expected parent stack tree")
+	}
+	if parentView.StackTree.ID != parent.ID {
+		t.Fatalf("expected root tree id %d, got %#v", parent.ID, parentView.StackTree)
+	}
+	if len(parentView.StackTree.Children) != 1 {
+		t.Fatalf("expected one child node, got %#v", parentView.StackTree.Children)
+	}
+	childNode := parentView.StackTree.Children[0]
+	if childNode.ID != child.ID {
+		t.Fatalf("expected child node %d, got %#v", child.ID, childNode)
+	}
+	if childNode.ResolutionState != "pending" {
+		t.Fatalf("expected child resolution pending, got %#v", childNode.ResolutionState)
+	}
+	if len(childNode.Children) != 1 || childNode.Children[0].ID != grandchild.ID {
+		t.Fatalf("expected grandchild nested under child, got %#v", childNode.Children)
+	}
+
+	childView, err := svc.PackCR(child.ID, PackOptions{})
+	if err != nil {
+		t.Fatalf("PackCR(child) error = %v", err)
+	}
+	if len(childView.StackLineage) != 1 {
+		t.Fatalf("expected single parent lineage entry, got %#v", childView.StackLineage)
+	}
+	if childView.StackLineage[0].ID != parent.ID {
+		t.Fatalf("expected lineage parent %d, got %#v", parent.ID, childView.StackLineage)
+	}
+	if childView.StackTree == nil || childView.StackTree.ID != child.ID {
+		t.Fatalf("expected child-local stack tree, got %#v", childView.StackTree)
+	}
+	if len(childView.StackTree.Children) != 1 || childView.StackTree.Children[0].ID != grandchild.ID {
+		t.Fatalf("expected child tree to include grandchild, got %#v", childView.StackTree.Children)
+	}
+	if childView.StackLineage[0].Role != "aggregate_parent" {
+		t.Fatalf("expected lineage role aggregate_parent, got %#v", childView.StackLineage[0])
+	}
+	if got := strconv.Itoa(childView.StackTree.Children[0].ParentCRID); got != strconv.Itoa(child.ID) {
+		t.Fatalf("expected grandchild parent id %d, got %#v", child.ID, childView.StackTree.Children[0].ParentCRID)
 	}
 }

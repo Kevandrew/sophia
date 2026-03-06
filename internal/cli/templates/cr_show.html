@@ -635,6 +635,175 @@
       margin-top: 2px;
     }
 
+    .stack-shell {
+      display: grid;
+      gap: 14px;
+    }
+
+    .stack-tree-panel,
+    .stack-audit-panel {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: linear-gradient(180deg, rgba(245, 247, 250, 0.72), rgba(255, 255, 255, 0.96));
+      padding: 14px;
+      display: grid;
+      gap: 10px;
+    }
+
+    .stack-panel-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .stack-panel-title {
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--ink-4);
+    }
+
+    .stack-tree {
+      display: grid;
+      gap: 12px;
+    }
+
+    .stack-node {
+      position: relative;
+      display: grid;
+      gap: 10px;
+      padding-left: 18px;
+    }
+
+    .stack-node::before {
+      content: "";
+      position: absolute;
+      left: 4px;
+      top: 0;
+      bottom: -12px;
+      width: 1px;
+      background: linear-gradient(180deg, rgba(15, 23, 42, 0.18), rgba(15, 23, 42, 0.04));
+    }
+
+    .stack-node.depth-0 {
+      padding-left: 0;
+    }
+
+    .stack-node.depth-0::before {
+      display: none;
+    }
+
+    .stack-node.depth-0 > .stack-node-card {
+      border-left: 3px solid #0f172a;
+      background: linear-gradient(180deg, rgba(15, 23, 42, 0.05), rgba(255, 255, 255, 0.98));
+    }
+
+    .stack-node-card {
+      position: relative;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px 14px;
+      background: var(--bg);
+      display: grid;
+      gap: 8px;
+    }
+
+    .stack-node:not(.depth-0) > .stack-node-card::before {
+      content: "";
+      position: absolute;
+      left: -14px;
+      top: 18px;
+      width: 12px;
+      height: 1px;
+      background: var(--border-strong);
+    }
+
+    .stack-node-top {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .stack-node-head {
+      display: grid;
+      gap: 4px;
+      min-width: 0;
+    }
+
+    .stack-node-title {
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--ink);
+      line-height: 1.35;
+    }
+
+    .stack-node-title a {
+      color: inherit;
+      text-decoration: none;
+      border-bottom: 1px solid transparent;
+    }
+
+    .stack-node-title a:hover {
+      border-color: currentColor;
+    }
+
+    .stack-node-subtitle {
+      font-size: 12px;
+      color: var(--ink-3);
+      line-height: 1.45;
+    }
+
+    .stack-node-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      align-items: center;
+    }
+
+    .stack-node-summary {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .stack-node-children {
+      display: grid;
+      gap: 12px;
+      margin-left: 18px;
+      padding-left: 8px;
+    }
+
+    .stack-audit-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .stack-audit-item {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--bg);
+      padding: 10px 12px;
+      display: grid;
+      gap: 6px;
+    }
+
+    .stack-audit-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--ink);
+    }
+
+    .stack-audit-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
     .run-list {
       display: grid;
       gap: 10px;
@@ -1127,10 +1296,10 @@
       <!-- TASKS -->
       <div class="section">
         <div class="section-header">
-          <span class="section-label">Tasks</span>
+          <span class="section-label" id="task-section-label">Tasks</span>
           <span class="tag neutral" id="task-count-tag">0 / 0</span>
         </div>
-      <div class="section-body">
+        <div class="section-body">
           <div class="task-list" id="tasks-list">
             <div class="empty-state">No tasks</div>
           </div>
@@ -1531,6 +1700,8 @@
         var delegationLaunch = asObject(payload.delegation_launch);
         var delegation = asObject(payload.delegation);
         var nativity = asObject(payload.stack_nativity);
+        var stackTree = asObject(payload.stack_tree);
+        var stackLineage = asArray(payload.stack_lineage);
 
         // Title
         document.title = text(cr.title, "CR Report") + " · Sophia";
@@ -1560,8 +1731,8 @@
         if (heroMeta) {
           var tags = [];
           if (nativity.role_label) tags.push(tagHTML(nativity.role_label, nativity.is_aggregate_parent ? "blue" : nativity.is_child ? "warn" : nativity.is_root_parent ? "pass" : "neutral"));
-          if (Number(nativity.pending_child_count || 0) > 0) tags.push(tagHTML("pending children · " + Number(nativity.pending_child_count || 0), "warn"));
-          else if (Number(nativity.child_count || 0) > 0) tags.push(tagHTML("children · " + Number(nativity.child_count || 0), "neutral"));
+          if (Number(nativity.pending_child_count || 0) > 0) tags.push(tagHTML("pending child CRs · " + Number(nativity.pending_child_count || 0), "warn"));
+          else if (Number(nativity.child_count || 0) > 0) tags.push(tagHTML("child CRs · " + Number(nativity.child_count || 0), "neutral"));
           if (cr.author) tags.push(tagHTML(cr.author));
           if (cr.created_at) tags.push(tagHTML(formatRelativeLocal(cr.created_at), "neutral"));
           heroMeta.innerHTML = tags.join("");
@@ -1614,16 +1785,110 @@
         setText("contract-test", contract.test_plan);
         setText("contract-rollback", contract.rollback_plan);
 
-        // Tasks
+        function renderAggregateTreeNode(node, lineageTrail) {
+          var item = asObject(node);
+          var currentLineage = asArray(lineageTrail).concat([item]);
+          var children = asArray(item.children);
+          var statusValue = text(item.status, "unknown");
+          var resolutionState = text(item.resolution_state, "");
+          var statusTone = resolutionState === "resolved" ? "pass" : resolutionState === "pending" ? "warn" : verdictClass(statusValue);
+          var roleTone = item.is_aggregate_parent ? "blue" : item.is_child ? "warn" : item.is_root_parent ? "pass" : "neutral";
+          var summaryBits = [];
+          if (item.branch) summaryBits.push("<span class='meta-chip'>branch:" + esc(item.branch) + "</span>");
+          if (item.base_ref) summaryBits.push("<span class='meta-chip'>base:" + esc(item.base_ref) + "</span>");
+          if (Number(item.tasks_done || 0) || Number(item.tasks_total || 0)) summaryBits.push("<span class='meta-chip'>tasks:" + esc(String(item.tasks_done || 0)) + "/" + esc(String(item.tasks_total || 0)) + "</span>");
+          if (Number(item.pending_child_count || 0) || Number(item.resolved_child_count || 0)) summaryBits.push("<span class='meta-chip'>resolved " + esc(String(item.resolved_child_count || 0)) + " · pending " + esc(String(item.pending_child_count || 0)) + "</span>");
+          var subtitleBits = [];
+          if (currentLineage.length > 1) {
+            subtitleBits.push(currentLineage.slice(0, -1).map(function (part) { return text(part.title, "CR-" + text(part.id, "")); }).join(" / "));
+          }
+          if (item.parent_cr_id) subtitleBits.push("parent CR-" + text(item.parent_cr_id, "—"));
+          return [
+            "<div class='stack-node depth-" + esc(item.depth || 0) + "'>",
+            "<article class='stack-node-card'>",
+            "<div class='stack-node-top'>",
+            "<div class='stack-node-head'>",
+            "<div class='stack-node-title'><a href='/" + esc(item.id) + "'>CR-" + esc(item.id) + " · " + esc(item.title || "Untitled CR") + "</a></div>",
+            subtitleBits.length ? "<div class='stack-node-subtitle'>" + esc(subtitleBits.join(" · ")) + "</div>" : "",
+            "</div>",
+            "<div class='stack-node-tags'>",
+            item.role_label ? tagHTML(item.role_label, roleTone) : "",
+            tagHTML(statusValue, statusTone),
+            resolutionState ? tagHTML(resolutionState, resolutionState === "resolved" ? "pass" : "warn") : "",
+            "</div>",
+            "</div>",
+            summaryBits.length ? "<div class='stack-node-summary'>" + summaryBits.join("") + "</div>" : "",
+            "</article>",
+            children.length ? "<div class='stack-node-children'>" + children.map(function (child) { return renderAggregateTreeNode(child, currentLineage); }).join("") + "</div>" : "",
+            "</div>"
+          ].join("");
+        }
+
+        function renderDelegatedAudit(tasksList) {
+          return asArray(tasksList).filter(function (task) {
+            return asArray(task.delegations).length > 0;
+          }).map(function (task) {
+            var taskDelegations = asArray(task.delegations);
+            var chips = [];
+            chips.push("<span class='meta-chip'>task " + esc(task.id) + "</span>");
+            chips.push("<span class='meta-chip'>status:" + esc(text(task.status, "unknown")) + "</span>");
+            taskDelegations.forEach(function (delegationItem) {
+              var delegationObj = asObject(delegationItem);
+              if (delegationObj.child_cr_id) chips.push("<span class='meta-chip'>child CR-" + esc(delegationObj.child_cr_id) + "</span>");
+              if (delegationObj.child_task_id) chips.push("<span class='meta-chip'>child task:" + esc(delegationObj.child_task_id) + "</span>");
+              if (delegationObj.linked_at) chips.push("<span class='meta-chip' title='" + esc(formatAbsoluteLocal(delegationObj.linked_at)) + "'>linked:" + esc(formatRelativeLocal(delegationObj.linked_at)) + "</span>");
+            });
+            return [
+              "<article class='stack-audit-item'>",
+              "<div class='stack-audit-title'>" + esc(task.title || "Untitled task") + "</div>",
+              "<div class='stack-audit-meta'>" + chips.join("") + "</div>",
+              "</article>"
+            ].join("");
+          }).join("");
+        }
+
+        // Tasks / Stack Work
         var done = tasks.filter(function (t) { return text(t.status, "") === "done"; }).length;
         var taskCountTag = document.getElementById("task-count-tag");
-        if (taskCountTag) taskCountTag.textContent = done + " / " + tasks.length + " done";
+        var taskSectionLabel = document.getElementById("task-section-label");
+        if (taskSectionLabel) taskSectionLabel.textContent = nativity.is_aggregate_parent ? "Child CR Stack" : "Tasks";
+        if (taskCountTag) {
+          if (nativity.is_aggregate_parent) {
+            taskCountTag.textContent = String(Number(nativity.resolved_child_count || 0)) + " resolved · " + String(Number(nativity.pending_child_count || 0)) + " pending";
+          } else {
+            taskCountTag.textContent = done + " / " + tasks.length + " done";
+          }
+        }
 
         var tasksEl = document.getElementById("tasks-list");
         if (tasksEl) {
-          if (!tasks.length) {
+          if (nativity.is_aggregate_parent && Object.keys(stackTree).length) {
+            var auditHTML = renderDelegatedAudit(tasks);
+            tasksEl.className = "stack-shell";
+            tasksEl.innerHTML = [
+              "<section class='stack-tree-panel'>",
+              "<div class='stack-panel-head'>",
+              "<div class='stack-panel-title'>Child CR Thread</div>",
+              "<div class='stack-node-summary'>",
+              tagHTML(text(nativity.role_label, "Aggregate Parent"), "blue"),
+              tagHTML("children " + esc(String(nativity.child_count || 0)), "neutral"),
+              Number(nativity.pending_child_count || 0) > 0 ? tagHTML("pending " + esc(String(nativity.pending_child_count || 0)), "warn") : tagHTML("resolved " + esc(String(nativity.resolved_child_count || 0)), "pass"),
+              "</div>",
+              "</div>",
+              "<div class='stack-tree'>" + renderAggregateTreeNode(stackTree, stackLineage) + "</div>",
+              "</section>",
+              "<section class='stack-audit-panel'>",
+              "<div class='stack-panel-head'>",
+              "<div class='stack-panel-title'>Delegation Links</div>",
+              "</div>",
+              auditHTML ? "<div class='stack-audit-list'>" + auditHTML + "</div>" : "<div class='empty-state'>No delegated task links recorded</div>",
+              "</section>"
+            ].join("");
+          } else if (!tasks.length) {
+            tasksEl.className = "task-list";
             tasksEl.innerHTML = "<div class='empty-state'>No tasks defined</div>";
           } else {
+            tasksEl.className = "task-list";
             tasksEl.innerHTML = tasks.map(function (t) {
               var tc = asObject(t.contract);
               var isDone = text(t.status, "") === "done";
