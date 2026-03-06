@@ -108,14 +108,18 @@ func (s *Service) PackCR(id int, opts PackOptions) (*CRPackView, error) {
 	}
 
 	tasks := append([]model.Subtask(nil), review.CR.Subtasks...)
+	readModel, readModelErr := s.loadCRReadModel()
+	if readModelErr != nil {
+		return nil, readModelErr
+	}
 	return &CRPackView{
 		CR:                review.CR,
 		Contract:          review.CR.Contract,
 		Tasks:             tasks,
 		DelegationRuns:    cloneDelegationRunsForPack(review.CR.DelegationRuns),
-		StackNativity:     s.stackNativityForCR(review.CR),
-		StackLineage:      s.stackLineageForCR(review.CR),
-		StackTree:         s.stackTreeForCR(review.CR),
+		StackNativity:     s.stackNativityForCRWithReadModel(review.CR, readModel),
+		StackLineage:      s.stackLineageForCRWithReadModel(review.CR, readModel),
+		StackTree:         s.stackTreeForCRWithReadModel(review.CR, readModel),
 		Anchors:           anchors,
 		Status:            status,
 		RecentEvents:      events,

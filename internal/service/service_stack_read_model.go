@@ -1,7 +1,6 @@
 package service
 
 import (
-	"sort"
 	"strings"
 
 	"sophia/internal/model"
@@ -46,16 +45,16 @@ type StackTreeNodeView struct {
 }
 
 func (s *Service) stackLineageForCR(cr *model.CR) []StackLineageNodeView {
-	if s == nil || cr == nil || cr.ParentCRID <= 0 {
-		return nil
-	}
-	allCRs, err := s.store.ListCRs()
+	readModel, err := s.loadCRReadModel()
 	if err != nil {
 		return nil
 	}
-	byID := make(map[int]model.CR, len(allCRs))
-	for _, candidate := range allCRs {
-		byID[candidate.ID] = candidate
+	return s.stackLineageForCRWithReadModel(cr, readModel)
+}
+
+func (s *Service) stackLineageForCRWithReadModel(cr *model.CR, readModel *crReadModel) []StackLineageNodeView {
+	if s == nil || cr == nil || cr.ParentCRID <= 0 {
+		return nil
 	}
 
 	lineage := make([]StackLineageNodeView, 0)
@@ -66,11 +65,11 @@ func (s *Service) stackLineageForCR(cr *model.CR) []StackLineageNodeView {
 			break
 		}
 		visited[currentID] = struct{}{}
-		parent, ok := byID[currentID]
+		parent, ok := readModel.crByID(currentID)
 		if !ok {
 			break
 		}
-		nativity := s.stackNativityForCR(&parent)
+		nativity := s.stackNativityForCRWithReadModel(&parent, readModel)
 		lineage = append(lineage, StackLineageNodeView{
 			ID:        parent.ID,
 			UID:       strings.TrimSpace(parent.UID),
@@ -97,35 +96,27 @@ func (s *Service) stackLineageForCR(cr *model.CR) []StackLineageNodeView {
 }
 
 func (s *Service) stackTreeForCR(cr *model.CR) *StackTreeNodeView {
-	if s == nil || cr == nil {
-		return nil
-	}
-	allCRs, err := s.store.ListCRs()
+	readModel, err := s.loadCRReadModel()
 	if err != nil {
 		return nil
 	}
-	childrenByParent := make(map[int][]model.CR)
-	for _, candidate := range allCRs {
-		if candidate.ParentCRID > 0 {
-			childrenByParent[candidate.ParentCRID] = append(childrenByParent[candidate.ParentCRID], candidate)
-		}
-	}
-	if len(childrenByParent[cr.ID]) == 0 {
+	return s.stackTreeForCRWithReadModel(cr, readModel)
+}
+
+func (s *Service) stackTreeForCRWithReadModel(cr *model.CR, readModel *crReadModel) *StackTreeNodeView {
+	if s == nil || cr == nil {
 		return nil
 	}
-	sort.SliceStable(childrenByParent[cr.ID], func(i, j int) bool {
-		if childrenByParent[cr.ID][i].ID == childrenByParent[cr.ID][j].ID {
-			return childrenByParent[cr.ID][i].Title < childrenByParent[cr.ID][j].Title
-		}
-		return childrenByParent[cr.ID][i].ID < childrenByParent[cr.ID][j].ID
-	})
-	root := s.buildStackTreeNode(*cr, 0, childrenByParent)
+	if len(readModel.childrenOf(cr.ID)) == 0 {
+		return nil
+	}
+	root := s.buildStackTreeNode(*cr, 0, readModel)
 	return &root
 }
 
-func (s *Service) buildStackTreeNode(cr model.CR, depth int, childrenByParent map[int][]model.CR) StackTreeNodeView {
-	nativity := s.stackNativityForCR(&cr)
-	aggregate := s.aggregateParentViewForCR(&cr)
+func (s *Service) buildStackTreeNode(cr model.CR, depth int, readModel *crReadModel) StackTreeNodeView {
+	nativity := s.stackNativityForCRWithReadModel(&cr, readModel)
+	aggregate := s.aggregateParentViewForCRWithReadModel(&cr, readModel)
 	assessment := assessAggregateParentTasks(cr.Subtasks)
 	node := StackTreeNodeView{
 		ID:                    cr.ID,
@@ -146,21 +137,15 @@ func (s *Service) buildStackTreeNode(cr model.CR, depth int, childrenByParent ma
 		TasksDone:             countTasksByStatus(cr.Subtasks, model.TaskStatusDone),
 		TasksDelegated:        countTasksByStatus(cr.Subtasks, model.TaskStatusDelegated),
 		TasksDelegatedPending: assessment.PendingDelegatedTaskCount,
-		ChildCount:            len(childrenByParent[cr.ID]),
+		ChildCount:            len(readModel.childrenOf(cr.ID)),
 		ResolvedChildCount:    len(aggregate.ResolvedChildCRIDs),
 		PendingChildCount:     len(aggregate.PendingChildCRIDs),
 	}
 
-	if children := childrenByParent[cr.ID]; len(children) > 0 {
-		sort.SliceStable(children, func(i, j int) bool {
-			if children[i].ID == children[j].ID {
-				return children[i].Title < children[j].Title
-			}
-			return children[i].ID < children[j].ID
-		})
+	if children := readModel.childrenOf(cr.ID); len(children) > 0 {
 		node.Children = make([]StackTreeNodeView, 0, len(children))
 		for _, child := range children {
-			childNode := s.buildStackTreeNode(child, depth+1, childrenByParent)
+			childNode := s.buildStackTreeNode(child, depth+1, readModel)
 			childNode.ResolutionState = childResolutionState(aggregate, child.ID)
 			node.Children = append(node.Children, childNode)
 		}
