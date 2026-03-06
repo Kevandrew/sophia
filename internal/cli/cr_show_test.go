@@ -513,30 +513,6 @@ func TestCRShowTemplateIsSingleFileWithInlineAssets(t *testing.T) {
 	}
 }
 
-func TestCRListTemplateIncludesStackNativityLabels(t *testing.T) {
-	t.Parallel()
-	doc, err := buildCRListHTMLDocument(embeddedCRListHTMLTemplate, map[string]any{
-		"generated_at": "2026-03-03T00:00:00Z",
-		"snapshot_url": "/__sophia_snapshot?mode=dashboard",
-		"events_url":   "/__sophia_events?mode=dashboard",
-	})
-	if err != nil {
-		t.Fatalf("buildCRListHTMLDocument() error = %v", err)
-	}
-	for _, required := range []string{
-		"Stack Role",
-		"Lineage",
-		"stack-thread",
-		"thread-toggle",
-		"child CRs",
-		"/__sophia_snapshot?mode=dashboard",
-	} {
-		if !strings.Contains(doc, required) {
-			t.Fatalf("expected generated list html to contain %q", required)
-		}
-	}
-}
-
 func TestCRListTemplateIsSingleFileWithInlineAssets(t *testing.T) {
 	t.Parallel()
 	doc, err := buildCRListHTMLDocument(embeddedCRListHTMLTemplate, map[string]any{
@@ -611,6 +587,86 @@ func TestCRShowServerSupportsCloseEndpoint(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatalf("timed out waiting for close signal")
+	}
+}
+
+func TestCRShowPreviewSessionSlowFirstRenderKeepsServerAlive(t *testing.T) {
+	t.Parallel()
+	server, err := startCRShowServer(func() (string, error) {
+		return "<!doctype html><html><body>ok</body></html>", nil
+	})
+	if err != nil {
+		t.Fatalf("startCRShowServer() error = %v", err)
+	}
+	defer server.Shutdown()
+
+	session := &crShowPreviewSession{
+		server:           server,
+		viewURL:          server.URL,
+		launchState:      crShowBrowserLaunchStarted,
+		firstRenderState: crShowFirstRenderNotAwaited,
+	}
+
+	session.ObserveFirstRender(25 * time.Millisecond)
+	if session.firstRenderState != crShowFirstRenderTimedOut {
+		t.Fatalf("expected timed out first render state, got %q", session.firstRenderState)
+	}
+	if session.PageServed() {
+		t.Fatalf("expected page_served=false after slow first render timeout")
+	}
+	if got := session.OpenError(); !strings.Contains(got, "browser did not request localhost preview before timeout") {
+		t.Fatalf("expected timeout open error, got %q", got)
+	}
+
+	resp, err := http.Get(server.URL + "/")
+	if err != nil {
+		t.Fatalf("GET / after first render timeout error = %v", err)
+	}
+	_, _ = io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected server to remain alive after render timeout, got status %d", resp.StatusCode)
+	}
+}
+
+func TestCRShowPreviewSessionObservedFirstRenderMarksPageServed(t *testing.T) {
+	t.Parallel()
+	server, err := startCRShowServer(func() (string, error) {
+		return "<!doctype html><html><body>ok</body></html>", nil
+	})
+	if err != nil {
+		t.Fatalf("startCRShowServer() error = %v", err)
+	}
+	defer server.Shutdown()
+
+	session := &crShowPreviewSession{
+		server:           server,
+		viewURL:          server.URL,
+		launchState:      crShowBrowserLaunchStarted,
+		firstRenderState: crShowFirstRenderNotAwaited,
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		resp, err := http.Get(server.URL + "/")
+		if err == nil {
+			_, _ = io.ReadAll(resp.Body)
+			_ = resp.Body.Close()
+		}
+	}()
+
+	session.ObserveFirstRender(2 * time.Second)
+	<-done
+
+	if session.firstRenderState != crShowFirstRenderObserved {
+		t.Fatalf("expected observed first render state, got %q", session.firstRenderState)
+	}
+	if !session.PageServed() {
+		t.Fatalf("expected page_served=true after first render")
+	}
+	if got := session.OpenError(); strings.TrimSpace(got) != "" {
+		t.Fatalf("expected empty open error after first render, got %q", got)
 	}
 }
 

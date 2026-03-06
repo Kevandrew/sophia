@@ -1,0 +1,115 @@
+schema_version: sophia.cr_archive.v1
+notice: Historical archive snapshot. Corrections are append-only revisions.
+archived_at: "2026-03-06T03:29:18Z"
+revision: 1
+cr:
+    id: 148
+    uid: cr_8e580071-e2d8-48f6-9d80-5e6ea7938038
+    title: Cache cr show metadata and build dashboard snapshots from a shared read model
+    description: Make `sophia cr show` fast by eliminating repeated full-CR YAML scans during dashboard and stack rendering. Add a repo-local cached CR metadata/index path that loads CR YAML once per process refresh, derives stack data from shared preloaded state, and gives the dashboard/SSE path a snappy read model instead of rebuilding from disk on every helper call.
+    status: merged
+    base_branch: main
+    base_ref: cr-refactor-cr-show-preview-launch-into-an-explicit-6ed2
+    base_commit: 1a7bcb74a3d5c2c75e9b11c943747af06dfe42a4
+    branch: cr-cache-cr-show-metadata-and-build-dashboard-snaps-8e58
+    merged_at: "2026-03-06T03:29:18Z"
+    merged_by: Kevandrew <143258544+Kevandrew@users.noreply.github.com>
+contract:
+    why: Make dashboard-mode `sophia cr show` fast enough to feel like a local control plane instead of a report generator. Today the command repeatedly scans every CR YAML file, decodes all CRs multiple times per request, and then recomputes stack nativity/lineage/tree data inside per-row helpers. That turns a simple localhost preview into repeated full-repo metadata reads and accidental O(n²) behavior as the CR count grows. This CR introduces a repo-local cached metadata/read-model path so CR metadata is loaded once, reused across dashboard and per-CR snapshot builders, and incrementally refreshable within the process lifecycle. The result should be a much snappier dashboard, cheaper SSE refreshes, and a foundation for later disk-backed or watcher-driven invalidation without changing CR YAML as the source of truth.
+    scope:
+        - internal/cli
+        - internal/service
+        - internal/store
+    non_goals:
+        - No change to CR YAML schema or metadata source of truth.
+        - No full frontend rewrite in this CR.
+    invariants:
+        - CR YAML files remain the source of truth; cache state must be derived and refreshable.
+        - Dashboard and stack read models must be built from shared preloaded CR state, not repeated store scans.
+        - SSE and snapshot payload semantics remain compatible with the current UI.
+    blast_radius: Touches store/service read paths used by cr show, stack nativity/read-model helpers, dashboard snapshot construction, and any code paths that rely on ListCRs during preview generation. Failure modes include stale snapshot data, incorrect stack lineage/tree derivation, or cache invalidation bugs causing missing CR updates.
+    risk_tier_hint: medium
+    risk_rationale: The cache is internal-only and repo-local, but it changes the read path for a primary CLI/UI surface and must not serve stale or incorrect CR graph data.
+    test_plan: go test ./internal/service ./internal/cli && go test ./... && manually compare `sophia cr show --json --no-open` and `sophia cr show <id> --json --no-open` before/after for output compatibility and latency.
+    rollback_plan: Revert the CR to restore direct uncached metadata reads and live dashboard derivation.
+tasks:
+    - id: 1
+      title: Add a shared cached CR metadata snapshot for read-only preview flows
+      status: done
+      contract:
+        intent: Introduce a shared repo-local CR metadata snapshot/index for read-only preview flows so the dashboard and stack helpers can load CR YAML once and reuse decoded CR state within a process refresh.
+        acceptance_criteria:
+            - Read-only preview code can obtain all CRs from one cached snapshot call instead of repeated store.ListCRs scans.
+            - The cache can be refreshed explicitly and remains derived from CR YAML source files.
+        scope:
+            - internal/service
+            - internal/store
+      checkpoint:
+        commit: 9b5ad1c2
+        at: "2026-03-06T01:32:11Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_cr_read_model.go
+            - internal/store/cr_cache.go
+            - internal/store/store.go
+    - id: 2
+      title: Refactor stack nativity/lineage/tree helpers to consume preloaded CR state
+      status: done
+      contract:
+        intent: Change stack nativity, lineage, and tree derivation to operate on shared preloaded CR state instead of calling ListCRs internally per row or per helper invocation.
+        acceptance_criteria:
+            - Dashboard row construction does not trigger repeated full-CR metadata scans through stack helper calls.
+            - Per-CR pack/stack outputs remain semantically compatible with current CLI/template consumers.
+        scope:
+            - internal/cli
+            - internal/service
+      checkpoint:
+        commit: bfd5fb4f
+        at: "2026-03-06T01:32:11Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_pack.go
+            - internal/service/service_stack_read_model.go
+            - internal/service/service_stack_roles.go
+    - id: 3
+      title: Build dashboard snapshots from the cached read model instead of repeated scans
+      status: done
+      contract:
+        intent: Build dashboard snapshots from the cached read model so one pass over preloaded CR state produces rows, selected CR data, and timeline output without redundant YAML reloads.
+        acceptance_criteria:
+            - Dashboard snapshot construction uses one shared metadata/read-model source for search results, rows, selected CR, and timeline.
+            - The resulting JSON payload remains compatible with the current dashboard template and SSE consumers.
+        scope:
+            - internal/cli
+            - internal/service
+      checkpoint:
+        commit: cb94520f
+        at: "2026-03-06T01:32:11Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/cr_cmd_show.go
+            - internal/service/service_cr_search.go
+    - id: 4
+      title: Add regression and compatibility coverage for cached preview snapshots
+      status: done
+      contract:
+        intent: Protect the cached preview read path with tests covering compatibility and the removal of repeated store scans in dashboard/stack rendering.
+        acceptance_criteria:
+            - Cached snapshot outputs remain compatible with existing per-CR and dashboard JSON structure.
+            - Service or CLI tests fail if dashboard/stack rendering regresses into repeated store.ListCRs scans.
+        scope:
+            - internal/cli
+            - internal/service
+            - internal/store
+      checkpoint:
+        commit: e04bd5e9
+        at: "2026-03-06T01:32:11Z"
+        source: task_checkpoint
+        scope:
+            - internal/store/store_test.go
+git_summary:
+    base_parent: 1a7bcb74a3d5c2c75e9b11c943747af06dfe42a4
+    cr_parent: b0f1654d9c58e0a8404f1051d9ac86b1ea77da04
+    files_changed: []
+    diffstat:
+        summary: 0 files changed, 0 insertions(+), 0 deletions(-)

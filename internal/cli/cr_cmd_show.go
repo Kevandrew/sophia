@@ -40,8 +40,35 @@ const (
 	defaultCRShowCheckpointsLimit                = 10
 	defaultCRShowSSEPollInterval                 = 2 * time.Second
 	defaultCRShowSSEKeepaliveInterval            = 15 * time.Second
+	defaultCRShowInitialRenderWait               = 2 * time.Second
 	defaultCRShowDelegationRuntime               = "mock"
 )
+
+type crShowBrowserLaunchState string
+
+const (
+	crShowBrowserLaunchNotAttempted crShowBrowserLaunchState = "not_attempted"
+	crShowBrowserLaunchStarted      crShowBrowserLaunchState = "started"
+	crShowBrowserLaunchFailed       crShowBrowserLaunchState = "failed"
+)
+
+type crShowFirstRenderState string
+
+const (
+	crShowFirstRenderNotAwaited crShowFirstRenderState = "not_awaited"
+	crShowFirstRenderObserved   crShowFirstRenderState = "observed"
+	crShowFirstRenderTimedOut   crShowFirstRenderState = "timed_out"
+)
+
+type crShowPreviewSession struct {
+	server           *crShowServer
+	viewURL          string
+	templateSource   string
+	launchState      crShowBrowserLaunchState
+	firstRenderState crShowFirstRenderState
+	openErr          string
+	closeReason      string
+}
 
 func newCRShowCmd() *cobra.Command {
 	var (
@@ -134,21 +161,19 @@ func resolveCRShowMode(svc *service.Service, args []string, forceDashboard bool)
 }
 
 func runCRShowPerCR(cmd *cobra.Command, asJSON bool, noOpen bool, svc *service.Service, id int, eventsLimit int, checkpointsLimit int) error {
+	if !asJSON {
+		fmt.Fprintf(cmd.OutOrStdout(), "Preparing CR %d localhost preview...\n", id)
+	}
 	view, payload, err := buildCRShowSnapshot(svc, id, eventsLimit, checkpointsLimit)
 	if err != nil {
 		return commandError(cmd, asJSON, err)
 	}
 	const templateSource = "embedded:internal/cli/templates/cr_show.html"
 
-	openAttempted := !noOpen
-	opened := false
-	pageServed := false
-	openErr := ""
-	viewURL := ""
-	closeReason := ""
-	var server *crShowServer
-	if openAttempted {
-		server, err = startCRShowServerWithLiveRoutesAndLaunch(
+	var preview *crShowPreviewSession
+	if !noOpen {
+		preview, err = startCRShowPreviewSession(
+			templateSource,
 			func() (string, error) {
 				_, _, snapshotErr := buildCRDashboardSnapshot(svc, model.CRSearchQuery{}, defaultCRListLimit, defaultCRTimelineLimit, id)
 				if snapshotErr != nil {
@@ -178,44 +203,37 @@ func runCRShowPerCR(cmd *cobra.Command, asJSON bool, noOpen bool, svc *service.S
 				return livePayload, nil
 			},
 			buildCRShowPerCRLaunchHandler(svc, view),
+			fmt.Sprintf("/%d", id),
 		)
 		if err != nil {
 			return commandError(cmd, asJSON, fmt.Errorf("start localhost preview: %w", err))
 		}
-		defer server.Shutdown()
-		viewURL = server.URL
-		openTarget := fmt.Sprintf("%s/%d", strings.TrimRight(viewURL, "/"), id)
-		if err := openCRShowInBrowser(openTarget); err != nil {
-			openErr = err.Error()
-		} else {
-			opened = true
-			pageServed = server.WaitForFirstRender(20 * time.Second)
-			if !pageServed {
-				openErr = nonEmpty(openErr, "browser did not request localhost preview before timeout")
-			}
-		}
+		defer preview.Shutdown()
+	} else {
+		preview = newCRShowPreviewSession(templateSource)
 	}
 
 	if asJSON {
+		preview.ObserveFirstRender(defaultCRShowInitialRenderWait)
 		return writeJSONSuccess(cmd, map[string]any{
 			"cr_id":           id,
 			"cr_uid":          view.CR.UID,
 			"view_mode":       "localhost_ephemeral",
-			"url":             viewURL,
+			"url":             preview.viewURL,
 			"template_source": templateSource,
 			"warnings":        stringSliceOrEmpty(view.Warnings),
-			"open_attempted":  openAttempted,
-			"opened":          opened,
-			"page_served":     pageServed,
-			"close_reason":    closeReason,
-			"open_error":      openErr,
+			"open_attempted":  preview.OpenAttempted(),
+			"opened":          preview.Opened(),
+			"page_served":     preview.PageServed(),
+			"close_reason":    preview.closeReason,
+			"open_error":      preview.OpenError(),
 			"generated_at":    payload["generated_at"],
 		})
 	}
 
 	fmt.Fprintf(cmd.OutOrStdout(), "CR %d localhost preview prepared.\n", id)
-	if strings.TrimSpace(viewURL) != "" {
-		fmt.Fprintf(cmd.OutOrStdout(), "Preview URL: %s\n", viewURL)
+	if strings.TrimSpace(preview.viewURL) != "" {
+		fmt.Fprintf(cmd.OutOrStdout(), "Preview URL: %s\n", preview.viewURL)
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "Template source: %s\n", templateSource)
 	if len(view.Warnings) > 0 {
@@ -224,39 +242,26 @@ func runCRShowPerCR(cmd *cobra.Command, asJSON bool, noOpen bool, svc *service.S
 			fmt.Fprintf(cmd.OutOrStdout(), "- %s\n", warning)
 		}
 	}
-	if noOpen {
-		fmt.Fprintln(cmd.OutOrStdout(), "Browser open skipped (--no-open).")
-	} else if opened && pageServed {
-		fmt.Fprintln(cmd.OutOrStdout(), "Opened report in your default browser.")
-		fmt.Fprintln(cmd.OutOrStdout(), "Preview is live. Use the page's Close Preview button (or Ctrl+C) to stop the instance.")
-		closeReason = waitForCRShowClose(server)
-	} else if opened {
-		fmt.Fprintf(cmd.OutOrStdout(), "Browser launch started, but no page request was observed in time.\n")
-	} else {
-		fmt.Fprintf(cmd.OutOrStdout(), "Could not open browser automatically: %s\n", nonEmpty(openErr, "unknown error"))
-	}
-	if strings.TrimSpace(closeReason) != "" {
-		fmt.Fprintf(cmd.OutOrStdout(), "Preview closed (%s).\n", closeReason)
-	}
+	printCRShowPreviewSessionStatus(cmd, preview, "Opened report in your default browser.")
+	preview.WaitForClose()
+	printCRShowPreviewSessionClose(cmd, preview)
 	return nil
 }
 
 func runCRShowDashboard(cmd *cobra.Command, asJSON bool, noOpen bool, svc *service.Service, query model.CRSearchQuery, listLimit int, timelineLimit int, eventsLimit int, checkpointsLimit int, selectedHint int) error {
+	if !asJSON {
+		fmt.Fprintln(cmd.OutOrStdout(), "Preparing CR dashboard localhost preview...")
+	}
 	payload, selectedCRID, err := buildCRDashboardSnapshot(svc, query, listLimit, timelineLimit, selectedHint)
 	if err != nil {
 		return commandError(cmd, asJSON, err)
 	}
 	const templateSource = "embedded:internal/cli/templates/cr_list.html"
 
-	openAttempted := !noOpen
-	opened := false
-	pageServed := false
-	openErr := ""
-	viewURL := ""
-	closeReason := ""
-	var server *crShowServer
-	if openAttempted {
-		server, err = startCRShowServerWithLiveRoutes(
+	var preview *crShowPreviewSession
+	if !noOpen {
+		preview, err = startCRShowPreviewSession(
+			templateSource,
 			func() (string, error) {
 				_, _, snapshotErr := buildCRDashboardSnapshot(svc, query, listLimit, timelineLimit, selectedHint)
 				if snapshotErr != nil {
@@ -285,22 +290,15 @@ func runCRShowDashboard(cmd *cobra.Command, asJSON bool, noOpen bool, svc *servi
 				}
 				return livePayload, nil
 			},
+			nil,
+			"/",
 		)
 		if err != nil {
 			return commandError(cmd, asJSON, fmt.Errorf("start localhost preview: %w", err))
 		}
-		defer server.Shutdown()
-		viewURL = server.URL
-		openTarget := strings.TrimRight(viewURL, "/") + "/"
-		if err := openCRShowInBrowser(openTarget); err != nil {
-			openErr = err.Error()
-		} else {
-			opened = true
-			pageServed = server.WaitForFirstRender(20 * time.Second)
-			if !pageServed {
-				openErr = nonEmpty(openErr, "browser did not request localhost preview before timeout")
-			}
-		}
+		defer preview.Shutdown()
+	} else {
+		preview = newCRShowPreviewSession(templateSource)
 	}
 
 	dashboard := mapStringAny(payload["dashboard"])
@@ -312,15 +310,16 @@ func runCRShowDashboard(cmd *cobra.Command, asJSON bool, noOpen bool, svc *servi
 	}
 
 	if asJSON {
+		preview.ObserveFirstRender(defaultCRShowInitialRenderWait)
 		return writeJSONSuccess(cmd, map[string]any{
 			"view_mode":       "localhost_dashboard",
-			"url":             viewURL,
+			"url":             preview.viewURL,
 			"template_source": templateSource,
-			"open_attempted":  openAttempted,
-			"opened":          opened,
-			"page_served":     pageServed,
-			"close_reason":    closeReason,
-			"open_error":      openErr,
+			"open_attempted":  preview.OpenAttempted(),
+			"opened":          preview.Opened(),
+			"page_served":     preview.PageServed(),
+			"close_reason":    preview.closeReason,
+			"open_error":      preview.OpenError(),
 			"generated_at":    payload["generated_at"],
 			"selected_cr_id":  selectedValue,
 			"filters":         filters,
@@ -329,24 +328,13 @@ func runCRShowDashboard(cmd *cobra.Command, asJSON bool, noOpen bool, svc *servi
 	}
 
 	fmt.Fprintln(cmd.OutOrStdout(), "CR dashboard localhost preview prepared.")
-	if strings.TrimSpace(viewURL) != "" {
-		fmt.Fprintf(cmd.OutOrStdout(), "Preview URL: %s\n", viewURL)
+	if strings.TrimSpace(preview.viewURL) != "" {
+		fmt.Fprintf(cmd.OutOrStdout(), "Preview URL: %s\n", preview.viewURL)
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "Template source: %s\n", templateSource)
-	if noOpen {
-		fmt.Fprintln(cmd.OutOrStdout(), "Browser open skipped (--no-open).")
-	} else if opened && pageServed {
-		fmt.Fprintln(cmd.OutOrStdout(), "Opened dashboard in your default browser.")
-		fmt.Fprintln(cmd.OutOrStdout(), "Preview is live. Use the page's Close Preview button (or Ctrl+C) to stop the instance.")
-		closeReason = waitForCRShowClose(server)
-	} else if opened {
-		fmt.Fprintf(cmd.OutOrStdout(), "Browser launch started, but no page request was observed in time.\n")
-	} else {
-		fmt.Fprintf(cmd.OutOrStdout(), "Could not open browser automatically: %s\n", nonEmpty(openErr, "unknown error"))
-	}
-	if strings.TrimSpace(closeReason) != "" {
-		fmt.Fprintf(cmd.OutOrStdout(), "Preview closed (%s).\n", closeReason)
-	}
+	printCRShowPreviewSessionStatus(cmd, preview, "Opened dashboard in your default browser.")
+	preview.WaitForClose()
+	printCRShowPreviewSessionClose(cmd, preview)
 	return nil
 }
 
@@ -409,6 +397,130 @@ func buildCRShowPerCRLaunchHandler(svc *service.Service, view *service.CRPackVie
 			"run":                 delegationRunToJSONMap(run),
 		}, http.StatusAccepted, nil
 	}
+}
+
+func newCRShowPreviewSession(templateSource string) *crShowPreviewSession {
+	return &crShowPreviewSession{
+		templateSource:   templateSource,
+		launchState:      crShowBrowserLaunchNotAttempted,
+		firstRenderState: crShowFirstRenderNotAwaited,
+	}
+}
+
+func startCRShowPreviewSession(
+	templateSource string,
+	renderRoot func() (string, error),
+	renderCR func(id int) (string, error),
+	snapshotRoot crShowSnapshotRenderer,
+	snapshotCR crShowCRSnapshotRenderer,
+	launchHandler crShowLaunchHandler,
+	openPath string,
+) (*crShowPreviewSession, error) {
+	server, err := startCRShowServerWithLiveRoutesAndLaunch(renderRoot, renderCR, snapshotRoot, snapshotCR, launchHandler)
+	if err != nil {
+		return nil, err
+	}
+	session := newCRShowPreviewSession(templateSource)
+	session.server = server
+	session.viewURL = server.URL
+	targetURL := strings.TrimRight(session.viewURL, "/") + normalizeCRShowOpenPath(openPath)
+	if err := openCRShowInBrowser(targetURL); err != nil {
+		session.launchState = crShowBrowserLaunchFailed
+		session.openErr = err.Error()
+		return session, nil
+	}
+	session.launchState = crShowBrowserLaunchStarted
+	return session, nil
+}
+
+func normalizeCRShowOpenPath(openPath string) string {
+	trimmed := strings.TrimSpace(openPath)
+	if trimmed == "" || trimmed == "/" {
+		return "/"
+	}
+	if strings.HasPrefix(trimmed, "/") {
+		return trimmed
+	}
+	return "/" + trimmed
+}
+
+func (s *crShowPreviewSession) OpenAttempted() bool {
+	return s != nil && s.launchState != crShowBrowserLaunchNotAttempted
+}
+
+func (s *crShowPreviewSession) Opened() bool {
+	return s != nil && s.launchState == crShowBrowserLaunchStarted
+}
+
+func (s *crShowPreviewSession) PageServed() bool {
+	return s != nil && s.firstRenderState == crShowFirstRenderObserved
+}
+
+func (s *crShowPreviewSession) OpenError() string {
+	if s == nil {
+		return ""
+	}
+	if s.openedButNotRendered() {
+		return nonEmpty(s.openErr, "browser did not request localhost preview before timeout")
+	}
+	return s.openErr
+}
+
+func (s *crShowPreviewSession) openedButNotRendered() bool {
+	return s != nil && s.launchState == crShowBrowserLaunchStarted && s.firstRenderState == crShowFirstRenderTimedOut
+}
+
+func (s *crShowPreviewSession) ObserveFirstRender(timeout time.Duration) {
+	if s == nil || s.server == nil || s.launchState != crShowBrowserLaunchStarted || s.firstRenderState != crShowFirstRenderNotAwaited {
+		return
+	}
+	if s.server.WaitForFirstRender(timeout) {
+		s.firstRenderState = crShowFirstRenderObserved
+		return
+	}
+	s.firstRenderState = crShowFirstRenderTimedOut
+}
+
+func (s *crShowPreviewSession) WaitForClose() {
+	if s == nil || s.server == nil || s.launchState == crShowBrowserLaunchNotAttempted {
+		return
+	}
+	s.closeReason = waitForCRShowClose(s.server)
+}
+
+func (s *crShowPreviewSession) Shutdown() {
+	if s == nil || s.server == nil {
+		return
+	}
+	s.server.Shutdown()
+}
+
+func printCRShowPreviewSessionStatus(cmd *cobra.Command, session *crShowPreviewSession, openedMessage string) {
+	if cmd == nil || session == nil {
+		return
+	}
+	switch session.launchState {
+	case crShowBrowserLaunchNotAttempted:
+		fmt.Fprintln(cmd.OutOrStdout(), "Browser open skipped (--no-open).")
+	case crShowBrowserLaunchFailed:
+		fmt.Fprintf(cmd.OutOrStdout(), "Could not open browser automatically: %s\n", nonEmpty(session.openErr, "unknown error"))
+		fmt.Fprintln(cmd.OutOrStdout(), "Preview is live. Open the URL manually, then use the page's Close Preview button (or Ctrl+C) to stop the instance.")
+	case crShowBrowserLaunchStarted:
+		session.ObserveFirstRender(defaultCRShowInitialRenderWait)
+		if session.PageServed() {
+			fmt.Fprintln(cmd.OutOrStdout(), openedMessage)
+		} else {
+			fmt.Fprintln(cmd.OutOrStdout(), "Browser launch started. Preview is running; open the URL manually if the browser is slow to attach.")
+		}
+		fmt.Fprintln(cmd.OutOrStdout(), "Preview is live. Use the page's Close Preview button (or Ctrl+C) to stop the instance.")
+	}
+}
+
+func printCRShowPreviewSessionClose(cmd *cobra.Command, session *crShowPreviewSession) {
+	if cmd == nil || session == nil || strings.TrimSpace(session.closeReason) == "" {
+		return
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "Preview closed (%s).\n", session.closeReason)
 }
 
 func decodeCRShowDelegationLaunchInput(r *http.Request) (crShowDelegationLaunchInput, error) {
@@ -652,21 +764,13 @@ func buildCRDashboardSnapshot(svc *service.Service, query model.CRSearchQuery, l
 		timelineLimit = defaultCRTimelineLimit
 	}
 
-	results, err := svc.SearchCRs(query)
+	readModel, err := svc.LoadCRReadModelForCLI()
 	if err != nil {
 		return nil, 0, err
 	}
+	results := searchCRsForDashboard(readModel, query)
 	if strings.TrimSpace(query.Status) == "" {
 		results = filterDashboardResultsDefaultStatus(results)
-	}
-	allCRs, err := svc.ListCRs()
-	if err != nil {
-		return nil, 0, err
-	}
-
-	crByID := make(map[int]model.CR, len(allCRs))
-	for _, cr := range allCRs {
-		crByID[cr.ID] = cr
 	}
 
 	resultByID := make(map[int]model.CRSearchResult, len(results))
@@ -678,11 +782,11 @@ func buildCRDashboardSnapshot(svc *service.Service, query model.CRSearchQuery, l
 		if i >= listLimit {
 			continue
 		}
-		cr, ok := crByID[result.ID]
+		cr, ok := readModel.CRByIDForCLI(result.ID)
 		if !ok {
 			continue
 		}
-		rows = append(rows, buildDashboardCRRow(svc, result, cr))
+		rows = append(rows, buildDashboardCRRow(svc, readModel, result, cr))
 	}
 
 	selectedCRID := 0
@@ -697,11 +801,11 @@ func buildCRDashboardSnapshot(svc *service.Service, query model.CRSearchQuery, l
 
 	var selected map[string]any
 	if selectedCRID > 0 {
-		if cr, ok := crByID[selectedCRID]; ok {
+		if cr, ok := readModel.CRByIDForCLI(selectedCRID); ok {
 			if result, hasResult := resultByID[selectedCRID]; hasResult {
-				selected = buildDashboardSelectedCR(svc, result, cr)
+				selected = buildDashboardSelectedCR(svc, readModel, result, cr)
 			} else {
-				selected = buildDashboardSelectedCR(svc, model.CRSearchResult{
+				selected = buildDashboardSelectedCR(svc, readModel, model.CRSearchResult{
 					ID:         cr.ID,
 					UID:        cr.UID,
 					Title:      cr.Title,
@@ -730,7 +834,7 @@ func buildCRDashboardSnapshot(svc *service.Service, query model.CRSearchQuery, l
 	}
 
 	timelineItems := make([]dashboardTimelineEntry, 0)
-	for _, cr := range allCRs {
+	for _, cr := range readModel.AllCRsForCLI() {
 		if _, ok := filteredIDs[cr.ID]; !ok {
 			continue
 		}
@@ -813,6 +917,42 @@ func buildCRDashboardSnapshot(svc *service.Service, query model.CRSearchQuery, l
 	return payload, selectedCRID, nil
 }
 
+func searchCRsForDashboard(readModel *service.CRReadModelView, query model.CRSearchQuery) []model.CRSearchResult {
+	if readModel == nil {
+		return nil
+	}
+	results := make([]model.CRSearchResult, 0, len(readModel.AllCRsForCLI()))
+	for _, cr := range readModel.AllCRsForCLI() {
+		if !service.MatchCRSearchForCLI(cr, query) {
+			continue
+		}
+		tasksOpen, tasksDone, _ := service.CountTaskStatsForCLI(cr.Subtasks)
+		riskTier := cr.Contract.RiskTierHint
+		if riskTier == "" {
+			riskTier = "-"
+		}
+		results = append(results, model.CRSearchResult{
+			ID:         cr.ID,
+			UID:        cr.UID,
+			Title:      cr.Title,
+			Status:     cr.Status,
+			Branch:     cr.Branch,
+			BaseBranch: cr.BaseBranch,
+			ParentCRID: cr.ParentCRID,
+			RiskTier:   riskTier,
+			TasksTotal: len(cr.Subtasks),
+			TasksOpen:  tasksOpen,
+			TasksDone:  tasksDone,
+			CreatedAt:  cr.CreatedAt,
+			UpdatedAt:  cr.UpdatedAt,
+		})
+	}
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].ID < results[j].ID
+	})
+	return results
+}
+
 func filterDashboardResultsDefaultStatus(results []model.CRSearchResult) []model.CRSearchResult {
 	if len(results) == 0 {
 		return results
@@ -841,7 +981,7 @@ type dashboardTimelineEntry struct {
 	CRStatus string
 }
 
-func buildDashboardCRRow(svc *service.Service, result model.CRSearchResult, cr model.CR) map[string]any {
+func buildDashboardCRRow(svc *service.Service, readModel *service.CRReadModelView, result model.CRSearchResult, cr model.CR) map[string]any {
 	lastEventAt := ""
 	if n := len(cr.Events); n > 0 {
 		lastEventAt = cr.Events[n-1].TS
@@ -850,9 +990,9 @@ func buildDashboardCRRow(svc *service.Service, result model.CRSearchResult, cr m
 	lineage := []service.StackLineageNodeView{}
 	var tree *service.StackTreeNodeView
 	if svc != nil {
-		nativity = svc.StackNativityForCLI(&cr)
-		lineage = svc.StackLineageForCLI(&cr)
-		tree = svc.StackTreeForCLI(&cr)
+		nativity = svc.StackNativityForCLIWithReadModel(&cr, readModel)
+		lineage = svc.StackLineageForCLIWithReadModel(&cr, readModel)
+		tree = svc.StackTreeForCLIWithReadModel(&cr, readModel)
 	}
 	return map[string]any{
 		"id":                  result.ID,
@@ -884,8 +1024,8 @@ func buildDashboardCRRow(svc *service.Service, result model.CRSearchResult, cr m
 	}
 }
 
-func buildDashboardSelectedCR(svc *service.Service, result model.CRSearchResult, cr model.CR) map[string]any {
-	return buildDashboardCRRow(svc, result, cr)
+func buildDashboardSelectedCR(svc *service.Service, readModel *service.CRReadModelView, result model.CRSearchResult, cr model.CR) map[string]any {
+	return buildDashboardCRRow(svc, readModel, result, cr)
 }
 
 func parseRFC3339OrZero(raw string) time.Time {

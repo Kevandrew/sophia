@@ -183,6 +183,108 @@ func TestListCRsSortedByID(t *testing.T) {
 	}
 }
 
+func TestListCRsUsesCachedMetadataWhenFilesAreUnchanged(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	s := New(dir)
+	if err := s.Init("main", model.MetadataModeLocal); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	cr := &model.CR{
+		ID:          1,
+		Title:       "cached list",
+		Description: "cache",
+		Status:      model.StatusInProgress,
+		BaseBranch:  "main",
+		Branch:      "cr-cache",
+		Notes:       []string{},
+		Subtasks:    []model.Subtask{},
+		Events:      []model.Event{},
+		CreatedAt:   "2026-01-01T00:00:00Z",
+		UpdatedAt:   "2026-01-01T00:00:00Z",
+	}
+	if err := s.SaveCR(cr); err != nil {
+		t.Fatalf("SaveCR() error = %v", err)
+	}
+
+	if _, err := s.ListCRs(); err != nil {
+		t.Fatalf("ListCRs() initial error = %v", err)
+	}
+
+	crPath := filepath.Join(dir, ".sophia", "cr", "1.yaml")
+	info, err := os.Stat(crPath)
+	if err != nil {
+		t.Fatalf("stat cr file: %v", err)
+	}
+	if err := os.Chmod(crPath, 0o000); err != nil {
+		t.Fatalf("chmod 000 cr file: %v", err)
+	}
+	defer func() {
+		_ = os.Chmod(crPath, 0o644)
+	}()
+
+	crs, err := s.ListCRs()
+	if err != nil {
+		t.Fatalf("ListCRs() cached error = %v", err)
+	}
+	if len(crs) != 1 || crs[0].Title != "cached list" {
+		t.Fatalf("expected cached list result, got %#v", crs)
+	}
+
+	if got, err := os.Stat(crPath); err != nil {
+		t.Fatalf("restat cr file: %v", err)
+	} else if !got.ModTime().Equal(info.ModTime()) {
+		t.Fatalf("expected chmod not to invalidate mtime-based cache check")
+	}
+}
+
+func TestListCRsRefreshesCacheWhenCRFileChanges(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	s := New(dir)
+	if err := s.Init("main", model.MetadataModeLocal); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	cr := &model.CR{
+		ID:          1,
+		Title:       "before",
+		Description: "cache",
+		Status:      model.StatusInProgress,
+		BaseBranch:  "main",
+		Branch:      "cr-cache",
+		Notes:       []string{},
+		Subtasks:    []model.Subtask{},
+		Events:      []model.Event{},
+		CreatedAt:   "2026-01-01T00:00:00Z",
+		UpdatedAt:   "2026-01-01T00:00:00Z",
+	}
+	if err := s.SaveCR(cr); err != nil {
+		t.Fatalf("SaveCR() error = %v", err)
+	}
+	if _, err := s.ListCRs(); err != nil {
+		t.Fatalf("ListCRs() initial error = %v", err)
+	}
+
+	loaded, err := s.LoadCR(1)
+	if err != nil {
+		t.Fatalf("LoadCR() error = %v", err)
+	}
+	loaded.Title = "after"
+	loaded.UpdatedAt = "2026-01-01T00:01:00Z"
+	time.Sleep(2 * time.Millisecond)
+	if err := s.SaveCR(loaded); err != nil {
+		t.Fatalf("SaveCR(updated) error = %v", err)
+	}
+
+	crs, err := s.ListCRs()
+	if err != nil {
+		t.Fatalf("ListCRs() refreshed error = %v", err)
+	}
+	if len(crs) != 1 || crs[0].Title != "after" {
+		t.Fatalf("expected refreshed title after cache invalidation, got %#v", crs)
+	}
+}
+
 func TestLoadOldCRYAMLWithoutContractField(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
