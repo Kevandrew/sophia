@@ -1,0 +1,96 @@
+schema_version: sophia.cr_archive.v1
+notice: Historical archive snapshot. Corrections are append-only revisions.
+archived_at: "2026-03-06T00:56:39Z"
+revision: 1
+cr:
+    id: 147
+    uid: cr_6ed228f2-7612-4bc6-bc9a-ec083efe36d6
+    title: Refactor cr show preview launch into an explicit session state machine
+    description: Replace the current ad hoc browser-launch booleans in cr show with a single preview-session orchestration path, and fix the bug where slow browser startup makes the preview appear to fail or exit early.
+    status: merged
+    base_branch: main
+    base_ref: main
+    base_commit: ab0661d51ecc4eecf42ca8314e69cf7252aa37a3
+    branch: cr-refactor-cr-show-preview-launch-into-an-explicit-6ed2
+    merged_at: "2026-03-06T00:56:39Z"
+    merged_by: Kevandrew <143258544+Kevandrew@users.noreply.github.com>
+contract:
+    why: Fix the broken and brittle launch behavior in `sophia cr show` by replacing the current ad hoc browser-launch booleans with an explicit preview-session orchestration model. Today, a slow browser startup can delay the CLI for several seconds, print success only after waiting, and then tear the localhost preview down if no page request arrives before the timeout. That is the wrong lifecycle. The preview server should become available immediately, console output should be deterministic, and browser attachment timing should not control whether the preview survives.
+    scope:
+        - internal/cli
+    non_goals:
+        - No change to CR/dashboard payload semantics.
+        - No redesign of the HTML UI surfaces in this CR.
+    invariants:
+        - A slow browser launch must not cause the localhost preview to appear failed or exit early.
+        - Preview serving lifecycle is explicit and shared between per-CR and dashboard modes.
+    blast_radius: Touches cr show CLI orchestration, localhost preview lifecycle, browser-launch behavior, and JSON/TTY reporting. Failure modes include broken browser auto-open, incorrect preview-session status reporting, or regressions in how the preview server stays alive.
+    risk_tier_hint: medium
+    risk_rationale: The change is localized to preview orchestration, but it affects the first-run behavior of a primary UI entrypoint.
+    test_plan: go test ./internal/cli ./internal/service && manually verify `sophia cr show` and `sophia cr show <id>` with slow/manual browser attach behavior.
+    rollback_plan: Revert the CR to restore the prior inline launch flow.
+tasks:
+    - id: 1
+      title: Define preview session state/result model
+      status: done
+      contract:
+        intent: Replace loose launch booleans with an explicit preview-session state/result contract that can represent launch started, first render observed, timeout waiting for render, close, and failure states.
+        acceptance_criteria:
+            - Per-CR and dashboard launch paths share a common state/result shape.
+            - Result states are explicit enough to drive JSON output and terminal messaging without ad hoc boolean combinations.
+        scope:
+            - internal/cli
+      checkpoint:
+        commit: ccbc3860
+        at: "2026-03-06T00:56:00Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/cr_cmd_show.go
+    - id: 2
+      title: Refactor cr show into a shared preview launcher
+      status: done
+      contract:
+        intent: Move the duplicated dashboard/per-CR launch flow into one preview-session orchestrator so server lifecycle, browser opening, first-render waiting, and shutdown behavior are handled in one place.
+        acceptance_criteria:
+            - Per-CR and dashboard modes use the same preview-launch orchestration path.
+            - Preview lifecycle is not encoded separately in duplicated if/else trees.
+        scope:
+            - internal/cli
+      checkpoint:
+        at: "2026-03-06T00:56:09Z"
+        source: task_no_checkpoint
+    - id: 3
+      title: Fix slow browser attach behavior and terminal messaging
+      status: done
+      contract:
+        intent: Ensure preview URLs are surfaced immediately, slow browser startup does not tear the server down, and messaging correctly reports whether the preview is merely waiting for attachment versus actually failed.
+        acceptance_criteria:
+            - Running `sophia cr show` keeps the preview alive even if the browser does not request the page immediately.
+            - Terminal output distinguishes launch-started from launch-failed states.
+        scope:
+            - internal/cli
+      checkpoint:
+        at: "2026-03-06T00:56:09Z"
+        source: task_no_checkpoint
+    - id: 4
+      title: Add regression coverage for preview session lifecycle
+      status: done
+      contract:
+        intent: Protect the new preview-session lifecycle with focused tests around server startup, first-render waiting, and message/result reporting.
+        acceptance_criteria:
+            - Coverage includes both per-CR and dashboard launch behavior.
+            - Tests fail if slow browser attach regresses into a false failure path.
+        scope:
+            - internal/cli
+      checkpoint:
+        commit: 0d3d2fb7
+        at: "2026-03-06T00:56:12Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/cr_show_test.go
+git_summary:
+    base_parent: ab0661d51ecc4eecf42ca8314e69cf7252aa37a3
+    cr_parent: 0d3d2fb7279762f15ddde805a58dcfbc0674a44c
+    files_changed: []
+    diffstat:
+        summary: 0 files changed, 0 insertions(+), 0 deletions(-)
