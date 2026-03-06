@@ -1,0 +1,108 @@
+schema_version: sophia.cr_archive.v1
+notice: Historical archive snapshot. Corrections are append-only revisions.
+archived_at: "2026-03-06T00:17:11Z"
+revision: 1
+cr:
+    id: 143
+    uid: cr_dd6dc983-dbc5-4220-a450-79e7fa6a2556
+    title: Threaded-tree stack read model for aggregate parents
+    description: Add normalized stack-role and lineage payloads for threaded aggregate-parent rendering.
+    status: merged
+    base_branch: main
+    base_ref: cr-aggregate-parent-threaded-tree-ui-for-cr-show-an-6095
+    base_commit: 9c8032240475c607a938f3bb2fe7cb7e432580f5
+    branch: cr-threaded-tree-stack-read-model-for-aggregate-par-dd6d
+    merged_at: "2026-03-06T00:17:11Z"
+    merged_by: Kevandrew <143258544+Kevandrew@users.noreply.github.com>
+contract:
+    why: The UI should not reconstruct aggregate-parent hierarchy from loosely related fields at render time. This child introduces an explicit read-model shape for threaded stacks so both `cr show` and `cr list` can render the same structure consistently.
+    scope:
+        - internal/cli
+        - internal/service
+    non_goals:
+        - No HTML redesign in this child CR.
+        - No change to merge or delegation semantics.
+    invariants:
+        - Normal CR payloads remain lightweight and compatible.
+        - Read models remain derived from existing CR and delegation metadata rather than introducing duplicate sources of truth.
+    blast_radius: Touches stack-aware service packing and JSON mappers. Failure modes are incorrect lineage ordering, duplicate child nodes, or mismatched stack-role labels.
+    risk_tier_hint: medium
+    risk_rationale: Defines the data contract every stack-aware surface will consume.
+    test_plan: go test ./internal/service ./internal/cli
+    rollback_plan: Revert this child CR and remove threaded-tree-specific read-model fields.
+tasks:
+    - id: 1
+      title: Normalize stack roles and lineage
+      status: done
+      contract:
+        intent: Define a normalized role and lineage model for root parents, aggregate parents, child CRs, and normal CRs.
+        acceptance_criteria:
+            - Lineage and resolution state are deterministic across show and list surfaces.
+            - Payloads expose stack role explicitly.
+        scope:
+            - internal/service
+      checkpoint:
+        commit: 1d98d081
+        at: "2026-03-06T00:15:20Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_stack_read_model.go
+            - internal/service/service_stack_roles.go
+    - id: 2
+      title: Expose aggregate child tree payloads
+      status: done
+      contract:
+        intent: Pack child CRs into a render-ready threaded-tree structure for aggregate parents.
+        acceptance_criteria:
+            - Aggregate-parent payloads include nested child nodes with summary state.
+            - Payloads support collapsed and expanded rendering without recomputing lineage in templates.
+        scope:
+            - internal/cli
+            - internal/service
+      checkpoint:
+        commit: 7f3b56ba
+        at: "2026-03-06T00:15:20Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/cr_cmd_show.go
+            - internal/cli/cr_json_mappers.go
+            - internal/service/service_pack.go
+    - id: 3
+      title: Add read-model regression coverage
+      status: done
+      contract:
+        intent: Lock in stack-role and child-tree payload behavior with focused tests.
+        acceptance_criteria:
+            - Tests cover aggregate parents, normal CRs, and mixed list scenarios.
+            - Tests fail on lineage drift or incorrect role labeling.
+        scope:
+            - internal/cli
+            - internal/service
+      checkpoint:
+        commit: 34463ccf
+        at: "2026-03-06T00:15:20Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/cr_show_test.go
+            - internal/service/service_pack_test.go
+    - id: 4
+      title: Define threaded-tree stack read models
+      status: done
+      contract:
+        intent: Expose the lineage and stack-role data needed to render aggregate parents as threaded trees in both show and list surfaces.
+        acceptance_criteria:
+            - Aggregate parents expose a normalized child-CR tree shape instead of relying on templates to reconstruct lineage ad hoc.
+            - Read models clearly distinguish root parent, aggregate parent, child CR, and normal CR roles.
+            - Resolved vs unresolved child state is directly available to the UI.
+        scope:
+            - internal/cli
+            - internal/service
+      checkpoint:
+        at: "2026-03-06T00:15:21Z"
+        source: task_no_checkpoint
+git_summary:
+    base_parent: 9c8032240475c607a938f3bb2fe7cb7e432580f5
+    cr_parent: 34463ccffcbf35b9244bfbf2563c0ca2ce24fa7c
+    files_changed: []
+    diffstat:
+        summary: 0 files changed, 0 insertions(+), 0 deletions(-)
