@@ -179,6 +179,63 @@ func stackNativityToJSONMap(view service.StackNativityView) map[string]any {
 	}
 }
 
+func stackLineageToJSONMaps(lineage []service.StackLineageNodeView) []map[string]any {
+	if len(lineage) == 0 {
+		return []map[string]any{}
+	}
+	out := make([]map[string]any, 0, len(lineage))
+	for _, node := range lineage {
+		out = append(out, map[string]any{
+			"id":         node.ID,
+			"uid":        node.UID,
+			"title":      node.Title,
+			"status":     node.Status,
+			"branch":     node.Branch,
+			"base_ref":   node.BaseRef,
+			"depth":      node.Depth,
+			"role":       node.Role,
+			"role_label": node.RoleLabel,
+		})
+	}
+	return out
+}
+
+func stackTreeNodeToJSONMap(node *service.StackTreeNodeView) map[string]any {
+	if node == nil {
+		return map[string]any{}
+	}
+	children := make([]map[string]any, 0, len(node.Children))
+	for i := range node.Children {
+		child := node.Children[i]
+		children = append(children, stackTreeNodeToJSONMap(&child))
+	}
+	return map[string]any{
+		"id":                      node.ID,
+		"uid":                     node.UID,
+		"title":                   node.Title,
+		"status":                  node.Status,
+		"branch":                  node.Branch,
+		"base_ref":                node.BaseRef,
+		"parent_cr_id":            node.ParentCRID,
+		"depth":                   node.Depth,
+		"role":                    node.Role,
+		"role_label":              node.RoleLabel,
+		"is_child":                node.IsChild,
+		"is_root_parent":          node.IsRootParent,
+		"is_aggregate_parent":     node.IsAggregateParent,
+		"tasks_total":             node.TasksTotal,
+		"tasks_open":              node.TasksOpen,
+		"tasks_done":              node.TasksDone,
+		"tasks_delegated":         node.TasksDelegated,
+		"tasks_delegated_pending": node.TasksDelegatedPending,
+		"child_count":             node.ChildCount,
+		"resolved_child_count":    node.ResolvedChildCount,
+		"pending_child_count":     node.PendingChildCount,
+		"resolution_state":        node.ResolutionState,
+		"children":                children,
+	}
+}
+
 func delegationSnapshotToJSONMap(runs []model.DelegationRun) map[string]any {
 	recentRuns := make([]map[string]any, 0, len(runs))
 	currentRun := map[string]any{}
@@ -1319,6 +1376,8 @@ func crPackToJSONMap(view *service.CRPackView) map[string]any {
 		"tasks":              tasks,
 		"delegation":         delegationSnapshotToJSONMap(view.DelegationRuns),
 		"stack_nativity":     stackNativityToJSONMap(view.StackNativity),
+		"stack_lineage":      stackLineageToJSONMaps(view.StackLineage),
+		"stack_tree":         stackTreeNodeToJSONMap(view.StackTree),
 		"anchors":            anchors,
 		"status":             crStatusToJSONMap(view.Status),
 		"recent_events":      events,

@@ -43,6 +43,8 @@ type CRPackView struct {
 	Tasks             []model.Subtask
 	DelegationRuns    []model.DelegationRun
 	StackNativity     StackNativityView
+	StackLineage      []StackLineageNodeView
+	StackTree         *StackTreeNodeView
 	Anchors           *CRRangeAnchorsView
 	Status            *CRStatusView
 	RecentEvents      []model.Event
@@ -112,6 +114,8 @@ func (s *Service) PackCR(id int, opts PackOptions) (*CRPackView, error) {
 		Tasks:             tasks,
 		DelegationRuns:    cloneDelegationRunsForPack(review.CR.DelegationRuns),
 		StackNativity:     s.stackNativityForCR(review.CR),
+		StackLineage:      s.stackLineageForCR(review.CR),
+		StackTree:         s.stackTreeForCR(review.CR),
 		Anchors:           anchors,
 		Status:            status,
 		RecentEvents:      events,
