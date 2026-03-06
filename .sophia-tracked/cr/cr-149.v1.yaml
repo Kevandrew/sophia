@@ -1,0 +1,75 @@
+schema_version: sophia.cr_archive.v1
+notice: Historical archive snapshot. Corrections are append-only revisions.
+archived_at: "2026-03-06T03:23:23Z"
+revision: 1
+cr:
+    id: 149
+    uid: cr_62aa2d30-f642-4a8c-a08d-c6c23b7fb45d
+    title: Tighten CR list aggregate interactions and sidebar overflow
+    description: 'Capture the small follow-up polish to the CR list template: make aggregate rows expand on row click and keep sidebar detail/sub-CR content width-constrained.'
+    status: merged
+    base_branch: main
+    base_ref: cr-cache-cr-show-metadata-and-build-dashboard-snaps-8e58
+    base_commit: cb94520f0e7a0c4f6ba7bb515fef7416c8dde147
+    branch: cr-tighten-cr-list-aggregate-interactions-and-sideb-62aa
+    merged_at: "2026-03-06T03:23:23Z"
+    merged_by: Kevandrew <143258544+Kevandrew@users.noreply.github.com>
+contract:
+    why: |-
+        Polish the CR list dashboard so aggregate parent rows behave like a natural disclosure control and long sidebar content stays inside the fixed detail column. The user-visible outcome is that clicking an aggregate CR row opens or closes its inline child stack, and long branch or sub-CR text no longer widens the sidebar.
+
+        This CR is intentionally limited to the list template behavior and layout constraints in the dashboard view. It does not change backend CR data, dashboard payload shape, or non-dashboard CR views.
+    scope:
+        - internal/cli/cr_show_test.go
+        - internal/cli/templates/cr_list.html
+    non_goals:
+        - Do not change CR JSON payloads or server-side rendering data.
+        - Do not redesign the overall dashboard layout or styling outside the existing template.
+    invariants:
+        - Clicking a CR row must still select that CR and render the sidebar detail panel.
+        - Long sidebar content must truncate within the existing sidebar width rather than expanding the layout.
+    blast_radius: Touches the CR list dashboard template's inline interaction and sidebar CSS in internal/cli/templates/cr_list.html. Failure modes are accidental row-click regressions, broken expand/collapse behavior for aggregate rows, or sidebar overflow/truncation regressions in detail and sub-CR sections.
+    risk_tier_hint: low
+    risk_rationale: Template-only UI polish scoped to a single HTML asset.
+    test_plan: Verify the CR list dashboard renders aggregate rows that expand on row click and confirm long sidebar values remain clipped within the sidebar width; run go test ./internal/cli/...
+    rollback_plan: Revert the CR-149 merge or checkpoint commit to restore the previous template behavior.
+tasks:
+    - id: 1
+      title: Refine aggregate row toggle and sidebar truncation
+      status: done
+      contract:
+        intent: Make aggregate parent rows open their child stack on row click and keep long sidebar field/sub-CR content constrained to the existing sidebar column.
+        acceptance_criteria:
+            - Clicking an aggregate parent CR row toggles its collapsible child list while preserving row selection and detail rendering.
+            - Long branch values and long sub-CR titles in the sidebar truncate within the sidebar width instead of widening the layout.
+            - The change remains scoped to internal/cli/templates/cr_list.html.
+        scope:
+            - internal/cli/templates/cr_list.html
+      checkpoint:
+        commit: 215a93b8
+        at: "2026-03-06T03:15:36Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/templates/cr_list.html
+    - id: 2
+      title: Remove obsolete CR list template string assertion
+      status: done
+      contract:
+        intent: Remove the brittle CR list template string assertion that no longer matches the current HTML UI and is not relevant to this template-only change.
+        acceptance_criteria:
+            - The change remains limited to internal/cli/cr_show_test.go.
+            - The outdated  assertion block is removed from internal/cli/cr_show_test.go.
+        scope:
+            - internal/cli/cr_show_test.go
+      checkpoint:
+        commit: e8ce31c4
+        at: "2026-03-06T03:21:06Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/cr_show_test.go
+git_summary:
+    base_parent: cb94520f0e7a0c4f6ba7bb515fef7416c8dde147
+    cr_parent: e8ce31c4226dcbb49df7625f698a789e4172b7cc
+    files_changed: []
+    diffstat:
+        summary: 0 files changed, 0 insertions(+), 0 deletions(-)

@@ -84,6 +84,14 @@ func hasAggregateParentImplementationProof(cr *model.CR) bool {
 }
 
 func (s *Service) aggregateParentViewForCR(cr *model.CR) AggregateParentView {
+	readModel, err := s.loadCRReadModel()
+	if err != nil {
+		return AggregateParentView{}
+	}
+	return s.aggregateParentViewForCRWithReadModel(cr, readModel)
+}
+
+func (s *Service) aggregateParentViewForCRWithReadModel(cr *model.CR, readModel *crReadModel) AggregateParentView {
 	view := AggregateParentView{}
 	if cr == nil {
 		return view
@@ -139,6 +147,17 @@ func sortedIntKeys(values map[int]struct{}) []int {
 }
 
 func (s *Service) stackNativityForCR(cr *model.CR) StackNativityView {
+	readModel, err := s.loadCRReadModel()
+	if err != nil {
+		return StackNativityView{
+			Role:      "standalone",
+			RoleLabel: "Standalone CR",
+		}
+	}
+	return s.stackNativityForCRWithReadModel(cr, readModel)
+}
+
+func (s *Service) stackNativityForCRWithReadModel(cr *model.CR, readModel *crReadModel) StackNativityView {
 	view := StackNativityView{
 		Role:      "standalone",
 		RoleLabel: "Standalone CR",
@@ -147,19 +166,13 @@ func (s *Service) stackNativityForCR(cr *model.CR) StackNativityView {
 		return view
 	}
 
-	allCRs, err := s.store.ListCRs()
-	if err != nil {
-		return view
-	}
 	children := make([]int, 0)
-	for _, candidate := range allCRs {
-		if candidate.ParentCRID == cr.ID {
-			children = append(children, candidate.ID)
-		}
+	for _, candidate := range readModel.childrenOf(cr.ID) {
+		children = append(children, candidate.ID)
 	}
 	sort.Ints(children)
 
-	aggregate := s.aggregateParentViewForCR(cr)
+	aggregate := s.aggregateParentViewForCRWithReadModel(cr, readModel)
 	view.IsAggregateParent = aggregate.IsAggregateParent
 	view.ResolvedChildCRIDs = append([]int(nil), aggregate.ResolvedChildCRIDs...)
 	view.PendingChildCRIDs = append([]int(nil), aggregate.PendingChildCRIDs...)
@@ -173,7 +186,7 @@ func (s *Service) stackNativityForCR(cr *model.CR) StackNativityView {
 		view.ParentCRID = cr.ParentCRID
 		view.Role = "child"
 		view.RoleLabel = "Child CR"
-		if parent, err := s.store.LoadCR(cr.ParentCRID); err == nil && parent != nil {
+		if parent, ok := readModel.crByID(cr.ParentCRID); ok {
 			view.ParentTitle = strings.TrimSpace(parent.Title)
 			view.ParentBranch = strings.TrimSpace(parent.Branch)
 			view.ParentStatus = strings.TrimSpace(parent.Status)
@@ -204,10 +217,31 @@ func (s *Service) StackNativityForCLI(cr *model.CR) StackNativityView {
 	return s.stackNativityForCR(cr)
 }
 
+func (s *Service) StackNativityForCLIWithReadModel(cr *model.CR, view *CRReadModelView) StackNativityView {
+	if view == nil {
+		return s.stackNativityForCR(cr)
+	}
+	return s.stackNativityForCRWithReadModel(cr, view.readModel)
+}
+
 func (s *Service) StackLineageForCLI(cr *model.CR) []StackLineageNodeView {
 	return s.stackLineageForCR(cr)
 }
 
+func (s *Service) StackLineageForCLIWithReadModel(cr *model.CR, view *CRReadModelView) []StackLineageNodeView {
+	if view == nil {
+		return s.stackLineageForCR(cr)
+	}
+	return s.stackLineageForCRWithReadModel(cr, view.readModel)
+}
+
 func (s *Service) StackTreeForCLI(cr *model.CR) *StackTreeNodeView {
 	return s.stackTreeForCR(cr)
+}
+
+func (s *Service) StackTreeForCLIWithReadModel(cr *model.CR, view *CRReadModelView) *StackTreeNodeView {
+	if view == nil {
+		return s.stackTreeForCR(cr)
+	}
+	return s.stackTreeForCRWithReadModel(cr, view.readModel)
 }

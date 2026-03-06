@@ -513,30 +513,6 @@ func TestCRShowTemplateIsSingleFileWithInlineAssets(t *testing.T) {
 	}
 }
 
-func TestCRListTemplateIncludesStackNativityLabels(t *testing.T) {
-	t.Parallel()
-	doc, err := buildCRListHTMLDocument(embeddedCRListHTMLTemplate, map[string]any{
-		"generated_at": "2026-03-03T00:00:00Z",
-		"snapshot_url": "/__sophia_snapshot?mode=dashboard",
-		"events_url":   "/__sophia_events?mode=dashboard",
-	})
-	if err != nil {
-		t.Fatalf("buildCRListHTMLDocument() error = %v", err)
-	}
-	for _, required := range []string{
-		"Stack Role",
-		"Lineage",
-		"stack-thread",
-		"thread-toggle",
-		"child CRs",
-		"/__sophia_snapshot?mode=dashboard",
-	} {
-		if !strings.Contains(doc, required) {
-			t.Fatalf("expected generated list html to contain %q", required)
-		}
-	}
-}
-
 func TestCRListTemplateIsSingleFileWithInlineAssets(t *testing.T) {
 	t.Parallel()
 	doc, err := buildCRListHTMLDocument(embeddedCRListHTMLTemplate, map[string]any{

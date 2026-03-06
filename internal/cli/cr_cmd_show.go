@@ -764,21 +764,13 @@ func buildCRDashboardSnapshot(svc *service.Service, query model.CRSearchQuery, l
 		timelineLimit = defaultCRTimelineLimit
 	}
 
-	results, err := svc.SearchCRs(query)
+	readModel, err := svc.LoadCRReadModelForCLI()
 	if err != nil {
 		return nil, 0, err
 	}
+	results := searchCRsForDashboard(readModel, query)
 	if strings.TrimSpace(query.Status) == "" {
 		results = filterDashboardResultsDefaultStatus(results)
-	}
-	allCRs, err := svc.ListCRs()
-	if err != nil {
-		return nil, 0, err
-	}
-
-	crByID := make(map[int]model.CR, len(allCRs))
-	for _, cr := range allCRs {
-		crByID[cr.ID] = cr
 	}
 
 	resultByID := make(map[int]model.CRSearchResult, len(results))
@@ -790,11 +782,11 @@ func buildCRDashboardSnapshot(svc *service.Service, query model.CRSearchQuery, l
 		if i >= listLimit {
 			continue
 		}
-		cr, ok := crByID[result.ID]
+		cr, ok := readModel.CRByIDForCLI(result.ID)
 		if !ok {
 			continue
 		}
-		rows = append(rows, buildDashboardCRRow(svc, result, cr))
+		rows = append(rows, buildDashboardCRRow(svc, readModel, result, cr))
 	}
 
 	selectedCRID := 0
@@ -809,11 +801,11 @@ func buildCRDashboardSnapshot(svc *service.Service, query model.CRSearchQuery, l
 
 	var selected map[string]any
 	if selectedCRID > 0 {
-		if cr, ok := crByID[selectedCRID]; ok {
+		if cr, ok := readModel.CRByIDForCLI(selectedCRID); ok {
 			if result, hasResult := resultByID[selectedCRID]; hasResult {
-				selected = buildDashboardSelectedCR(svc, result, cr)
+				selected = buildDashboardSelectedCR(svc, readModel, result, cr)
 			} else {
-				selected = buildDashboardSelectedCR(svc, model.CRSearchResult{
+				selected = buildDashboardSelectedCR(svc, readModel, model.CRSearchResult{
 					ID:         cr.ID,
 					UID:        cr.UID,
 					Title:      cr.Title,
@@ -842,7 +834,7 @@ func buildCRDashboardSnapshot(svc *service.Service, query model.CRSearchQuery, l
 	}
 
 	timelineItems := make([]dashboardTimelineEntry, 0)
-	for _, cr := range allCRs {
+	for _, cr := range readModel.AllCRsForCLI() {
 		if _, ok := filteredIDs[cr.ID]; !ok {
 			continue
 		}
@@ -925,6 +917,42 @@ func buildCRDashboardSnapshot(svc *service.Service, query model.CRSearchQuery, l
 	return payload, selectedCRID, nil
 }
 
+func searchCRsForDashboard(readModel *service.CRReadModelView, query model.CRSearchQuery) []model.CRSearchResult {
+	if readModel == nil {
+		return nil
+	}
+	results := make([]model.CRSearchResult, 0, len(readModel.AllCRsForCLI()))
+	for _, cr := range readModel.AllCRsForCLI() {
+		if !service.MatchCRSearchForCLI(cr, query) {
+			continue
+		}
+		tasksOpen, tasksDone, _ := service.CountTaskStatsForCLI(cr.Subtasks)
+		riskTier := cr.Contract.RiskTierHint
+		if riskTier == "" {
+			riskTier = "-"
+		}
+		results = append(results, model.CRSearchResult{
+			ID:         cr.ID,
+			UID:        cr.UID,
+			Title:      cr.Title,
+			Status:     cr.Status,
+			Branch:     cr.Branch,
+			BaseBranch: cr.BaseBranch,
+			ParentCRID: cr.ParentCRID,
+			RiskTier:   riskTier,
+			TasksTotal: len(cr.Subtasks),
+			TasksOpen:  tasksOpen,
+			TasksDone:  tasksDone,
+			CreatedAt:  cr.CreatedAt,
+			UpdatedAt:  cr.UpdatedAt,
+		})
+	}
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].ID < results[j].ID
+	})
+	return results
+}
+
 func filterDashboardResultsDefaultStatus(results []model.CRSearchResult) []model.CRSearchResult {
 	if len(results) == 0 {
 		return results
@@ -953,7 +981,7 @@ type dashboardTimelineEntry struct {
 	CRStatus string
 }
 
-func buildDashboardCRRow(svc *service.Service, result model.CRSearchResult, cr model.CR) map[string]any {
+func buildDashboardCRRow(svc *service.Service, readModel *service.CRReadModelView, result model.CRSearchResult, cr model.CR) map[string]any {
 	lastEventAt := ""
 	if n := len(cr.Events); n > 0 {
 		lastEventAt = cr.Events[n-1].TS
@@ -962,9 +990,9 @@ func buildDashboardCRRow(svc *service.Service, result model.CRSearchResult, cr m
 	lineage := []service.StackLineageNodeView{}
 	var tree *service.StackTreeNodeView
 	if svc != nil {
-		nativity = svc.StackNativityForCLI(&cr)
-		lineage = svc.StackLineageForCLI(&cr)
-		tree = svc.StackTreeForCLI(&cr)
+		nativity = svc.StackNativityForCLIWithReadModel(&cr, readModel)
+		lineage = svc.StackLineageForCLIWithReadModel(&cr, readModel)
+		tree = svc.StackTreeForCLIWithReadModel(&cr, readModel)
 	}
 	return map[string]any{
 		"id":                  result.ID,
@@ -996,8 +1024,8 @@ func buildDashboardCRRow(svc *service.Service, result model.CRSearchResult, cr m
 	}
 }
 
-func buildDashboardSelectedCR(svc *service.Service, result model.CRSearchResult, cr model.CR) map[string]any {
-	return buildDashboardCRRow(svc, result, cr)
+func buildDashboardSelectedCR(svc *service.Service, readModel *service.CRReadModelView, result model.CRSearchResult, cr model.CR) map[string]any {
+	return buildDashboardCRRow(svc, readModel, result, cr)
 }
 
 func parseRFC3339OrZero(raw string) time.Time {
