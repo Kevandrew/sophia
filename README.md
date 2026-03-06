@@ -89,6 +89,15 @@ Sophia has a complete command-line interface for direct control. See the [CLI Re
 
 </details>
 
+## Contributor Test Lanes
+
+Sophia keeps the default Go test path fast for routine iteration:
+
+- Fast lane: `go test ./...` and `go vet ./...`
+- Integration lane: `./scripts/test-integration.sh`
+
+Run the integration lane when you touch heavy real-repo, PR-gate, HQ, worktree, archive, collaboration, or checkpoint flows.
+
 ## Collaboration Model
 
 Sophia remains local-first and network-agnostic. Collaboration works through portable artifacts:

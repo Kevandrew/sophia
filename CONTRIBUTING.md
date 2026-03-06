@@ -65,7 +65,10 @@ Minimum checks before merge:
 ```bash
 go test ./...
 go vet ./...
+./scripts/test-integration.sh
 ```
+
+Use `go test ./...` and `go vet ./...` for the default fast lane. Use `./scripts/test-integration.sh` when your change touches the heavier integration suites that are intentionally kept out of the default path.
 
 If your CR contract `test_plan` declares additional checks, run those as well.
 

@@ -90,6 +90,7 @@ If acceptance criteria or test plans require targeted commands, persist the proo
 
 ```bash
 go test ./... 2>&1 | tee _docs/cr-<cr-id>-evidence/tests.log
+./scripts/test-integration.sh 2>&1 | tee _docs/cr-<cr-id>-evidence/integration-tests.log
 
 sophia cr evidence add [<cr-id>|<cr-uid>] \
   --type command_run \
@@ -97,6 +98,13 @@ sophia cr evidence add [<cr-id>|<cr-uid>] \
   --cmd "go test ./..." \
   --exit-code 0 \
   --attachment _docs/cr-<cr-id>-evidence/tests.log
+
+sophia cr evidence add [<cr-id>|<cr-uid>] \
+  --type command_run \
+  --summary "Integration lane before merge" \
+  --cmd "./scripts/test-integration.sh" \
+  --exit-code 0 \
+  --attachment _docs/cr-<cr-id>-evidence/integration-tests.log
 ```
 
 Expected outcome:

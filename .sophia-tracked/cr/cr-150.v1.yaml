@@ -1,0 +1,202 @@
+schema_version: sophia.cr_archive.v1
+notice: Historical archive snapshot. Corrections are append-only revisions.
+archived_at: "2026-03-06T08:47:32Z"
+revision: 1
+cr:
+    id: 150
+    uid: cr_8a087f9c-0ab3-46e1-8001-0e2457e66ca3
+    title: Split Heavy Integration Tests Out Of Default Lane
+    description: Reduce day-to-day development friction by removing long-running integration-heavy test files from the default package test path while preserving explicit coverage in a separate integration lane. The first wave covers PR-gate, CR show SSE, HQ, worktree, and archive suites; the second wave includes collab and task checkpoint suites so routine local validation no longer drags in multi-minute package runs for ordinary edits.
+    status: merged
+    base_branch: main
+    base_ref: main
+    base_commit: a7799c4c363836ecb9a8ae2a691a17106e241721
+    branch: cr-split-heavy-integration-tests-out-of-default-lan-8a08
+    merged_at: "2026-03-06T08:47:32Z"
+    merged_by: Kevandrew <143258544+Kevandrew@users.noreply.github.com>
+contract:
+    why: |-
+        Restore a fast default development loop by separating long-running integration-style test suites from the package test commands engineers use for routine local validation. The goal is to keep the default lane focused on fast feedback while preserving explicit coverage for real repo, remote, PR-gate, SSE, HQ, archive, collab, and checkpoint workflows in a dedicated integration lane.
+
+        This CR covers the repo-level test-lane split, the mechanics for explicitly running the moved suites, and the second-wave files that are currently large enough to continue causing workflow drag even after the first wave is removed. Success means an engineer can make normal changes in the Sophia repo and run the default test path without automatically paying the cost of these integration-heavy suites.
+    scope:
+        - .github
+        - CONTRIBUTING.md
+        - README.md
+        - docs
+        - internal/cli
+        - internal/service
+        - scripts
+    non_goals:
+        - Do not change production semantics of PR-gate, SSE, or service orchestration beyond test-lane plumbing.
+        - Do not reduce behavioral coverage for PR-gate, HQ, worktree, archive, collab, or task checkpoint flows.
+        - Do not rewrite all heavy tests around mocks in this CR.
+    invariants:
+        - Default package test commands stop executing the moved files unless integration mode is requested.
+        - Fast-lane coverage still validates command wiring, JSON surfaces, and core service logic.
+        - The moved suites remain runnable through an explicit documented integration command.
+    blast_radius: Affects Go test discovery for internal/cli and internal/service, local developer test commands, CI lane definitions, and documentation for how to run integration coverage explicitly. Main failure modes are accidentally dropping coverage, making the integration lane hard to invoke, or mis-tagging files so default and integration paths diverge unexpectedly.
+    risk_critical_scopes:
+        - internal/cli
+        - internal/service
+    risk_tier_hint: medium
+    risk_rationale: Touches repository test execution semantics and CI/developer workflows across the two slowest packages.
+    test_plan: go test ./... ; ./scripts/test-integration.sh ; go vet ./...
+    rollback_plan: Revert the CR merge commit to restore the previous default test inclusion behavior.
+tasks:
+    - id: 1
+      title: Define the fast-lane vs integration-lane mechanism
+      status: done
+      contract:
+        intent: Choose and implement the mechanism that keeps heavy suites out of the default Go test path while preserving an explicit integration path.
+        acceptance_criteria:
+            - An engineer can identify how the moved suites are discovered and invoked without reverse-engineering the test files.
+            - The chosen mechanism works for both internal/cli and internal/service without changing production code behavior.
+            - The repository has a single clear convention for default-lane vs integration-lane test discovery.
+        scope:
+            - .github/workflows/ci.yml
+            - scripts/test-integration.sh
+      checkpoint:
+        commit: 5c492380
+        at: "2026-03-06T08:46:22Z"
+        source: task_checkpoint
+        scope:
+            - .github/workflows/ci.yml
+            - scripts/test-integration.sh
+    - id: 2
+      title: Move CLI PR-gate tests out of the default lane
+      status: done
+      contract:
+        intent: Move the CLI PR-gate integration file out of default package execution.
+        acceptance_criteria:
+            - Default CLI package tests no longer execute cr_json_pr_gate_test.go.
+            - PR-gate command wiring and JSON shape coverage that should remain fast stays in the default lane or is replaced there.
+            - The file remains runnable through the explicit integration lane.
+        scope:
+            - internal/cli/cr_json_pr_gate_test.go
+      checkpoint:
+        commit: 604ff312
+        at: "2026-03-06T08:46:23Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/cr_json_pr_gate_test.go
+    - id: 3
+      title: Move CLI CR show SSE tests out of the default lane
+      status: done
+      contract:
+        intent: Move the latency-bound CLI CR show SSE suites out of the default lane.
+        acceptance_criteria:
+            - Default CLI package tests no longer execute cr_show_test.go or cr_show_delegation_status_test.go as integration coverage.
+            - The explicit integration lane still exercises CR show SSE and delegation state transitions.
+            - The moved files remain easy to target when debugging CR show behavior.
+        scope:
+            - internal/cli/cr_show_delegation_status_test.go
+            - internal/cli/cr_show_test.go
+      checkpoint:
+        commit: fe5f4915
+        at: "2026-03-06T08:46:23Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/cr_show_delegation_status_test.go
+            - internal/cli/cr_show_test.go
+    - id: 4
+      title: Move service PR-gate and HQ tests out of the default lane
+      status: done
+      contract:
+        intent: Move the service PR-gate and HQ integration suites out of the default lane.
+        acceptance_criteria:
+            - Default service package tests no longer execute the heavy PR-gate and HQ integration files.
+            - PR-gate and HQ suites remain runnable through the explicit integration command.
+            - The lane split does not remove visibility into PR-gate or HQ regressions; it only changes when they run.
+        scope:
+            - internal/service/service_hq_test.go
+            - internal/service/service_pr_gate_test.go
+      checkpoint:
+        commit: cc901bde
+        at: "2026-03-06T08:46:23Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_hq_test.go
+            - internal/service/service_pr_gate_test.go
+    - id: 5
+      title: Move service worktree and archive tests out of the default lane
+      status: done
+      contract:
+        intent: Move the service worktree and archive integration suites out of the default lane.
+        acceptance_criteria:
+            - Archive and worktree flows still run in the explicit integration lane.
+            - Default service package tests no longer execute worktree and archive heavy files.
+            - The lane split preserves clear ownership of these suites as integration coverage.
+        scope:
+            - internal/service/service_archive_test.go
+            - internal/service/service_worktree_integration_test.go
+      checkpoint:
+        commit: 3f3fab74
+        at: "2026-03-06T08:46:23Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_archive_test.go
+            - internal/service/service_worktree_integration_test.go
+    - id: 6
+      title: Move second-wave service collab tests out of the default lane
+      status: done
+      contract:
+        intent: Move the second-wave collab suite out of the default lane once the first-wave split is in place.
+        acceptance_criteria:
+            - Collab import/export and patch-merge coverage remains runnable in the explicit integration lane.
+            - Default service package tests no longer execute service_collab_test.go.
+            - The second-wave move is included in the same lane strategy rather than deferred to ad hoc follow-up work.
+        scope:
+            - internal/service/service_collab_test.go
+      checkpoint:
+        commit: 6fd2ec55
+        at: "2026-03-06T08:46:24Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_collab_test.go
+    - id: 7
+      title: Move second-wave service task checkpoint tests out of the default lane
+      status: done
+      contract:
+        intent: Move the second-wave task checkpoint suite out of the default lane once the first-wave split is in place.
+        acceptance_criteria:
+            - Default service package tests no longer execute service_task_checkpoint_test.go.
+            - Task checkpoint, chunk, and checkpoint-scope workflows remain runnable in the explicit integration lane.
+            - The second-wave move uses the same invocation and documentation pattern as the first-wave files.
+        scope:
+            - internal/service/service_task_checkpoint_test.go
+      checkpoint:
+        commit: af034401
+        at: "2026-03-06T08:46:24Z"
+        source: task_checkpoint
+        scope:
+            - internal/service/service_task_checkpoint_test.go
+    - id: 8
+      title: Document and wire explicit integration test commands
+      status: done
+      contract:
+        intent: Make the explicit integration command discoverable and usable for local development and CI.
+        acceptance_criteria:
+            - A developer can choose between fast default validation and explicit integration validation without guessing file names or tags.
+            - CI or repo automation can invoke the integration lane separately from the default lane.
+            - The repository documents the exact command for running moved integration suites.
+        scope:
+            - CONTRIBUTING.md
+            - README.md
+            - docs/getting-started.md
+            - docs/repository-policy.md
+      checkpoint:
+        commit: bb74840f
+        at: "2026-03-06T08:46:24Z"
+        source: task_checkpoint
+        scope:
+            - CONTRIBUTING.md
+            - README.md
+            - docs/getting-started.md
+            - docs/repository-policy.md
+git_summary:
+    base_parent: a7799c4c363836ecb9a8ae2a691a17106e241721
+    cr_parent: bb74840f735d0df42c9aeab5584ab20c4c855719
+    files_changed: []
+    diffstat:
+        summary: 0 files changed, 0 insertions(+), 0 deletions(-)
