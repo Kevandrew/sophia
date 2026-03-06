@@ -847,8 +847,12 @@ func buildDashboardCRRow(svc *service.Service, result model.CRSearchResult, cr m
 		lastEventAt = cr.Events[n-1].TS
 	}
 	nativity := service.StackNativityView{}
+	lineage := []service.StackLineageNodeView{}
+	var tree *service.StackTreeNodeView
 	if svc != nil {
 		nativity = svc.StackNativityForCLI(&cr)
+		lineage = svc.StackLineageForCLI(&cr)
+		tree = svc.StackTreeForCLI(&cr)
 	}
 	return map[string]any{
 		"id":                  result.ID,
@@ -870,6 +874,8 @@ func buildDashboardCRRow(svc *service.Service, result model.CRSearchResult, cr m
 		"contract_invariants": stringSliceOrEmpty(cr.Contract.Invariants),
 		"last_event_at":       lastEventAt,
 		"stack_nativity":      stackNativityToJSONMap(nativity),
+		"stack_lineage":       stackLineageToJSONMaps(lineage),
+		"stack_tree":          stackTreeNodeToJSONMap(tree),
 		"tasks": map[string]any{
 			"total": result.TasksTotal,
 			"open":  result.TasksOpen,

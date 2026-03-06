@@ -402,6 +402,20 @@ func TestCRShowAndDashboardSnapshotsIncludeStackNativity(t *testing.T) {
 	if got, _ := nativity["pending_child_count"].(int); got != 1 {
 		t.Fatalf("expected pending_child_count=1, got %#v", nativity["pending_child_count"])
 	}
+	stackTree := mapStringAny(payload["stack_tree"])
+	if got, _ := stackTree["id"].(int); got != parent.ID {
+		t.Fatalf("expected parent stack_tree root %d, got %#v", parent.ID, payload["stack_tree"])
+	}
+	children, ok := stackTree["children"].([]map[string]any)
+	if !ok || len(children) != 1 {
+		t.Fatalf("expected one stack_tree child, got %#v", stackTree["children"])
+	}
+	if got, _ := children[0]["id"].(int); got != child.ID {
+		t.Fatalf("expected child node %d, got %#v", child.ID, children[0])
+	}
+	if got, _ := children[0]["resolution_state"].(string); got != "pending" {
+		t.Fatalf("expected child resolution pending, got %#v", children[0]["resolution_state"])
+	}
 
 	_, childPayload, err := buildCRShowSnapshot(svc, child.ID, defaultCRShowEventsLimit, defaultCRShowCheckpointsLimit)
 	if err != nil {
@@ -413,6 +427,13 @@ func TestCRShowAndDashboardSnapshotsIncludeStackNativity(t *testing.T) {
 	}
 	if got, _ := childNativity["parent_cr_id"].(int); got != parent.ID {
 		t.Fatalf("expected child parent_cr_id=%d, got %#v", parent.ID, childNativity["parent_cr_id"])
+	}
+	lineage, ok := childPayload["stack_lineage"].([]map[string]any)
+	if !ok || len(lineage) != 1 {
+		t.Fatalf("expected child lineage, got %#v", childPayload["stack_lineage"])
+	}
+	if got, _ := lineage[0]["id"].(int); got != parent.ID {
+		t.Fatalf("expected lineage parent %d, got %#v", parent.ID, lineage[0])
 	}
 
 	dashboard, selectedID, err := buildCRDashboardSnapshot(svc, model.CRSearchQuery{}, defaultCRListLimit, defaultCRTimelineLimit, parent.ID)
@@ -441,8 +462,14 @@ func TestCRShowAndDashboardSnapshotsIncludeStackNativity(t *testing.T) {
 	if got, _ := mapStringAny(parentRow["stack_nativity"])["role"].(string); got != "aggregate_parent" {
 		t.Fatalf("expected parent row aggregate_parent, got %#v", parentRow["stack_nativity"])
 	}
+	if got, _ := mapStringAny(parentRow["stack_tree"])["id"].(int); got != parent.ID {
+		t.Fatalf("expected parent row stack tree root %d, got %#v", parent.ID, parentRow["stack_tree"])
+	}
 	if got, _ := mapStringAny(childRow["stack_nativity"])["role"].(string); got != "child" {
 		t.Fatalf("expected child row child role, got %#v", childRow["stack_nativity"])
+	}
+	if lineage, ok := childRow["stack_lineage"].([]map[string]any); !ok || len(lineage) != 1 {
+		t.Fatalf("expected child row lineage, got %#v", childRow["stack_lineage"])
 	}
 }
 
