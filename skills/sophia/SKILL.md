@@ -406,6 +406,9 @@ Recommended split flow:
 Aggregate-parent guidance:
 - A parent with delegated child tasks and no direct implementation checkpoints is an aggregate parent.
 - Aggregate parents should read as integration branches, not unfinished implementation branches.
+- In stack-aware UI surfaces, treat child CRs as the primary visible work units for aggregate parents.
+- Parent delegated tasks remain important as audit/proof metadata, but they are secondary to the child-CR thread when presenting stack work.
+- When discussing or reviewing aggregate parents, describe the stack in terms of child CR lineage, resolution, and pending work rather than as a flat task bucket.
 - If remote child merges leave parent task state looking stale, reconcile first (`sophia cr pr status <id>`, `sophia cr status <id> --json`, `sophia cr refresh <id>`) before editing history manually.
 
 Recommended task taxonomy for larger CRs:
