@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -89,6 +90,8 @@ func (e MutationLockTimeoutError) Is(target error) bool {
 type Store struct {
 	Root       string
 	SophiaRoot string
+	cacheMu    sync.RWMutex
+	crCache    crMetadataCache
 }
 
 func New(root string) *Store {
@@ -189,6 +192,7 @@ func (s *Store) Init(baseBranch, metadataMode string) error {
 		}
 	}
 
+	s.invalidateCRCache()
 	return nil
 }
 
@@ -266,39 +270,7 @@ func (s *Store) NextCRID() (int, error) {
 }
 
 func (s *Store) LoadCR(id int) (*model.CR, error) {
-	if err := s.EnsureInitialized(); err != nil {
-		return nil, err
-	}
-	path := s.CRPath(id)
-	if _, err := os.Stat(path); err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return nil, NotFoundError{Resource: "cr", Value: fmt.Sprintf("%d", id)}
-		}
-		return nil, fmt.Errorf("stat cr file: %w", err)
-	}
-	var cr model.CR
-	if err := s.readYAML(path, &cr); err != nil {
-		return nil, err
-	}
-	if cr.Notes == nil {
-		cr.Notes = []string{}
-	}
-	if cr.Evidence == nil {
-		cr.Evidence = []model.EvidenceEntry{}
-	}
-	if cr.Subtasks == nil {
-		cr.Subtasks = []model.Subtask{}
-	}
-	if cr.Events == nil {
-		cr.Events = []model.Event{}
-	}
-	if cr.PR.CheckpointCommentKeys == nil {
-		cr.PR.CheckpointCommentKeys = []string{}
-	}
-	if cr.PR.CheckpointSyncKeys == nil {
-		cr.PR.CheckpointSyncKeys = []string{}
-	}
-	return &cr, nil
+	return s.cachedCRByID(id)
 }
 
 func (s *Store) SaveCR(cr *model.CR) error {
@@ -329,7 +301,11 @@ func (s *Store) SaveCR(cr *model.CR) error {
 	if err := os.MkdirAll(s.CRDir(), 0o755); err != nil {
 		return fmt.Errorf("ensure cr directory: %w", err)
 	}
-	return s.writeYAMLAtomic(s.CRPath(cr.ID), cr)
+	if err := s.writeYAMLAtomic(s.CRPath(cr.ID), cr); err != nil {
+		return err
+	}
+	s.invalidateCRCache()
+	return nil
 }
 
 func (s *Store) LoadCRByUID(uid string) (*model.CR, error) {
@@ -340,7 +316,7 @@ func (s *Store) LoadCRByUID(uid string) (*model.CR, error) {
 	if needle == "" {
 		return nil, InvalidArgumentError{Argument: "cr uid", Message: "cannot be empty"}
 	}
-	crs, err := s.ListCRs()
+	crs, err := s.cachedCRs()
 	if err != nil {
 		return nil, err
 	}
@@ -368,43 +344,7 @@ func (s *Store) LoadCRByUID(uid string) (*model.CR, error) {
 }
 
 func (s *Store) ListCRs() ([]model.CR, error) {
-	if err := s.EnsureInitialized(); err != nil {
-		return nil, err
-	}
-	matches, err := filepath.Glob(filepath.Join(s.CRDir(), "*.yaml"))
-	if err != nil {
-		return nil, fmt.Errorf("list cr files: %w", err)
-	}
-	crs := make([]model.CR, 0, len(matches))
-	for _, path := range matches {
-		var cr model.CR
-		if err := s.readYAML(path, &cr); err != nil {
-			return nil, err
-		}
-		if cr.Notes == nil {
-			cr.Notes = []string{}
-		}
-		if cr.Evidence == nil {
-			cr.Evidence = []model.EvidenceEntry{}
-		}
-		if cr.Subtasks == nil {
-			cr.Subtasks = []model.Subtask{}
-		}
-		if cr.Events == nil {
-			cr.Events = []model.Event{}
-		}
-		if cr.PR.CheckpointCommentKeys == nil {
-			cr.PR.CheckpointCommentKeys = []string{}
-		}
-		if cr.PR.CheckpointSyncKeys == nil {
-			cr.PR.CheckpointSyncKeys = []string{}
-		}
-		crs = append(crs, cr)
-	}
-	sort.Slice(crs, func(i, j int) bool {
-		return crs[i].ID < crs[j].ID
-	})
-	return crs, nil
+	return s.cachedCRs()
 }
 
 func (s *Store) readYAML(path string, into any) error {
