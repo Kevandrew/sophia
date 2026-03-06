@@ -16,7 +16,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  go-checks:
+  go-fast-checks:
     if: ${{ github.event.pull_request.draft == false }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -39,3 +39,25 @@ jobs:
 
       - name: Go vet
         run: go vet ./...
+
+  go-integration-tests:
+    if: ${{ github.event.pull_request.draft == false }}
+    needs: go-fast-checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Configure Git identity for tests
+        run: |
+          git config --global user.name "sophia-ci"
+          git config --global user.email "sophia-ci@users.noreply.github.com"
+
+      - name: Go integration tests
+        run: ./scripts/test-integration.sh
