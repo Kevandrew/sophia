@@ -1,0 +1,101 @@
+schema_version: sophia.cr_archive.v1
+notice: Historical archive snapshot. Corrections are append-only revisions.
+archived_at: "2026-03-06T00:29:39Z"
+revision: 1
+cr:
+    id: 145
+    uid: cr_e0fe72c7-59d8-4d43-8f43-ed761b89126a
+    title: cr list collapsible threaded-tree stacks
+    description: Render stack roots and children as collapsible threaded trees in cr list while keeping normal CR rows readable.
+    status: merged
+    base_branch: main
+    base_ref: cr-aggregate-parent-threaded-tree-ui-for-cr-show-an-6095
+    base_commit: 40736cdeb93b6caba3d0a7540622ab6f6b19b2cd
+    branch: cr-cr-list-collapsible-threaded-tree-stacks-e0fe
+    merged_at: "2026-03-06T00:29:39Z"
+    merged_by: Kevandrew <143258544+Kevandrew@users.noreply.github.com>
+contract:
+    why: The list surface should make stack ownership obvious at a glance. Aggregate parents need to visually own their child CRs instead of appearing as flat peers with metadata badges. This child gives `cr list` a collapsible threaded-tree model for stacked work.
+    scope:
+        - internal/cli
+        - internal/cli/templates
+    non_goals:
+        - No aggregate-parent cr show redesign in this child CR.
+        - No new stack lifecycle behavior.
+    invariants:
+        - Collapsed and expanded stack states preserve accurate resolution counts.
+        - Unstacked CRs remain easy to scan.
+    blast_radius: Touches list/dashboard rendering, nested row structure, and client-side expansion behavior. Failure modes are visually noisy rows, broken collapse state, or inaccessible nested controls.
+    risk_tier_hint: medium
+    risk_rationale: Changes the default list reading pattern for stacked work.
+    test_plan: go test ./internal/cli
+    rollback_plan: Revert this child CR to restore flat list rendering for stacks.
+tasks:
+    - id: 1
+      title: Render aggregate parents as stack roots
+      status: done
+      contract:
+        intent: Make aggregate parents visually anchor threaded stacks in cr list.
+        acceptance_criteria:
+            - Aggregate parents render with root-level stack chrome and summary counts.
+            - Child rows read as belonging to the parent rather than as adjacent flat rows.
+        scope:
+            - internal/cli
+            - internal/cli/templates
+      checkpoint:
+        commit: efe5d62c
+        at: "2026-03-06T00:28:00Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/templates/cr_list.html
+    - id: 2
+      title: Add collapsible child CR rows
+      status: done
+      contract:
+        intent: Let list users expand or collapse threaded child rows while preserving stack readability.
+        acceptance_criteria:
+            - Nested rows remain keyboard-accessible and visually coherent on mobile.
+            - Unresolved stacks can default open while resolved stacks can collapse.
+        scope:
+            - internal/cli
+            - internal/cli/templates
+      checkpoint:
+        at: "2026-03-06T00:28:00Z"
+        source: task_no_checkpoint
+    - id: 3
+      title: Add list rendering and interaction tests
+      status: done
+      contract:
+        intent: Lock in threaded stack behavior in cr list with focused tests.
+        acceptance_criteria:
+            - Tests cover mixed normal and stacked list cases.
+            - Tests fail if nested stack markup or collapse state wiring regresses.
+        scope:
+            - internal/cli
+      checkpoint:
+        commit: f5a8debc
+        at: "2026-03-06T00:28:00Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/cr_show_test.go
+    - id: 4
+      title: Redesign cr list with collapsible threaded stacks
+      status: done
+      contract:
+        intent: Make stacked CRs read as collapsible threaded trees in the list surface so parents own their children visually and unresolved stacks are immediately legible.
+        acceptance_criteria:
+            - Aggregate parents render as stack roots with nested child CR rows.
+            - Normal CR rows still scan cleanly beside stacked trees.
+            - Resolved stacks can collapse while unresolved stacks expand clearly.
+        scope:
+            - internal/cli
+            - internal/cli/templates
+      checkpoint:
+        at: "2026-03-06T00:28:00Z"
+        source: task_no_checkpoint
+git_summary:
+    base_parent: 40736cdeb93b6caba3d0a7540622ab6f6b19b2cd
+    cr_parent: f5a8debc7f8334c62a10196614aa2aef72e1429d
+    files_changed: []
+    diffstat:
+        summary: 0 files changed, 0 insertions(+), 0 deletions(-)

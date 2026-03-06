@@ -526,6 +526,8 @@ func TestCRListTemplateIncludesStackNativityLabels(t *testing.T) {
 	for _, required := range []string{
 		"Stack Role",
 		"Lineage",
+		"stack-thread",
+		"thread-toggle",
 		"/__sophia_snapshot?mode=dashboard",
 	} {
 		if !strings.Contains(doc, required) {
