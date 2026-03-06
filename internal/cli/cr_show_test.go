@@ -493,6 +493,9 @@ func TestCRShowTemplateIsSingleFileWithInlineAssets(t *testing.T) {
 		"id=\"close-preview-btn\"",
 		"Stack Role",
 		"Lineage",
+		"id=\"task-section-label\"",
+		"Stack Work",
+		"Delegation Audit",
 		"EventSource",
 		"/__sophia_snapshot?mode=cr",
 	} {
