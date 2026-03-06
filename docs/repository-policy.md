@@ -74,7 +74,7 @@ PR readiness behavior in `pr_gate` mode:
 Repository CI guidance for `pr_gate`:
 - PR checks should run from GitHub Actions `pull_request` events and treat draft PRs as non-ready.
 - Use `ready_for_review` in workflow triggers so checks run as soon as a draft PR is promoted.
-- For this repository, the `CI` workflow runs `go test ./... -count=1` and `go vet ./...` when `pull_request.draft == false`.
+- For this repository, the `CI` workflow runs a fast lane (`go test ./... -count=1` and `go vet ./...`) plus a separate integration lane (`./scripts/test-integration.sh`) when `pull_request.draft == false`.
 
 Invalid `merge.mode` values return deterministic `policy_invalid` failures.
 
