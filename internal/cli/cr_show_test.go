@@ -494,8 +494,8 @@ func TestCRShowTemplateIsSingleFileWithInlineAssets(t *testing.T) {
 		"Stack Role",
 		"Lineage",
 		"id=\"task-section-label\"",
-		"Stack Work",
-		"Delegation Audit",
+		"Child CR Thread",
+		"Delegation Links",
 		"EventSource",
 		"/__sophia_snapshot?mode=cr",
 	} {
@@ -528,6 +528,7 @@ func TestCRListTemplateIncludesStackNativityLabels(t *testing.T) {
 		"Lineage",
 		"stack-thread",
 		"thread-toggle",
+		"child CRs",
 		"/__sophia_snapshot?mode=dashboard",
 	} {
 		if !strings.Contains(doc, required) {

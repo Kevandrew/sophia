@@ -747,7 +747,7 @@
             crRowHTML(cr, { threaded_root: true }),
           "</div>",
           "<div class='thread-badge-row'>",
-            "<span class='tag neutral'><span class='dot'></span>"+esc(String(text(nativity.child_count,0)))+" children</span>",
+            "<span class='tag neutral'><span class='dot'></span>"+esc(String(text(nativity.child_count,0)))+" child CRs</span>",
             "<span class='tag pass'><span class='dot'></span>"+esc(String(text(nativity.resolved_child_count,0)))+" resolved</span>",
             "<span class='tag "+(parseInt(text(nativity.pending_child_count,0),10)>0 ? "warn" : "neutral")+"'><span class='dot'></span>"+esc(String(text(nativity.pending_child_count,0)))+" pending</span>",
           "</div>",
@@ -850,6 +850,17 @@
       lineageBits.push("resolved " + text(nativity.resolved_child_count,0) + " / pending " + text(nativity.pending_child_count,0));
     }
 
+    var stackSummary = nativity.is_aggregate_parent ? [
+      "<div class='dp-section'><div class='dp-head'>Stack Summary</div><div class='dp-body'>",
+        "<div class='field-rows'>",
+          "<div class='field-row'><span class='field-key'>Primary Work</span><span class='field-val'>Child CRs in the threaded stack</span></div>",
+          "<div class='field-row'><span class='field-key'>Children</span><span class='field-val'>"+esc(text(nativity.child_count,0))+"</span></div>",
+          "<div class='field-row'><span class='field-key'>Resolved</span><span class='field-val'>"+esc(text(nativity.resolved_child_count,0))+"</span></div>",
+          "<div class='field-row'><span class='field-key'>Pending</span><span class='field-val'>"+esc(text(nativity.pending_child_count,0))+"</span></div>",
+        "</div>",
+      "</div></div>"
+    ].join("") : "";
+
     panelEl.innerHTML = [
       "<div class='dp-section'><div class='dp-head'>Change Request</div><div class='dp-body'>",
         "<div class='dp-title'>"+esc(text(cr.title,"Untitled CR"))+"</div>",
@@ -879,6 +890,7 @@
       "<div class='dp-section'><div class='dp-head'>Intent</div><div class='dp-body'>",
         "<div class='dp-text'>"+esc(text(cr.contract_why||cr.description,"No description."))+"</div>",
       "</div></div>",
+      stackSummary,
       "<div class='dp-section'><div class='dp-head'>Scope</div><div class='dp-body'>",
         "<div class='scope-list'>"+scopeHTML+"</div>",
       "</div></div>",
