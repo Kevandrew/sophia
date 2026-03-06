@@ -1,0 +1,101 @@
+schema_version: sophia.cr_archive.v1
+notice: Historical archive snapshot. Corrections are append-only revisions.
+archived_at: "2026-03-06T00:23:10Z"
+revision: 1
+cr:
+    id: 144
+    uid: cr_a9df67f7-cb06-4e56-8821-085406d43b10
+    title: Aggregate-parent cr show threaded-tree redesign
+    description: Render aggregate-parent cr show pages as threaded child-CR work with delegated-task details demoted to secondary audit information.
+    status: merged
+    base_branch: main
+    base_ref: cr-aggregate-parent-threaded-tree-ui-for-cr-show-an-6095
+    base_commit: 40736cdeb93b6caba3d0a7540622ab6f6b19b2cd
+    branch: cr-aggregate-parent-cr-show-threaded-tree-redesign-a9df
+    merged_at: "2026-03-06T00:23:10Z"
+    merged_by: Kevandrew <143258544+Kevandrew@users.noreply.github.com>
+contract:
+    why: Aggregate-parent CRs should read like integration roots composed of child CRs, not like normal task-execution CRs with odd delegation metadata. This child reorients `cr show` around child CRs as the primary visible work units.
+    scope:
+        - internal/cli
+        - internal/cli/templates
+    non_goals:
+        - No cr list redesign in this child CR.
+        - No removal of delegated-task audit details.
+    invariants:
+        - Aggregate parents show child CRs as primary work while keeping delegated-task links inspectable.
+        - Non-aggregate cr show pages continue to use the current task-oriented structure.
+    blast_radius: Touches per-CR payload rendering and aggregate-parent section layout. Failure modes are missing child navigation, duplicated task/child information, or degraded readability on mobile.
+    risk_tier_hint: medium
+    risk_rationale: Changes the primary composition of aggregate-parent cr show pages.
+    test_plan: go test ./internal/cli
+    rollback_plan: Revert this child CR to restore the current aggregate-parent cr show presentation.
+tasks:
+    - id: 1
+      title: Replace aggregate-parent task section with child CR tree
+      status: done
+      contract:
+        intent: Render a stack-work section that treats child CRs as the primary visible execution units for aggregate parents.
+        acceptance_criteria:
+            - Aggregate parents show a dedicated child-CR tree section in the main work area.
+            - Child nodes include status, lineage, and navigation affordances.
+        scope:
+            - internal/cli
+            - internal/cli/templates
+      checkpoint:
+        commit: eff6596c
+        at: "2026-03-06T00:21:24Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/templates/cr_show.html
+    - id: 2
+      title: Demote delegated task linkage to secondary audit detail
+      status: done
+      contract:
+        intent: Keep parent-task delegation links available without letting them dominate the aggregate-parent page.
+        acceptance_criteria:
+            - Delegated task linkage remains inspectable in a secondary section.
+            - Primary aggregate-parent scanning focuses on child CR state, not task metadata.
+        scope:
+            - internal/cli
+            - internal/cli/templates
+      checkpoint:
+        at: "2026-03-06T00:21:24Z"
+        source: task_no_checkpoint
+    - id: 3
+      title: Add aggregate-parent cr show rendering tests
+      status: done
+      contract:
+        intent: Protect the threaded aggregate-parent show layout with focused template/server tests.
+        acceptance_criteria:
+            - Tests cover aggregate-parent and non-aggregate rendering paths.
+            - Tests fail if child CR tree sections disappear or delegated audit detail becomes primary again.
+        scope:
+            - internal/cli
+      checkpoint:
+        commit: 7b4fbc57
+        at: "2026-03-06T00:21:24Z"
+        source: task_checkpoint
+        scope:
+            - internal/cli/cr_show_test.go
+    - id: 4
+      title: Redesign aggregate-parent cr show as threaded child-CR work
+      status: done
+      contract:
+        intent: Replace the aggregate-parent task-centric middle section with a threaded child-CR presentation while preserving delegated-task audit detail as secondary information.
+        acceptance_criteria:
+            - Aggregate parent cr show pages render child CRs as the primary stack work section.
+            - Child CR nodes expose status, branch/base context, and navigation affordances.
+            - Delegated parent tasks remain available as supporting technical detail rather than the main UI.
+        scope:
+            - internal/cli
+            - internal/cli/templates
+      checkpoint:
+        at: "2026-03-06T00:21:24Z"
+        source: task_no_checkpoint
+git_summary:
+    base_parent: 40736cdeb93b6caba3d0a7540622ab6f6b19b2cd
+    cr_parent: 7b4fbc5765391fbf3aacbdc3484e8f1b92c25fcc
+    files_changed: []
+    diffstat:
+        summary: 0 files changed, 0 insertions(+), 0 deletions(-)
