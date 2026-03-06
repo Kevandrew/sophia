@@ -1,0 +1,114 @@
+schema_version: sophia.cr_archive.v1
+notice: Historical archive snapshot. Corrections are append-only revisions.
+archived_at: "2026-03-06T00:36:52Z"
+revision: 1
+cr:
+    id: 142
+    uid: cr_60950add-d607-44c3-b39e-c2decbfb5f5f
+    title: Aggregate parent threaded-tree UI for cr show and cr list
+    description: Redesign stacked CR surfaces so aggregate parents render as first-class threaded trees with child CRs as the primary visible work units.
+    status: merged
+    base_branch: main
+    base_ref: main
+    base_commit: 9c8032240475c607a938f3bb2fe7cb7e432580f5
+    branch: cr-aggregate-parent-threaded-tree-ui-for-cr-show-an-6095
+    merged_at: "2026-03-06T00:36:52Z"
+    merged_by: Kevandrew <143258544+Kevandrew@users.noreply.github.com>
+contract:
+    why: |-
+        Aggregate parent CRs currently expose the right metadata but still read too much like flat records with incidental stack annotations. That makes stacked work feel retrofitted instead of native. The outcome of this stack is a cohesive threaded-tree presentation across `cr show` and `cr list`: aggregate parents become visible stack roots, child CRs read as the actual review and execution slices, and lineage, resolution, and stack health become legible at a glance.
+        The redesign should preserve the current localhost-preview model and existing stack semantics while changing the visual grammar so parent and child CRs feel structurally related rather than merely adjacent.
+    scope:
+        - internal/cli
+        - internal/cli/templates
+        - internal/service
+        - skills/sophia
+    non_goals:
+        - No CR lifecycle or merge-policy changes in this stack.
+        - No dashboard/router rewrite beyond what the UI needs for threaded rendering.
+        - No removal of delegated task metadata from the underlying model.
+    invariants:
+        - Aggregate parents keep child CRs as the primary visible work units while preserving delegated-task auditability.
+        - Normal non-stacked CRs continue to render cleanly without threaded-tree chrome.
+        - cr show and cr list remain semantically consistent about stack role, lineage, and resolution state.
+    blast_radius: Touches stack-aware read models, cr show payload shaping, HTML template rendering for aggregate parents and list rows, and workflow guidance in the Sophia skill. Failure modes include confusing or duplicated stack information, broken child navigation, or visually noisy list rendering that obscures normal CR scanning.
+    risk_critical_scopes:
+        - internal/cli
+        - internal/cli/templates
+        - internal/service
+    risk_tier_hint: medium
+    risk_rationale: Primarily UX and read-model work, but it changes the primary presentation of stack structure in first-class CR surfaces.
+    test_plan: go test ./internal/service ./internal/cli && go test ./...
+    rollback_plan: Revert this stack to restore the current flat stack rendering and aggregate-parent presentation.
+tasks:
+    - id: 1
+      title: Define threaded-tree stack read models
+      status: delegated
+      contract:
+        intent: Expose the lineage and stack-role data needed to render aggregate parents as threaded trees in both show and list surfaces.
+        acceptance_criteria:
+            - Aggregate parents expose a normalized child-CR tree shape instead of relying on templates to reconstruct lineage ad hoc.
+            - Read models clearly distinguish root parent, aggregate parent, child CR, and normal CR roles.
+            - Resolved vs unresolved child state is directly available to the UI.
+        scope:
+            - internal/cli
+            - internal/service
+      delegated:
+        - child_cr_id: 143
+          child_cr_uid: cr_dd6dc983-dbc5-4220-a450-79e7fa6a2556
+          child_task_id: 4
+    - id: 2
+      title: Redesign aggregate-parent cr show as threaded child-CR work
+      status: delegated
+      contract:
+        intent: Replace the aggregate-parent task-centric middle section with a threaded child-CR presentation while preserving delegated-task audit detail as secondary information.
+        acceptance_criteria:
+            - Aggregate parent cr show pages render child CRs as the primary stack work section.
+            - Child CR nodes expose status, branch/base context, and navigation affordances.
+            - Delegated parent tasks remain available as supporting technical detail rather than the main UI.
+        scope:
+            - internal/cli
+            - internal/cli/templates
+      delegated:
+        - child_cr_id: 144
+          child_cr_uid: cr_a9df67f7-cb06-4e56-8821-085406d43b10
+          child_task_id: 4
+    - id: 3
+      title: Redesign cr list with collapsible threaded stacks
+      status: delegated
+      contract:
+        intent: Make stacked CRs read as collapsible threaded trees in the list surface so parents own their children visually and unresolved stacks are immediately legible.
+        acceptance_criteria:
+            - Aggregate parents render as stack roots with nested child CR rows.
+            - Normal CR rows still scan cleanly beside stacked trees.
+            - Resolved stacks can collapse while unresolved stacks expand clearly.
+        scope:
+            - internal/cli
+            - internal/cli/templates
+      delegated:
+        - child_cr_id: 145
+          child_cr_uid: cr_e0fe72c7-59d8-4d43-8f43-ed761b89126a
+          child_task_id: 4
+    - id: 4
+      title: Polish stack visual language and document the new model
+      status: delegated
+      contract:
+        intent: Unify motion, styling, wording, and workflow guidance so the threaded-tree stack model feels deliberate and is taught consistently.
+        acceptance_criteria:
+            - Regression coverage locks in the intended stack nativity semantics.
+            - Skill/docs guidance explains aggregate parents as integration roots with child CRs as primary work units.
+            - cr show and cr list share a cohesive visual language for stack rails, nesting, and resolution states.
+        scope:
+            - internal/cli
+            - internal/cli/templates
+            - skills/sophia
+      delegated:
+        - child_cr_id: 146
+          child_cr_uid: cr_dbdc2891-9bf6-4ed3-9634-180a8b25d68d
+          child_task_id: 5
+git_summary:
+    base_parent: 9c8032240475c607a938f3bb2fe7cb7e432580f5
+    cr_parent: 64c1bd838ee5fd89689d0256ac0fc88f0f675d49
+    files_changed: []
+    diffstat:
+        summary: 0 files changed, 0 insertions(+), 0 deletions(-)
