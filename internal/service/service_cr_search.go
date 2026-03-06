@@ -79,6 +79,10 @@ func matchCRSearch(cr model.CR, query model.CRSearchQuery) bool {
 	return true
 }
 
+func MatchCRSearchForCLI(cr model.CR, query model.CRSearchQuery) bool {
+	return matchCRSearch(cr, query)
+}
+
 func hasScopePrefix(scopes []string, prefix string) bool {
 	prefix = strings.ToLower(strings.TrimSpace(prefix))
 	for _, s := range scopes {
@@ -122,4 +126,8 @@ func countTaskStats(tasks []model.Subtask) (open, done, delegated int) {
 		}
 	}
 	return
+}
+
+func CountTaskStatsForCLI(tasks []model.Subtask) (open, done, delegated int) {
+	return countTaskStats(tasks)
 }
