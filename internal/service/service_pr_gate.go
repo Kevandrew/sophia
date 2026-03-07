@@ -597,6 +597,9 @@ func (s *Service) prReconcileUnlocked(id int, mode string) (*PRReconcileView, er
 		}
 	case prReconcileModeCreate:
 		action = "created"
+		if err := s.ensurePRBranchHasDiffFromBase(cr); err != nil {
+			return nil, err
+		}
 		repoURL, repoErr := s.currentRemoteRepo("origin")
 		if repoErr != nil {
 			return nil, repoErr
@@ -1637,27 +1640,6 @@ func (s *Service) ensurePRBranchHasDiffFromBase(cr *model.CR) error {
 	return nil
 }
 
-func (s *Service) prNoDiffActionRequired(cr *model.CR, base string) error {
-	suggestedCommand := fmt.Sprintf("sophia cr status %d", cr.ID)
-	actionName := "inspect_pr_publication_mode"
-	reason := fmt.Sprintf("branch %q has no diff relative to base %q", strings.TrimSpace(cr.Branch), strings.TrimSpace(base))
-	context := map[string]any{
-		"cr_id":    cr.ID,
-		"branch":   strings.TrimSpace(cr.Branch),
-		"base_ref": strings.TrimSpace(base),
-	}
-
-	allCRs, listErr := s.store.ListCRs()
-	if listErr == nil {
-		parentID := effectiveParentCRID(*cr, allCRs)
-		if parentID > 0 {
-			context["parent_cr_id"] = parentID
-			actionName = "publish_aggregate_parent"
-			reason = fmt.Sprintf("branch %q is already fully integrated into parent base %q; publish the aggregate parent PR instead of opening a child PR", strings.TrimSpace(cr.Branch), strings.TrimSpace(base))
-			suggestedCommand = fmt.Sprintf("sophia cr pr open %d --approve-open", parentID)
-		}
-	}
-
 func (s *Service) prPublishabilityRefActionRequired(cr *model.CR, base, head, failedRef string, cause error) error {
 	if cr == nil {
 		return cause
@@ -1702,6 +1684,27 @@ func (s *Service) patchManagedBody(repoSelector string, pr *ghPRSummary, managed
 	body, err := s.readPRBody(repoSelector, pr.Number)
 	if err != nil {
 		return "", fmt.Errorf("read PR body: %w", err)
+func (s *Service) prNoDiffActionRequired(cr *model.CR, base string) error {
+	suggestedCommand := fmt.Sprintf("sophia cr status %d", cr.ID)
+	actionName := "inspect_pr_publication_mode"
+	reason := fmt.Sprintf("branch %q has no diff relative to base %q", strings.TrimSpace(cr.Branch), strings.TrimSpace(base))
+	context := map[string]any{
+		"cr_id":    cr.ID,
+		"branch":   strings.TrimSpace(cr.Branch),
+		"base_ref": strings.TrimSpace(base),
+	}
+
+	allCRs, listErr := s.store.ListCRs()
+	if listErr == nil {
+		parentID := effectiveParentCRID(*cr, allCRs)
+		if parentID > 0 {
+			context["parent_cr_id"] = parentID
+			actionName = "publish_aggregate_parent"
+			reason = fmt.Sprintf("branch %q is already fully integrated into parent base %q; publish the aggregate parent PR instead of opening a child PR", strings.TrimSpace(cr.Branch), strings.TrimSpace(base))
+			suggestedCommand = fmt.Sprintf("sophia cr pr open %d --approve-open", parentID)
+		}
+	}
+
 	}
 	return mergeManagedPRBody(body, managed)
 }
