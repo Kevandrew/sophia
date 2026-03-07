@@ -548,6 +548,11 @@ func setupCLIPRGateRepo(t *testing.T) string {
 		t.Fatalf("AddCR() error = %v", err)
 	}
 	setValidContractCLI(t, svc, cr.ID)
+	if err := os.WriteFile(filepath.Join(dir, "publishable.txt"), []byte("fixture\n"), 0o644); err != nil {
+		t.Fatalf("write publishable fixture: %v", err)
+	}
+	runGit(t, dir, "add", "publishable.txt")
+	runGit(t, dir, "commit", "-m", "test: add publishable branch diff")
 	originPath := filepath.Join(t.TempDir(), "origin.git")
 	runGit(t, dir, "init", "--bare", originPath)
 	runGit(t, dir, "remote", "add", "origin", originPath)
