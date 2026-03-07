@@ -171,11 +171,7 @@ func newCRPRStatusCmd() *cobra.Command {
 				fmt.Fprintf(cmd.OutOrStdout(), "Linkage State: %s\n", nonEmpty(status.LinkageState, "-"))
 				fmt.Fprintf(cmd.OutOrStdout(), "Gate Blocked: %t\n", status.GateBlocked)
 				printListSection(cmd, "Gate Reasons", status.GateReasons)
-				if strings.TrimSpace(status.ActionRequired) != "" {
-					fmt.Fprintf(cmd.OutOrStdout(), "Action Required: %s\n", status.ActionRequired)
-					fmt.Fprintf(cmd.OutOrStdout(), "Action Reason: %s\n", nonEmpty(status.ActionReason, "-"))
-					printListSection(cmd, "Suggested Commands", status.SuggestedCommands)
-				}
+				printNextStepsSection(cmd, prNextStepView(status))
 				return nil
 			})
 		},
@@ -363,6 +359,7 @@ func prStatusToJSONMap(status *service.PRStatusView) map[string]any {
 		"action_required":      status.ActionRequired,
 		"action_reason":        status.ActionReason,
 		"suggested_commands":   stringSliceOrEmpty(status.SuggestedCommands),
+		"next_steps":           nextStepToJSONMap(prNextStepView(status)),
 		"warnings":             stringSliceOrEmpty(status.Warnings),
 	}
 }

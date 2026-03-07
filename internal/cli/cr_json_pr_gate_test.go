@@ -251,6 +251,13 @@ func TestPRStatusJSONIncludesLinkageActionMetadataWhenNoLinkedPR(t *testing.T) {
 	if !ok || len(suggested) == 0 {
 		t.Fatalf("expected suggested_commands list, got %#v", env.Data["suggested_commands"])
 	}
+	nextSteps, ok := env.Data["next_steps"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected next_steps object, got %#v", env.Data["next_steps"])
+	}
+	if got, _ := nextSteps["summary"].(string); !strings.Contains(got, "no linked PR") {
+		t.Fatalf("expected next_steps summary to mention missing PR, got %#v", nextSteps["summary"])
+	}
 }
 
 func TestCRStatusJSONIncludesPRLinkageMetadataWhenNoLinkedPR(t *testing.T) {
@@ -270,6 +277,21 @@ func TestCRStatusJSONIncludesPRLinkageMetadataWhenNoLinkedPR(t *testing.T) {
 	}
 	if got, _ := env.Data["action_required"].(string); got != "open_pr" {
 		t.Fatalf("expected action_required=open_pr, got %#v", env.Data["action_required"])
+	}
+	freshness, ok := env.Data["freshness"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected freshness object, got %#v", env.Data["freshness"])
+	}
+	if got, _ := freshness["state"].(string); got != "current" {
+		t.Fatalf("expected freshness.state=current, got %#v", freshness["state"])
+	}
+	nextSteps, ok := env.Data["next_steps"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected next_steps object, got %#v", env.Data["next_steps"])
+	}
+	suggested, ok := nextSteps["suggested_commands"].([]any)
+	if !ok || len(suggested) == 0 {
+		t.Fatalf("expected next_steps suggested commands, got %#v", nextSteps["suggested_commands"])
 	}
 }
 
@@ -294,6 +316,65 @@ func TestCRReviewJSONIncludesLifecycleActionMetadataWhenNoLinkedPR(t *testing.T)
 	}
 	if got, _ := crMap["action_required"].(string); got != "open_pr" {
 		t.Fatalf("expected action_required=open_pr, got %#v", crMap["action_required"])
+	}
+	nextSteps, ok := env.Data["next_steps"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected next_steps object, got %#v", env.Data["next_steps"])
+	}
+	if got, _ := nextSteps["summary"].(string); !strings.Contains(got, "no linked PR") {
+		t.Fatalf("expected next_steps summary to mention missing PR, got %#v", nextSteps["summary"])
+	}
+	freshness, ok := env.Data["freshness"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected freshness object, got %#v", env.Data["freshness"])
+	}
+	if got, _ := freshness["state"].(string); got != "current" {
+		t.Fatalf("expected freshness.state=current, got %#v", freshness["state"])
+	}
+}
+
+func TestCRStatusJSONIncludesFreshnessGuidanceWhenBaseMoves(t *testing.T) {
+	dir := setupCLIPRGateRepo(t)
+	runGit(t, dir, "checkout", "main")
+	if err := os.WriteFile(filepath.Join(dir, "freshness.txt"), []byte("fresh\n"), 0o644); err != nil {
+		t.Fatalf("write freshness.txt: %v", err)
+	}
+	runGit(t, dir, "add", "freshness.txt")
+	runGit(t, dir, "commit", "-m", "feat: move base ref")
+	installFakeGH(t, "echo '[]'; exit 0")
+
+	out, _, runErr := runCLI(t, dir, "cr", "status", "1", "--json")
+	if runErr != nil {
+		t.Fatalf("cr status --json error = %v\noutput=%s", runErr, out)
+	}
+	env := decodeEnvelope(t, out)
+	if !env.OK {
+		t.Fatalf("expected ok envelope, got %#v", env)
+	}
+	freshness, ok := env.Data["freshness"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected freshness object, got %#v", env.Data["freshness"])
+	}
+	if got, _ := freshness["state"].(string); got != "stale" {
+		t.Fatalf("expected freshness.state=stale, got %#v", freshness["state"])
+	}
+	nextSteps, ok := env.Data["next_steps"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected next_steps object, got %#v", env.Data["next_steps"])
+	}
+	suggested, ok := nextSteps["suggested_commands"].([]any)
+	if !ok || len(suggested) == 0 {
+		t.Fatalf("expected next_steps suggested commands, got %#v", nextSteps["suggested_commands"])
+	}
+	foundRefresh := false
+	for _, command := range suggested {
+		if strings.TrimSpace(fmt.Sprint(command)) == "sophia cr refresh 1" {
+			foundRefresh = true
+			break
+		}
+	}
+	if !foundRefresh {
+		t.Fatalf("expected refresh command in next_steps, got %#v", suggested)
 	}
 }
 
