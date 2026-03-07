@@ -186,6 +186,7 @@ func newCRTaskContractCmd() *cobra.Command {
 	contractCmd := &cobra.Command{
 		Use:   "contract",
 		Short: "Manage task-level contract fields",
+		Long:  "Task contracts turn subtasks into reviewable checkpoint units. Define intent, acceptance criteria, and scope before task completion.",
 	}
 	contractCmd.AddCommand(newCRTaskContractSetCmd())
 	contractCmd.AddCommand(newCRTaskContractShowCmd())
@@ -202,9 +203,11 @@ func newCRTaskContractSetCmd() *cobra.Command {
 	var asJSON bool
 
 	cmd := &cobra.Command{
-		Use:   "set [<cr-id>] <task-id>",
-		Short: "Set/update task contract fields",
-		Args:  cobra.RangeArgs(1, 2),
+		Use:     "set [<cr-id>] <task-id>",
+		Short:   "Set/update task contract fields",
+		Long:    "Use this before `task done`. A task contract should describe one behavior slice with explicit acceptance criteria and a scope narrow enough for a single checkpoint.",
+		Example: "  sophia cr task contract set 25 1 --intent \"Bound retry jitter\" --acceptance \"Retries stay within configured bounds\" --scope internal/service\n  sophia cr task contract set 25 1 --acceptance-check unit_tests",
+		Args:    cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			patch := service.TaskContractPatch{}
 			if cmd.Flags().Changed("intent") {
@@ -541,9 +544,11 @@ func newCRTaskAddCmd() *cobra.Command {
 	var asJSON bool
 
 	cmd := &cobra.Command{
-		Use:   "add [<cr-id>] <title>",
-		Short: "Add a subtask to a CR",
-		Args:  cobra.RangeArgs(1, 2),
+		Use:     "add [<cr-id>] <title>",
+		Short:   "Add a subtask to a CR",
+		Long:    "Add a checkpoint-sized subtask after the CR contract is defined. Use task contracts to turn each task into one reviewable implementation unit.",
+		Example: "  sophia cr task add 25 \"Implement bounded jitter strategy\"\n  sophia cr task add \"Implement bounded jitter strategy\"",
+		Args:    cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			svc, err := newServiceForCmd(cmd)
 			if err != nil {
@@ -583,9 +588,11 @@ func newCRTaskListCmd() *cobra.Command {
 	var asJSON bool
 
 	cmd := &cobra.Command{
-		Use:   "list <cr-id>",
-		Short: "List subtasks for a CR",
-		Args:  cobra.ExactArgs(1),
+		Use:     "list <cr-id>",
+		Short:   "List subtasks for a CR",
+		Long:    "Inspect current task state before choosing the next implementation checkpoint or before preparing a PR-ready handoff.",
+		Example: "  sophia cr task list 25\n  sophia cr task list 25 --json",
+		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			crID, svc, err := parseIDAndService(cmd, args[0], "cr-id")
 			if err != nil {
@@ -775,7 +782,7 @@ func newCRTaskDoneCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "done [<cr-id>] <task-id>",
 		Short:   "Mark a subtask as done",
-		Long:    "Complete a task with one explicit checkpoint scope mode. Prefer --from-contract once task contract scope is defined.",
+		Long:    "Complete a task with one explicit checkpoint scope mode. Use this only after the task contract is complete; prefer --from-contract once task contract scope is defined.",
 		Example: "  sophia cr task done 25 1 --commit-type fix --from-contract\n  sophia cr task done 25 1 --path internal/service/service.go --path internal/service/service_test.go\n  sophia cr task done 25 1 --patch-file /tmp/task1.patch\n  sophia cr task done 25 1 --all\n  sophia cr task done 25 1 --no-checkpoint --no-checkpoint-reason \"metadata-only task\"",
 		Args:    cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
