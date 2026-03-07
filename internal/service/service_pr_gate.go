@@ -1616,16 +1616,22 @@ func (s *Service) ensurePRBranchHasDiffFromBase(cr *model.CR) error {
 	if base == "" || head == "" {
 		return nil
 	}
-	if resolvedBase, err := s.git.ResolveRef(base); err == nil {
-		if resolvedHead, headErr := s.git.ResolveRef(head); headErr == nil && strings.TrimSpace(resolvedBase) == strings.TrimSpace(resolvedHead) {
-			return s.prNoDiffActionRequired(cr, base)
-		}
-	}
-	changes, err := s.git.DiffNameStatusBetween(base, head)
+	resolvedBase, err := s.git.ResolveRef(base)
 	if err != nil {
-		return nil
+		return s.prPublishabilityRefActionRequired(cr, base, head, "base", err)
 	}
-	if len(changes) == 0 {
+	resolvedHead, err := s.git.ResolveRef(head)
+	if err != nil {
+		return s.prPublishabilityRefActionRequired(cr, base, head, "head", err)
+	}
+	if strings.TrimSpace(resolvedBase) == strings.TrimSpace(resolvedHead) {
+		return s.prNoDiffActionRequired(cr, base)
+	}
+	counts, err := s.git.AheadBehind(base, head)
+	if err != nil {
+		return s.prPublishabilityRefActionRequired(cr, base, head, "range", err)
+	}
+	if counts.RightAhead == 0 {
 		return s.prNoDiffActionRequired(cr, base)
 	}
 	return nil
@@ -1651,6 +1657,32 @@ func (s *Service) prNoDiffActionRequired(cr *model.CR, base string) error {
 			suggestedCommand = fmt.Sprintf("sophia cr pr open %d --approve-open", parentID)
 		}
 	}
+
+func (s *Service) prPublishabilityRefActionRequired(cr *model.CR, base, head, failedRef string, cause error) error {
+	if cr == nil {
+		return cause
+	}
+	failedRef = strings.TrimSpace(failedRef)
+	actionName := "refresh_cr_base"
+	suggestedCommand := fmt.Sprintf("sophia cr refresh %d", cr.ID)
+	if failedRef == "head" {
+		actionName = "switch_cr_branch"
+		suggestedCommand = fmt.Sprintf("sophia cr switch %d", cr.ID)
+	}
+	return &PRActionRequiredError{
+		Cause:            cause,
+		Summary:          "PR creation blocked because branch publishability could not be checked locally",
+		Reason:           fmt.Sprintf("%s ref could not be resolved for branch %q against base %q: %v", nonEmptyTrimmed(failedRef, "publishability"), strings.TrimSpace(head), strings.TrimSpace(base), cause),
+		ActionName:       actionName,
+		SuggestedCommand: suggestedCommand,
+		Context: map[string]any{
+			"cr_id":      cr.ID,
+			"branch":     strings.TrimSpace(head),
+			"base_ref":   strings.TrimSpace(base),
+			"failed_ref": failedRef,
+		},
+	}
+}
 
 	return &PRActionRequiredError{
 		Cause:            ErrPRNoDiffToBase,
