@@ -344,7 +344,19 @@
       border-right: 1px solid var(--border);
       min-width: 0;
       width: 100%;
+      align-self: stretch;
+      display: flex;
+      flex-direction: column;
       overflow: hidden;
+    }
+
+    .main-primary {
+      display: grid;
+      min-height: 0;
+    }
+
+    .main-secondary {
+      margin-top: auto;
     }
 
     /* LIST TOOLBAR */
@@ -1317,6 +1329,10 @@
         border-right: none;
       }
 
+      .main-secondary {
+        margin-top: 0;
+      }
+
       .sidebar {
         position: static;
         max-height: none;
@@ -1373,63 +1389,66 @@
 
   <div class="layout">
     <main class="main">
-
-      <div class="list-toolbar">
-        <span class="list-toolbar-label" id="toolbar-label">Active Work</span>
-        <div class="dropdown-wrap">
-          <button type="button" class="btn" id="sort-btn">
-            <svg width="11" height="10" viewBox="0 0 11 10" fill="none">
-              <path d="M1 2h9M3 5h5M5 8h1" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
-            </svg>
-            Sort / Group
-          </button>
-          <div class="dropdown-menu" id="sort-menu">
-            <div class="dropdown-section-label">Sort by</div>
-            <div class="dropdown-item active" data-sort="updated"><span class="check">✓</span>Last updated</div>
-            <div class="dropdown-item" data-sort="created"><span class="check"> </span>Created date</div>
-            <div class="dropdown-item" data-sort="id"><span class="check"> </span>CR ID</div>
-            <div class="dropdown-item" data-sort="risk"><span class="check"> </span>Risk level</div>
-            <div class="dropdown-item" data-sort="tasks"><span class="check"> </span>Task progress</div>
-            <div class="dropdown-divider"></div>
-            <div class="dropdown-section-label">Group by</div>
-            <div class="dropdown-item active" data-group="status"><span class="check">✓</span>Status</div>
-            <div class="dropdown-item" data-group="risk"><span class="check"> </span>Risk tier</div>
-            <div class="dropdown-item" data-group="none"><span class="check"> </span>No grouping</div>
+      <div class="main-primary">
+        <div class="list-toolbar">
+          <span class="list-toolbar-label" id="toolbar-label">Active Work</span>
+          <div class="dropdown-wrap">
+            <button type="button" class="btn" id="sort-btn">
+              <svg width="11" height="10" viewBox="0 0 11 10" fill="none">
+                <path d="M1 2h9M3 5h5M5 8h1" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+              </svg>
+              Sort / Group
+            </button>
+            <div class="dropdown-menu" id="sort-menu">
+              <div class="dropdown-section-label">Sort by</div>
+              <div class="dropdown-item active" data-sort="updated"><span class="check">✓</span>Last updated</div>
+              <div class="dropdown-item" data-sort="created"><span class="check"> </span>Created date</div>
+              <div class="dropdown-item" data-sort="id"><span class="check"> </span>CR ID</div>
+              <div class="dropdown-item" data-sort="risk"><span class="check"> </span>Risk level</div>
+              <div class="dropdown-item" data-sort="tasks"><span class="check"> </span>Task progress</div>
+              <div class="dropdown-divider"></div>
+              <div class="dropdown-section-label">Group by</div>
+              <div class="dropdown-item active" data-group="status"><span class="check">✓</span>Status</div>
+              <div class="dropdown-item" data-group="risk"><span class="check"> </span>Risk tier</div>
+              <div class="dropdown-item" data-group="none"><span class="check"> </span>No grouping</div>
+            </div>
           </div>
         </div>
-      </div>
 
-      <div class="cr-section-head">
-        <span class="cr-section-title">In Progress</span>
-        <span class="tag warn" id="active-count-tag">0</span>
-      </div>
-      <div id="active-list"></div>
-
-      <details class="cr-history">
-        <summary>
-          <div class="cr-section-head">
-            <span class="history-caret">▶</span>
-            <span class="cr-section-title">History</span>
-            <span class="tag neutral" id="history-count-tag">0 merged</span>
-          </div>
-        </summary>
-        <div id="history-list"></div>
-      </details>
-
-      <details class="timeline-wrap">
-        <summary>
-          <div class="timeline-summary">
-            <span class="timeline-caret">▶</span>
-            <span class="timeline-label">Global Timeline</span>
-            <span class="tag neutral" id="timeline-count-tag">0</span>
-          </div>
-        </summary>
-        <div class="timeline-body">
-          <div class="event-list" id="timeline-list">
-            <div class="empty-state">No timeline events</div>
-          </div>
+        <div class="cr-section-head">
+          <span class="cr-section-title">In Progress</span>
+          <span class="tag warn" id="active-count-tag">0</span>
         </div>
-      </details>
+        <div id="active-list"></div>
+      </div>
+
+      <div class="main-secondary">
+        <details class="cr-history">
+          <summary>
+            <div class="cr-section-head">
+              <span class="history-caret">▶</span>
+              <span class="cr-section-title">History</span>
+              <span class="tag neutral" id="history-count-tag">0 merged</span>
+            </div>
+          </summary>
+          <div id="history-list"></div>
+        </details>
+
+        <details class="timeline-wrap">
+          <summary>
+            <div class="timeline-summary">
+              <span class="timeline-caret">▶</span>
+              <span class="timeline-label">Global Timeline</span>
+              <span class="tag neutral" id="timeline-count-tag">0</span>
+            </div>
+          </summary>
+          <div class="timeline-body">
+            <div class="event-list" id="timeline-list">
+              <div class="empty-state">No timeline events</div>
+            </div>
+          </div>
+        </details>
+      </div>
 
     </main>
 
