@@ -1329,6 +1329,10 @@
         border-right: none;
       }
 
+      .main-secondary {
+        margin-top: 0;
+      }
+
       .sidebar {
         position: static;
         max-height: none;
@@ -1410,40 +1414,41 @@
             </div>
           </div>
         </div>
-      </div>
 
         <div class="cr-section-head">
           <span class="cr-section-title">In Progress</span>
           <span class="tag warn" id="active-count-tag">0</span>
         </div>
         <div id="active-list"></div>
-      <div id="active-list"></div>
+      </div>
 
-      <details class="cr-history">
-        <summary>
-          <div class="cr-section-head">
-            <span class="history-caret">▶</span>
-            <span class="cr-section-title">History</span>
-            <span class="tag neutral" id="history-count-tag">0 merged</span>
-          </div>
-        </summary>
-        <div id="history-list"></div>
-      </details>
+      <div class="main-secondary">
+        <details class="cr-history">
+          <summary>
+            <div class="cr-section-head">
+              <span class="history-caret">▶</span>
+              <span class="cr-section-title">History</span>
+              <span class="tag neutral" id="history-count-tag">0 merged</span>
+            </div>
+          </summary>
+          <div id="history-list"></div>
+        </details>
 
-      <details class="timeline-wrap">
-        <summary>
-          <div class="timeline-summary">
-            <span class="timeline-caret">▶</span>
-            <span class="timeline-label">Global Timeline</span>
-            <span class="tag neutral" id="timeline-count-tag">0</span>
+        <details class="timeline-wrap">
+          <summary>
+            <div class="timeline-summary">
+              <span class="timeline-caret">▶</span>
+              <span class="timeline-label">Global Timeline</span>
+              <span class="tag neutral" id="timeline-count-tag">0</span>
+            </div>
+          </summary>
+          <div class="timeline-body">
+            <div class="event-list" id="timeline-list">
+              <div class="empty-state">No timeline events</div>
+            </div>
           </div>
-        </summary>
-        <div class="timeline-body">
-          <div class="event-list" id="timeline-list">
-            <div class="empty-state">No timeline events</div>
-          </div>
-        </div>
-      </details>
+        </details>
+      </div>
 
     </main>
 
