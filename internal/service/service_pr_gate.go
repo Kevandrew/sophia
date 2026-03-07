@@ -2426,7 +2426,8 @@ func (s *Service) reconcileRemoteMergedPR(cr *model.CR, status *PRStatusView) er
 	if cr == nil || status == nil || !status.Merged {
 		return nil
 	}
-	if cr.Status == model.StatusMerged && strings.TrimSpace(cr.MergedCommit) != "" {
+	alreadyMerged := cr.Status == model.StatusMerged && strings.TrimSpace(cr.MergedCommit) != ""
+	if alreadyMerged && strings.TrimSpace(cr.BaseCommit) == strings.TrimSpace(status.MergedCommit) && strings.EqualFold(strings.TrimSpace(cr.PR.State), "MERGED") {
 		return nil
 	}
 	now := s.timestamp()
@@ -2443,26 +2444,29 @@ func (s *Service) reconcileRemoteMergedPR(cr *model.CR, status *PRStatusView) er
 	cr.MergedAt = mergedAt
 	cr.MergedBy = actor
 	cr.MergedCommit = mergedCommit
+	cr.BaseCommit = mergedCommit
 	cr.PR.State = "MERGED"
 	cr.PR.Draft = false
 	cr.PR.LastMergedAt = mergedAt
 	cr.PR.LastMergedCommit = mergedCommit
 	cr.PR.LastStatusCheckedAt = now
 	cr.UpdatedAt = now
-	cr.Events = append(cr.Events, model.Event{
-		TS:      now,
-		Actor:   actor,
-		Type:    model.EventTypeCRPRMergedRemote,
-		Summary: fmt.Sprintf("Detected remote PR merge for CR %d", cr.ID),
-		Ref:     fmt.Sprintf("cr:%d", cr.ID),
-	})
-	cr.Events = append(cr.Events, model.Event{
-		TS:      now,
-		Actor:   actor,
-		Type:    model.EventTypeCRMerged,
-		Summary: fmt.Sprintf("Merged CR %d", cr.ID),
-		Ref:     fmt.Sprintf("cr:%d", cr.ID),
-	})
+	if !alreadyMerged {
+		cr.Events = append(cr.Events, model.Event{
+			TS:      now,
+			Actor:   actor,
+			Type:    model.EventTypeCRPRMergedRemote,
+			Summary: fmt.Sprintf("Detected remote PR merge for CR %d", cr.ID),
+			Ref:     fmt.Sprintf("cr:%d", cr.ID),
+		})
+		cr.Events = append(cr.Events, model.Event{
+			TS:      now,
+			Actor:   actor,
+			Type:    model.EventTypeCRMerged,
+			Summary: fmt.Sprintf("Merged CR %d", cr.ID),
+			Ref:     fmt.Sprintf("cr:%d", cr.ID),
+		})
+	}
 	if err := s.store.SaveCR(cr); err != nil {
 		return err
 	}

@@ -211,6 +211,19 @@ func (s *Service) StatusCR(id int) (*CRStatusView, error) {
 	baseRef := strings.TrimSpace(nonEmptyTrimmed(cr.BaseRef, cr.BaseBranch))
 	baseCommit := strings.TrimSpace(cr.BaseCommit)
 	switch {
+	case cr.Status == model.StatusMerged:
+		view.FreshnessState = "current"
+		mergedAnchor := strings.TrimSpace(nonEmptyTrimmed(cr.MergedCommit, baseCommit))
+		switch {
+		case baseRef != "" && mergedAnchor != "":
+			view.FreshnessReason = fmt.Sprintf("CR is merged; freshness checks no longer apply after merge into %q at %s.", baseRef, shortHash(mergedAnchor))
+		case baseRef != "":
+			view.FreshnessReason = fmt.Sprintf("CR is merged; freshness checks no longer apply after merge into %q.", baseRef)
+		case mergedAnchor != "":
+			view.FreshnessReason = fmt.Sprintf("CR is merged at %s; freshness checks no longer apply.", shortHash(mergedAnchor))
+		default:
+			view.FreshnessReason = "CR is merged; freshness checks no longer apply."
+		}
 	case baseRef == "":
 		view.FreshnessReason = "CR has no recorded base ref."
 	case baseCommit == "":
