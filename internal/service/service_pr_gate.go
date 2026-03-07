@@ -892,6 +892,22 @@ func (s *Service) classifyPRLinkageStatus(cr *model.CR, status *PRStatusView) {
 	status.SuggestedCommands = cleanAndDedupeStrings(append(status.SuggestedCommands, prReconcileCommand(cr.ID, prReconcileModeRelink), prReconcileCommand(cr.ID, prReconcileModeCreate)))
 }
 
+func prLinkageMismatches(cr *model.CR, status *PRStatusView) []string {
+	if cr == nil || status == nil {
+		return nil
+	}
+	expectedBase := strings.TrimSpace(nonEmptyTrimmed(cr.BaseRef, cr.BaseBranch))
+	expectedHead := strings.TrimSpace(cr.Branch)
+	mismatch := []string{}
+	if expectedBase != "" && strings.TrimSpace(status.BaseRefName) != "" && !strings.EqualFold(strings.TrimSpace(status.BaseRefName), expectedBase) {
+		mismatch = append(mismatch, fmt.Sprintf("base ref mismatch (expected %s, observed %s)", expectedBase, strings.TrimSpace(status.BaseRefName)))
+	}
+	if expectedHead != "" && strings.TrimSpace(status.HeadRefName) != "" && !strings.EqualFold(strings.TrimSpace(status.HeadRefName), expectedHead) {
+		mismatch = append(mismatch, fmt.Sprintf("head ref mismatch (expected %s, observed %s)", expectedHead, strings.TrimSpace(status.HeadRefName)))
+	}
+	return mismatch
+}
+
 func evaluatePRGate(policy *model.RepoPolicy, status *PRStatusView) (bool, []string) {
 	reasons := []string{}
 	if policy == nil || status == nil {
@@ -919,22 +935,6 @@ func evaluatePRGate(policy *model.RepoPolicy, status *PRStatusView) (bool, []str
 	if requiredApprovals > 0 && status.Approvals < requiredApprovals {
 		reasons = append(reasons, fmt.Sprintf("insufficient approvals (%d/%d)", status.Approvals, requiredApprovals))
 	}
-func prLinkageMismatches(cr *model.CR, status *PRStatusView) []string {
-	if cr == nil || status == nil {
-		return nil
-	}
-	expectedBase := strings.TrimSpace(nonEmptyTrimmed(cr.BaseRef, cr.BaseBranch))
-	expectedHead := strings.TrimSpace(cr.Branch)
-	mismatch := []string{}
-	if expectedBase != "" && strings.TrimSpace(status.BaseRefName) != "" && !strings.EqualFold(strings.TrimSpace(status.BaseRefName), expectedBase) {
-		mismatch = append(mismatch, fmt.Sprintf("base ref mismatch (expected %s, observed %s)", expectedBase, strings.TrimSpace(status.BaseRefName)))
-	}
-	if expectedHead != "" && strings.TrimSpace(status.HeadRefName) != "" && !strings.EqualFold(strings.TrimSpace(status.HeadRefName), expectedHead) {
-		mismatch = append(mismatch, fmt.Sprintf("head ref mismatch (expected %s, observed %s)", expectedHead, strings.TrimSpace(status.HeadRefName)))
-	}
-	return mismatch
-}
-
 	if requireNonAuthor && status.NonAuthorApprovals < 1 {
 		reasons = append(reasons, "missing non-author approval")
 	}

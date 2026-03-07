@@ -1430,6 +1430,7 @@ func TestPRReconcileRelinkDoesNotOverwriteRemoteMergedStatus(t *testing.T) {
 		t.Fatalf("expected stored PR state MERGED, got %q", reloaded.PR.State)
 	}
 }
+
 func TestPRUnreadyCloseReopenLifecycleOperations(t *testing.T) {
 	dir := t.TempDir()
 	svc := New(dir)
