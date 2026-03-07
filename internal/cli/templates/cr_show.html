@@ -42,6 +42,7 @@
 
       --blue: #2563eb;
       --blue-bg: #eff6ff;
+      --blue-border: #bfdbfe;
 
       --font: "DM Sans", system-ui, sans-serif;
       --mono: "JetBrains Mono", ui-monospace, monospace;
@@ -88,7 +89,6 @@
       align-items: center;
       gap: 9px;
       flex-shrink: 0;
-      min-width: 0;
       text-decoration: none;
     }
 
@@ -115,7 +115,6 @@
       align-items: center;
       gap: 6px;
       flex-shrink: 0;
-      min-width: 0;
     }
 
     .nav-item {
@@ -145,7 +144,7 @@
 
     .nav-item.active {
       background: var(--blue-bg);
-      border-color: #bfdbfe;
+      border-color: var(--blue-border);
       color: var(--blue);
     }
 
@@ -173,6 +172,7 @@
       flex-shrink: 0;
     }
 
+    /* ── TAGS ────────────────────────────────────── */
     .tag {
       display: inline-flex;
       align-items: center;
@@ -230,10 +230,11 @@
 
     .tag.blue {
       background: var(--blue-bg);
-      border-color: #bfdbfe;
+      border-color: var(--blue-border);
       color: var(--blue);
     }
 
+    /* ── BUTTONS ─────────────────────────────────── */
     .btn-close {
       height: 28px;
       padding: 0 12px;
@@ -249,15 +250,17 @@
       align-items: center;
       gap: 5px;
       transition: background 0.12s, border-color 0.12s;
-    }
-
-    .btn-close.link {
       text-decoration: none;
     }
 
     .btn-close:hover {
       background: var(--bg-hover);
       border-color: var(--ink-4);
+    }
+
+    .btn-close:disabled {
+      opacity: .5;
+      cursor: wait;
     }
 
     .btn-delegate {
@@ -281,11 +284,6 @@
       font-size: 10.5px;
     }
 
-    .btn-close:disabled {
-      opacity: .5;
-      cursor: wait;
-    }
-
     /* ── LAYOUT ──────────────────────────────────── */
     .layout {
       display: grid;
@@ -297,10 +295,72 @@
     /* ── HERO ────────────────────────────────────── */
     .hero {
       grid-column: 1 / -1;
-      padding: 32px 28px 24px;
+      padding: 28px 28px 22px;
       border-bottom: 1px solid var(--border);
       display: grid;
-      gap: 10px;
+      gap: 8px;
+    }
+
+    /* ── PARENT CONTEXT BANNER ───────────────────── */
+    /* Shown only for child CRs — slim breadcrumb-style orientation strip */
+    .parent-banner {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 10px;
+      border-radius: 7px;
+      border: 1px solid var(--border);
+      background: var(--bg-subtle);
+      margin-bottom: 4px;
+      text-decoration: none;
+      transition: background 0.1s, border-color 0.1s;
+      width: fit-content;
+      max-width: 100%;
+    }
+
+    .parent-banner:hover {
+      background: var(--bg-hover);
+      border-color: var(--border-strong);
+    }
+
+    .parent-banner-eyebrow {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.09em;
+      color: var(--ink-4);
+      flex-shrink: 0;
+    }
+
+    .parent-banner-sep {
+      width: 1px;
+      height: 12px;
+      background: var(--border-strong);
+      flex-shrink: 0;
+    }
+
+    .parent-banner-id {
+      font-family: var(--mono);
+      font-size: 10.5px;
+      color: var(--blue);
+      flex-shrink: 0;
+    }
+
+    .parent-banner-title {
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--ink-2);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .parent-banner-arrow {
+      font-size: 10px;
+      color: var(--ink-4);
+      flex-shrink: 0;
+      margin-left: auto;
+      padding-left: 8px;
     }
 
     .hero-meta {
@@ -325,14 +385,13 @@
       line-height: 1.6;
     }
 
-    /* ── MAIN CONTENT ────────────────────────────── */
+    /* ── MAIN / SIDEBAR ──────────────────────────── */
     .main {
       padding: 0;
       border-right: 1px solid var(--border);
       min-width: 0;
     }
 
-    /* ── SIDEBAR ─────────────────────────────────── */
     .sidebar {
       padding: 0;
     }
@@ -448,7 +507,7 @@
       display: none;
     }
 
-    /* ── STAT PILLS (sidebar) ────────────────────── */
+    /* ── SIDEBAR STAT ROWS ───────────────────────── */
     .stat-row {
       display: flex;
       align-items: center;
@@ -635,175 +694,177 @@
       margin-top: 2px;
     }
 
-    .stack-shell {
-      display: grid;
-      gap: 14px;
-    }
-
-    .stack-tree-panel,
-    .stack-audit-panel {
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      background: linear-gradient(180deg, rgba(245, 247, 250, 0.72), rgba(255, 255, 255, 0.96));
-      padding: 14px;
-      display: grid;
-      gap: 10px;
-    }
-
-    .stack-panel-head {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-      flex-wrap: wrap;
-    }
-
-    .stack-panel-title {
-      font-size: 12px;
-      font-weight: 700;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      color: var(--ink-4);
-    }
-
-    .stack-tree {
-      display: grid;
-      gap: 12px;
-    }
-
-    .stack-node {
-      position: relative;
-      display: grid;
-      gap: 10px;
-      padding-left: 18px;
-    }
-
-    .stack-node::before {
-      content: "";
-      position: absolute;
-      left: 4px;
-      top: 0;
-      bottom: -12px;
-      width: 1px;
-      background: linear-gradient(180deg, rgba(15, 23, 42, 0.18), rgba(15, 23, 42, 0.04));
-    }
-
-    .stack-node.depth-0 {
-      padding-left: 0;
-    }
-
-    .stack-node.depth-0::before {
-      display: none;
-    }
-
-    .stack-node.depth-0 > .stack-node-card {
-      border-left: 3px solid #0f172a;
-      background: linear-gradient(180deg, rgba(15, 23, 42, 0.05), rgba(255, 255, 255, 0.98));
-    }
-
-    .stack-node-card {
-      position: relative;
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 12px 14px;
-      background: var(--bg);
+    /* ── CHILD CR CARDS ──────────────────────────── */
+    /* Used when this CR is an aggregate/parent — children expressed as cards,
+       consistent with the task-card design language */
+    .child-cr-list {
       display: grid;
       gap: 8px;
     }
 
-    .stack-node:not(.depth-0) > .stack-node-card::before {
-      content: "";
-      position: absolute;
-      left: -14px;
-      top: 18px;
-      width: 12px;
-      height: 1px;
-      background: var(--border-strong);
+    .child-cr-card {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px 14px;
+      display: grid;
+      gap: 6px;
+      background: var(--bg);
+      text-decoration: none;
+      transition: border-color 0.12s, box-shadow 0.12s;
+      cursor: pointer;
     }
 
-    .stack-node-top {
+    .child-cr-card:hover {
+      border-color: var(--border-strong);
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+    }
+
+    /* resolved child CRs are visually dimmed, consistent with merged CRs in the list */
+    .child-cr-card.resolved {
+      opacity: 0.6;
+    }
+
+    .child-cr-card.resolved:hover {
+      opacity: 1;
+    }
+
+    .child-cr-top {
       display: flex;
-      align-items: flex-start;
-      justify-content: space-between;
-      gap: 10px;
+      align-items: center;
+      gap: 8px;
       flex-wrap: wrap;
     }
 
-    .stack-node-head {
-      display: grid;
-      gap: 4px;
-      min-width: 0;
+    .child-cr-id {
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--ink-4);
+      font-weight: 500;
+      flex-shrink: 0;
     }
 
-    .stack-node-title {
-      font-size: 14px;
-      font-weight: 700;
+    .child-cr-title {
+      font-size: 13px;
+      font-weight: 600;
       color: var(--ink);
       line-height: 1.35;
     }
 
-    .stack-node-title a {
-      color: inherit;
-      text-decoration: none;
-      border-bottom: 1px solid transparent;
-    }
-
-    .stack-node-title a:hover {
-      border-color: currentColor;
-    }
-
-    .stack-node-subtitle {
+    .child-cr-description {
       font-size: 12px;
       color: var(--ink-3);
-      line-height: 1.45;
+      line-height: 1.5;
     }
 
-    .stack-node-tags {
+    .child-cr-bottom {
       display: flex;
-      flex-wrap: wrap;
-      gap: 6px;
       align-items: center;
-    }
-
-    .stack-node-summary {
-      display: flex;
+      gap: 8px;
       flex-wrap: wrap;
-      gap: 6px;
     }
 
-    .stack-node-children {
-      display: grid;
-      gap: 12px;
-      margin-left: 18px;
-      padding-left: 8px;
+    .child-cr-branch {
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--ink-4);
+      background: var(--bg-subtle);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 1px 5px;
+      max-width: 180px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
 
-    .stack-audit-list {
+    .child-cr-task-bar {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      margin-left: auto;
+    }
+
+    .child-cr-task-track {
+      width: 44px;
+      height: 3px;
+      background: var(--border);
+      border-radius: 2px;
+      overflow: hidden;
+      flex-shrink: 0;
+    }
+
+    .child-cr-task-fill {
+      height: 100%;
+      background: var(--pass-dot);
+      border-radius: 2px;
+    }
+
+    .child-cr-task-fill.zero {
+      background: var(--border-strong);
+    }
+
+    .child-cr-task-frac {
+      font-size: 10px;
+      color: var(--ink-4);
+      font-family: var(--mono);
+    }
+
+    /* ── SIDEBAR PARENT CARD ─────────────────────── */
+    /* Used when this CR is a child — shows parent reference in the sidebar */
+    .parent-ref-card {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 12px;
       display: grid;
+      gap: 5px;
+      background: var(--bg);
+      text-decoration: none;
+      transition: background 0.1s, border-color 0.1s;
+      cursor: pointer;
+    }
+
+    .parent-ref-card:hover {
+      background: var(--bg-hover);
+      border-color: var(--border-strong);
+    }
+
+    .parent-ref-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
       gap: 8px;
     }
 
-    .stack-audit-item {
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      background: var(--bg);
-      padding: 10px 12px;
-      display: grid;
-      gap: 6px;
+    .parent-ref-id {
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--ink-4);
     }
 
-    .stack-audit-title {
-      font-size: 13px;
+    .parent-ref-title {
+      font-size: 12px;
       font-weight: 600;
       color: var(--ink);
+      line-height: 1.35;
     }
 
-    .stack-audit-meta {
+    /* sibling summary row inside sidebar parent section */
+    .sibling-summary {
       display: flex;
-      flex-wrap: wrap;
+      align-items: center;
       gap: 6px;
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 1px solid var(--border);
     }
 
+    .sibling-summary-label {
+      font-size: 11px;
+      color: var(--ink-4);
+      flex: 1;
+    }
+
+    /* ── DELEGATION RUNS ─────────────────────────── */
     .run-list {
       display: grid;
       gap: 10px;
@@ -1112,10 +1173,11 @@
       border-radius: 3px;
     }
 
+    /* ── SKELETON ────────────────────────────────── */
     .skeleton {
       position: relative;
       overflow: hidden;
-      background: rgba(255,255,255,0.05);
+      background: rgba(0, 0, 0, 0.04);
       border-radius: 999px;
     }
 
@@ -1124,18 +1186,39 @@
       position: absolute;
       inset: 0;
       transform: translateX(-100%);
-      background: linear-gradient(90deg, transparent, rgba(255,255,255,0.14), transparent);
+      background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.6), transparent);
       animation: skeleton-shimmer 1.2s ease-in-out infinite;
     }
 
-    .skeleton-line { display: inline-block; min-height: 12px; width: 100%; }
-    .skeleton-line.short { width: 32%; }
-    .skeleton-line.medium { width: 56%; }
-    .skeleton-line.long { width: 84%; }
-    .skeleton-chip { display: inline-flex; width: 84px; height: 22px; margin-right: 8px; }
+    .skeleton-line {
+      display: inline-block;
+      min-height: 12px;
+      width: 100%;
+    }
+
+    .skeleton-line.short {
+      width: 32%;
+    }
+
+    .skeleton-line.medium {
+      width: 56%;
+    }
+
+    .skeleton-line.long {
+      width: 84%;
+    }
+
+    .skeleton-chip {
+      display: inline-flex;
+      width: 84px;
+      height: 22px;
+      margin-right: 8px;
+    }
 
     @keyframes skeleton-shimmer {
-      100% { transform: translateX(100%); }
+      100% {
+        transform: translateX(100%);
+      }
     }
 
     @media (max-width: 860px) {
@@ -1172,7 +1255,8 @@
   <!-- TOP BAR -->
   <header class="topbar">
     <a class="topbar-brand" href="/" aria-label="Sophia dashboard">
-      <svg class="brand-logo" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" aria-hidden="true" focusable="false">
+      <svg class="brand-logo" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" aria-hidden="true"
+        focusable="false">
         <rect width="100" height="100" rx="18" fill="#000000" />
         <path d="M15 20h20l30 30-30 30H15l30-30-30-30Z" fill="#FFFFFF" />
         <path d="M75 20h15v60H75z" fill="#FFFFFF" />
@@ -1199,10 +1283,18 @@
     </div>
   </header>
 
-  <!-- HERO -->
   <div class="layout">
 
+    <!-- HERO -->
     <section class="hero">
+      <!-- parent banner — populated by JS, hidden by default -->
+      <a class="parent-banner" id="parent-banner" href="#" hidden>
+        <span class="parent-banner-eyebrow">Part of</span>
+        <span class="parent-banner-sep"></span>
+        <span class="parent-banner-id" id="parent-banner-id">CR-—</span>
+        <span class="parent-banner-title" id="parent-banner-title">—</span>
+        <span class="parent-banner-arrow">→</span>
+      </a>
       <div class="hero-meta" id="hero-meta-tags"></div>
       <h1 class="hero-title" id="hero-title">Loading CR...</h1>
       <p class="hero-intent" id="hero-intent"></p>
@@ -1293,7 +1385,8 @@
         </div>
       </div>
 
-      <!-- TASKS -->
+      <!-- TASKS / CHILD CRs -->
+      <!-- label and content type are switched by JS based on nativity.is_aggregate_parent -->
       <div class="section">
         <div class="section-header">
           <span class="section-label" id="task-section-label">Tasks</span>
@@ -1390,7 +1483,26 @@
         </div>
       </div>
 
-      <!-- STATS -->
+      <!-- PARENT CR — shown only for child CRs, hidden otherwise -->
+      <div class="section" id="sidebar-parent-section" hidden>
+        <div class="section-header">
+          <span class="section-label">Parent CR</span>
+        </div>
+        <div class="section-body">
+          <a class="parent-ref-card" id="sidebar-parent-card" href="#">
+            <div class="parent-ref-top">
+              <span class="parent-ref-id" id="sidebar-parent-id">CR-—</span>
+              <span class="tag neutral" id="sidebar-parent-status">—</span>
+            </div>
+            <div class="parent-ref-title" id="sidebar-parent-title">—</div>
+          </a>
+          <div class="sibling-summary" id="sidebar-sibling-summary" hidden>
+            <span class="sibling-summary-label" id="sidebar-sibling-label">—</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- DETAILS -->
       <div class="section">
         <div class="section-header">
           <span class="section-label">Details</span>
@@ -1420,12 +1532,14 @@
   </details>
 
   <footer>
-    <span class="footer-text">Generated by <strong>sophia cr show</strong> · read-only local report</span><span class="footer-text" id="live-hint"></span>
+    <span class="footer-text">Generated by <strong>sophia cr show</strong> · read-only local report</span>
+    <span class="footer-text" id="live-hint"></span>
   </footer>
 
   <script id="cr-show-bootstrap" type="application/json">__BOOTSTRAP_JSON__</script>
   <script>
     (function () {
+      /* ── utils ─────────────────────────────────── */
       function asArray(v) { return Array.isArray(v) ? v : []; }
       function asObject(v) { return v && typeof v === "object" && !Array.isArray(v) ? v : {}; }
       function text(v, fallback) {
@@ -1455,46 +1569,22 @@
         if (!d) return text(v, "—");
         var diffSeconds = Math.round((d.getTime() - Date.now()) / 1000);
         var abs = Math.abs(diffSeconds);
-        var unit = "second";
-        var value = diffSeconds;
-        if (abs >= 60) {
-          var diffMinutes = Math.round(diffSeconds / 60);
-          unit = "minute";
-          value = diffMinutes;
-          if (Math.abs(diffMinutes) >= 60) {
-            var diffHours = Math.round(diffMinutes / 60);
-            unit = "hour";
-            value = diffHours;
-            if (Math.abs(diffHours) >= 24) {
-              var diffDays = Math.round(diffHours / 24);
-              unit = "day";
-              value = diffDays;
-              if (Math.abs(diffDays) >= 7) {
-                var diffWeeks = Math.round(diffDays / 7);
-                unit = "week";
-                value = diffWeeks;
-              }
-            }
-          }
-        }
-        if (typeof Intl !== "undefined" && Intl.RelativeTimeFormat) {
-          var rtf = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
-          return rtf.format(value, unit);
-        }
+        var unit = "second", value = diffSeconds;
+        if (abs >= 60) { value = Math.round(diffSeconds / 60); unit = "minute"; }
+        if (abs >= 3600) { value = Math.round(diffSeconds / 3600); unit = "hour"; }
+        if (abs >= 86400) { value = Math.round(diffSeconds / 86400); unit = "day"; }
+        if (abs >= 604800) { value = Math.round(diffSeconds / 604800); unit = "week"; }
+        if (typeof Intl !== "undefined" && Intl.RelativeTimeFormat)
+          return new Intl.RelativeTimeFormat(undefined, { numeric: "auto" }).format(value, unit);
         if (value === 0) return "just now";
-        var direction = value < 0 ? "ago" : "from now";
-        var count = Math.abs(value);
-        return String(count) + " " + unit + (count === 1 ? "" : "s") + " " + direction;
+        return String(Math.abs(value)) + " " + unit + (Math.abs(value) === 1 ? "" : "s") + (value < 0 ? " ago" : " from now");
       }
 
       function renderList(id, values) {
         var n = document.getElementById(id);
         if (!n) return;
         var list = asArray(values);
-        if (!list.length) {
-          n.innerHTML = "<li class='empty'>None</li>";
-          return;
-        }
+        if (!list.length) { n.innerHTML = "<li class='empty'>None</li>"; return; }
         n.innerHTML = list.map(function (i) { return "<li>" + esc(i) + "</li>"; }).join("");
       }
 
@@ -1506,27 +1596,39 @@
         return "neutral";
       }
 
-      function tagHTML(text, cls) {
-        return '<span class="tag ' + (cls || "neutral") + '">' + esc(text) + '</span>';
+      function tagHTML(t, cls) {
+        return '<span class="tag ' + (cls || "neutral") + '">' + esc(t) + '</span>';
       }
 
       function dedupeStringList(values) {
-        var out = [];
-        var seen = Object.create(null);
+        var out = [], seen = Object.create(null);
         asArray(values).forEach(function (item) {
-          var value = text(item, "").trim();
-          if (!value || seen[value]) return;
-          seen[value] = true;
-          out.push(value);
+          var v = text(item, "").trim();
+          if (!v || seen[v]) return;
+          seen[v] = true;
+          out.push(v);
         });
         return out;
       }
 
+      function delegationStatusClass(status) {
+        status = text(status, "").toLowerCase();
+        if (status === "completed") return "pass";
+        if (status === "blocked") return "warn";
+        if (status === "failed" || status === "cancelled") return "fail";
+        if (status === "running" || status === "queued") return "blue";
+        return "neutral";
+      }
+
+      function isMerged(status) {
+        var s = text(status, "").toLowerCase();
+        return s === "merged" || s === "closed" || s === "done";
+      }
+
+      /* ── bootstrap / live ─────────────────────── */
       function parseBootstrapPayload() {
         var source = document.getElementById("cr-show-bootstrap");
-        var payload = {};
-        try { payload = JSON.parse(source ? source.textContent : "{}"); } catch (e) { }
-        return payload;
+        try { return JSON.parse(source ? source.textContent : "{}"); } catch (e) { return {}; }
       }
 
       function fetchSnapshot(url) {
@@ -1542,39 +1644,6 @@
         document.body.classList.toggle("shell-loading", !!isLoading);
       }
 
-      function renderLoadingSkeletons() {
-        var heroMeta = document.getElementById("hero-meta-tags");
-        if (heroMeta) {
-          heroMeta.innerHTML = "<span class='skeleton skeleton-chip'></span><span class='skeleton skeleton-chip'></span>";
-        }
-        var tasks = document.getElementById("tasks-list");
-        if (tasks) {
-          tasks.innerHTML = "<div class='skeleton skeleton-line long'></div><div class='skeleton skeleton-line medium' style='margin-top:10px;'></div>";
-        }
-        var delegationCurrent = document.getElementById("delegation-current");
-        if (delegationCurrent) {
-          delegationCurrent.innerHTML = "<div class='skeleton skeleton-line long'></div>";
-        }
-        var evidence = document.getElementById("evidence-list");
-        if (evidence) {
-          evidence.innerHTML = "<div class='skeleton skeleton-line long'></div><div class='skeleton skeleton-line medium' style='margin-top:10px;'></div>";
-        }
-        var events = document.getElementById("events-list");
-        if (events) {
-          events.innerHTML = "<div class='skeleton skeleton-line long'></div><div class='skeleton skeleton-line long' style='margin-top:10px;'></div>";
-        }
-      }
-
-      function renderLoadFailure(err) {
-        setShellLoading(false);
-        setText("hero-title", "Preview failed to load", "Preview failed to load");
-        setText("hero-intent", text(err && err.message, "Unable to load CR snapshot."), "Unable to load CR snapshot.");
-        setLiveHint("load failed");
-      }
-
-      var liveSource = null;
-      var delegateLastStatus = null;
-      var delegateInFlight = false;
       function setLiveHint(state) {
         var hintEl = document.getElementById("live-hint");
         if (!hintEl) return;
@@ -1582,28 +1651,18 @@
         hintEl.textContent = value ? (" · " + value) : "";
       }
 
+      var liveSource = null;
+      var delegateLastStatus = null;
+      var delegateInFlight = false;
+
       function setDelegateStatus(label, cls) {
         var statusEl = document.getElementById("delegate-status");
         if (!statusEl) return;
         var value = text(label, "").trim();
-        if (!value) {
-          statusEl.hidden = true;
-          statusEl.textContent = "";
-          statusEl.className = "tag neutral delegate-status";
-          return;
-        }
+        if (!value) { statusEl.hidden = true; statusEl.textContent = ""; statusEl.className = "tag neutral delegate-status"; return; }
         statusEl.hidden = false;
         statusEl.textContent = value;
         statusEl.className = "tag " + (cls || "neutral") + " delegate-status";
-      }
-
-      function delegationStatusClass(status) {
-        status = text(status, "").trim().toLowerCase();
-        if (status === "completed") return "pass";
-        if (status === "blocked") return "warn";
-        if (status === "failed" || status === "cancelled") return "fail";
-        if (status === "running" || status === "queued") return "blue";
-        return "neutral";
       }
 
       function applyDelegationLaunchState(launch, cr) {
@@ -1612,22 +1671,13 @@
         var config = asObject(launch);
         var available = Boolean(config.available) && !delegateInFlight;
         button.hidden = !Boolean(config.available) && !delegateLastStatus;
-        if (button.hidden) {
-          setDelegateStatus("", "neutral");
-          return;
-        }
+        if (button.hidden) { setDelegateStatus("", "neutral"); return; }
         button.disabled = !available;
         button.textContent = delegateInFlight ? "Launching…" : (delegateLastStatus ? "Run again" : "Get this done");
         button.title = Boolean(config.available) ? "Launch a delegated agent run for this CR" : text(config.reason, "");
-        if (delegateLastStatus) {
-          setDelegateStatus(text(delegateLastStatus.label, ""), text(delegateLastStatus.className, "neutral"));
-          return;
-        }
-        if (Boolean(config.available)) {
-          setDelegateStatus("delegate ready", "blue");
-        } else {
-          setDelegateStatus(text(config.reason, "delegate unavailable"), "warn");
-        }
+        if (delegateLastStatus) { setDelegateStatus(text(delegateLastStatus.label, ""), text(delegateLastStatus.className, "neutral")); return; }
+        if (Boolean(config.available)) setDelegateStatus("delegate ready", "blue");
+        else setDelegateStatus(text(config.reason, "delegate unavailable"), "warn");
       }
 
       function launchDelegation() {
@@ -1641,31 +1691,19 @@
         fetch("/__sophia_delegate_launch", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            cr_id: cr.id,
-            task_ids: asArray(launch.default_task_ids)
-          })
+          body: JSON.stringify({ cr_id: cr.id, task_ids: asArray(launch.default_task_ids) })
         }).then(function (response) {
           return response.json().catch(function () { return {}; }).then(function (body) {
-            if (!response.ok || !body.ok) {
-              var err = asObject(body.error);
-              throw new Error(text(err.message, "delegation launch failed"));
-            }
+            if (!response.ok || !body.ok) throw new Error(text(asObject(body.error).message, "delegation launch failed"));
             return asObject(body.data);
           });
         }).then(function (data) {
           var run = asObject(data.run);
           var runStatus = text(run.status, "started");
-          delegateLastStatus = {
-            label: "delegate " + runStatus,
-            className: delegationStatusClass(runStatus)
-          };
+          delegateLastStatus = { label: "delegate " + runStatus, className: delegationStatusClass(runStatus) };
           applyDelegationLaunchState(launch, cr);
         }).catch(function (err) {
-          delegateLastStatus = {
-            label: text(err && err.message, "delegation launch failed"),
-            className: "fail"
-          };
+          delegateLastStatus = { label: text(err && err.message, "delegation launch failed"), className: "fail" };
           setDelegateStatus(text(err && err.message, "delegation launch failed"), "fail");
         }).finally(function () {
           delegateInFlight = false;
@@ -1674,20 +1712,110 @@
       }
 
       function closePreview() {
-        if (liveSource) {
-          liveSource.close();
-          liveSource = null;
-        }
+        if (liveSource) { liveSource.close(); liveSource = null; }
         var btn = document.getElementById("close-preview-btn");
         if (btn) { btn.disabled = true; btn.textContent = "Closing…"; }
-        fetch("/__sophia_close", { method: "POST" }).finally(function () {
-          setTimeout(function () { window.close(); }, 160);
-        });
+        fetch("/__sophia_close", { method: "POST" }).finally(function () { setTimeout(function () { window.close(); }, 160); });
       }
 
       document.getElementById("close-preview-btn").addEventListener("click", closePreview);
       document.getElementById("delegate-btn").addEventListener("click", launchDelegation);
 
+      /* ── skeleton ─────────────────────────────── */
+      function renderLoadingSkeletons() {
+        var heroMeta = document.getElementById("hero-meta-tags");
+        if (heroMeta) heroMeta.innerHTML = "<span class='skeleton skeleton-chip'></span><span class='skeleton skeleton-chip'></span>";
+        var tasks = document.getElementById("tasks-list");
+        if (tasks) tasks.innerHTML = "<div class='skeleton skeleton-line long'></div><div class='skeleton skeleton-line medium' style='margin-top:10px;'></div>";
+        var delegationCurrent = document.getElementById("delegation-current");
+        if (delegationCurrent) delegationCurrent.innerHTML = "<div class='skeleton skeleton-line long'></div>";
+        var evidence = document.getElementById("evidence-list");
+        if (evidence) evidence.innerHTML = "<div class='skeleton skeleton-line long'></div><div class='skeleton skeleton-line medium' style='margin-top:10px;'></div>";
+        var events = document.getElementById("events-list");
+        if (events) events.innerHTML = "<div class='skeleton skeleton-line long'></div><div class='skeleton skeleton-line long' style='margin-top:10px;'></div>";
+      }
+
+      function renderLoadFailure(err) {
+        setShellLoading(false);
+        setText("hero-title", "Preview failed to load", "Preview failed to load");
+        setText("hero-intent", text(err && err.message, "Unable to load CR snapshot."), "Unable to load CR snapshot.");
+        setLiveHint("load failed");
+      }
+
+      /* ── child CR card ────────────────────────── */
+      function childCRCardHTML(node) {
+        var item = asObject(node);
+        var statusValue = text(item.status, "unknown");
+        var scls = isMerged(statusValue) ? "pass" : verdictClass(statusValue);
+        var resolved = isMerged(statusValue) || text(item.resolution_state, "") === "resolved";
+        var done = Number(item.tasks_done || 0);
+        var tot = Number(item.tasks_total || 0);
+        var pct = tot > 0 ? Math.round(done / tot * 100) : 0;
+
+        var bottomBits = [];
+        if (item.branch) bottomBits.push("<code class='child-cr-branch'>" + esc(item.branch) + "</code>");
+        if (item.base_ref) bottomBits.push("<code class='child-cr-branch'>" + esc(item.base_ref) + "</code>");
+
+        var taskBar = tot > 0
+          ? "<div class='child-cr-task-bar'><div class='child-cr-task-track'><div class='child-cr-task-fill" + (pct === 0 ? " zero" : "") + "' style='width:" + pct + "%'></div></div><span class='child-cr-task-frac'>" + done + "/" + tot + "</span></div>"
+          : "";
+
+        return [
+          "<a class='child-cr-card" + (resolved ? " resolved" : "") + "' href='/" + esc(item.id) + "'>",
+          "<div class='child-cr-top'>",
+          "<span class='child-cr-id'>CR-" + esc(item.id) + "</span>",
+          "<span class='tag " + scls + "'><span class='dot'></span>" + esc(statusValue) + "</span>",
+          item.role_label ? tagHTML(item.role_label, "neutral") : "",
+          "</div>",
+          "<div class='child-cr-title'>" + esc(text(item.title, "Untitled CR")) + "</div>",
+          item.subtitle ? "<div class='child-cr-description'>" + esc(item.subtitle) + "</div>" : "",
+          (bottomBits.length || taskBar) ? "<div class='child-cr-bottom'>" + bottomBits.join("") + taskBar + "</div>" : "",
+          "</a>"
+        ].join("");
+      }
+
+      /* ── render run helpers ───────────────────── */
+      function renderRunEvent(event) {
+        var item = asObject(event);
+        var metaBits = [];
+        if (item.step) metaBits.push("step:" + text(item.step, ""));
+        if (item.ts) metaBits.push(formatRelativeLocal(item.ts));
+        return [
+          "<div class='run-event'>",
+          "<span class='run-event-kind'>" + esc(item.kind || "event") + "</span>",
+          "<div class='run-event-summary'>" + esc(item.summary || item.message || "(no summary)") + "</div>",
+          metaBits.length ? "<div class='task-meta'>" + metaBits.map(function (b) { return "<span class='meta-chip'>" + esc(b) + "</span>"; }).join("") + "</div>" : "",
+          "</div>"
+        ].join("");
+      }
+
+      function renderRunCard(run, highlight) {
+        var item = asObject(run);
+        var result = asObject(item.result);
+        var status = text(item.status, "unknown");
+        var request = asObject(item.request);
+        var summary = text(result.summary || item.summary || "", "");
+        var events = asArray(item.events).slice(-5).reverse();
+        var meta = [];
+        if (request.runtime) meta.push("<span class='meta-chip'>runtime:" + esc(request.runtime) + "</span>");
+        if (request.task_ids && asArray(request.task_ids).length) meta.push("<span class='meta-chip'>tasks:" + esc(asArray(request.task_ids).join(",")) + "</span>");
+        if (item.updated_at) meta.push("<span class='meta-chip' title='" + esc(formatAbsoluteLocal(item.updated_at)) + "'>updated:" + esc(formatRelativeLocal(item.updated_at)) + "</span>");
+        if (result.files_changed && asArray(result.files_changed).length) meta.push("<span class='meta-chip'>files:" + esc(String(asArray(result.files_changed).length)) + "</span>");
+        if (result.blockers && asArray(result.blockers).length) meta.push("<span class='meta-chip'>blockers:" + esc(String(asArray(result.blockers).length)) + "</span>");
+        return [
+          "<article class='" + (highlight ? "run-card" : "run-history-item") + "'>",
+          "<div class='run-top'>",
+          "<span class='tag " + delegationStatusClass(status) + "'><span class='dot'></span>" + esc(status.replace(/_/g, " ")) + "</span>",
+          item.id ? "<span class='run-id'>" + esc(item.id) + "</span>" : "",
+          "</div>",
+          summary ? "<div class='run-summary'>" + esc(summary) + "</div>" : "",
+          meta.length ? "<div class='task-meta'>" + meta.join("") + "</div>" : "",
+          events.length ? "<div class='run-events'>" + events.map(renderRunEvent).join("") + "</div>" : "",
+          "</article>"
+        ].join("");
+      }
+
+      /* ── main render ──────────────────────────── */
       function renderCR(nextPayload) {
         var payload = asObject(nextPayload);
         window.__sophiaCRPayload = payload;
@@ -1703,10 +1831,9 @@
         var stackTree = asObject(payload.stack_tree);
         var stackLineage = asArray(payload.stack_lineage);
 
-        // Title
         document.title = text(cr.title, "CR Report") + " · Sophia";
 
-        // Topbar
+        /* topbar */
         setText("hero-id", "CR-" + text(cr.id, "-"));
         setText("topbar-title", cr.title, "Untitled CR");
 
@@ -1720,13 +1847,58 @@
           riskEl.textContent = "risk · " + riskTier;
           riskEl.className = "tag " + (riskTier === "high" ? "fail" : riskTier === "medium" ? "warn" : riskTier === "low" ? "pass" : "neutral");
         }
+
         applyDelegationLaunchState(delegationLaunch, cr);
 
-        // Hero
+        /* hero */
         setText("hero-title", cr.title, "Untitled CR");
         setText("hero-intent", cr.description, "No description provided.");
 
-        // Hero meta tags
+        /* ── parent banner (child CRs only) ──────── */
+        var parentBanner = document.getElementById("parent-banner");
+        var sidebarParentSection = document.getElementById("sidebar-parent-section");
+
+        if (nativity.is_child && !nativity.is_aggregate_parent && nativity.parent_cr_id) {
+          /* hero banner */
+          if (parentBanner) {
+            parentBanner.hidden = false;
+            parentBanner.href = "/" + esc(nativity.parent_cr_id);
+            var pIdEl = document.getElementById("parent-banner-id");
+            if (pIdEl) pIdEl.textContent = "CR-" + text(nativity.parent_cr_id, "—");
+            var pTitleEl = document.getElementById("parent-banner-title");
+            if (pTitleEl) pTitleEl.textContent = text(nativity.parent_title || nativity.parent_cr_title, "");
+          }
+
+          /* sidebar parent card */
+          if (sidebarParentSection) {
+            sidebarParentSection.hidden = false;
+            var sidebarCard = document.getElementById("sidebar-parent-card");
+            if (sidebarCard) sidebarCard.href = "/" + esc(nativity.parent_cr_id);
+            setText("sidebar-parent-id", "CR-" + text(nativity.parent_cr_id, "—"));
+            setText("sidebar-parent-title", text(nativity.parent_title || nativity.parent_cr_title, "Parent CR"));
+            var parentStatusEl = document.getElementById("sidebar-parent-status");
+            if (parentStatusEl) {
+              var ps = text(nativity.parent_status, "");
+              if (ps) { parentStatusEl.textContent = ps; parentStatusEl.className = "tag " + verdictClass(ps); }
+              else parentStatusEl.hidden = true;
+            }
+          }
+
+          /* sibling summary */
+          var siblingCount = Number(nativity.sibling_count || nativity.child_count || 0);
+          var siblingSection = document.getElementById("sidebar-sibling-summary");
+          var siblingLabel = document.getElementById("sidebar-sibling-label");
+          if (siblingSection && siblingLabel && siblingCount > 0) {
+            siblingSection.hidden = false;
+            var resolvedSiblings = Number(nativity.resolved_sibling_count || nativity.resolved_child_count || 0);
+            siblingLabel.textContent = siblingCount + " sibling CR" + (siblingCount === 1 ? "" : "s") + (resolvedSiblings > 0 ? " · " + resolvedSiblings + " resolved" : "");
+          }
+        } else {
+          if (parentBanner) parentBanner.hidden = true;
+          if (sidebarParentSection) sidebarParentSection.hidden = true;
+        }
+
+        /* hero meta tags */
         var heroMeta = document.getElementById("hero-meta-tags");
         if (heroMeta) {
           var tags = [];
@@ -1738,7 +1910,7 @@
           heroMeta.innerHTML = tags.join("");
         }
 
-        // Intent
+        /* intent */
         setText("intent-why", contract.why, cr.description);
         setText("intent-branch", cr.branch, "—");
         var base = text(cr.base_ref, text(cr.base_branch, "—"));
@@ -1746,38 +1918,28 @@
         document.getElementById("intent-base").textContent = base + (commit ? " @ " + commit.slice(0, 8) : "");
         setText("intent-stack-role", nativity.role_label, "Standalone CR");
         var lineageBits = [];
-        if (nativity.parent_cr_id) {
-          lineageBits.push("parent CR-" + text(nativity.parent_cr_id, "—"));
-        }
-        if (nativity.parent_branch) {
-          lineageBits.push("parent branch " + text(nativity.parent_branch, "—"));
-        }
-        if (Number(nativity.child_count || 0) > 0) {
-          lineageBits.push("children " + Number(nativity.child_count || 0));
-        }
-        if (Number(nativity.resolved_child_count || 0) > 0 || Number(nativity.pending_child_count || 0) > 0) {
+        if (nativity.parent_cr_id) lineageBits.push("parent CR-" + text(nativity.parent_cr_id, "—"));
+        if (nativity.parent_branch) lineageBits.push("parent branch " + text(nativity.parent_branch, "—"));
+        if (Number(nativity.child_count || 0) > 0) lineageBits.push("children " + Number(nativity.child_count || 0));
+        if (Number(nativity.resolved_child_count || 0) > 0 || Number(nativity.pending_child_count || 0) > 0)
           lineageBits.push("resolved " + Number(nativity.resolved_child_count || 0) + " / pending " + Number(nativity.pending_child_count || 0));
-        }
         setText("intent-stack-lineage", lineageBits.join(" · "), "No stack lineage");
 
-        var previewWarnings = dedupeStringList(
-          asArray(payload.warnings).concat(asArray(asObject(payload.anchors).warnings))
-        );
+        /* warnings */
+        var previewWarnings = dedupeStringList(asArray(payload.warnings).concat(asArray(asObject(payload.anchors).warnings)));
         var previewSection = document.getElementById("preview-mode-section");
         var previewWarningsEl = document.getElementById("preview-warning-list");
         if (previewSection && previewWarningsEl) {
-          if (!previewWarnings.length) {
-            previewSection.hidden = true;
-            previewWarningsEl.innerHTML = "";
-          } else {
+          if (!previewWarnings.length) { previewSection.hidden = true; previewWarningsEl.innerHTML = ""; }
+          else {
             previewSection.hidden = false;
-            previewWarningsEl.innerHTML = previewWarnings.map(function (warning) {
-              return "<div class='action-item attention'><span class='action-icon'>◆</span>" + esc(warning) + "</div>";
+            previewWarningsEl.innerHTML = previewWarnings.map(function (w) {
+              return "<div class='action-item attention'><span class='action-icon'>◆</span>" + esc(w) + "</div>";
             }).join("");
           }
         }
 
-        // Contract
+        /* contract */
         renderList("contract-scope", contract.scope);
         renderList("contract-non-goals", contract.non_goals);
         renderList("contract-invariants", contract.invariants);
@@ -1785,73 +1947,13 @@
         setText("contract-test", contract.test_plan);
         setText("contract-rollback", contract.rollback_plan);
 
-        function renderAggregateTreeNode(node, lineageTrail) {
-          var item = asObject(node);
-          var currentLineage = asArray(lineageTrail).concat([item]);
-          var children = asArray(item.children);
-          var statusValue = text(item.status, "unknown");
-          var resolutionState = text(item.resolution_state, "");
-          var statusTone = resolutionState === "resolved" ? "pass" : resolutionState === "pending" ? "warn" : verdictClass(statusValue);
-          var roleTone = item.is_aggregate_parent ? "blue" : item.is_child ? "warn" : item.is_root_parent ? "pass" : "neutral";
-          var summaryBits = [];
-          if (item.branch) summaryBits.push("<span class='meta-chip'>branch:" + esc(item.branch) + "</span>");
-          if (item.base_ref) summaryBits.push("<span class='meta-chip'>base:" + esc(item.base_ref) + "</span>");
-          if (Number(item.tasks_done || 0) || Number(item.tasks_total || 0)) summaryBits.push("<span class='meta-chip'>tasks:" + esc(String(item.tasks_done || 0)) + "/" + esc(String(item.tasks_total || 0)) + "</span>");
-          if (Number(item.pending_child_count || 0) || Number(item.resolved_child_count || 0)) summaryBits.push("<span class='meta-chip'>resolved " + esc(String(item.resolved_child_count || 0)) + " · pending " + esc(String(item.pending_child_count || 0)) + "</span>");
-          var subtitleBits = [];
-          if (currentLineage.length > 1) {
-            subtitleBits.push(currentLineage.slice(0, -1).map(function (part) { return text(part.title, "CR-" + text(part.id, "")); }).join(" / "));
-          }
-          if (item.parent_cr_id) subtitleBits.push("parent CR-" + text(item.parent_cr_id, "—"));
-          return [
-            "<div class='stack-node depth-" + esc(item.depth || 0) + "'>",
-            "<article class='stack-node-card'>",
-            "<div class='stack-node-top'>",
-            "<div class='stack-node-head'>",
-            "<div class='stack-node-title'><a href='/" + esc(item.id) + "'>CR-" + esc(item.id) + " · " + esc(item.title || "Untitled CR") + "</a></div>",
-            subtitleBits.length ? "<div class='stack-node-subtitle'>" + esc(subtitleBits.join(" · ")) + "</div>" : "",
-            "</div>",
-            "<div class='stack-node-tags'>",
-            item.role_label ? tagHTML(item.role_label, roleTone) : "",
-            tagHTML(statusValue, statusTone),
-            resolutionState ? tagHTML(resolutionState, resolutionState === "resolved" ? "pass" : "warn") : "",
-            "</div>",
-            "</div>",
-            summaryBits.length ? "<div class='stack-node-summary'>" + summaryBits.join("") + "</div>" : "",
-            "</article>",
-            children.length ? "<div class='stack-node-children'>" + children.map(function (child) { return renderAggregateTreeNode(child, currentLineage); }).join("") + "</div>" : "",
-            "</div>"
-          ].join("");
-        }
-
-        function renderDelegatedAudit(tasksList) {
-          return asArray(tasksList).filter(function (task) {
-            return asArray(task.delegations).length > 0;
-          }).map(function (task) {
-            var taskDelegations = asArray(task.delegations);
-            var chips = [];
-            chips.push("<span class='meta-chip'>task " + esc(task.id) + "</span>");
-            chips.push("<span class='meta-chip'>status:" + esc(text(task.status, "unknown")) + "</span>");
-            taskDelegations.forEach(function (delegationItem) {
-              var delegationObj = asObject(delegationItem);
-              if (delegationObj.child_cr_id) chips.push("<span class='meta-chip'>child CR-" + esc(delegationObj.child_cr_id) + "</span>");
-              if (delegationObj.child_task_id) chips.push("<span class='meta-chip'>child task:" + esc(delegationObj.child_task_id) + "</span>");
-              if (delegationObj.linked_at) chips.push("<span class='meta-chip' title='" + esc(formatAbsoluteLocal(delegationObj.linked_at)) + "'>linked:" + esc(formatRelativeLocal(delegationObj.linked_at)) + "</span>");
-            });
-            return [
-              "<article class='stack-audit-item'>",
-              "<div class='stack-audit-title'>" + esc(task.title || "Untitled task") + "</div>",
-              "<div class='stack-audit-meta'>" + chips.join("") + "</div>",
-              "</article>"
-            ].join("");
-          }).join("");
-        }
-
-        // Tasks / Stack Work
+        /* ── tasks / child CRs ────────────────────── */
         var done = tasks.filter(function (t) { return text(t.status, "") === "done"; }).length;
         var taskCountTag = document.getElementById("task-count-tag");
         var taskSectionLabel = document.getElementById("task-section-label");
-        if (taskSectionLabel) taskSectionLabel.textContent = nativity.is_aggregate_parent ? "Child CR Stack" : "Tasks";
+
+        if (taskSectionLabel) taskSectionLabel.textContent = nativity.is_aggregate_parent ? "Child CRs" : "Tasks";
+
         if (taskCountTag) {
           if (nativity.is_aggregate_parent) {
             taskCountTag.textContent = String(Number(nativity.resolved_child_count || 0)) + " resolved · " + String(Number(nativity.pending_child_count || 0)) + " pending";
@@ -1863,31 +1965,34 @@
         var tasksEl = document.getElementById("tasks-list");
         if (tasksEl) {
           if (nativity.is_aggregate_parent && Object.keys(stackTree).length) {
-            var auditHTML = renderDelegatedAudit(tasks);
-            tasksEl.className = "stack-shell";
-            tasksEl.innerHTML = [
-              "<section class='stack-tree-panel'>",
-              "<div class='stack-panel-head'>",
-              "<div class='stack-panel-title'>Child CR Thread</div>",
-              "<div class='stack-node-summary'>",
-              tagHTML(text(nativity.role_label, "Aggregate Parent"), "blue"),
-              tagHTML("children " + esc(String(nativity.child_count || 0)), "neutral"),
-              Number(nativity.pending_child_count || 0) > 0 ? tagHTML("pending " + esc(String(nativity.pending_child_count || 0)), "warn") : tagHTML("resolved " + esc(String(nativity.resolved_child_count || 0)), "pass"),
-              "</div>",
-              "</div>",
-              "<div class='stack-tree'>" + renderAggregateTreeNode(stackTree, stackLineage) + "</div>",
-              "</section>",
-              "<section class='stack-audit-panel'>",
-              "<div class='stack-panel-head'>",
-              "<div class='stack-panel-title'>Delegation Links</div>",
-              "</div>",
-              auditHTML ? "<div class='stack-audit-list'>" + auditHTML + "</div>" : "<div class='empty-state'>No delegated task links recorded</div>",
-              "</section>"
-            ].join("");
+            /* ── aggregate parent: render children as cards ── */
+            tasksEl.className = "child-cr-list";
+
+            /* flatten tree into an ordered list for card rendering */
+            function collectNodes(node, depth) {
+              var item = asObject(node);
+              var out = [{ node: item, depth: depth }];
+              asArray(item.children).forEach(function (child) {
+                out = out.concat(collectNodes(child, depth + 1));
+              });
+              return out;
+            }
+            var nodes = asArray(stackTree.children).reduce(function (acc, child) {
+              return acc.concat(collectNodes(child, 0));
+            }, []);
+
+            if (!nodes.length) {
+              tasksEl.innerHTML = "<div class='empty-state'>No child CRs yet</div>";
+            } else {
+              tasksEl.innerHTML = nodes.map(function (entry) {
+                return childCRCardHTML(entry.node);
+              }).join("");
+            }
           } else if (!tasks.length) {
             tasksEl.className = "task-list";
             tasksEl.innerHTML = "<div class='empty-state'>No tasks defined</div>";
           } else {
+            /* ── regular CR: standard task cards ── */
             tasksEl.className = "task-list";
             tasksEl.innerHTML = tasks.map(function (t) {
               var tc = asObject(t.contract);
@@ -1927,6 +2032,7 @@
           }
         }
 
+        /* delegation */
         var delegationCounts = asObject(delegation.counts);
         var delegationRuns = asArray(delegation.recent_runs);
         var currentRun = asObject(delegation.current_run);
@@ -1935,47 +2041,7 @@
           var totalRuns = Number(delegationCounts.total || delegationRuns.length || 0);
           var runningRuns = Number(delegationCounts.running || 0);
           delegationCountTag.textContent = totalRuns + " runs";
-          delegationCountTag.className = "tag " + (runningRuns > 0 ? "blue" : totalRuns > 0 ? "neutral" : "neutral");
-        }
-
-        function renderRunEvent(event) {
-          var item = asObject(event);
-          var metaBits = [];
-          if (item.step) metaBits.push("step:" + text(item.step, ""));
-          if (item.ts) metaBits.push(formatRelativeLocal(item.ts));
-          return [
-            "<div class='run-event'>",
-            "<span class='run-event-kind'>" + esc(item.kind || "event") + "</span>",
-            "<div class='run-event-summary'>" + esc(item.summary || item.message || "(no summary)") + "</div>",
-            metaBits.length ? "<div class='task-meta'>" + metaBits.map(function (bit) { return "<span class='meta-chip'>" + esc(bit) + "</span>"; }).join("") + "</div>" : "",
-            "</div>"
-          ].join("");
-        }
-
-        function renderRunCard(run, highlight) {
-          var item = asObject(run);
-          var result = asObject(item.result);
-          var status = text(item.status, "unknown");
-          var request = asObject(item.request);
-          var summary = text(result.summary || item.summary || "", "");
-          var events = asArray(item.events).slice(-5).reverse();
-          var meta = [];
-          if (request.runtime) meta.push("<span class='meta-chip'>runtime:" + esc(request.runtime) + "</span>");
-          if (request.task_ids && asArray(request.task_ids).length) meta.push("<span class='meta-chip'>tasks:" + esc(asArray(request.task_ids).join(",")) + "</span>");
-          if (item.updated_at) meta.push("<span class='meta-chip' title='" + esc(formatAbsoluteLocal(item.updated_at)) + "'>updated:" + esc(formatRelativeLocal(item.updated_at)) + "</span>");
-          if (result.files_changed && asArray(result.files_changed).length) meta.push("<span class='meta-chip'>files:" + esc(String(asArray(result.files_changed).length)) + "</span>");
-          if (result.blockers && asArray(result.blockers).length) meta.push("<span class='meta-chip'>blockers:" + esc(String(asArray(result.blockers).length)) + "</span>");
-          return [
-            "<article class='" + (highlight ? "run-card" : "run-history-item") + "'>",
-            "<div class='run-top'>",
-            "<span class='tag " + delegationStatusClass(status) + "'><span class='dot'></span>" + esc(status.replace(/_/g, " ")) + "</span>",
-            item.id ? "<span class='run-id'>" + esc(item.id) + "</span>" : "",
-            "</div>",
-            summary ? "<div class='run-summary'>" + esc(summary) + "</div>" : "",
-            meta.length ? "<div class='task-meta'>" + meta.join("") + "</div>" : "",
-            events.length ? "<div class='run-events'>" + events.map(renderRunEvent).join("") + "</div>" : "",
-            "</article>"
-          ].join("");
+          delegationCountTag.className = "tag " + (runningRuns > 0 ? "blue" : "neutral");
         }
 
         var delegationCurrentEl = document.getElementById("delegation-current");
@@ -1992,19 +2058,14 @@
         var delegationHistoryEl = document.getElementById("delegation-history");
         if (delegationHistoryEl) {
           var historyRuns = delegationRuns.filter(function (run) {
-            var item = asObject(run);
-            return !currentRun.id || item.id !== currentRun.id;
+            return !currentRun.id || asObject(run).id !== currentRun.id;
           }).slice(0, 6);
-          if (!historyRuns.length) {
-            delegationHistoryEl.innerHTML = "";
-          } else {
-            delegationHistoryEl.innerHTML = historyRuns.map(function (run) {
-              return renderRunCard(run, false);
-            }).join("");
-          }
+          delegationHistoryEl.innerHTML = historyRuns.length
+            ? historyRuns.map(function (run) { return renderRunCard(run, false); }).join("")
+            : "";
         }
 
-        // Trust
+        /* trust */
         var verdict = text(trust.verdict, "unknown");
         var verdictCls = verdictClass(verdict);
         var trustBlock = document.getElementById("trust-verdict-block");
@@ -2014,16 +2075,12 @@
         var requiredActions = asArray(trust.required_actions);
         var requiredEl = document.getElementById("trust-required-actions");
         if (requiredEl) {
-          if (!requiredActions.length) {
-            requiredEl.innerHTML = "";
-          } else {
-            requiredEl.innerHTML = requiredActions.map(function (a) {
-              return "<div class='action-item required'><span class='action-icon'>⚠</span>" + esc(a) + "</div>";
-            }).join("");
-          }
+          requiredEl.innerHTML = requiredActions.length
+            ? requiredActions.map(function (a) { return "<div class='action-item required'><span class='action-icon'>⚠</span>" + esc(a) + "</div>"; }).join("")
+            : "";
         }
 
-        // Validation
+        /* validation */
         var validationOk = Boolean(validation.valid);
         var errCount = asArray(validation.errors).length;
         var warnCount = asArray(validation.warnings).length;
@@ -2041,29 +2098,21 @@
         var attentionActions = asArray(trust.attention_actions);
         var attentionEl = document.getElementById("trust-attention-actions");
         if (attentionEl) {
-          if (!attentionActions.length) {
-            attentionEl.innerHTML = "";
-          } else {
-            attentionEl.innerHTML = attentionActions.map(function (a) {
-              return "<div class='action-item attention'><span class='action-icon'>◆</span>" + esc(a) + "</div>";
-            }).join("");
-          }
+          attentionEl.innerHTML = attentionActions.length
+            ? attentionActions.map(function (a) { return "<div class='action-item attention'><span class='action-icon'>◆</span>" + esc(a) + "</div>"; }).join("")
+            : "";
         }
 
-        // Advisories
+        /* advisories */
         var advisories = asArray(trust.advisories);
         var advisoriesEl = document.getElementById("trust-advisories");
         if (advisoriesEl) {
-          if (!advisories.length) {
-            advisoriesEl.innerHTML = "<div class='empty-state'>No advisories</div>";
-          } else {
-            advisoriesEl.innerHTML = advisories.map(function (a) {
-              return "<div class='action-item'><span class='action-icon'>ℹ</span>" + esc(a) + "</div>";
-            }).join("");
-          }
+          advisoriesEl.innerHTML = advisories.length
+            ? advisories.map(function (a) { return "<div class='action-item'><span class='action-icon'>ℹ</span>" + esc(a) + "</div>"; }).join("")
+            : "<div class='empty-state'>No advisories</div>";
         }
 
-        // Stats
+        /* stats */
         setText("stat-files", String(asArray(payload.files_changed).length));
         var generatedEl = document.getElementById("stat-generated");
         if (generatedEl) {
@@ -2072,14 +2121,12 @@
           generatedEl.title = formatAbsoluteLocal(generatedRaw);
         }
 
-        // Evidence
+        /* evidence */
         var evidence = asArray(cr.evidence);
         var evidenceEl = document.getElementById("evidence-list");
         if (evidenceEl) {
-          if (!evidence.length) {
-            evidenceEl.innerHTML = "<div class='empty-state'>No evidence recorded</div>";
-          } else {
-            evidenceEl.innerHTML = evidence.map(function (e) {
+          evidenceEl.innerHTML = evidence.length
+            ? evidence.map(function (e) {
               return [
                 "<div class='event-item'>",
                 "<div class='event-line'><div class='event-dot'></div></div>",
@@ -2089,19 +2136,18 @@
                 "<div class='event-meta'>",
                 e.ts ? "<span class='event-meta-item' title='" + esc(formatAbsoluteLocal(e.ts)) + "'>" + esc(formatRelativeLocal(e.ts)) + "</span>" : "",
                 e.command ? "<span class='event-meta-item'>" + esc(e.command) + "</span>" : "",
-                "</div>",
-                "</div>",
-                "</div>"
+                "</div></div></div>"
               ].join("");
-            }).join("");
-          }
+            }).join("")
+            : "<div class='empty-state'>No evidence recorded</div>";
         }
 
-        // Timeline
+        /* timeline */
         var events = asArray(cr.events);
         var eventsEl = document.getElementById("events-list");
         var timelineCountTag = document.getElementById("timeline-count-tag");
         if (timelineCountTag) timelineCountTag.textContent = String(events.length);
+
         var timelineSection = document.getElementById("timeline-section");
         var timelineHint = timelineSection ? timelineSection.querySelector(".section-toggle-hint") : null;
         function syncTimelineHint() {
@@ -2115,11 +2161,10 @@
             timelineSection.__sophiaToggleBound = true;
           }
         }
+
         if (eventsEl) {
-          if (!events.length) {
-            eventsEl.innerHTML = "<div class='empty-state'>No events recorded</div>";
-          } else {
-            eventsEl.innerHTML = events.slice().reverse().map(function (e) {
+          eventsEl.innerHTML = events.length
+            ? events.slice().reverse().map(function (e) {
               return [
                 "<div class='event-item'>",
                 "<div class='event-line'><div class='event-dot'></div></div>",
@@ -2129,39 +2174,30 @@
                 "<div class='event-meta'>",
                 e.ts ? "<span class='event-meta-item' title='" + esc(formatAbsoluteLocal(e.ts)) + "'>" + esc(formatRelativeLocal(e.ts)) + "</span>" : "",
                 e.actor ? "<span class='event-meta-item'>" + esc(e.actor) + "</span>" : "",
-                "</div>",
-                "</div>",
-                "</div>"
+                "</div></div></div>"
               ].join("");
-            }).join("");
-          }
+            }).join("")
+            : "<div class='empty-state'>No events recorded</div>";
         }
 
-        // Raw JSON
+        /* raw */
         var rawEl = document.getElementById("raw-json");
         if (rawEl) rawEl.textContent = JSON.stringify(payload, null, 2);
       }
 
+      /* ── live stream ──────────────────────────── */
       function startLiveStream(streamURL) {
         if (typeof EventSource === "undefined" || !streamURL) return;
         liveSource = new EventSource(streamURL);
         liveSource.addEventListener("snapshot", function (event) {
-          try {
-            var nextPayload = JSON.parse(event && event.data ? event.data : "{}");
-            renderCR(nextPayload);
-            setLiveHint("live");
-          } catch (_err) {
-            setLiveHint("live parse error");
-          }
+          try { renderCR(JSON.parse(event && event.data ? event.data : "{}")); setLiveHint("live"); }
+          catch (_err) { setLiveHint("live parse error"); }
         });
-        liveSource.addEventListener("error", function () {
-          setLiveHint("reconnecting");
-        });
-        liveSource.onopen = function () {
-          setLiveHint("live");
-        };
+        liveSource.addEventListener("error", function () { setLiveHint("reconnecting"); });
+        liveSource.onopen = function () { setLiveHint("live"); };
       }
 
+      /* ── init ─────────────────────────────────── */
       var bootstrap = parseBootstrapPayload();
       renderLoadingSkeletons();
       setLiveHint("loading");
