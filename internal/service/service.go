@@ -118,15 +118,30 @@ type RefreshOptions struct {
 }
 
 type CRRefreshView struct {
+	CRID         int
+	Strategy     string
+	DryRun       bool
+	Applied      bool
+	CascadeCount int
+	BaseRef      string
+	TargetRef    string
+	BeforeHead   string
+	AfterHead    string
+	Warnings     []string
+	Entries      []CRRefreshEntryView
+}
+
+type CRRefreshEntryView struct {
 	CRID       int
+	ParentCRID int
+	Branch     string
 	Strategy   string
-	DryRun     bool
-	Applied    bool
+	Depth      int
+	Cascaded   bool
 	BaseRef    string
 	TargetRef  string
 	BeforeHead string
 	AfterHead  string
-	Warnings   []string
 }
 
 type LogEntry struct {

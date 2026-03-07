@@ -1064,16 +1064,33 @@ func crRefreshToJSONMap(view *service.CRRefreshView) map[string]any {
 	if view == nil {
 		return map[string]any{}
 	}
+	entries := make([]map[string]any, 0, len(view.Entries))
+	for _, entry := range view.Entries {
+		entries = append(entries, map[string]any{
+			"cr_id":        entry.CRID,
+			"parent_cr_id": entry.ParentCRID,
+			"branch":       entry.Branch,
+			"strategy":     entry.Strategy,
+			"depth":        entry.Depth,
+			"cascaded":     entry.Cascaded,
+			"base_ref":     entry.BaseRef,
+			"target_ref":   entry.TargetRef,
+			"before_head":  entry.BeforeHead,
+			"after_head":   entry.AfterHead,
+		})
+	}
 	return map[string]any{
-		"cr_id":       view.CRID,
-		"strategy":    view.Strategy,
-		"dry_run":     view.DryRun,
-		"applied":     view.Applied,
-		"base_ref":    view.BaseRef,
-		"target_ref":  view.TargetRef,
-		"before_head": view.BeforeHead,
-		"after_head":  view.AfterHead,
-		"warnings":    stringSliceOrEmpty(view.Warnings),
+		"cr_id":         view.CRID,
+		"strategy":      view.Strategy,
+		"dry_run":       view.DryRun,
+		"applied":       view.Applied,
+		"cascade_count": view.CascadeCount,
+		"base_ref":      view.BaseRef,
+		"target_ref":    view.TargetRef,
+		"before_head":   view.BeforeHead,
+		"after_head":    view.AfterHead,
+		"warnings":      stringSliceOrEmpty(view.Warnings),
+		"entries":       entries,
 	}
 }
 
