@@ -1141,8 +1141,8 @@ func TestPRReadyBlocksAggregateParentWhenDelegatedChildrenStillPending(t *testin
 	if !errors.As(err, &blocked) {
 		t.Fatalf("expected PRReadyBlockedError, got %T (%v)", err, err)
 	}
-	if blocked.ReasonCode != prReadyBlockedReasonNoCheckpoints {
-		t.Fatalf("expected reason code %q, got %q", prReadyBlockedReasonNoCheckpoints, blocked.ReasonCode)
+	if blocked.ReasonCode != "aggregate_parent_pending_children" {
+		t.Fatalf("expected reason code %q, got %q", "aggregate_parent_pending_children", blocked.ReasonCode)
 	}
 }
 
@@ -1577,6 +1577,11 @@ func TestPROpenDoesNotCreateArchiveStagingCommitWhenArchiveEnabled(t *testing.T)
 	if err != nil {
 		t.Fatalf("AddCR() error = %v", err)
 	}
+	if err := os.WriteFile(filepath.Join(dir, "publishable.txt"), []byte("fixture\n"), 0o644); err != nil {
+		t.Fatalf("write publishable fixture: %v", err)
+	}
+	runGit(t, dir, "add", "publishable.txt")
+	runGit(t, dir, "commit", "-m", "test: add publishable branch diff")
 
 	headBefore := runGit(t, dir, "rev-parse", "HEAD")
 	branchName := strings.TrimSpace(cr.Branch)

@@ -45,19 +45,18 @@ func (s *Service) refreshCRUnlocked(id int, opts RefreshOptions) (*CRRefreshView
 	if err != nil {
 		return nil, err
 	}
+	readModel, err := s.loadCRReadModel()
+	if err != nil {
+		return nil, err
+	}
 	warnings := []string{}
 	if strategy == RefreshStrategyAuto {
-		if cr.ParentCRID > 0 {
+		if effectiveParentCRID(*cr, readModel.all) > 0 {
 			strategy = RefreshStrategyRestack
 		} else {
 			strategy = RefreshStrategyRebase
 		}
 		warnings = append(warnings, fmt.Sprintf("auto-selected strategy: %s", strategy))
-	}
-
-	readModel, err := s.loadCRReadModel()
-	if err != nil {
-		return nil, err
 	}
 	plan := s.buildRefreshPlan(cr, readModel, strategy)
 
@@ -164,10 +163,16 @@ func (s *Service) refreshPlanStepUnlocked(step refreshPlanStep, dryRun bool) (*C
 
 	switch step.Strategy {
 	case RefreshStrategyRestack:
-		if cr.ParentCRID <= 0 {
+		allCRs, listErr := lifecycleStore.ListCRs()
+		if listErr != nil {
+			return nil, listErr
+		}
+		parentID := effectiveParentCRID(*cr, allCRs)
+		if parentID <= 0 {
 			return nil, ErrParentCRRequired
 		}
-		parent, parentErr := lifecycleStore.LoadCR(cr.ParentCRID)
+		entry.ParentCRID = parentID
+		parent, parentErr := lifecycleStore.LoadCR(parentID)
 		if parentErr != nil {
 			return nil, parentErr
 		}

@@ -506,6 +506,14 @@ func expectedParentCRIDFromBaseRef(baseRef string, currentCRID int, crs []model.
 	return 0
 }
 
+func resolvedParentCRIDForBaseRef(baseRef string, currentCRID int, crs []model.CR) int {
+	expectedParentID := expectedParentCRIDFromBaseRef(baseRef, currentCRID, crs)
+	if expectedParentID > 0 {
+		return expectedParentID
+	}
+	return 0
+}
+
 type checkpointState struct {
 	Commit string
 	At     string

@@ -41,6 +41,7 @@ var (
 	ErrGHAuthRequired            = errors.New("github authentication is required")
 	ErrPRPermissionDenied        = errors.New("permission denied for pull request operation")
 	ErrPushPermissionDenied      = errors.New("permission denied while pushing branch")
+	ErrPRNoDiffToBase            = errors.New("pull request branch has no diff relative to base")
 )
 
 var (

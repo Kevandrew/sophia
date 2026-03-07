@@ -481,6 +481,9 @@ func TestSetCRBaseAndRestack(t *testing.T) {
 	if updated.BaseRef != "release" || updated.BaseCommit != "release-head-sha" {
 		t.Fatalf("unexpected SetCRBase result %#v", updated)
 	}
+	if updated.ParentCRID != 0 {
+		t.Fatalf("expected non-CR base ref to clear parent, got %#v", updated)
+	}
 	if h.MergeGit.Calls("RebaseBranchOnto") != 0 {
 		t.Fatalf("expected SetCRBase(rebase=false) not to rebase")
 	}

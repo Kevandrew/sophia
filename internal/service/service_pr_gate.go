@@ -41,7 +41,8 @@ const (
 	prReconcileModeReopen = "reopen"
 	prReconcileModeCreate = "create"
 
-	prReadyBlockedReasonNoCheckpoints = "pre_implementation_no_checkpoints"
+	prReadyBlockedReasonNoCheckpoints            = "pre_implementation_no_checkpoints"
+	prReadyBlockedReasonDelegatedChildrenPending = "aggregate_parent_pending_children"
 )
 
 type PRContextView struct {
@@ -376,7 +377,16 @@ func (s *Service) PRReady(id int) (*PRStatusView, error) {
 	if cr.PR.Number <= 0 {
 		return nil, fmt.Errorf("cr %d has no linked PR", id)
 	}
+	aggregateAssessment := assessAggregateParentTasks(cr.Subtasks)
 	if !hasImplementationCheckpointProgress(cr) && !hasAggregateParentImplementationProof(cr) {
+		if aggregateAssessment.IsAggregateParent && aggregateAssessment.PendingDelegatedTaskCount > 0 {
+			return nil, &PRReadyBlockedError{
+				CRID:              cr.ID,
+				ReasonCode:        prReadyBlockedReasonDelegatedChildrenPending,
+				Reason:            "Aggregate parent still has delegated child CRs pending; keep PR draft until delegated child slices are merged or otherwise resolved.",
+				SuggestedCommands: prReadyBlockedDelegatedSuggestedCommands(cr.ID),
+			}
+		}
 		return nil, &PRReadyBlockedError{
 			CRID:              cr.ID,
 			ReasonCode:        prReadyBlockedReasonNoCheckpoints,
@@ -744,6 +754,14 @@ func prReadyBlockedSuggestedCommands(crID int) []string {
 		prTaskListCommand(crID),
 		prTaskDoneFromContractCommand(crID),
 		prMergeApproveOpenCommand(crID),
+	})
+}
+
+func prReadyBlockedDelegatedSuggestedCommands(crID int) []string {
+	return cleanAndDedupeStrings([]string{
+		fmt.Sprintf("sophia cr stack %d", crID),
+		fmt.Sprintf("sophia cr status %d", crID),
+		fmt.Sprintf("sophia cr pr status %d", crID),
 	})
 }
 
@@ -1417,6 +1435,11 @@ func (s *Service) openOrSyncPRForCR(cr *model.CR, policy *model.RepoPolicy, appr
 		return nil, fmt.Errorf("cr is required")
 	}
 	hadLinkedPR := cr.PR.Number > 0
+	if !hadLinkedPR {
+		if err := s.ensurePRBranchHasDiffFromBase(cr); err != nil {
+			return nil, err
+		}
+	}
 	ctx, err := s.buildPRContextView(cr)
 	if err != nil {
 		return nil, err
@@ -1548,6 +1571,62 @@ func (s *Service) openOrSyncPRForCR(cr *model.CR, policy *model.RepoPolicy, appr
 		Ref:     fmt.Sprintf("cr:%d", cr.ID),
 	})
 	return pr, nil
+}
+
+func (s *Service) ensurePRBranchHasDiffFromBase(cr *model.CR) error {
+	if cr == nil {
+		return fmt.Errorf("cr is required")
+	}
+	base := strings.TrimSpace(nonEmptyTrimmed(cr.BaseRef, cr.BaseBranch))
+	head := strings.TrimSpace(cr.Branch)
+	if base == "" || head == "" {
+		return nil
+	}
+	if resolvedBase, err := s.git.ResolveRef(base); err == nil {
+		if resolvedHead, headErr := s.git.ResolveRef(head); headErr == nil && strings.TrimSpace(resolvedBase) == strings.TrimSpace(resolvedHead) {
+			return s.prNoDiffActionRequired(cr, base)
+		}
+	}
+	changes, err := s.git.DiffNameStatusBetween(base, head)
+	if err != nil {
+		return nil
+	}
+	if len(changes) == 0 {
+		return s.prNoDiffActionRequired(cr, base)
+	}
+	return nil
+}
+
+func (s *Service) prNoDiffActionRequired(cr *model.CR, base string) error {
+	suggestedCommand := fmt.Sprintf("sophia cr status %d", cr.ID)
+	actionName := "inspect_pr_publication_mode"
+	reason := fmt.Sprintf("branch %q has no diff relative to base %q", strings.TrimSpace(cr.Branch), strings.TrimSpace(base))
+	context := map[string]any{
+		"cr_id":    cr.ID,
+		"branch":   strings.TrimSpace(cr.Branch),
+		"base_ref": strings.TrimSpace(base),
+	}
+
+	allCRs, listErr := s.store.ListCRs()
+	if listErr == nil {
+		parentID := effectiveParentCRID(*cr, allCRs)
+		if parentID > 0 {
+			context["parent_cr_id"] = parentID
+			actionName = "publish_aggregate_parent"
+			reason = fmt.Sprintf("branch %q is already fully integrated into parent base %q; publish the aggregate parent PR instead of opening a child PR", strings.TrimSpace(cr.Branch), strings.TrimSpace(base))
+			suggestedCommand = fmt.Sprintf("sophia cr pr open %d --approve-open", parentID)
+		}
+	}
+
+	return &PRActionRequiredError{
+		Cause:            ErrPRNoDiffToBase,
+		Sentinel:         ErrPRNoDiffToBase,
+		Summary:          "PR creation blocked because there is no diff from base",
+		Reason:           reason,
+		ActionName:       actionName,
+		SuggestedCommand: suggestedCommand,
+		Context:          context,
+	}
 }
 
 func (s *Service) patchManagedBody(repoSelector string, pr *ghPRSummary, managed string) (string, error) {
