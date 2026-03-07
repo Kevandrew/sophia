@@ -2561,7 +2561,10 @@ func (s *Service) reconcileRemoteMergedPR(cr *model.CR, status *PRStatusView) er
 			desiredBaseCommit = mergedCommit
 		}
 	}
-	alreadyMerged := cr.Status == model.StatusMerged && strings.TrimSpace(cr.MergedCommit) != ""
+	existingMergedAt := strings.TrimSpace(cr.MergedAt)
+	existingMergedBy := strings.TrimSpace(cr.MergedBy)
+	existingMergedCommit := strings.TrimSpace(cr.MergedCommit)
+	alreadyMerged := cr.Status == model.StatusMerged && (existingMergedCommit != "" || existingMergedAt != "" || existingMergedBy != "")
 	if alreadyMerged && strings.TrimSpace(cr.BaseCommit) == desiredBaseCommit && strings.EqualFold(strings.TrimSpace(cr.PR.State), "MERGED") {
 		return nil
 	}
@@ -2571,9 +2574,6 @@ func (s *Service) reconcileRemoteMergedPR(cr *model.CR, status *PRStatusView) er
 	if mergedAt == "" {
 		mergedAt = now
 	}
-	existingMergedAt := strings.TrimSpace(cr.MergedAt)
-	existingMergedBy := strings.TrimSpace(cr.MergedBy)
-	existingMergedCommit := strings.TrimSpace(cr.MergedCommit)
 	cr.Status = model.StatusMerged
 	if !alreadyMerged || existingMergedAt == "" {
 		cr.MergedAt = mergedAt
@@ -2581,7 +2581,7 @@ func (s *Service) reconcileRemoteMergedPR(cr *model.CR, status *PRStatusView) er
 	if !alreadyMerged || existingMergedBy == "" {
 		cr.MergedBy = actor
 	}
-	if !alreadyMerged || existingMergedCommit == "" || status.MergedCommitExact {
+	if status.MergedCommitExact {
 		cr.MergedCommit = mergedCommit
 	}
 	cr.BaseCommit = desiredBaseCommit

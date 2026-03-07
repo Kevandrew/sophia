@@ -292,3 +292,64 @@ func TestPRStatusMergedFallbackHeadDoesNotClobberExistingBaseAnchor(t *testing.T
 		t.Fatalf("expected existing merged_commit to remain unchanged under fallback-only status, got %q", reloaded.MergedCommit)
 	}
 }
+
+func TestPRStatusMergedFallbackHeadDoesNotCanonizeMergedCommitWhenUnset(t *testing.T) {
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "SOPHIA.yaml"), []byte("version: v1\nmerge:\n  mode: pr_gate\narchive:\n  enabled: false\n"), 0o644); err != nil {
+		t.Fatalf("write SOPHIA.yaml: %v", err)
+	}
+	runGit(t, dir, "config", "user.name", "Test User")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+
+	cr, err := svc.AddCR("Merged fallback head unset", "fallback head oid should stay observational when exact merge data is absent")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	loaded, err := svc.store.LoadCR(cr.ID)
+	if err != nil {
+		t.Fatalf("LoadCR() error = %v", err)
+	}
+	baseHead := strings.TrimSpace(runGit(t, dir, "rev-parse", "HEAD"))
+	loaded.PR.Number = 45
+	loaded.PR.Repo = "acme/repo"
+	if err := svc.store.SaveCR(loaded); err != nil {
+		t.Fatalf("SaveCR() error = %v", err)
+	}
+	installFakeGHCommandForMergedFreshness(t, dir, "#!/bin/sh\nif [ \"$1\" = \"-R\" ]; then\n  shift\n  shift\nfi\nif [ \"$1\" = \"pr\" ] && [ \"$2\" = \"view\" ]; then\n  echo '{\"number\":45,\"url\":\"https://github.com/acme/repo/pull/45\",\"state\":\"MERGED\",\"isDraft\":false,\"headRefOid\":\"feedface\",\"headRefName\":\""+strings.TrimSpace(loaded.Branch)+"\",\"baseRefName\":\"main\",\"mergedAt\":\"2026-03-07T19:20:00Z\",\"author\":{\"login\":\"bot\"},\"latestReviews\":[],\"statusCheckRollup\":[]}'\n  exit 0\nfi\necho \"unexpected gh args: $@\" >&2\nexit 1\n")
+
+	if _, err := svc.PRStatus(cr.ID); err != nil {
+		t.Fatalf("PRStatus() first error = %v", err)
+	}
+	reloaded, err := svc.store.LoadCR(cr.ID)
+	if err != nil {
+		t.Fatalf("LoadCR() after first PRStatus error = %v", err)
+	}
+	if reloaded.Status != model.StatusMerged {
+		t.Fatalf("expected merged status, got %q", reloaded.Status)
+	}
+	if strings.TrimSpace(reloaded.BaseCommit) != baseHead {
+		t.Fatalf("expected base_commit %q, got %q", baseHead, reloaded.BaseCommit)
+	}
+	if strings.TrimSpace(reloaded.MergedCommit) != "" {
+		t.Fatalf("expected canonical merged_commit to remain empty under fallback-only status, got %q", reloaded.MergedCommit)
+	}
+	if strings.TrimSpace(reloaded.PR.LastMergedCommit) != "feedface" {
+		t.Fatalf("expected observational PR last_merged_commit to keep fallback SHA, got %q", reloaded.PR.LastMergedCommit)
+	}
+	eventCount := len(reloaded.Events)
+
+	if _, err := svc.PRStatus(cr.ID); err != nil {
+		t.Fatalf("PRStatus() second error = %v", err)
+	}
+	reloadedAgain, err := svc.store.LoadCR(cr.ID)
+	if err != nil {
+		t.Fatalf("LoadCR() after second PRStatus error = %v", err)
+	}
+	if len(reloadedAgain.Events) != eventCount {
+		t.Fatalf("expected repeated fallback-only PRStatus to avoid duplicate merge events, before=%d after=%d", eventCount, len(reloadedAgain.Events))
+	}
+}
