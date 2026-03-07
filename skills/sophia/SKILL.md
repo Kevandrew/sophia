@@ -188,23 +188,29 @@ Interpretation rule:
 
 ## Verification And Evidence
 
-Use contracts and evidence together.
+Use contracts and evidence together, but do not assume a specific stack, language, or file layout.
 
-When policy or task acceptance requires checks:
-1. run the exact command
-2. capture the output to a log file
-3. attach it with `cr evidence add`
+Default rule:
+- run the verification the contract or policy actually calls for
+- keep the command and result precise
+- attach evidence only when the workflow needs a durable record
 
-Example:
+Evidence is not inherently "write a `.log` file".
+In many repos, the right move is simply:
+- run the required checks
+- summarize the result for the user
+- attach evidence only if policy, review workflow, or handoff expectations require it
+
+If durable evidence is needed, `cr evidence add` can point to any useful artifact path the repo already uses. Do not assume `_docs/` exists.
+
+Generic example:
 
 ```bash
-go test ./... 2>&1 | tee _docs/cr-25-evidence/go-test.log
 sophia cr evidence add 25 \
   --type command_run \
-  --summary "Full suite before merge" \
-  --cmd "go test ./..." \
-  --exit-code 0 \
-  --attachment _docs/cr-25-evidence/go-test.log
+  --summary "Verification for merge readiness" \
+  --cmd "<exact command>" \
+  --exit-code 0
 ```
 
 ## Restart / Resume Protocol
