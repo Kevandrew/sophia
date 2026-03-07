@@ -1363,6 +1363,73 @@ func TestPRReconcileRelinkLinksMatchingPRAndRecordsEvent(t *testing.T) {
 	}
 }
 
+func TestPRReconcileRelinkDoesNotOverwriteRemoteMergedStatus(t *testing.T) {
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "SOPHIA.yaml"), []byte("version: v1\nmerge:\n  mode: pr_gate\narchive:\n  enabled: false\n"), 0o644); err != nil {
+		t.Fatalf("write SOPHIA.yaml: %v", err)
+	}
+	cr, err := svc.AddCR("PR reconcile relink merged", "status path")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	loaded, err := svc.store.LoadCR(cr.ID)
+	if err != nil {
+		t.Fatalf("LoadCR() error = %v", err)
+	}
+	loaded.PR.Number = 55
+	loaded.PR.Repo = "acme/repo"
+	if err := svc.store.SaveCR(loaded); err != nil {
+		t.Fatalf("SaveCR() error = %v", err)
+	}
+	head := strings.TrimSpace(runGit(t, dir, "rev-parse", "HEAD"))
+	branchName := strings.TrimSpace(loaded.Branch)
+	installFakeGHCommand(t, fmt.Sprintf(strings.Join([]string{
+		"#!/bin/sh",
+		"if [ \"$1\" = \"-R\" ]; then",
+		"  shift",
+		"  shift",
+		"fi",
+		"if [ \"$1\" = \"pr\" ] && [ \"$2\" = \"list\" ]; then",
+		"  echo '[{\"number\":55,\"url\":\"https://github.com/acme/repo/pull/55\",\"state\":\"OPEN\",\"isDraft\":false,\"headRefOid\":\"%s\",\"headRefName\":\"%s\",\"baseRefName\":\"main\",\"updatedAt\":\"2026-03-07T19:25:00Z\"}]'",
+		"  exit 0",
+		"fi",
+		"if [ \"$1\" = \"pr\" ] && [ \"$2\" = \"view\" ]; then",
+		"  echo '{\"number\":55,\"url\":\"https://github.com/acme/repo/pull/55\",\"state\":\"MERGED\",\"isDraft\":false,\"headRefOid\":\"%s\",\"headRefName\":\"%s\",\"baseRefName\":\"main\",\"mergedAt\":\"2026-03-07T19:20:00Z\",\"mergeCommit\":{\"oid\":\"%s\"},\"author\":{\"login\":\"bot\"},\"latestReviews\":[],\"statusCheckRollup\":[]}'",
+		"  exit 0",
+		"fi",
+		"echo \"unexpected gh args: $@\" >&2",
+		"exit 1",
+	}, "\n"), head, branchName, head, branchName, head))
+
+	view, err := svc.PRReconcile(cr.ID, prReconcileModeRelink)
+	if err != nil {
+		t.Fatalf("PRReconcile(relink) error = %v", err)
+	}
+	if view.Mutated {
+		t.Fatalf("expected reconcile view to avoid relink mutation after remote merge, got %#v", view)
+	}
+	if view.Action != "noop" {
+		t.Fatalf("expected noop action after remote merge refresh, got %#v", view)
+	}
+
+	reloaded, err := svc.store.LoadCR(cr.ID)
+	if err != nil {
+		t.Fatalf("LoadCR() after reconcile error = %v", err)
+	}
+	if reloaded.Status != model.StatusMerged {
+		t.Fatalf("expected stored status merged, got %q", reloaded.Status)
+	}
+	if strings.TrimSpace(reloaded.MergedCommit) != head {
+		t.Fatalf("expected merged_commit %q, got %q", head, reloaded.MergedCommit)
+	}
+	if strings.ToUpper(strings.TrimSpace(reloaded.PR.State)) != "MERGED" {
+		t.Fatalf("expected stored PR state MERGED, got %q", reloaded.PR.State)
+	}
+}
 func TestPRUnreadyCloseReopenLifecycleOperations(t *testing.T) {
 	dir := t.TempDir()
 	svc := New(dir)

@@ -515,6 +515,33 @@ func (s *Service) prReconcileUnlocked(id int, mode string) (*PRReconcileView, er
 	if beforeStatus != nil {
 		beforeLinkage = nonEmptyTrimmed(beforeStatus.LinkageState, prLinkageHealthy)
 	}
+	cr, err = s.store.LoadCR(id)
+	if err != nil {
+		return nil, err
+	}
+	if cr.Status != model.StatusInProgress {
+		afterStatus, _ := s.PRStatus(id)
+		afterLinkage := prLinkageHealthy
+		suggested := []string{}
+		if afterStatus != nil {
+			afterLinkage = nonEmptyTrimmed(afterStatus.LinkageState, prLinkageHealthy)
+			suggested = append([]string(nil), afterStatus.SuggestedCommands...)
+		}
+		return &PRReconcileView{
+			CRID:              cr.ID,
+			CRUID:             strings.TrimSpace(cr.UID),
+			Mode:              mode,
+			Mutated:           false,
+			Action:            "noop",
+			ActionReason:      fmt.Sprintf("CR %d is already %s after PR status refresh", cr.ID, cr.Status),
+			BeforePRNumber:    beforeNumber,
+			AfterPRNumber:     cr.PR.Number,
+			BeforeLinkage:     beforeLinkage,
+			AfterLinkage:      afterLinkage,
+			SuggestedCommands: cleanAndDedupeStrings(suggested),
+			Warnings:          []string{},
+		}, nil
+	}
 	now := s.timestamp()
 	actor := s.git.Actor()
 	action := ""
