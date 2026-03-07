@@ -7,6 +7,7 @@ import (
 
 	"sophia/internal/model"
 	"sophia/internal/service"
+	"sophia/internal/store"
 )
 
 func TestCRDelegateListAndShowJSON(t *testing.T) {
@@ -43,6 +44,20 @@ func TestCRDelegateListAndShowJSON(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("StartDelegation(failed) error = %v", err)
+	}
+	persistedStore := store.NewWithSophiaRoot(dir, localMetadataDirForCLI(t, dir))
+	persisted, err := persistedStore.LoadCR(cr.CR.ID)
+	if err != nil {
+		t.Fatalf("LoadCR() error = %v", err)
+	}
+	if len(persisted.DelegationRuns) != 2 {
+		t.Fatalf("expected two persisted runs, got %#v", persisted.DelegationRuns)
+	}
+	for i := range persisted.DelegationRuns {
+		persisted.DelegationRuns[i].CreatedAt = "2026-03-07T00:00:00Z"
+	}
+	if err := persistedStore.SaveCR(persisted); err != nil {
+		t.Fatalf("SaveCR() error = %v", err)
 	}
 
 	out, _, runErr := runCLI(t, dir, "cr", "delegate", "list", strconv.Itoa(cr.CR.ID), "--json")

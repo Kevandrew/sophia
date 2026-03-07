@@ -2635,12 +2635,19 @@ func (s *Service) currentRemoteRepo(remote string) (string, error) {
 
 func (s *Service) runGH(repoSelector string, args ...string) (string, error) {
 	selector := strings.TrimSpace(repoSelector)
+	if s.ghRunner != nil {
+		return s.ghRunner(selector, append([]string(nil), args...)...)
+	}
 	cmdArgs := make([]string, 0, len(args)+2)
 	if selector != "" {
 		cmdArgs = append(cmdArgs, "-R", selector)
 	}
 	cmdArgs = append(cmdArgs, args...)
 	return s.runCommand("gh", cmdArgs...)
+}
+
+func (s *Service) overrideGHRunnerForTests(runner func(repoSelector string, args ...string) (string, error)) {
+	s.ghRunner = runner
 }
 
 func (s *Service) ghRepoSelectorForCR(cr *model.CR) string {

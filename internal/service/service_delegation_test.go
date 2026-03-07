@@ -227,6 +227,46 @@ func TestDelegationRunReadsUseLifecycleStoreOverride(t *testing.T) {
 	}
 }
 
+func TestListDelegationRunsPreservesPersistedOrderWhenCreatedAtMatches(t *testing.T) {
+	t.Parallel()
+	cr := seedCR(42, "Delegation fixture", seedCROptions{Branch: "cr-42-delegation"})
+	cr.DelegationRuns = []model.DelegationRun{
+		{
+			ID:         "dr_completed",
+			Status:     model.DelegationRunStatusCompleted,
+			Request:    model.DelegationRequest{Runtime: "mock"},
+			Result:     &model.DelegationResult{Status: model.DelegationRunStatusCompleted, Summary: "completed"},
+			CreatedAt:  harnessTimestamp,
+			CreatedBy:  "Runtime Tester <runtime@test>",
+			UpdatedAt:  harnessTimestamp,
+			FinishedAt: harnessTimestamp,
+		},
+		{
+			ID:         "dr_failed",
+			Status:     model.DelegationRunStatusFailed,
+			Request:    model.DelegationRequest{Runtime: "mock"},
+			Result:     &model.DelegationResult{Status: model.DelegationRunStatusFailed, Summary: "failed"},
+			CreatedAt:  harnessTimestamp,
+			CreatedBy:  "Runtime Tester <runtime@test>",
+			UpdatedAt:  harnessTimestamp,
+			FinishedAt: harnessTimestamp,
+		},
+	}
+
+	h := harnessService(t, runtimeHarnessOptions{Branch: cr.Branch, CRs: []*model.CR{cr}})
+
+	runs, err := h.Service.ListDelegationRuns(cr.ID)
+	if err != nil {
+		t.Fatalf("ListDelegationRuns() error = %v", err)
+	}
+	if len(runs) != 2 {
+		t.Fatalf("expected two runs, got %#v", runs)
+	}
+	if runs[0].ID != "dr_completed" || runs[1].ID != "dr_failed" {
+		t.Fatalf("expected persisted order to be preserved for equal CreatedAt, got %#v", runs)
+	}
+}
+
 func TestFinishDelegationRunRejectsQueuedCompletion(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
