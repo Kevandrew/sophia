@@ -1,0 +1,99 @@
+package service
+
+import (
+	"errors"
+	"os"
+	"path/filepath"
+	"testing"
+
+	"sophia/internal/model"
+)
+
+func TestPROpenBlocksChildPRWhenBranchHasNoDiffFromParentBase(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	runGit(t, dir, "config", "user.name", "Test User")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+	if err := os.WriteFile(filepath.Join(dir, "SOPHIA.yaml"), []byte("version: v1\nmerge:\n  mode: pr_gate\narchive:\n  enabled: false\n"), 0o644); err != nil {
+		t.Fatalf("write SOPHIA.yaml: %v", err)
+	}
+
+	parent, err := svc.AddCR("Parent publish", "aggregate parent")
+	if err != nil {
+		t.Fatalf("AddCR(parent) error = %v", err)
+	}
+	child, _, err := svc.AddCRWithOptionsWithWarnings("Child publish", "already integrated", AddCROptions{ParentCRID: parent.ID})
+	if err != nil {
+		t.Fatalf("AddCR(child) error = %v", err)
+	}
+
+	err = nil
+	_, err = svc.PROpen(child.ID, true)
+	if !errors.Is(err, ErrPRNoDiffToBase) {
+		t.Fatalf("expected ErrPRNoDiffToBase, got %v", err)
+	}
+	detailer, ok := err.(interface{ Details() map[string]any })
+	if !ok {
+		t.Fatalf("expected detailed action-required error")
+	}
+	details := detailer.Details()
+	actionRequired, ok := details["action_required"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected action_required details, got %#v", details)
+	}
+	if got, _ := actionRequired["name"].(string); got != "publish_aggregate_parent" {
+		t.Fatalf("expected aggregate parent publish guidance, got %#v", actionRequired)
+	}
+	if got, _ := details["suggested_command"].(string); got != "sophia cr pr open 1 --approve-open" {
+		t.Fatalf("expected parent publish suggestion, got %#v", details)
+	}
+}
+
+func TestPRReadyBlocksAggregateParentWithDelegatedChildrenPendingUsingStackGuidance(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "SOPHIA.yaml"), []byte("version: v1\nmerge:\n  mode: pr_gate\narchive:\n  enabled: false\n"), 0o644); err != nil {
+		t.Fatalf("write SOPHIA.yaml: %v", err)
+	}
+
+	cr, err := svc.AddCR("Aggregate parent blocked", "delegated children pending")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	loaded, err := svc.store.LoadCR(cr.ID)
+	if err != nil {
+		t.Fatalf("LoadCR() error = %v", err)
+	}
+	loaded.PR.Number = 71
+	loaded.Subtasks = []model.Subtask{{
+		ID:     1,
+		Title:  "Delegated child work",
+		Status: model.TaskStatusDelegated,
+		Delegations: []model.TaskDelegation{
+			{ChildCRID: 401, ChildTaskID: 1},
+		},
+	}}
+	if err := svc.store.SaveCR(loaded); err != nil {
+		t.Fatalf("SaveCR() error = %v", err)
+	}
+
+	_, err = svc.PRReady(cr.ID)
+	blocked, ok := err.(*PRReadyBlockedError)
+	if !ok {
+		t.Fatalf("expected PRReadyBlockedError, got %T %v", err, err)
+	}
+	if blocked.ReasonCode != prReadyBlockedReasonDelegatedChildrenPending {
+		t.Fatalf("expected delegated-children-pending reason, got %#v", blocked)
+	}
+	if len(blocked.SuggestedCommands) == 0 || blocked.SuggestedCommands[0] != "sophia cr stack 1" {
+		t.Fatalf("expected stack-first guidance, got %#v", blocked.SuggestedCommands)
+	}
+}
