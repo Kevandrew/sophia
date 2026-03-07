@@ -33,6 +33,7 @@ Recommended daily flow (intent-first):
    `sophia cr merge status <id>`
    resolve conflicts + `sophia cr merge resume <id>` or `sophia cr merge abort <id>`
 12. stacked flows when needed: `sophia cr restack <id>` or `sophia cr base set <id> --ref <git-ref> [--rebase]`
+    parent `sophia cr refresh <id>` cascades to descendant child CRs by default; child refresh remains local to that child
 13. optional delegated stacking:
    `sophia cr task delegate <parent-cr-id> <task-id> --child <child-cr-id>`
    `sophia cr stack [<id>] [--json]`

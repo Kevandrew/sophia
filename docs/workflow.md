@@ -133,9 +133,10 @@ Typical sequence:
 2. Create child CRs with `--parent` (or `sophia cr child add`) for each reviewable slice.
 3. Delegate parent tasks to child CRs when the parent work is fulfilled in children.
 4. Implement and merge children into the parent branch.
-5. Refresh later children after earlier child merges so the stack stays current:
+5. Refresh later children after earlier child merges so the stack stays current. Refreshing the parent CR is now the stack-wide entrypoint: parent refresh cascades through descendant child CRs, while refreshing an individual child CR remains local to that child:
 
 ```bash
+sophia cr refresh <parent-cr-id>
 sophia cr refresh <child-cr-id>
 ```
 
