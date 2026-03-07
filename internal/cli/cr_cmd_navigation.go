@@ -272,8 +272,16 @@ func newCRRefreshCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "refresh <id>",
-		Short: "Refresh a CR onto latest base/parent with an explicit strategy",
-		Args:  cobra.ExactArgs(1),
+		Short: "Refresh a CR onto latest base/parent; parent refresh cascades to descendants",
+		Long: "Refresh updates a CR onto its latest base or parent anchor with an explicit strategy.\n\n" +
+			"In auto mode, standalone/root CRs rebase onto their base ref, child CRs restack onto their parent, " +
+			"and refreshing a parent CR also refreshes descendant child CRs in stack order by default. " +
+			"Refreshing a child CR remains local to that child.",
+		Example: "  sophia cr refresh 25\n" +
+			"  sophia cr refresh 25 --dry-run --json\n" +
+			"  sophia cr refresh 25 --strategy rebase\n" +
+			"  # parent CRs cascade to descendant child CRs; child CR refresh remains local",
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return withParsedIDAndService(cmd, asJSON, args[0], "id", func(id int, svc *service.Service) error {
 				view, err := svc.RefreshCR(id, service.RefreshOptions{
@@ -297,6 +305,19 @@ func newCRRefreshCmd() *cobra.Command {
 				fmt.Fprintf(cmd.OutOrStdout(), "Before Head: %s\n", nonEmpty(strings.TrimSpace(view.BeforeHead), "-"))
 				if strings.TrimSpace(view.AfterHead) != "" {
 					fmt.Fprintf(cmd.OutOrStdout(), "After Head: %s\n", strings.TrimSpace(view.AfterHead))
+				}
+				if len(view.Entries) > 1 {
+					fmt.Fprintf(cmd.OutOrStdout(), "Cascade Count: %d\n", view.CascadeCount)
+					fmt.Fprintln(cmd.OutOrStdout(), "Refresh Plan:")
+					for _, entry := range view.Entries {
+						indent := strings.Repeat("  ", entry.Depth)
+						fmt.Fprintf(cmd.OutOrStdout(), "%s- CR %d using strategy %s (target %s)\n",
+							indent,
+							entry.CRID,
+							entry.Strategy,
+							nonEmpty(strings.TrimSpace(entry.TargetRef), "-"),
+						)
+					}
 				}
 				if len(view.Warnings) > 0 {
 					fmt.Fprintln(cmd.OutOrStdout(), "Warnings:")

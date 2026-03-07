@@ -17,7 +17,7 @@ type CRReadModelView struct {
 }
 
 func (s *Service) loadCRReadModel() (*crReadModel, error) {
-	crs, err := s.store.ListCRs()
+	crs, err := s.activeLifecycleStoreProvider().ListCRs()
 	if err != nil {
 		return nil, err
 	}

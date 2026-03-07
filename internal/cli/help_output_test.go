@@ -74,6 +74,15 @@ func TestMergeAndTaskDoneHelpExamples(t *testing.T) {
 	assertHelpContains(t, contractSetOut,
 		"sophia cr task contract set [<cr-id>] <task-id>",
 	)
+
+	refreshOut, _, refreshErr := runCLI(t, dir, "cr", "refresh", "--help")
+	if refreshErr != nil {
+		t.Fatalf("cr refresh --help error = %v\noutput=%s", refreshErr, refreshOut)
+	}
+	assertHelpContains(t, refreshOut,
+		"parent CR also refreshes descendant child CRs in stack order by default",
+		"Refreshing a child CR remains local to that child.",
+	)
 }
 
 func assertHelpContains(t *testing.T, out string, patterns ...string) {
