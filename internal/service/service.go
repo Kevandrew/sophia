@@ -25,6 +25,7 @@ type Service struct {
 	mergeStore               mergeRuntimeStore
 	mergeGit                 mergeRuntimeGit
 	mergeGitFactory          mergeRuntimeGitFactory
+	ghRunner                 func(repoSelector string, args ...string) (string, error)
 	delegationRuntimes       map[string]DelegationRuntime
 	lifecycleStoreCustom     bool
 	lifecycleGitCustom       bool
