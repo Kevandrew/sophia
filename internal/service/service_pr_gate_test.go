@@ -4,6 +4,7 @@
 package service
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -1313,44 +1314,8 @@ func TestPRUnreadyCloseReopenLifecycleOperations(t *testing.T) {
 	if err := svc.store.SaveCR(loaded); err != nil {
 		t.Fatalf("SaveCR() error = %v", err)
 	}
-	installFakeGHCommand(t, fmt.Sprintf(strings.Join([]string{
-		"#!/bin/sh",
-		"if [ \"$1\" = \"-R\" ]; then",
-		"  shift",
-		"  shift",
-		"fi",
-		"if [ \"$1\" = \"pr\" ] && [ \"$2\" = \"ready\" ] && [ \"$4\" = \"--undo\" ]; then",
-		"  printf 'draft' > \"$TMPDIR/sophia-pr-state-64\"",
-		"  exit 0",
-		"fi",
-		"if [ \"$1\" = \"pr\" ] && [ \"$2\" = \"close\" ]; then",
-		"  printf 'closed' > \"$TMPDIR/sophia-pr-state-64\"",
-		"  exit 0",
-		"fi",
-		"if [ \"$1\" = \"pr\" ] && [ \"$2\" = \"reopen\" ]; then",
-		"  printf 'open' > \"$TMPDIR/sophia-pr-state-64\"",
-		"  exit 0",
-		"fi",
-		"if [ \"$1\" = \"pr\" ] && [ \"$2\" = \"view\" ]; then",
-		"  state_file=\"$TMPDIR/sophia-pr-state-64\"",
-		"  current='open'",
-		"  if [ -f \"$state_file\" ]; then",
-		"    current=$(cat \"$state_file\")",
-		"  fi",
-		"  if [ \"$current\" = \"draft\" ]; then",
-		"    echo '{\"number\":64,\"url\":\"https://github.com/acme/repo/pull/64\",\"state\":\"OPEN\",\"isDraft\":true,\"headRefOid\":\"abc123\",\"headRefName\":\"%s\",\"baseRefName\":\"main\",\"author\":{\"login\":\"bot\"},\"latestReviews\":[],\"statusCheckRollup\":[]}'",
-		"    exit 0",
-		"  fi",
-		"  if [ \"$current\" = \"closed\" ]; then",
-		"    echo '{\"number\":64,\"url\":\"https://github.com/acme/repo/pull/64\",\"state\":\"CLOSED\",\"isDraft\":false,\"headRefOid\":\"abc123\",\"headRefName\":\"%s\",\"baseRefName\":\"main\",\"author\":{\"login\":\"bot\"},\"latestReviews\":[],\"statusCheckRollup\":[]}'",
-		"    exit 0",
-		"  fi",
-		"  echo '{\"number\":64,\"url\":\"https://github.com/acme/repo/pull/64\",\"state\":\"OPEN\",\"isDraft\":false,\"headRefOid\":\"abc123\",\"headRefName\":\"%s\",\"baseRefName\":\"main\",\"author\":{\"login\":\"bot\"},\"latestReviews\":[],\"statusCheckRollup\":[]}'",
-		"  exit 0",
-		"fi",
-		"echo \"unexpected gh args: $@\" >&2",
-		"exit 1",
-	}, "\n"), branchName, branchName, branchName))
+	fakeGH := newFakeGHPRState(t, 64, branchName, "main", "OPEN", false)
+	svc.overrideGHRunnerForTests(fakeGH.run)
 
 	unready, err := svc.PRUnready(cr.ID)
 	if err != nil {
@@ -1417,7 +1382,8 @@ func TestPRReconcileReopenRunsProviderReopen(t *testing.T) {
 	if err := svc.store.SaveCR(loaded); err != nil {
 		t.Fatalf("SaveCR() error = %v", err)
 	}
-	installFakeGHCommand(t, "#!/bin/sh\nif [ \"$1\" = \"-R\" ]; then\n  shift\n  shift\nfi\nif [ \"$1\" = \"pr\" ] && [ \"$2\" = \"reopen\" ]; then\n  exit 0\nfi\nif [ \"$1\" = \"pr\" ] && [ \"$2\" = \"view\" ]; then\n  echo '{\"number\":55,\"url\":\"https://github.com/acme/repo/pull/55\",\"state\":\"OPEN\",\"isDraft\":false,\"headRefOid\":\"abc123\",\"headRefName\":\"cr-1-pr-reconcile-reopen\",\"baseRefName\":\"main\",\"author\":{\"login\":\"bot\"},\"latestReviews\":[],\"statusCheckRollup\":[]}'\n  exit 0\nfi\necho \"unexpected gh args: $@\" >&2\nexit 1\n")
+	fakeGH := newFakeGHPRState(t, 55, strings.TrimSpace(loaded.Branch), "main", "CLOSED", false)
+	svc.overrideGHRunnerForTests(fakeGH.run)
 
 	view, err := svc.PRReconcile(cr.ID, prReconcileModeReopen)
 	if err != nil {
@@ -1462,7 +1428,8 @@ func TestPRReconcileCreateCreatesDraftPR(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AddCR() error = %v", err)
 	}
-	installFakeGHCommand(t, "#!/bin/sh\nif [ \"$1\" = \"-R\" ]; then\n  shift\n  shift\nfi\nif [ \"$1\" = \"pr\" ] && [ \"$2\" = \"create\" ]; then\n  echo 'https://github.com/acme/repo/pull/9'\n  exit 0\nfi\nif [ \"$1\" = \"pr\" ] && [ \"$2\" = \"view\" ]; then\n  echo '{\"number\":9,\"url\":\"https://github.com/acme/repo/pull/9\",\"state\":\"OPEN\",\"isDraft\":true,\"headRefOid\":\"abc123\",\"headRefName\":\"cr-1-pr-reconcile-create\",\"baseRefName\":\"main\",\"author\":{\"login\":\"bot\"},\"latestReviews\":[],\"statusCheckRollup\":[]}'\n  exit 0\nfi\necho \"unexpected gh args: $@\" >&2\nexit 1\n")
+	fakeGH := newFakeGHPRState(t, 9, strings.TrimSpace(cr.Branch), "main", "OPEN", true)
+	svc.overrideGHRunnerForTests(fakeGH.run)
 
 	view, err := svc.PRReconcile(cr.ID, prReconcileModeCreate)
 	if err != nil {
@@ -1490,6 +1457,73 @@ func installFakeGHCommand(t *testing.T, body string) {
 		return
 	}
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+currentPath)
+}
+
+type fakeGHPRState struct {
+	t      *testing.T
+	number int
+	branch string
+	base   string
+	state  string
+	draft  bool
+}
+
+func newFakeGHPRState(t *testing.T, number int, branch, base, state string, draft bool) *fakeGHPRState {
+	t.Helper()
+	return &fakeGHPRState{
+		t:      t,
+		number: number,
+		branch: strings.TrimSpace(branch),
+		base:   strings.TrimSpace(base),
+		state:  strings.ToUpper(strings.TrimSpace(state)),
+		draft:  draft,
+	}
+}
+
+func (f *fakeGHPRState) run(_ string, args ...string) (string, error) {
+	f.t.Helper()
+	if len(args) < 2 || args[0] != "pr" {
+		return "", fmt.Errorf("unexpected gh args: %v", args)
+	}
+	switch args[1] {
+	case "ready":
+		if len(args) >= 4 && args[3] == "--undo" {
+			f.state = "OPEN"
+			f.draft = true
+			return "", nil
+		}
+	case "close":
+		f.state = "CLOSED"
+		f.draft = false
+		return "", nil
+	case "reopen":
+		f.state = "OPEN"
+		f.draft = false
+		return "", nil
+	case "create":
+		f.state = "OPEN"
+		f.draft = true
+		return fmt.Sprintf("https://github.com/acme/repo/pull/%d", f.number), nil
+	case "view":
+		payload := map[string]any{
+			"number":            f.number,
+			"url":               fmt.Sprintf("https://github.com/acme/repo/pull/%d", f.number),
+			"state":             f.state,
+			"isDraft":           f.draft,
+			"headRefOid":        "abc123",
+			"headRefName":       f.branch,
+			"baseRefName":       f.base,
+			"author":            map[string]any{"login": "bot"},
+			"latestReviews":     []any{},
+			"statusCheckRollup": []any{},
+		}
+		raw, err := json.Marshal(payload)
+		if err != nil {
+			return "", err
+		}
+		return string(raw), nil
+	}
+	return "", fmt.Errorf("unexpected gh args: %v", args)
 }
 
 func TestStageArchiveForPRGateSkipsWhenArchiveDisabled(t *testing.T) {

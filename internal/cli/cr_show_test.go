@@ -497,8 +497,10 @@ func TestCRShowTemplateIsSingleFileWithInlineAssets(t *testing.T) {
 		"Stack Role",
 		"Lineage",
 		"id=\"task-section-label\"",
-		"Child CR Thread",
-		"Delegation Links",
+		"id=\"tasks-list\"",
+		"<span class=\"section-label\">Delegation</span>",
+		"id=\"delegation-current\"",
+		"id=\"delegation-history\"",
 		"EventSource",
 		"/__sophia_snapshot?mode=cr",
 	} {

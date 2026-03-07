@@ -161,9 +161,6 @@ func (s *Service) ListDelegationRuns(crID int) ([]model.DelegationRun, error) {
 		runs = append(runs, cloneDelegationRun(run))
 	}
 	sort.SliceStable(runs, func(i, j int) bool {
-		if runs[i].CreatedAt == runs[j].CreatedAt {
-			return runs[i].ID < runs[j].ID
-		}
 		return runs[i].CreatedAt < runs[j].CreatedAt
 	})
 	return runs, nil
