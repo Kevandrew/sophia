@@ -493,3 +493,94 @@ func TestConcurrentSaveCRDoesNotRaceOnTempRename(t *testing.T) {
 		}
 	}
 }
+
+func TestConcurrentLoadAndListCRsStayAvailableDuringSave(t *testing.T) {
+	s := New(t.TempDir())
+	if err := s.Init("main", model.MetadataModeLocal); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	cr := &model.CR{
+		ID:          1,
+		UID:         "cr_concurrent-readers",
+		Title:       "base",
+		Description: "base",
+		Status:      model.StatusInProgress,
+		BaseBranch:  "main",
+		Branch:      "sophia/cr-1",
+		Notes:       []string{},
+		Subtasks:    []model.Subtask{},
+		Events:      []model.Event{},
+		CreatedAt:   "2026-01-01T00:00:00Z",
+		UpdatedAt:   "2026-01-01T00:00:00Z",
+	}
+	if err := s.SaveCR(cr); err != nil {
+		t.Fatalf("SaveCR(seed) error = %v", err)
+	}
+
+	const (
+		writers    = 8
+		readers    = 8
+		iterations = 20
+	)
+	start := make(chan struct{})
+	errCh := make(chan error, writers+readers)
+	var wg sync.WaitGroup
+
+	for i := 0; i < writers; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			<-start
+			for iter := 0; iter < iterations; iter++ {
+				loaded, err := s.LoadCR(1)
+				if err != nil {
+					errCh <- fmt.Errorf("writer load iteration %d: %w", iter, err)
+					return
+				}
+				loaded.Title = fmt.Sprintf("writer-%02d-%02d", idx, iter)
+				if err := s.SaveCR(loaded); err != nil {
+					errCh <- fmt.Errorf("writer save iteration %d: %w", iter, err)
+					return
+				}
+			}
+		}(i)
+	}
+
+	for i := 0; i < readers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			for iter := 0; iter < iterations; iter++ {
+				loaded, err := s.LoadCR(1)
+				if err != nil {
+					errCh <- fmt.Errorf("reader load iteration %d: %w", iter, err)
+					return
+				}
+				if loaded.ID != 1 {
+					errCh <- fmt.Errorf("reader load iteration %d: unexpected id %d", iter, loaded.ID)
+					return
+				}
+				crs, err := s.ListCRs()
+				if err != nil {
+					errCh <- fmt.Errorf("reader list iteration %d: %w", iter, err)
+					return
+				}
+				if len(crs) != 1 || crs[0].ID != 1 {
+					errCh <- fmt.Errorf("reader list iteration %d: unexpected CR list %#v", iter, crs)
+					return
+				}
+			}
+		}()
+	}
+
+	close(start)
+	wg.Wait()
+	close(errCh)
+
+	for err := range errCh {
+		if err != nil {
+			t.Fatalf("concurrent read/write error = %v", err)
+		}
+	}
+}

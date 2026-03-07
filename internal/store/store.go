@@ -90,6 +90,7 @@ func (e MutationLockTimeoutError) Is(target error) bool {
 type Store struct {
 	Root       string
 	SophiaRoot string
+	crFilesMu  sync.Mutex
 	cacheMu    sync.RWMutex
 	crCache    crMetadataCache
 }
@@ -298,6 +299,8 @@ func (s *Store) SaveCR(cr *model.CR) error {
 	if cr.PR.CheckpointSyncKeys == nil {
 		cr.PR.CheckpointSyncKeys = []string{}
 	}
+	s.crFilesMu.Lock()
+	defer s.crFilesMu.Unlock()
 	if err := os.MkdirAll(s.CRDir(), 0o755); err != nil {
 		return fmt.Errorf("ensure cr directory: %w", err)
 	}
