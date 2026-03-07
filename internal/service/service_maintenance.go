@@ -167,6 +167,8 @@ func (s *Service) RepairFromGit(baseBranch string, refresh bool) (*RepairReport,
 		RepairedCRIDs: []int{},
 		Warnings:      []string{},
 	}
+	archiveRecoveryCache := map[int]*model.CR{}
+	archiveRecoveryErrCache := map[int]string{}
 
 	uidBackfilledSet := map[int]struct{}{}
 	for id, existing := range existingMap {
@@ -247,6 +249,21 @@ func (s *Service) RepairFromGit(baseBranch string, refresh bool) (*RepairReport,
 			FilesTouchedCount: filesTouched,
 			CreatedAt:         when,
 			UpdatedAt:         when,
+		}
+
+		if _, checked := archiveRecoveryCache[id]; !checked {
+			archivedCR, archiveErr := s.loadArchivedRecoveryCR(id)
+			if archiveErr != nil {
+				archiveRecoveryErrCache[id] = archiveErr.Error()
+			} else {
+				archiveRecoveryCache[id] = archivedCR
+			}
+		}
+		if warning := strings.TrimSpace(archiveRecoveryErrCache[id]); warning != "" {
+			report.Warnings = appendUniqueString(report.Warnings, fmt.Sprintf("CR %d archive recovery unavailable: %s", id, warning))
+		}
+		if archivedCR := archiveRecoveryCache[id]; archivedCR != nil {
+			cr = mergeRecoveredCR(archivedCR, cr)
 		}
 
 		if exists {

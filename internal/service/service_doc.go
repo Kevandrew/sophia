@@ -30,6 +30,7 @@ func canonicalCRDoc(cr *model.CR) *CRDoc {
 		Branch:            cr.Branch,
 		Notes:             append([]string(nil), cr.Notes...),
 		Evidence:          append([]model.EvidenceEntry(nil), cr.Evidence...),
+		DelegationRuns:    cloneDelegationRuns(cr.DelegationRuns),
 		Contract:          cloneContract(cr.Contract),
 		ContractBaseline:  cloneCRContractBaseline(cr.ContractBaseline),
 		ContractDrifts:    cloneCRContractDrifts(cr.ContractDrifts),
@@ -38,7 +39,12 @@ func canonicalCRDoc(cr *model.CR) *CRDoc {
 		MergedAt:          strings.TrimSpace(cr.MergedAt),
 		MergedBy:          strings.TrimSpace(cr.MergedBy),
 		MergedCommit:      strings.TrimSpace(cr.MergedCommit),
+		AbandonedAt:       strings.TrimSpace(cr.AbandonedAt),
+		AbandonedBy:       strings.TrimSpace(cr.AbandonedBy),
+		AbandonedReason:   strings.TrimSpace(cr.AbandonedReason),
 		FilesTouchedCount: cr.FilesTouchedCount,
+		HQ:                cloneHQState(cr.HQ),
+		PR:                clonePRLink(cr.PR),
 		CreatedAt:         cr.CreatedAt,
 		UpdatedAt:         cr.UpdatedAt,
 	}
@@ -47,6 +53,9 @@ func canonicalCRDoc(cr *model.CR) *CRDoc {
 	}
 	if doc.Evidence == nil {
 		doc.Evidence = []model.EvidenceEntry{}
+	}
+	if doc.DelegationRuns == nil {
+		doc.DelegationRuns = []model.DelegationRun{}
 	}
 	if doc.Subtasks == nil {
 		doc.Subtasks = []model.Subtask{}
@@ -111,6 +120,71 @@ func cloneContract(contract model.Contract) model.Contract {
 	return out
 }
 
+func cloneDelegationRuns(runs []model.DelegationRun) []model.DelegationRun {
+	if len(runs) == 0 {
+		return []model.DelegationRun{}
+	}
+	out := make([]model.DelegationRun, 0, len(runs))
+	for _, run := range runs {
+		copyRun := run
+		copyRun.Request = cloneDelegationRequest(run.Request)
+		copyRun.Events = cloneDelegationRunEvents(run.Events)
+		if run.Result != nil {
+			resultCopy := *run.Result
+			resultCopy.FilesChanged = append([]string(nil), run.Result.FilesChanged...)
+			resultCopy.ValidationErrors = append([]string(nil), run.Result.ValidationErrors...)
+			resultCopy.ValidationWarnings = append([]string(nil), run.Result.ValidationWarnings...)
+			resultCopy.Blockers = append([]string(nil), run.Result.Blockers...)
+			if len(run.Result.Metadata) > 0 {
+				resultCopy.Metadata = make(map[string]string, len(run.Result.Metadata))
+				for key, value := range run.Result.Metadata {
+					resultCopy.Metadata[key] = value
+				}
+			}
+			copyRun.Result = &resultCopy
+		}
+		out = append(out, copyRun)
+	}
+	return out
+}
+
+func cloneDelegationRequest(request model.DelegationRequest) model.DelegationRequest {
+	out := request
+	out.TaskIDs = append([]int(nil), request.TaskIDs...)
+	out.SkillRefs = append([]string(nil), request.SkillRefs...)
+	if request.IntentSnapshot != nil {
+		intentCopy := *request.IntentSnapshot
+		intentCopy.Notes = append([]string(nil), request.IntentSnapshot.Notes...)
+		intentCopy.Subtasks = append([]model.HQIntentTaskSnapshot(nil), request.IntentSnapshot.Subtasks...)
+		out.IntentSnapshot = &intentCopy
+	}
+	if len(request.Metadata) > 0 {
+		out.Metadata = make(map[string]string, len(request.Metadata))
+		for key, value := range request.Metadata {
+			out.Metadata[key] = value
+		}
+	}
+	return out
+}
+
+func cloneDelegationRunEvents(events []model.DelegationRunEvent) []model.DelegationRunEvent {
+	if len(events) == 0 {
+		return []model.DelegationRunEvent{}
+	}
+	out := make([]model.DelegationRunEvent, 0, len(events))
+	for _, event := range events {
+		copyEvent := event
+		if len(event.Meta) > 0 {
+			copyEvent.Meta = make(map[string]string, len(event.Meta))
+			for key, value := range event.Meta {
+				copyEvent.Meta[key] = value
+			}
+		}
+		out = append(out, copyEvent)
+	}
+	return out
+}
+
 func cloneSubtasks(tasks []model.Subtask) []model.Subtask {
 	if len(tasks) == 0 {
 		return []model.Subtask{}
@@ -172,5 +246,23 @@ func cloneCRContractDrifts(drifts []model.CRContractDrift) []model.CRContractDri
 		copyDrift.AfterScope = append([]string(nil), drift.AfterScope...)
 		out = append(out, copyDrift)
 	}
+	return out
+}
+
+func cloneHQState(hq model.CRHQState) model.CRHQState {
+	out := hq
+	if hq.UpstreamIntent != nil {
+		intentCopy := *hq.UpstreamIntent
+		intentCopy.Notes = append([]string(nil), hq.UpstreamIntent.Notes...)
+		intentCopy.Subtasks = append([]model.HQIntentTaskSnapshot(nil), hq.UpstreamIntent.Subtasks...)
+		out.UpstreamIntent = &intentCopy
+	}
+	return out
+}
+
+func clonePRLink(pr model.CRPRLink) model.CRPRLink {
+	out := pr
+	out.CheckpointCommentKeys = append([]string(nil), pr.CheckpointCommentKeys...)
+	out.CheckpointSyncKeys = append([]string(nil), pr.CheckpointSyncKeys...)
 	return out
 }

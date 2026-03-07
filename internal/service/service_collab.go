@@ -746,13 +746,21 @@ func crFromDoc(doc *CRDoc) *model.CR {
 		Branch:            doc.Branch,
 		Notes:             append([]string(nil), doc.Notes...),
 		Evidence:          append([]model.EvidenceEntry(nil), doc.Evidence...),
+		DelegationRuns:    cloneDelegationRuns(doc.DelegationRuns),
 		Contract:          cloneContract(doc.Contract),
+		ContractBaseline:  cloneCRContractBaseline(doc.ContractBaseline),
+		ContractDrifts:    cloneCRContractDrifts(doc.ContractDrifts),
 		Subtasks:          cloneSubtasks(doc.Subtasks),
 		Events:            make([]model.Event, 0, len(doc.Events)),
 		MergedAt:          strings.TrimSpace(doc.MergedAt),
 		MergedBy:          strings.TrimSpace(doc.MergedBy),
 		MergedCommit:      strings.TrimSpace(doc.MergedCommit),
+		AbandonedAt:       strings.TrimSpace(doc.AbandonedAt),
+		AbandonedBy:       strings.TrimSpace(doc.AbandonedBy),
+		AbandonedReason:   strings.TrimSpace(doc.AbandonedReason),
 		FilesTouchedCount: doc.FilesTouchedCount,
+		HQ:                cloneHQState(doc.HQ),
+		PR:                clonePRLink(doc.PR),
 		CreatedAt:         doc.CreatedAt,
 		UpdatedAt:         doc.UpdatedAt,
 	}
@@ -773,6 +781,9 @@ func crFromDoc(doc *CRDoc) *model.CR {
 	}
 	if out.Evidence == nil {
 		out.Evidence = []model.EvidenceEntry{}
+	}
+	if out.DelegationRuns == nil {
+		out.DelegationRuns = []model.DelegationRun{}
 	}
 	if out.Subtasks == nil {
 		out.Subtasks = []model.Subtask{}

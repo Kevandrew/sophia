@@ -4,6 +4,10 @@ const (
 	CRArchiveSchemaV1 = "sophia.cr_archive.v1"
 	CRArchiveSchemaV2 = "sophia.cr_archive.v2"
 	CRArchiveNotice   = "Historical archive snapshot. Corrections are append-only revisions."
+
+	CRArchiveRecoverySchemaV1          = "sophia.cr_archive_recovery.v1"
+	CRArchiveRecoveryEncodingJSON      = "json"
+	CRArchiveRecoveryDocSchemaVersion1 = "sophia.cr_doc.v1"
 )
 
 type CRArchive struct {
@@ -17,6 +21,14 @@ type CRArchive struct {
 	Tasks         []CRArchiveTask     `yaml:"tasks,omitempty"`
 	GitSummary    CRArchiveGitSummary `yaml:"git_summary"`
 	FullDiff      *CRArchiveFullDiff  `yaml:"full_diff,omitempty"`
+	Recovery      *CRArchiveRecovery  `yaml:"recovery,omitempty"`
+}
+
+type CRArchiveRecovery struct {
+	SchemaVersion string `yaml:"schema_version"`
+	Encoding      string `yaml:"encoding"`
+	DocSchema     string `yaml:"doc_schema_version"`
+	Payload       string `yaml:"payload"`
 }
 
 const (
