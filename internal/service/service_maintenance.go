@@ -3,6 +3,7 @@ package service
 import (
 	"errors"
 	"fmt"
+	"sophia/internal/gitx"
 	"sophia/internal/model"
 	"sophia/internal/store"
 	"sort"
@@ -321,6 +322,9 @@ func (s *Service) RepairFromGit(baseBranch string, refresh bool) (*RepairReport,
 			continue
 		}
 		allCRs = append(allCRs, *cr)
+	}
+	if err := s.promoteReachableCRsToMerged(targetBase, report, existingMap); err != nil {
+		return nil, err
 	}
 	if err := s.repairDelegatedParentTaskState(); err != nil {
 		return nil, err
@@ -668,6 +672,103 @@ func isEmptyCRContractBaseline(baseline model.CRContractBaseline) bool {
 	return strings.TrimSpace(baseline.CapturedAt) == "" &&
 		strings.TrimSpace(baseline.CapturedBy) == "" &&
 		len(baseline.Scope) == 0
+}
+
+func (s *Service) promoteReachableCRsToMerged(baseBranch string, report *RepairReport, existingMap map[int]*model.CR) error {
+	baseHead, err := s.git.ResolveRef(baseBranch)
+	if err != nil {
+		return err
+	}
+	baseCommit, err := s.git.CommitByHash(baseHead)
+	if err != nil {
+		return err
+	}
+
+	crs, err := s.store.ListCRs()
+	if err != nil {
+		return err
+	}
+	for _, candidate := range crs {
+		if candidate.Status != model.StatusInProgress {
+			continue
+		}
+		anchor, anchorSource, ok := s.reachableMergeAnchor(candidate, strings.TrimSpace(baseHead))
+		if !ok {
+			continue
+		}
+		if existingMap[candidate.ID] != nil && existingMap[candidate.ID].Status == model.StatusMerged {
+			continue
+		}
+
+		candidate.Status = model.StatusMerged
+		candidate.MergedAt = nonEmptyTrimmed(strings.TrimSpace(baseCommit.When), nonEmptyTrimmed(strings.TrimSpace(anchor.When), candidate.MergedAt))
+		candidate.MergedBy = nonEmptyTrimmed(strings.TrimSpace(baseCommit.Author), nonEmptyTrimmed(strings.TrimSpace(anchor.Author), candidate.MergedBy))
+		candidate.MergedCommit = nonEmptyTrimmed(strings.TrimSpace(baseCommit.Hash), nonEmptyTrimmed(strings.TrimSpace(anchor.Hash), candidate.MergedCommit))
+		if candidate.FilesTouchedCount == 0 {
+			if filesTouched, countErr := s.git.ChangedFileCount(anchor.Hash); countErr == nil {
+				candidate.FilesTouchedCount = filesTouched
+			}
+		}
+		candidate.UpdatedAt = s.timestamp()
+		candidate.Events = append(candidate.Events, model.Event{
+			TS:      candidate.UpdatedAt,
+			Actor:   s.git.Actor(),
+			Type:    model.EventTypeCRRepaired,
+			Summary: fmt.Sprintf("Promoted CR %d to merged because %s %s is reachable from %s", candidate.ID, anchorSource, shortHash(anchor.Hash), shortHash(baseHead)),
+			Ref:     fmt.Sprintf("cr:%d", candidate.ID),
+			Meta: map[string]string{
+				"repair_merge_promotion": "reachable_from_base",
+				"anchor_source":          anchorSource,
+				"anchor_commit":          strings.TrimSpace(anchor.Hash),
+				"base_branch":            strings.TrimSpace(baseBranch),
+				"base_head":              strings.TrimSpace(baseHead),
+			},
+		})
+		if err := s.store.SaveCR(&candidate); err != nil {
+			return err
+		}
+		copyCR := candidate
+		existingMap[candidate.ID] = &copyCR
+		report.Updated++
+		if !containsInt(report.RepairedCRIDs, candidate.ID) {
+			report.RepairedCRIDs = append(report.RepairedCRIDs, candidate.ID)
+		}
+	}
+	return nil
+}
+
+func (s *Service) reachableMergeAnchor(cr model.CR, baseHead string) (*gitx.Commit, string, bool) {
+	branch := strings.TrimSpace(cr.Branch)
+	baseCommit := strings.TrimSpace(cr.BaseCommit)
+	if branch != "" && s.git.BranchExists(branch) {
+		if branchHead, err := s.git.ResolveRef(branch); err == nil {
+			branchHead = strings.TrimSpace(branchHead)
+			if branchHead != "" && branchHead != baseCommit {
+				if reachable, reachErr := s.git.IsAncestor(branchHead, baseHead); reachErr == nil && reachable {
+					if commit, commitErr := s.git.CommitByHash(branchHead); commitErr == nil && commit != nil {
+						return commit, "branch_head", true
+					}
+				}
+			}
+		}
+	}
+
+	for i := len(cr.Subtasks) - 1; i >= 0; i-- {
+		commitHash := strings.TrimSpace(cr.Subtasks[i].CheckpointCommit)
+		if commitHash == "" {
+			continue
+		}
+		reachable, err := s.git.IsAncestor(commitHash, baseHead)
+		if err != nil || !reachable {
+			continue
+		}
+		commit, commitErr := s.git.CommitByHash(commitHash)
+		if commitErr != nil || commit == nil {
+			continue
+		}
+		return commit, "checkpoint_commit", true
+	}
+	return nil, "", false
 }
 
 func normalizeRepairCommitTimestamp(raw string) (string, string) {
