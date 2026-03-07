@@ -714,7 +714,9 @@ func (s *Service) PRStatus(id int) (*PRStatusView, error) {
 	status.GateBlocked, status.GateReasons = evaluatePRGate(policy, status)
 	s.classifyPRLinkageStatus(cr, status)
 	if status.Merged {
-		if reconcileErr := s.reconcileRemoteMergedPR(cr, status); reconcileErr != nil {
+		if status.LinkageState != prLinkageHealthy {
+			status.Warnings = append(status.Warnings, "skipping remote merge reconciliation because linked PR no longer matches CR linkage")
+		} else if reconcileErr := s.reconcileRemoteMergedPR(cr, status); reconcileErr != nil {
 			status.Warnings = append(status.Warnings, fmt.Sprintf("remote merge reconciliation failed: %v", reconcileErr))
 		}
 	}
@@ -835,11 +837,8 @@ func (s *Service) classifyPRLinkageStatus(cr *model.CR, status *PRStatusView) {
 		return
 	}
 	status.LinkageState = prLinkageHealthy
-	if status.Merged {
-		return
-	}
 	state := strings.ToUpper(strings.TrimSpace(status.State))
-	if state == "CLOSED" {
+	if state == "CLOSED" && !status.Merged {
 		status.LinkageState = prLinkageClosed
 		status.ActionRequired = prActionReopenPR
 		status.ActionReason = fmt.Sprintf("linked PR #%d is closed without merge", status.Number)
@@ -854,15 +853,7 @@ func (s *Service) classifyPRLinkageStatus(cr *model.CR, status *PRStatusView) {
 		status.SuggestedCommands = cleanAndDedupeStrings(append(status.SuggestedCommands, prReadyCommand(cr.ID), prUnreadyCommand(cr.ID), prCloseCommand(cr.ID)))
 	}
 
-	expectedBase := strings.TrimSpace(nonEmptyTrimmed(cr.BaseRef, cr.BaseBranch))
-	expectedHead := strings.TrimSpace(cr.Branch)
-	mismatch := []string{}
-	if expectedBase != "" && strings.TrimSpace(status.BaseRefName) != "" && !strings.EqualFold(strings.TrimSpace(status.BaseRefName), expectedBase) {
-		mismatch = append(mismatch, fmt.Sprintf("base ref mismatch (expected %s, observed %s)", expectedBase, strings.TrimSpace(status.BaseRefName)))
-	}
-	if expectedHead != "" && strings.TrimSpace(status.HeadRefName) != "" && !strings.EqualFold(strings.TrimSpace(status.HeadRefName), expectedHead) {
-		mismatch = append(mismatch, fmt.Sprintf("head ref mismatch (expected %s, observed %s)", expectedHead, strings.TrimSpace(status.HeadRefName)))
-	}
+	mismatch := prLinkageMismatches(cr, status)
 	if len(mismatch) == 0 {
 		return
 	}
@@ -901,6 +892,22 @@ func evaluatePRGate(policy *model.RepoPolicy, status *PRStatusView) (bool, []str
 	if requiredApprovals > 0 && status.Approvals < requiredApprovals {
 		reasons = append(reasons, fmt.Sprintf("insufficient approvals (%d/%d)", status.Approvals, requiredApprovals))
 	}
+func prLinkageMismatches(cr *model.CR, status *PRStatusView) []string {
+	if cr == nil || status == nil {
+		return nil
+	}
+	expectedBase := strings.TrimSpace(nonEmptyTrimmed(cr.BaseRef, cr.BaseBranch))
+	expectedHead := strings.TrimSpace(cr.Branch)
+	mismatch := []string{}
+	if expectedBase != "" && strings.TrimSpace(status.BaseRefName) != "" && !strings.EqualFold(strings.TrimSpace(status.BaseRefName), expectedBase) {
+		mismatch = append(mismatch, fmt.Sprintf("base ref mismatch (expected %s, observed %s)", expectedBase, strings.TrimSpace(status.BaseRefName)))
+	}
+	if expectedHead != "" && strings.TrimSpace(status.HeadRefName) != "" && !strings.EqualFold(strings.TrimSpace(status.HeadRefName), expectedHead) {
+		mismatch = append(mismatch, fmt.Sprintf("head ref mismatch (expected %s, observed %s)", expectedHead, strings.TrimSpace(status.HeadRefName)))
+	}
+	return mismatch
+}
+
 	if requireNonAuthor && status.NonAuthorApprovals < 1 {
 		reasons = append(reasons, "missing non-author approval")
 	}

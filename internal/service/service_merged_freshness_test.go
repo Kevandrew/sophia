@@ -98,7 +98,7 @@ func TestPRStatusRemoteMergedNormalizesBaseCommit(t *testing.T) {
 	}
 
 	head := strings.TrimSpace(runGit(t, dir, "rev-parse", "HEAD"))
-	installFakeGHCommandForMergedFreshness(t, dir, "#!/bin/sh\nif [ \"$1\" = \"-R\" ]; then\n  shift\n  shift\nfi\nif [ \"$1\" = \"pr\" ] && [ \"$2\" = \"view\" ]; then\n  echo '{\"number\":42,\"url\":\"https://github.com/acme/repo/pull/42\",\"state\":\"MERGED\",\"isDraft\":false,\"headRefOid\":\""+head+"\",\"headRefName\":\"cr-1-remote-merged-freshness\",\"baseRefName\":\"main\",\"mergedAt\":\"2026-03-07T19:20:00Z\",\"mergeCommit\":{\"oid\":\""+head+"\"},\"author\":{\"login\":\"bot\"},\"latestReviews\":[],\"statusCheckRollup\":[]}'\n  exit 0\nfi\necho \"unexpected gh args: $@\" >&2\nexit 1\n")
+	installFakeGHCommandForMergedFreshness(t, dir, "#!/bin/sh\nif [ \"$1\" = \"-R\" ]; then\n  shift\n  shift\nfi\nif [ \"$1\" = \"pr\" ] && [ \"$2\" = \"view\" ]; then\n  echo '{\"number\":42,\"url\":\"https://github.com/acme/repo/pull/42\",\"state\":\"MERGED\",\"isDraft\":false,\"headRefOid\":\""+head+"\",\"headRefName\":\""+strings.TrimSpace(loaded.Branch)+"\",\"baseRefName\":\"main\",\"mergedAt\":\"2026-03-07T19:20:00Z\",\"mergeCommit\":{\"oid\":\""+head+"\"},\"author\":{\"login\":\"bot\"},\"latestReviews\":[],\"statusCheckRollup\":[]}'\n  exit 0\nfi\necho \"unexpected gh args: $@\" >&2\nexit 1\n")
 
 	if _, err := svc.PRStatus(cr.ID); err != nil {
 		t.Fatalf("PRStatus() error = %v", err)
@@ -223,7 +223,7 @@ func TestPRStatusAlreadyMergedPreservesMergeProvenanceWhileHealingBaseCommit(t *
 	if err := svc.store.SaveCR(loaded); err != nil {
 		t.Fatalf("SaveCR() error = %v", err)
 	}
-	installFakeGHCommandForMergedFreshness(t, dir, "#!/bin/sh\nif [ \"$1\" = \"-R\" ]; then\n  shift\n  shift\nfi\nif [ \"$1\" = \"pr\" ] && [ \"$2\" = \"view\" ]; then\n  echo '{\"number\":43,\"url\":\"https://github.com/acme/repo/pull/43\",\"state\":\"MERGED\",\"isDraft\":false,\"headRefOid\":\""+head+"\",\"headRefName\":\"cr-1-already-merged-heal\",\"baseRefName\":\"main\",\"mergedAt\":\"2026-03-07T19:20:00Z\",\"mergeCommit\":{\"oid\":\""+head+"\"},\"author\":{\"login\":\"bot\"},\"latestReviews\":[],\"statusCheckRollup\":[]}'\n  exit 0\nfi\necho \"unexpected gh args: $@\" >&2\nexit 1\n")
+	installFakeGHCommandForMergedFreshness(t, dir, "#!/bin/sh\nif [ \"$1\" = \"-R\" ]; then\n  shift\n  shift\nfi\nif [ \"$1\" = \"pr\" ] && [ \"$2\" = \"view\" ]; then\n  echo '{\"number\":43,\"url\":\"https://github.com/acme/repo/pull/43\",\"state\":\"MERGED\",\"isDraft\":false,\"headRefOid\":\""+head+"\",\"headRefName\":\""+strings.TrimSpace(loaded.Branch)+"\",\"baseRefName\":\"main\",\"mergedAt\":\"2026-03-07T19:20:00Z\",\"mergeCommit\":{\"oid\":\""+head+"\"},\"author\":{\"login\":\"bot\"},\"latestReviews\":[],\"statusCheckRollup\":[]}'\n  exit 0\nfi\necho \"unexpected gh args: $@\" >&2\nexit 1\n")
 
 	if _, err := svc.PRStatus(cr.ID); err != nil {
 		t.Fatalf("PRStatus() error = %v", err)
