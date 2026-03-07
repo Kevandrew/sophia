@@ -1,6 +1,7 @@
 package service
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -434,6 +435,73 @@ func archiveFileExists(path string) (bool, error) {
 	}
 }
 
+func (s *Service) loadArchivedRecoveryCR(id int) (*model.CR, error) {
+	if s == nil || id <= 0 {
+		return nil, nil
+	}
+	config, err := s.archivePolicyConfig()
+	if err != nil {
+		return nil, err
+	}
+	archiveDir := s.archiveDirForConfig(config)
+	archivePath, err := latestArchiveRevisionPath(archiveDir, id)
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(archivePath) == "" {
+		return nil, nil
+	}
+	payload, err := os.ReadFile(archivePath)
+	if err != nil {
+		return nil, err
+	}
+	var archive model.CRArchive
+	if err := yaml.Unmarshal(payload, &archive); err != nil {
+		return nil, err
+	}
+	return decodeCRArchiveRecovery(&archive)
+}
+
+func latestArchiveRevisionPath(dir string, crID int) (string, error) {
+	nextRevision, err := nextArchiveRevision(dir, crID)
+	if err != nil {
+		return "", err
+	}
+	if nextRevision <= 1 {
+		return "", nil
+	}
+	path := archiveRevisionPath(dir, crID, nextRevision-1)
+	exists, err := archiveFileExists(path)
+	if err != nil {
+		return "", err
+	}
+	if !exists {
+		return "", nil
+	}
+	return path, nil
+}
+
+func decodeCRArchiveRecovery(archive *model.CRArchive) (*model.CR, error) {
+	if archive == nil || archive.Recovery == nil {
+		return nil, nil
+	}
+	recovery := archive.Recovery
+	if strings.TrimSpace(recovery.SchemaVersion) != model.CRArchiveRecoverySchemaV1 {
+		return nil, fmt.Errorf("unsupported archive recovery schema_version %q", strings.TrimSpace(recovery.SchemaVersion))
+	}
+	if strings.TrimSpace(recovery.Encoding) != model.CRArchiveRecoveryEncodingJSON {
+		return nil, fmt.Errorf("unsupported archive recovery encoding %q", strings.TrimSpace(recovery.Encoding))
+	}
+	if strings.TrimSpace(recovery.DocSchema) != crDocSchemaV1 && strings.TrimSpace(recovery.DocSchema) != model.CRArchiveRecoveryDocSchemaVersion1 {
+		return nil, fmt.Errorf("unsupported archive recovery doc schema %q", strings.TrimSpace(recovery.DocSchema))
+	}
+	var doc CRDoc
+	if err := json.Unmarshal([]byte(recovery.Payload), &doc); err != nil {
+		return nil, err
+	}
+	return crFromDoc(&doc), nil
+}
+
 func buildCRArchiveDocument(cr *model.CR, revision int, reason, archivedAt string, config model.PolicyArchive, gitSummary model.CRArchiveGitSummary, fullDiff *model.CRArchiveFullDiff) model.CRArchive {
 	tasks := make([]model.CRArchiveTask, 0, len(cr.Subtasks))
 	for _, task := range cr.Subtasks {
@@ -511,6 +579,27 @@ func buildCRArchiveDocument(cr *model.CR, revision int, reason, archivedAt strin
 		Tasks:      tasks,
 		GitSummary: gitSummary,
 		FullDiff:   fullDiff,
+		Recovery:   buildCRArchiveRecovery(cr),
+	}
+}
+
+func buildCRArchiveRecovery(cr *model.CR) *model.CRArchiveRecovery {
+	if cr == nil {
+		return nil
+	}
+	doc := canonicalCRDoc(cr)
+	if doc == nil {
+		return nil
+	}
+	payload, err := json.Marshal(doc)
+	if err != nil {
+		return nil
+	}
+	return &model.CRArchiveRecovery{
+		SchemaVersion: model.CRArchiveRecoverySchemaV1,
+		Encoding:      model.CRArchiveRecoveryEncodingJSON,
+		DocSchema:     crDocSchemaV1,
+		Payload:       string(payload),
 	}
 }
 
