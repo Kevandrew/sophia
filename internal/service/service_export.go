@@ -143,6 +143,7 @@ type CRDoc struct {
 	Branch            string                   `json:"branch"`
 	Notes             []string                 `json:"notes"`
 	Evidence          []model.EvidenceEntry    `json:"evidence,omitempty"`
+	DelegationRuns    []model.DelegationRun    `json:"delegation_runs,omitempty"`
 	Contract          model.Contract           `json:"contract,omitempty"`
 	ContractBaseline  model.CRContractBaseline `json:"contract_baseline,omitempty"`
 	ContractDrifts    []model.CRContractDrift  `json:"contract_drifts,omitempty"`
@@ -151,7 +152,12 @@ type CRDoc struct {
 	MergedAt          string                   `json:"merged_at,omitempty"`
 	MergedBy          string                   `json:"merged_by,omitempty"`
 	MergedCommit      string                   `json:"merged_commit,omitempty"`
+	AbandonedAt       string                   `json:"abandoned_at,omitempty"`
+	AbandonedBy       string                   `json:"abandoned_by,omitempty"`
+	AbandonedReason   string                   `json:"abandoned_reason,omitempty"`
 	FilesTouchedCount int                      `json:"files_touched_count,omitempty"`
+	HQ                model.CRHQState          `json:"hq,omitempty"`
+	PR                model.CRPRLink           `json:"pr,omitempty"`
 	CreatedAt         string                   `json:"created_at"`
 	UpdatedAt         string                   `json:"updated_at"`
 }
