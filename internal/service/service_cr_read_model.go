@@ -40,8 +40,9 @@ func buildCRReadModel(crs []model.CR) *crReadModel {
 	}
 	for _, cr := range crs {
 		rm.byID[cr.ID] = cr
-		if cr.ParentCRID > 0 {
-			rm.childrenByParent[cr.ParentCRID] = append(rm.childrenByParent[cr.ParentCRID], cr)
+		parentID := effectiveParentCRID(cr, crs)
+		if parentID > 0 {
+			rm.childrenByParent[parentID] = append(rm.childrenByParent[parentID], cr)
 		}
 	}
 	for parentID := range rm.childrenByParent {
@@ -58,6 +59,13 @@ func buildCRReadModel(crs []model.CR) *crReadModel {
 		return rm.all[i].ID < rm.all[j].ID
 	})
 	return rm
+}
+
+func effectiveParentCRID(cr model.CR, all []model.CR) int {
+	if expectedParentID := expectedParentCRIDFromBaseRef(cr.BaseRef, cr.ID, all); expectedParentID > 0 {
+		return expectedParentID
+	}
+	return cr.ParentCRID
 }
 
 func (rm *crReadModel) crByID(id int) (model.CR, bool) {
