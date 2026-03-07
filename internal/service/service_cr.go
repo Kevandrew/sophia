@@ -633,14 +633,19 @@ func (s *Service) restackCRUnlocked(id int) (*model.CR, error) {
 	if cr.Status != model.StatusInProgress {
 		return nil, fmt.Errorf("cr %d is not in progress", id)
 	}
-	if cr.ParentCRID <= 0 {
+	allCRs, listErr := lifecycleStore.ListCRs()
+	if listErr != nil {
+		return nil, listErr
+	}
+	parentID := effectiveParentCRID(*cr, allCRs)
+	if parentID <= 0 {
 		return nil, ErrParentCRRequired
 	}
 	if !lifecycleGit.BranchExists(cr.Branch) {
 		return nil, fmt.Errorf("cr branch %q does not exist", cr.Branch)
 	}
 
-	parent, err := lifecycleStore.LoadCR(cr.ParentCRID)
+	parent, err := lifecycleStore.LoadCR(parentID)
 	if err != nil {
 		return nil, err
 	}
@@ -663,6 +668,7 @@ func (s *Service) restackCRUnlocked(id int) (*model.CR, error) {
 	}
 
 	cr.BaseCommit = strings.TrimSpace(targetCommit)
+	cr.ParentCRID = parent.ID
 	if parent.Status == model.StatusMerged {
 		cr.BaseRef = cr.BaseBranch
 	} else {
