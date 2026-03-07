@@ -468,4 +468,3 @@ func TestMergeFinalizeBlocksAggregateParentWithDelegatedChildrenPendingEvenWhenP
 		t.Fatalf("expected delegated-child finalize block, got %v", err)
 	}
 }
-
