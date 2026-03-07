@@ -153,13 +153,20 @@ func (d *mergeDomain) mergeCRWithWarningsUnlocked(id int, keepBranch bool, overr
 		return "", warnings, err
 	}
 	warnings = append(warnings, branchWarnings...)
-
+	mergedHead, err := mergeGit.ResolveRef("HEAD")
+	if err != nil {
+		return "", warnings, err
+	}
+	mergedHead = strings.TrimSpace(mergedHead)
+	if mergedHead == "" {
+		return "", warnings, fmt.Errorf("unable to resolve merged HEAD for CR %d", cr.ID)
+	}
 	sha, err := mergeGit.HeadShortSHA()
 	if err != nil {
 		return "", warnings, err
 	}
 
-	if err := d.finalizeCRMergedState(cr, preflight.validation, preflight.trust, preflight.overrideReason, actor, mergedAt, sha, false); err != nil {
+	if err := d.finalizeCRMergedState(cr, preflight.validation, preflight.trust, preflight.overrideReason, actor, mergedAt, sha, mergedHead, false); err != nil {
 		return "", warnings, err
 	}
 
@@ -343,11 +350,19 @@ func (d *mergeDomain) resumeMergeCRUnlocked(id int, keepBranch bool, overrideRea
 		return "", warnings, err
 	}
 	warnings = append(warnings, branchWarnings...)
+	mergedHead, err := mergeGit.ResolveRef("HEAD")
+	if err != nil {
+		return "", warnings, err
+	}
+	mergedHead = strings.TrimSpace(mergedHead)
+	if mergedHead == "" {
+		return "", warnings, fmt.Errorf("unable to resolve merged HEAD for CR %d", cr.ID)
+	}
 	sha, err := mergeGit.HeadShortSHA()
 	if err != nil {
 		return "", warnings, err
 	}
-	if err := d.finalizeCRMergedState(cr, preflight.validation, preflight.trust, preflight.overrideReason, actor, mergedAt, sha, true); err != nil {
+	if err := d.finalizeCRMergedState(cr, preflight.validation, preflight.trust, preflight.overrideReason, actor, mergedAt, sha, mergedHead, true); err != nil {
 		return "", warnings, err
 	}
 	return sha, warnings, nil
@@ -496,13 +511,14 @@ func (d *mergeDomain) prepareMergePreflight(id int, cr *model.CR, overrideReason
 	}, nil
 }
 
-func (d *mergeDomain) finalizeCRMergedState(cr *model.CR, validation *ValidationReport, trust *TrustReport, overrideReason, actor, mergedAt, sha string, resumed bool) error {
+func (d *mergeDomain) finalizeCRMergedState(cr *model.CR, validation *ValidationReport, trust *TrustReport, overrideReason, actor, mergedAt, sha, mergedHead string, resumed bool) error {
 	if d == nil || d.svc == nil {
 		return fmt.Errorf("merge domain is not initialized")
 	}
 	mergeStore := d.svc.activeMergeStoreProvider()
 	mergeGit := d.svc.activeMergeGitProvider()
-	if count, err := mergeGit.ChangedFileCount(sha); err == nil && count > 0 {
+	mergedCommit := strings.TrimSpace(nonEmptyTrimmed(mergedHead, sha))
+	if count, err := mergeGit.ChangedFileCount(mergedCommit); err == nil && count > 0 {
 		cr.FilesTouchedCount = count
 	} else if validation != nil && validation.Impact != nil && validation.Impact.FilesChanged > 0 {
 		cr.FilesTouchedCount = validation.Impact.FilesChanged
@@ -518,7 +534,8 @@ func (d *mergeDomain) finalizeCRMergedState(cr *model.CR, validation *Validation
 	cr.UpdatedAt = mergedAt
 	cr.MergedAt = mergedAt
 	cr.MergedBy = actor
-	cr.MergedCommit = sha
+	cr.MergedCommit = mergedCommit
+	cr.BaseCommit = mergedCommit
 	if resumed {
 		cr.Events = append(cr.Events, model.Event{
 			TS:      mergedAt,

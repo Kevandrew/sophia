@@ -267,14 +267,14 @@ func (s *Service) buildCRDoctorReport(cr *model.CR) (*CRDoctorReport, error) {
 		}
 	}
 
-	if report.ResolvedBaseRef != "" && report.BaseCommit != "" && report.ResolvedBaseRef != report.BaseCommit {
+	if cr.Status != model.StatusMerged && report.ResolvedBaseRef != "" && report.BaseCommit != "" && report.ResolvedBaseRef != report.BaseCommit {
 		report.Findings = append(report.Findings, CRDoctorFinding{
 			Code:    "base_commit_drift",
 			Commit:  report.BaseCommit,
 			Message: fmt.Sprintf("base_ref %q resolves to %s but recorded base_commit is %s", report.BaseRef, shortHash(report.ResolvedBaseRef), shortHash(report.BaseCommit)),
 		})
 	}
-	if report.BranchExists && report.BaseCommit != "" {
+	if cr.Status != model.StatusMerged && report.BranchExists && report.BaseCommit != "" {
 		reachable, err := s.git.IsAncestor(report.BaseCommit, cr.Branch)
 		if err != nil {
 			report.Findings = append(report.Findings, CRDoctorFinding{
