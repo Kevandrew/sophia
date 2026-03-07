@@ -1034,11 +1034,29 @@ func (s *Service) mergePRGateFinalizeUnlocked(id int, opts MergeCROptions, polic
 	status.GateBlocked, status.GateReasons = evaluatePRGate(policy, status)
 	s.classifyPRLinkageStatus(cr, status)
 	blocked, reasons := status.GateBlocked, status.GateReasons
+	aggregateAssessment := assessAggregateParentTasks(cr.Subtasks)
+	if aggregateAssessment.IsAggregateParent && aggregateAssessment.PendingDelegatedTaskCount > 0 {
+		reasons = cleanAndDedupeStrings(append(reasons,
+			"aggregate parent still has delegated child CRs pending; resolve delegated child CRs before remote finalize",
+			fmt.Sprintf("run `sophia cr stack %d` to inspect pending child CRs", cr.ID),
+		))
+		blocked = true
+	}
 	if blocked && strings.TrimSpace(opts.OverrideReason) == "" {
 		return &MergeCRResult{
 			MergeMode:    "pr_gate",
 			PRURL:        status.URL,
 			Action:       "awaiting_reviews",
+			ActionReason: strings.Join(reasons, "; "),
+			GateBlocked:  true,
+			GateReasons:  reasons,
+		}, fmt.Errorf("merge blocked: %s", strings.Join(reasons, "; "))
+	}
+	if blocked {
+		return &MergeCRResult{
+			MergeMode:    "pr_gate",
+			PRURL:        status.URL,
+			Action:       "awaiting_stack_resolution",
 			ActionReason: strings.Join(reasons, "; "),
 			GateBlocked:  true,
 			GateReasons:  reasons,
