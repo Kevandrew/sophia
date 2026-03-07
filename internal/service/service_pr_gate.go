@@ -1684,24 +1684,6 @@ func (s *Service) prPublishabilityRefActionRequired(cr *model.CR, base, head, fa
 	}
 }
 
-	return &PRActionRequiredError{
-		Cause:            ErrPRNoDiffToBase,
-		Sentinel:         ErrPRNoDiffToBase,
-		Summary:          "PR creation blocked because there is no diff from base",
-		Reason:           reason,
-		ActionName:       actionName,
-		SuggestedCommand: suggestedCommand,
-		Context:          context,
-	}
-}
-
-func (s *Service) patchManagedBody(repoSelector string, pr *ghPRSummary, managed string) (string, error) {
-	if pr == nil || pr.Number <= 0 {
-		return managed, nil
-	}
-	body, err := s.readPRBody(repoSelector, pr.Number)
-	if err != nil {
-		return "", fmt.Errorf("read PR body: %w", err)
 func (s *Service) prNoDiffActionRequired(cr *model.CR, base string) error {
 	suggestedCommand := fmt.Sprintf("sophia cr status %d", cr.ID)
 	actionName := "inspect_pr_publication_mode"
@@ -1723,6 +1705,24 @@ func (s *Service) prNoDiffActionRequired(cr *model.CR, base string) error {
 		}
 	}
 
+	return &PRActionRequiredError{
+		Cause:            ErrPRNoDiffToBase,
+		Sentinel:         ErrPRNoDiffToBase,
+		Summary:          "PR creation blocked because there is no diff from base",
+		Reason:           reason,
+		ActionName:       actionName,
+		SuggestedCommand: suggestedCommand,
+		Context:          context,
+	}
+}
+
+func (s *Service) patchManagedBody(repoSelector string, pr *ghPRSummary, managed string) (string, error) {
+	if pr == nil || pr.Number <= 0 {
+		return managed, nil
+	}
+	body, err := s.readPRBody(repoSelector, pr.Number)
+	if err != nil {
+		return "", fmt.Errorf("read PR body: %w", err)
 	}
 	return mergeManagedPRBody(body, managed)
 }
