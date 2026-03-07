@@ -81,7 +81,7 @@ func TestDoctorCRFindingsCoverCheckpointAndBaseDrift(t *testing.T) {
 	assertCRFindingCode(t, report.Findings, "base_commit_drift")
 }
 
-func TestDoctorCRFlagsParentBaseRefMismatch(t *testing.T) {
+func TestSetCRBasePreservesParentLinkWhenBaseRefPointsToParentBranch(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	svc := New(dir)
@@ -102,11 +102,22 @@ func TestDoctorCRFlagsParentBaseRefMismatch(t *testing.T) {
 	if _, err := svc.SetCRBase(child.ID, parent.Branch, false); err != nil {
 		t.Fatalf("SetCRBase() error = %v", err)
 	}
+	reloaded, err := svc.store.LoadCR(child.ID)
+	if err != nil {
+		t.Fatalf("LoadCR(child) error = %v", err)
+	}
+	if reloaded.ParentCRID != parent.ID {
+		t.Fatalf("expected parent linkage preserved, got %#v", reloaded)
+	}
 	report, err := svc.DoctorCR(child.ID)
 	if err != nil {
 		t.Fatalf("DoctorCR() error = %v", err)
 	}
-	assertCRFindingCode(t, report.Findings, "parent_base_ref_mismatch")
+	for _, finding := range report.Findings {
+		if finding.Code == "parent_base_ref_mismatch" {
+			t.Fatalf("expected no parent/base ref mismatch after base set, got %#v", report.Findings)
+		}
+	}
 }
 
 func TestReconcileCRRelinksAndOrphansCheckpoints(t *testing.T) {
@@ -226,8 +237,13 @@ func TestReconcileCRRelinksParentFromBaseRef(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AddCRWithOptionsWithWarnings(child) error = %v", err)
 	}
-	if _, err := svc.SetCRBase(child.ID, parent.Branch, false); err != nil {
-		t.Fatalf("SetCRBase() error = %v", err)
+	loaded, err := svc.store.LoadCR(child.ID)
+	if err != nil {
+		t.Fatalf("LoadCR(child) error = %v", err)
+	}
+	loaded.ParentCRID = 0
+	if err := svc.store.SaveCR(loaded); err != nil {
+		t.Fatalf("SaveCR(clear parent) error = %v", err)
 	}
 
 	report, err := svc.ReconcileCR(child.ID, ReconcileCROptions{})

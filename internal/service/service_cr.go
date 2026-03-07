@@ -582,9 +582,13 @@ func (s *Service) setCRBaseUnlocked(id int, ref string, rebase bool) (*model.CR,
 
 	now := s.timestamp()
 	actor := lifecycleGit.Actor()
+	allCRs, listErr := lifecycleStore.ListCRs()
+	if listErr != nil {
+		return nil, listErr
+	}
 	cr.BaseRef = ref
 	cr.BaseCommit = strings.TrimSpace(baseCommit)
-	cr.ParentCRID = 0
+	cr.ParentCRID = resolvedParentCRIDForBaseRef(ref, cr.ID, allCRs)
 	cr.UpdatedAt = now
 	cr.Events = append(cr.Events, model.Event{
 		TS:      now,
