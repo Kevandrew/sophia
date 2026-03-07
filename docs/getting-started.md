@@ -1,6 +1,6 @@
 # Getting Started
 
-This walkthrough is the first-success lifecycle for agent-first Sophia usage.
+This is the first-success walkthrough for agent-first Sophia usage.
 
 Use this mental model:
 - your agent executes most commands,
@@ -134,12 +134,12 @@ sophia cr merge resume <cr-id>
 sophia cr merge abort <cr-id>
 ```
 
-## Where to go next
+## Where To Go Next
 
-- Canonical author UX: [`workflow.md`](workflow.md)
+- Canonical daily author loop: [`workflow.md`](workflow.md)
 - Reviewer checklist: [`reviewer-workflow.md`](reviewer-workflow.md)
-- Collaboration without HQ: [`collaboration.md`](collaboration.md)
 - Troubleshooting and repair: [`troubleshooting.md`](troubleshooting.md)
+- Full docs map: [`index.md`](index.md)
 
 For CLI updates:
 

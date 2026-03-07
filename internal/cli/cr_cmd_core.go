@@ -127,9 +127,11 @@ func newCRAddCmd() *cobra.Command {
 	var asJSON bool
 
 	cmd := &cobra.Command{
-		Use:   "add <title>",
-		Short: "Create a new change request",
-		Args:  cobra.ExactArgs(1),
+		Use:     "add <title>",
+		Short:   "Create a new change request",
+		Long:    "Open a new CR intent. Use this first, then switch to the CR branch (or pass --switch), set the CR contract, and add task contracts before implementation.",
+		Example: "  sophia cr add \"Add retry jitter\" --description \"Reduce synchronized retries\"\n  sophia cr add \"Add retry jitter\" --description \"Reduce synchronized retries\" --switch\n  sophia cr add \"Add retry jitter\" --base release/2026-q1\n  sophia cr add \"Add retry jitter\" --parent 25",
+		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runCRAddCommand(
 				cmd,
@@ -281,9 +283,11 @@ func newCRChildAddCmd() *cobra.Command {
 	var asJSON bool
 
 	cmd := &cobra.Command{
-		Use:   "add <title>",
-		Short: "Create a child CR from the current CR",
-		Args:  cobra.ExactArgs(1),
+		Use:     "add <title>",
+		Short:   "Create a child CR from the current CR",
+		Long:    "Open a stacked child CR from the active parent CR context. Use this when one parent intent needs independently reviewable child branches.",
+		Example: "  sophia cr child add \"Tighten status JSON guidance\"\n  sophia cr child add \"Tighten status JSON guidance\" --switch",
+		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runCRAddCommand(
 				cmd,
@@ -612,9 +616,11 @@ func newCRStatusCmd() *cobra.Command {
 	var includeHQ bool
 
 	cmd := &cobra.Command{
-		Use:   "status [id]",
-		Short: "Show CR merge-readiness and workspace status",
-		Args:  cobra.MaximumNArgs(1),
+		Use:     "status [id]",
+		Short:   "Show CR merge-readiness and workspace status",
+		Long:    "Use this before mutating, refreshing, or merging an existing CR. It summarizes branch/worktree context, contract completeness, validation state, merge blockers, and suggested next commands.",
+		Example: "  sophia cr status 25\n  sophia cr status 25 --json\n  sophia cr status 25 --hq",
+		Args:    cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return withOptionalCRIDAndService(cmd, asJSON, args, "id", func(id int, svc *service.Service) error {
 				status, err := svc.StatusCR(id)
@@ -675,21 +681,12 @@ func newCRStatusCmd() *cobra.Command {
 						fmt.Fprintf(cmd.OutOrStdout(), "- %s\n", blocker)
 					}
 				}
+				fmt.Fprintf(cmd.OutOrStdout(), "Freshness: %s\n", nonEmpty(strings.TrimSpace(status.FreshnessState), "unknown"))
+				fmt.Fprintf(cmd.OutOrStdout(), "Freshness Reason: %s\n", nonEmpty(strings.TrimSpace(status.FreshnessReason), "-"))
 				if strings.TrimSpace(status.PRLinkageState) != "" {
 					fmt.Fprintf(cmd.OutOrStdout(), "PR Linkage State: %s\n", status.PRLinkageState)
 				}
-				if strings.TrimSpace(status.ActionRequired) != "" {
-					fmt.Fprintf(cmd.OutOrStdout(), "Action Required: %s\n", status.ActionRequired)
-					fmt.Fprintf(cmd.OutOrStdout(), "Action Reason: %s\n", nonEmpty(status.ActionReason, "-"))
-					if len(status.SuggestedCommands) == 0 {
-						fmt.Fprintln(cmd.OutOrStdout(), "Suggested Commands: (none)")
-					} else {
-						fmt.Fprintln(cmd.OutOrStdout(), "Suggested Commands:")
-						for _, suggested := range status.SuggestedCommands {
-							fmt.Fprintf(cmd.OutOrStdout(), "- %s\n", suggested)
-						}
-					}
-				}
+				printNextStepsSection(cmd, crNextStepView(status))
 				if includeHQ && hqStatus != nil {
 					fmt.Fprintln(cmd.OutOrStdout(), "\nHQ Sync:")
 					fmt.Fprintf(cmd.OutOrStdout(), "- configured: %t\n", hqStatus.Configured)
@@ -770,6 +767,7 @@ func newCRContractCmd() *cobra.Command {
 	contractCmd := &cobra.Command{
 		Use:   "contract",
 		Short: "Manage CR intent contract fields",
+		Long:  "CR contracts define why the change exists, what files/surfaces it owns, how it will be tested, and how it will be rolled back.",
 	}
 	contractCmd.AddCommand(newCRContractSetCmd())
 	contractCmd.AddCommand(newCRContractShowCmd())
@@ -795,6 +793,7 @@ func newCRContractSetCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "set [id]",
 		Short:   "Set/update CR intent contract fields",
+		Long:    "Use this immediately after opening a CR and before implementation checkpoints. Good CR contracts make outcome, scope boundary, test plan, and rollback plan explicit before review starts.",
 		Example: "  sophia cr contract set 25 --why \"Reduce merge churn\" --scope internal/service --scope internal/cli\n  sophia cr contract set 25 --risk-critical-scope internal/service --risk-tier-hint medium --risk-rationale \"Touches merge behavior\"\n  sophia cr contract set 25 --test-plan \"go test ./... && go vet ./...\" --rollback-plan \"Revert [CR-25] merge commit\"",
 		Args:    cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {

@@ -756,6 +756,12 @@ func reviewToJSONMap(review *service.Review) map[string]any {
 			"action_reason":      review.ActionReason,
 			"suggested_commands": stringSliceOrEmpty(review.SuggestedCommands),
 		},
+		"freshness": map[string]any{
+			"state":              strings.TrimSpace(review.FreshnessState),
+			"reason":             strings.TrimSpace(review.FreshnessReason),
+			"suggested_commands": stringSliceOrEmpty(review.FreshnessCommands),
+		},
+		"next_steps":          nextStepToJSONMap(reviewNextStepView(review)),
 		"contract":            contractFieldsToJSONMap(review.Contract),
 		"subtasks":            subtasks,
 		"notes":               stringSliceOrEmpty(review.CR.Notes),
@@ -1036,6 +1042,8 @@ func crStatusToJSONMap(status *service.CRStatusView) map[string]any {
 		"action_required":    status.ActionRequired,
 		"action_reason":      status.ActionReason,
 		"suggested_commands": stringSliceOrEmpty(status.SuggestedCommands),
+		"freshness":          crFreshnessToJSONMap(status),
+		"next_steps":         nextStepToJSONMap(crNextStepView(status)),
 	}
 }
 

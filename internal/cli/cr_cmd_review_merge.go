@@ -112,6 +112,9 @@ func newCRReviewCmd() *cobra.Command {
 				printTrustSection(cmd, review.Trust)
 				printStringSection(cmd, "Errors", review.ValidationErrors)
 				printStringSection(cmd, "Warnings", review.ValidationWarnings)
+				fmt.Fprintf(cmd.OutOrStdout(), "\nFreshness: %s\n", nonEmpty(strings.TrimSpace(review.FreshnessState), "unknown"))
+				fmt.Fprintf(cmd.OutOrStdout(), "Freshness Reason: %s\n", nonEmpty(strings.TrimSpace(review.FreshnessReason), "-"))
+				printNextStepsSection(cmd, reviewNextStepView(review))
 				return nil
 			})
 		},

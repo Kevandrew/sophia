@@ -20,6 +20,9 @@ type Review struct {
 	ActionRequired     string
 	ActionReason       string
 	SuggestedCommands  []string
+	FreshnessState     string
+	FreshnessReason    string
+	FreshnessCommands  []string
 	Impact             *ImpactReport
 	Trust              *TrustReport
 	ValidationErrors   []string
@@ -101,6 +104,9 @@ func (s *Service) ReviewCR(id int) (*Review, error) {
 	actionRequired := ""
 	actionReason := ""
 	suggestedCommands := []string{}
+	freshnessState := ""
+	freshnessReason := ""
+	freshnessCommands := []string{}
 	if statusView, statusErr := s.StatusCR(id); statusErr == nil && statusView != nil {
 		lifecycleState = nonEmptyTrimmed(statusView.LifecycleState, lifecycleState)
 		abandonedAt = nonEmptyTrimmed(statusView.AbandonedAt, abandonedAt)
@@ -110,6 +116,9 @@ func (s *Service) ReviewCR(id int) (*Review, error) {
 		actionRequired = strings.TrimSpace(statusView.ActionRequired)
 		actionReason = strings.TrimSpace(statusView.ActionReason)
 		suggestedCommands = cleanAndDedupeStrings(statusView.SuggestedCommands)
+		freshnessState = strings.TrimSpace(statusView.FreshnessState)
+		freshnessReason = strings.TrimSpace(statusView.FreshnessReason)
+		freshnessCommands = cleanAndDedupeStrings(statusView.FreshnessSuggestedCommands)
 	}
 
 	return &Review{
@@ -123,6 +132,9 @@ func (s *Service) ReviewCR(id int) (*Review, error) {
 		ActionRequired:     actionRequired,
 		ActionReason:       actionReason,
 		SuggestedCommands:  suggestedCommands,
+		FreshnessState:     freshnessState,
+		FreshnessReason:    freshnessReason,
+		FreshnessCommands:  freshnessCommands,
 		Impact:             validation.Impact,
 		Trust:              trust,
 		ValidationErrors:   append([]string(nil), validation.Errors...),

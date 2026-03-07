@@ -2,6 +2,8 @@ package service
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -87,5 +89,39 @@ func TestStatusCRIgnoresWorktreeResolutionErrors(t *testing.T) {
 	}
 	if status.CheckedOutInOtherWorktree {
 		t.Fatalf("expected checked_out_in_other_worktree=false on worktree resolution error")
+	}
+}
+
+func TestStatusCRMarksMovedBaseRefAsStale(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	cr, err := svc.AddCR("Status freshness", "base movement should surface refresh guidance")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+
+	runGit(t, dir, "checkout", "main")
+	if err := os.WriteFile(filepath.Join(dir, "freshness.txt"), []byte("fresh\n"), 0o644); err != nil {
+		t.Fatalf("write freshness.txt: %v", err)
+	}
+	runGit(t, dir, "add", "freshness.txt")
+	runGit(t, dir, "commit", "-m", "feat: move base ref")
+
+	status, err := svc.StatusCR(cr.ID)
+	if err != nil {
+		t.Fatalf("StatusCR() error = %v", err)
+	}
+	if status.FreshnessState != "stale" {
+		t.Fatalf("expected freshness_state=stale, got %q", status.FreshnessState)
+	}
+	if !strings.Contains(status.FreshnessReason, "moved") {
+		t.Fatalf("expected freshness reason to mention moved base ref, got %q", status.FreshnessReason)
+	}
+	if len(status.FreshnessSuggestedCommands) != 1 || status.FreshnessSuggestedCommands[0] != "sophia cr refresh 1" {
+		t.Fatalf("expected refresh suggestion, got %#v", status.FreshnessSuggestedCommands)
 	}
 }

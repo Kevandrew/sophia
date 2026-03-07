@@ -32,6 +32,9 @@ sophia cr merge resume <cr-id>
 sophia cr merge abort <cr-id>
 ```
 
+Status-oriented commands now surface `next_steps` guidance directly in text and JSON output.
+Prefer those suggested commands before reaching for manual Git or `gh` recovery steps.
+
 ## Common JSON error codes
 
 | `error.code` | Meaning | Remediation |
@@ -80,3 +83,8 @@ sophia cr status [<cr-id>|<cr-uid>] --json
 sophia cr check status [<cr-id>|<cr-uid>] --json
 sophia cr validate [<cr-id>|<cr-uid>] --json
 ```
+
+Look for:
+
+- `next_steps.summary` and `next_steps.suggested_commands` on `cr status`, `cr review`, and `cr pr status`
+- `freshness.state` on `cr status` / `cr review` when a base ref moved and `sophia cr refresh <id>` is the next recovery step

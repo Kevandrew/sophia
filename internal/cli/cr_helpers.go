@@ -12,6 +12,11 @@ import (
 	"sophia/internal/service"
 )
 
+type nextStepView struct {
+	Summary  string
+	Commands []string
+}
+
 func printStringListSection(cmd *cobra.Command, title string, items []string) {
 	fmt.Fprintf(cmd.OutOrStdout(), "\n%s:\n", title)
 	if len(items) == 0 {
@@ -29,6 +34,137 @@ func printListSection(cmd *cobra.Command, title string, items []string) {
 
 func printStringSection(cmd *cobra.Command, title string, items []string) {
 	printStringListSection(cmd, title, items)
+}
+
+func printNextStepsSection(cmd *cobra.Command, next nextStepView) {
+	fmt.Fprintln(cmd.OutOrStdout(), "\nNext Steps:")
+	if strings.TrimSpace(next.Summary) == "" {
+		fmt.Fprintln(cmd.OutOrStdout(), "- No immediate action required.")
+	} else {
+		fmt.Fprintf(cmd.OutOrStdout(), "- %s\n", next.Summary)
+	}
+	if len(next.Commands) == 0 {
+		fmt.Fprintln(cmd.OutOrStdout(), "- suggested_commands: (none)")
+		return
+	}
+	fmt.Fprintln(cmd.OutOrStdout(), "- suggested_commands:")
+	for _, command := range next.Commands {
+		fmt.Fprintf(cmd.OutOrStdout(), "  - %s\n", command)
+	}
+}
+
+func cleanCommands(values ...[]string) []string {
+	combined := make([]string, 0)
+	for _, set := range values {
+		combined = append(combined, set...)
+	}
+	return cleanAndDedupeCLIStrings(combined)
+}
+
+func cleanAndDedupeCLIStrings(values []string) []string {
+	if len(values) == 0 {
+		return []string{}
+	}
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			continue
+		}
+		if _, exists := seen[trimmed]; exists {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		out = append(out, trimmed)
+	}
+	return out
+}
+
+func crNextStepView(status *service.CRStatusView) nextStepView {
+	if status == nil {
+		return nextStepView{Summary: "No immediate action required.", Commands: []string{}}
+	}
+	commands := cleanCommands(status.SuggestedCommands, status.FreshnessSuggestedCommands)
+	if strings.TrimSpace(status.SuggestedWorktreeCommand) != "" && status.CheckedOutInOtherWorktree {
+		commands = cleanCommands(commands, []string{status.SuggestedWorktreeCommand})
+	}
+	summary := strings.TrimSpace(status.ActionReason)
+	switch {
+	case strings.TrimSpace(status.ActionRequired) != "":
+		if summary == "" {
+			summary = fmt.Sprintf("Action required: %s.", status.ActionRequired)
+		}
+	case strings.TrimSpace(status.FreshnessState) == "stale":
+		summary = strings.TrimSpace(status.FreshnessReason)
+	case status.CheckedOutInOtherWorktree && strings.TrimSpace(status.SuggestedWorktreeCommand) != "":
+		summary = "Run follow-up commands from the owner worktree for this CR branch."
+	case status.MergeBlocked:
+		summary = "Address merge blockers or validation output before continuing."
+	default:
+		summary = "No immediate action required."
+	}
+	return nextStepView{Summary: summary, Commands: commands}
+}
+
+func reviewNextStepView(review *service.Review) nextStepView {
+	if review == nil {
+		return nextStepView{Summary: "No immediate action required.", Commands: []string{}}
+	}
+	commands := cleanCommands(review.SuggestedCommands, review.FreshnessCommands)
+	summary := strings.TrimSpace(review.ActionReason)
+	switch {
+	case strings.TrimSpace(review.ActionRequired) != "":
+		if summary == "" {
+			summary = fmt.Sprintf("Action required: %s.", review.ActionRequired)
+		}
+	case strings.TrimSpace(review.FreshnessState) == "stale":
+		summary = strings.TrimSpace(review.FreshnessReason)
+	case len(review.ValidationErrors) > 0:
+		summary = "Address validation errors before continuing."
+	default:
+		summary = "No immediate action required."
+	}
+	return nextStepView{Summary: summary, Commands: commands}
+}
+
+func prNextStepView(status *service.PRStatusView) nextStepView {
+	if status == nil {
+		return nextStepView{Summary: "No immediate action required.", Commands: []string{}}
+	}
+	summary := strings.TrimSpace(status.ActionReason)
+	switch {
+	case strings.TrimSpace(status.ActionRequired) != "":
+		if summary == "" {
+			summary = fmt.Sprintf("Action required: %s.", status.ActionRequired)
+		}
+	case status.GateBlocked && len(status.GateReasons) > 0:
+		summary = strings.Join(status.GateReasons, "; ")
+	default:
+		summary = "No immediate action required."
+	}
+	return nextStepView{
+		Summary:  summary,
+		Commands: cleanCommands(status.SuggestedCommands),
+	}
+}
+
+func crFreshnessToJSONMap(status *service.CRStatusView) map[string]any {
+	if status == nil {
+		return map[string]any{}
+	}
+	return map[string]any{
+		"state":              strings.TrimSpace(status.FreshnessState),
+		"reason":             strings.TrimSpace(status.FreshnessReason),
+		"suggested_commands": stringSliceOrEmpty(status.FreshnessSuggestedCommands),
+	}
+}
+
+func nextStepToJSONMap(next nextStepView) map[string]any {
+	return map[string]any{
+		"summary":            strings.TrimSpace(next.Summary),
+		"suggested_commands": stringSliceOrEmpty(next.Commands),
+	}
 }
 
 func printValueList(cmd *cobra.Command, label string, values []string) {

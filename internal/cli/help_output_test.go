@@ -85,6 +85,77 @@ func TestMergeAndTaskDoneHelpExamples(t *testing.T) {
 	)
 }
 
+func TestLifecycleLeafHelpExplainsPurposeAndNextStep(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+
+	addOut, _, addErr := runCLI(t, dir, "cr", "add", "--help")
+	if addErr != nil {
+		t.Fatalf("cr add --help error = %v\noutput=%s", addErr, addOut)
+	}
+	assertHelpContains(t, addOut,
+		"Open a new CR intent.",
+		"then switch to the CR branch",
+		"sophia cr add \"Add retry jitter\" --description \"Reduce synchronized retries\" --switch",
+	)
+
+	contractOut, _, contractErr := runCLI(t, dir, "cr", "contract", "set", "--help")
+	if contractErr != nil {
+		t.Fatalf("cr contract set --help error = %v\noutput=%s", contractErr, contractOut)
+	}
+	assertHelpContains(t, contractOut,
+		"Use this immediately after opening a CR",
+		"test plan, and rollback plan explicit",
+	)
+
+	statusOut, _, statusErr := runCLI(t, dir, "cr", "status", "--help")
+	if statusErr != nil {
+		t.Fatalf("cr status --help error = %v\noutput=%s", statusErr, statusOut)
+	}
+	assertHelpContains(t, statusOut,
+		"Use this before mutating, refreshing, or merging an existing CR.",
+		"sophia cr status 25 --json",
+	)
+
+	taskAddOut, _, taskAddErr := runCLI(t, dir, "cr", "task", "add", "--help")
+	if taskAddErr != nil {
+		t.Fatalf("cr task add --help error = %v\noutput=%s", taskAddErr, taskAddOut)
+	}
+	assertHelpContains(t, taskAddOut,
+		"Add a checkpoint-sized subtask",
+		"sophia cr task add 25 \"Implement bounded jitter strategy\"",
+	)
+
+	taskContractOut, _, taskContractErr := runCLI(t, dir, "cr", "task", "contract", "set", "--help")
+	if taskContractErr != nil {
+		t.Fatalf("cr task contract set --help error = %v\noutput=%s", taskContractErr, taskContractOut)
+	}
+	assertHelpContains(t, taskContractOut,
+		"Use this before `task done`.",
+		"scope narrow enough for a single checkpoint",
+		"sophia cr task contract set 25 1 --intent \"Bound retry jitter\"",
+	)
+
+	prOpenOut, _, prOpenErr := runCLI(t, dir, "cr", "pr", "open", "--help")
+	if prOpenErr != nil {
+		t.Fatalf("cr pr open --help error = %v\noutput=%s", prOpenErr, prOpenOut)
+	}
+	assertHelpContains(t, prOpenOut,
+		"Use this after local implementation, validation, and review",
+		"sophia cr pr open 25 --approve-open",
+	)
+
+	prReadyOut, _, prReadyErr := runCLI(t, dir, "cr", "pr", "ready", "--help")
+	if prReadyErr != nil {
+		t.Fatalf("cr pr ready --help error = %v\noutput=%s", prReadyErr, prReadyOut)
+	}
+	assertHelpContains(t, prReadyOut,
+		"Use this only for explicit reviewer handoff",
+		"Keep the PR in draft",
+		"sophia cr pr ready 25 --json",
+	)
+}
+
 func assertHelpContains(t *testing.T, out string, patterns ...string) {
 	t.Helper()
 	for _, pattern := range patterns {

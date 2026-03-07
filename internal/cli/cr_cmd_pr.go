@@ -13,6 +13,7 @@ func newCRPRCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "pr",
 		Short: "Manage PR publishing/sync for PR-gated merge mode",
+		Long:  "Use PR commands when the repository policy is `merge.mode=pr_gate`. These commands publish draft PRs, report gate state, and move a PR between draft and ready-for-review states.",
 	}
 	cmd.AddCommand(newCRPRContextCmd())
 	cmd.AddCommand(newCRPRDraftCmd())
@@ -89,9 +90,11 @@ func newCRPROpenCmd() *cobra.Command {
 	var asJSON bool
 	var approve bool
 	cmd := &cobra.Command{
-		Use:   "open [id]",
-		Short: "Open or update linked draft PR for a CR",
-		Args:  cobra.MaximumNArgs(1),
+		Use:     "open [id]",
+		Short:   "Open or update linked draft PR for a CR",
+		Long:    "Use this after local implementation, validation, and review when you want a remote draft PR. In `pr_gate` mode, opening the PR is the handoff point for remote checks and reviewer visibility.",
+		Example: "  sophia cr pr open 25 --approve-open\n  sophia cr pr open 25 --json",
+		Args:    cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return withOptionalCRIDAndService(cmd, asJSON, args, "id", func(id int, svc *service.Service) error {
 				status, err := svc.PROpen(id, approve)
@@ -149,9 +152,11 @@ func newCRPRSyncCmd() *cobra.Command {
 func newCRPRStatusCmd() *cobra.Command {
 	var asJSON bool
 	cmd := &cobra.Command{
-		Use:   "status [id]",
-		Short: "Show linked PR status and gate evaluation",
-		Args:  cobra.MaximumNArgs(1),
+		Use:     "status [id]",
+		Short:   "Show linked PR status and gate evaluation",
+		Long:    "Use this to inspect stale linkage, draft/ready state, approvals, checks, and the next command Sophia recommends for the PR lifecycle.",
+		Example: "  sophia cr pr status 25\n  sophia cr pr status 25 --json",
+		Args:    cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return withOptionalCRIDAndService(cmd, asJSON, args, "id", func(id int, svc *service.Service) error {
 				status, err := svc.PRStatus(id)
@@ -166,11 +171,7 @@ func newCRPRStatusCmd() *cobra.Command {
 				fmt.Fprintf(cmd.OutOrStdout(), "Linkage State: %s\n", nonEmpty(status.LinkageState, "-"))
 				fmt.Fprintf(cmd.OutOrStdout(), "Gate Blocked: %t\n", status.GateBlocked)
 				printListSection(cmd, "Gate Reasons", status.GateReasons)
-				if strings.TrimSpace(status.ActionRequired) != "" {
-					fmt.Fprintf(cmd.OutOrStdout(), "Action Required: %s\n", status.ActionRequired)
-					fmt.Fprintf(cmd.OutOrStdout(), "Action Reason: %s\n", nonEmpty(status.ActionReason, "-"))
-					printListSection(cmd, "Suggested Commands", status.SuggestedCommands)
-				}
+				printNextStepsSection(cmd, prNextStepView(status))
 				return nil
 			})
 		},
@@ -183,9 +184,11 @@ func newCRPRReconcileCmd() *cobra.Command {
 	var asJSON bool
 	var mode string
 	cmd := &cobra.Command{
-		Use:   "reconcile [id]",
-		Short: "Explicitly reconcile stale PR linkage for a CR",
-		Args:  cobra.MaximumNArgs(1),
+		Use:     "reconcile [id]",
+		Short:   "Explicitly reconcile stale PR linkage for a CR",
+		Long:    "Use this when PR status reports stale linkage, a missing PR, or mismatch between the CR and the linked PR metadata.",
+		Example: "  sophia cr pr reconcile 25 --mode relink\n  sophia cr pr reconcile 25 --mode create --json",
+		Args:    cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return withOptionalCRIDAndService(cmd, asJSON, args, "id", func(id int, svc *service.Service) error {
 				mode = strings.TrimSpace(mode)
@@ -218,9 +221,11 @@ func newCRPRReconcileCmd() *cobra.Command {
 func newCRPRReadyCmd() *cobra.Command {
 	var asJSON bool
 	cmd := &cobra.Command{
-		Use:   "ready [id]",
-		Short: "Mark linked PR ready for review",
-		Args:  cobra.MaximumNArgs(1),
+		Use:     "ready [id]",
+		Short:   "Mark linked PR ready for review",
+		Long:    "Use this only for explicit reviewer handoff after implementation checkpoints exist. Keep the PR in draft when work is still in progress or you only want visibility.",
+		Example: "  sophia cr pr ready 25\n  sophia cr pr ready 25 --json",
+		Args:    cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return withOptionalCRIDAndService(cmd, asJSON, args, "id", func(id int, svc *service.Service) error {
 				status, err := svc.PRReady(id)
@@ -254,9 +259,11 @@ func newCRPRReadyCmd() *cobra.Command {
 func newCRPRUnreadyCmd() *cobra.Command {
 	var asJSON bool
 	cmd := &cobra.Command{
-		Use:   "unready [id]",
-		Short: "Move linked PR back to draft",
-		Args:  cobra.MaximumNArgs(1),
+		Use:     "unready [id]",
+		Short:   "Move linked PR back to draft",
+		Long:    "Use this when a PR was marked ready too early and implementation needs to continue before reviewer handoff.",
+		Example: "  sophia cr pr unready 25\n  sophia cr pr unready 25 --json",
+		Args:    cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return withOptionalCRIDAndService(cmd, asJSON, args, "id", func(id int, svc *service.Service) error {
 				status, err := svc.PRUnready(id)
@@ -352,6 +359,7 @@ func prStatusToJSONMap(status *service.PRStatusView) map[string]any {
 		"action_required":      status.ActionRequired,
 		"action_reason":        status.ActionReason,
 		"suggested_commands":   stringSliceOrEmpty(status.SuggestedCommands),
+		"next_steps":           nextStepToJSONMap(prNextStepView(status)),
 		"warnings":             stringSliceOrEmpty(status.Warnings),
 	}
 }
