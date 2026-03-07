@@ -56,4 +56,4 @@ When resuming an existing CR:
 1. `sophia cr switch <id>`
 2. `sophia cr status <id> --json`
 3. If the repo is `pr_gate`, also run `sophia cr pr status <id> --json`
-4. If output shows stale or blocked state, prefer the suggested commands from CLI output before reaching for manual Git/gh steps.
+4. If output shows stale or blocked state, prefer `next_steps.suggested_commands` and `freshness` guidance from CLI output before reaching for manual Git/gh steps.

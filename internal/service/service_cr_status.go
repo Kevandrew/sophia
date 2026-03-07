@@ -25,51 +25,54 @@ type WhyView struct {
 }
 
 type CRStatusView struct {
-	ID                        int
-	UID                       string
-	Title                     string
-	Status                    string
-	BaseBranch                string
-	BaseRef                   string
-	BaseCommit                string
-	ParentCRID                int
-	ParentStatus              string
-	Branch                    string
-	CurrentBranch             string
-	BranchMatch               bool
-	OwnerWorktreePath         string
-	CurrentWorktreePath       string
-	OwnerIsCurrentWorktree    bool
-	CheckedOutInOtherWorktree bool
-	SuggestedWorktreeCommand  string
-	ModifiedStagedCount       int
-	UntrackedCount            int
-	Dirty                     bool
-	TasksTotal                int
-	TasksOpen                 int
-	TasksDone                 int
-	TasksDelegated            int
-	TasksDelegatedPending     int
-	IsAggregateParent         bool
-	AggregateResolvedChildren []int
-	AggregatePendingChildren  []int
-	ContractComplete          bool
-	ContractMissingFields     []string
-	ValidationValid           bool
-	ValidationErrors          int
-	ValidationWarnings        int
-	RiskTier                  string
-	RiskScore                 int
-	MergeBlocked              bool
-	MergeBlockers             []string
-	LifecycleState            string
-	AbandonedAt               string
-	AbandonedBy               string
-	AbandonedReason           string
-	PRLinkageState            string
-	ActionRequired            string
-	ActionReason              string
-	SuggestedCommands         []string
+	ID                         int
+	UID                        string
+	Title                      string
+	Status                     string
+	BaseBranch                 string
+	BaseRef                    string
+	BaseCommit                 string
+	ParentCRID                 int
+	ParentStatus               string
+	Branch                     string
+	CurrentBranch              string
+	BranchMatch                bool
+	OwnerWorktreePath          string
+	CurrentWorktreePath        string
+	OwnerIsCurrentWorktree     bool
+	CheckedOutInOtherWorktree  bool
+	SuggestedWorktreeCommand   string
+	ModifiedStagedCount        int
+	UntrackedCount             int
+	Dirty                      bool
+	TasksTotal                 int
+	TasksOpen                  int
+	TasksDone                  int
+	TasksDelegated             int
+	TasksDelegatedPending      int
+	IsAggregateParent          bool
+	AggregateResolvedChildren  []int
+	AggregatePendingChildren   []int
+	ContractComplete           bool
+	ContractMissingFields      []string
+	ValidationValid            bool
+	ValidationErrors           int
+	ValidationWarnings         int
+	RiskTier                   string
+	RiskScore                  int
+	MergeBlocked               bool
+	MergeBlockers              []string
+	LifecycleState             string
+	AbandonedAt                string
+	AbandonedBy                string
+	AbandonedReason            string
+	PRLinkageState             string
+	ActionRequired             string
+	ActionReason               string
+	SuggestedCommands          []string
+	FreshnessState             string
+	FreshnessReason            string
+	FreshnessSuggestedCommands []string
 }
 
 func (s *Service) WhyCR(id int) (*WhyView, error) {
@@ -203,6 +206,34 @@ func (s *Service) StatusCR(id int) (*CRStatusView, error) {
 		AbandonedReason:           strings.TrimSpace(cr.AbandonedReason),
 		ValidationValid:           true,
 		RiskTier:                  "-",
+		FreshnessState:            "unknown",
+	}
+	baseRef := strings.TrimSpace(nonEmptyTrimmed(cr.BaseRef, cr.BaseBranch))
+	baseCommit := strings.TrimSpace(cr.BaseCommit)
+	switch {
+	case baseRef == "":
+		view.FreshnessReason = "CR has no recorded base ref."
+	case baseCommit == "":
+		view.FreshnessReason = fmt.Sprintf("CR base ref %q has no recorded base commit yet.", baseRef)
+	default:
+		resolvedBase, resolveErr := statusGit.ResolveRef(baseRef)
+		if resolveErr != nil {
+			view.FreshnessReason = fmt.Sprintf("Unable to resolve base ref %q: %v", baseRef, resolveErr)
+			break
+		}
+		resolvedBase = strings.TrimSpace(resolvedBase)
+		if resolvedBase == "" {
+			view.FreshnessReason = fmt.Sprintf("Unable to resolve base ref %q.", baseRef)
+			break
+		}
+		if resolvedBase != baseCommit {
+			view.FreshnessState = "stale"
+			view.FreshnessReason = fmt.Sprintf("Base ref %q moved from %s to %s.", baseRef, shortHash(baseCommit), shortHash(resolvedBase))
+			view.FreshnessSuggestedCommands = dedupeStrings([]string{fmt.Sprintf("sophia cr refresh %d", cr.ID)})
+		} else {
+			view.FreshnessState = "current"
+			view.FreshnessReason = fmt.Sprintf("Base ref %q still matches recorded base commit %s.", baseRef, shortHash(resolvedBase))
+		}
 	}
 	aggregateParent := s.aggregateParentViewForCR(cr)
 	view.IsAggregateParent = aggregateParent.IsAggregateParent
