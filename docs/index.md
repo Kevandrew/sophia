@@ -1,37 +1,29 @@
 # Sophia Docs
 
-Pick the path that matches what you need to do right now.
+Use this as the map, then jump into the path that matches your job.
 
 Repository overview: [`README.md`](../README.md)
 
-## Agent Quickstart
+## Quickstart
 
-- [`agent-quickstart.md`](agent-quickstart.md)
-- Install with `curl -fsSL https://sophiahq.com/install.sh | bash`, install the in-repo skill, and run first prompts.
+- [`agent-quickstart.md`](agent-quickstart.md): install Sophia, install the in-repo skill, and start an agent session.
+- [`getting-started.md`](getting-started.md): first-success walkthrough from `cr add` through validation/review.
 
-## Author Workflow
+## Daily Workflow
 
-- [`getting-started.md`](getting-started.md)
-- [`workflow.md`](workflow.md)
-- First-success lifecycle and daily author loop with explicit checkpoint scopes.
+- [`workflow.md`](workflow.md): canonical author loop, checkpoint scope rules, stacked CR flow, and PR-gated lifecycle.
+- [`reviewer-workflow.md`](reviewer-workflow.md): review flow with trust, evidence, and merge-readiness checks.
 
-## Reviewer Workflow
+## Recovery
 
-- [`reviewer-workflow.md`](reviewer-workflow.md)
-- Trust/evidence-first review process using `status`, `validate`, `review`, and `evidence show`.
+- [`troubleshooting.md`](troubleshooting.md): stale-state, linkage, merge, auth, and repair recovery paths.
 
-## Collaboration (No HQ)
+## Collaboration
 
-- [`collaboration.md`](collaboration.md)
-- Bundle export/import and patch preview/apply flows for local-first collaboration.
-
-## Troubleshooting
-
-- [`troubleshooting.md`](troubleshooting.md)
-- Deterministic recovery using `doctor`, `repair`, `reconcile`, and merge recovery commands.
+- [`collaboration.md`](collaboration.md): export/import bundles, patch preview/apply, and local-first collaboration.
 
 ## Reference
 
-- [`cli-reference.md`](cli-reference.md)
-- [`repository-policy.md`](repository-policy.md)
-- [`branch-identity.md`](branch-identity.md)
+- [`cli-reference.md`](cli-reference.md): command reference.
+- [`repository-policy.md`](repository-policy.md): repository policy and merge rules.
+- [`branch-identity.md`](branch-identity.md): branch naming and CR identity semantics.

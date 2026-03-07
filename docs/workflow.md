@@ -1,6 +1,6 @@
 # Author Workflow
 
-This is the canonical day-to-day author loop for Sophia.
+This is the canonical day-to-day author loop for Sophia. Use [`getting-started.md`](getting-started.md) for the first successful run and [`troubleshooting.md`](troubleshooting.md) when local state is unhealthy.
 
 ## Lifecycle
 
@@ -237,3 +237,4 @@ If PR is already merged remotely, Sophia records merged commit metadata and mark
 - First success walkthrough: [`getting-started.md`](getting-started.md)
 - Reviewer flow: [`reviewer-workflow.md`](reviewer-workflow.md)
 - Collaboration without HQ: [`collaboration.md`](collaboration.md)
+- Docs index: [`index.md`](index.md)

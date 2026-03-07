@@ -1,6 +1,6 @@
 # Agent Quickstart
 
-This is the day-1 path: install Sophia, install the Sophia skill, then ask your coding agent to run the full intent-first loop.
+This is the day-1 path: install Sophia, install the Sophia skill, then let the agent drive the normal CR lifecycle.
 
 ## 1) Install Sophia (primary path)
 
@@ -47,7 +47,9 @@ When the skill is active, a normal implementation flow should produce:
 4. Evidence entries for required command runs when contracts call for them.
 5. `cr validate` and `cr review` results before merge.
 
-## Next Step
+## Where To Look Next
 
-- Author lifecycle details: [`workflow.md`](workflow.md)
-- End-to-end first success walkthrough: [`getting-started.md`](getting-started.md)
+- First-success walkthrough: [`getting-started.md`](getting-started.md)
+- Daily author loop: [`workflow.md`](workflow.md)
+- Recovery and stale-state handling: [`troubleshooting.md`](troubleshooting.md)
+- Full docs map: [`index.md`](index.md)
