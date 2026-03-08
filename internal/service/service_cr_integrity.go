@@ -233,7 +233,7 @@ func (s *Service) buildCRDoctorReport(cr *model.CR) (*CRDoctorReport, error) {
 	if report.BaseRef != "" {
 		if resolved, err := s.git.ResolveRef(report.BaseRef); err == nil {
 			report.ResolvedBaseRef = strings.TrimSpace(resolved)
-		} else {
+		} else if !s.mergedHistoricalParentRefMissing(cr) {
 			report.Findings = append(report.Findings, CRDoctorFinding{
 				Code:    "base_ref_unresolved",
 				Message: fmt.Sprintf("base ref %q cannot be resolved: %v", report.BaseRef, err),
