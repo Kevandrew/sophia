@@ -313,6 +313,108 @@ func TestRepairDelegatedParentTaskStateRepairsMergedAggregateParent(t *testing.T
 	}
 }
 
+func TestRepairFromGitDoesNotAutoCompleteDelegatedParentAfterPartialChildLanding(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	runGit(t, dir, "config", "user.name", "Test User")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+
+	parent, err := svc.AddCR("Parent", "delegated parent")
+	if err != nil {
+		t.Fatalf("AddCR(parent) error = %v", err)
+	}
+	setValidContract(t, svc, parent.ID)
+	parentTask, err := svc.AddTask(parent.ID, "Delegated child work")
+	if err != nil {
+		t.Fatalf("AddTask(parent) error = %v", err)
+	}
+	setValidTaskContract(t, svc, parent.ID, parentTask.ID)
+
+	child, _, err := svc.AddCRWithOptionsWithWarnings("Child", "delegated implementation", AddCROptions{ParentCRID: parent.ID})
+	if err != nil {
+		t.Fatalf("AddCR(child) error = %v", err)
+	}
+	setValidContract(t, svc, child.ID)
+	delegateResult, err := svc.DelegateTaskToChild(parent.ID, parentTask.ID, child.ID)
+	if err != nil {
+		t.Fatalf("DelegateTaskToChild() error = %v", err)
+	}
+
+	if err := os.WriteFile(filepath.Join(dir, "child.txt"), []byte("stage one\n"), 0o644); err != nil {
+		t.Fatalf("write child.txt stage one: %v", err)
+	}
+	runGit(t, dir, "add", "child.txt")
+	runGit(t, dir, "commit", "-m", "feat: delegated slice")
+	checkpointCommit := runGit(t, dir, "rev-parse", "--verify", "HEAD")
+	runGit(t, dir, "branch", "child-landing", checkpointCommit)
+
+	childCR, err := svc.store.LoadCR(child.ID)
+	if err != nil {
+		t.Fatalf("LoadCR(child) error = %v", err)
+	}
+	delegatedIdx := indexOfTask(childCR.Subtasks, delegateResult.ChildTaskID)
+	if delegatedIdx < 0 {
+		t.Fatalf("expected delegated child task %d", delegateResult.ChildTaskID)
+	}
+	childCR.Subtasks[delegatedIdx].Status = model.TaskStatusDone
+	childCR.Subtasks[delegatedIdx].CompletedAt = harnessTimestamp
+	childCR.Subtasks[delegatedIdx].CompletedBy = "Test User <test@example.com>"
+	childCR.Subtasks[delegatedIdx].CheckpointCommit = checkpointCommit
+	childCR.Subtasks[delegatedIdx].CheckpointSource = model.TaskCheckpointSourceTaskCheckpoint
+	childCR.Subtasks = append(childCR.Subtasks, model.Subtask{
+		ID:        delegateResult.ChildTaskID + 1,
+		Title:     "Remaining child work",
+		Status:    model.TaskStatusOpen,
+		CreatedAt: harnessTimestamp,
+		UpdatedAt: harnessTimestamp,
+		CreatedBy: "Test User <test@example.com>",
+	})
+	if err := svc.store.SaveCR(childCR); err != nil {
+		t.Fatalf("SaveCR(child) error = %v", err)
+	}
+
+	if err := os.WriteFile(filepath.Join(dir, "child.txt"), []byte("stage one\nstage two\n"), 0o644); err != nil {
+		t.Fatalf("write child.txt stage two: %v", err)
+	}
+	runGit(t, dir, "add", "child.txt")
+	runGit(t, dir, "commit", "-m", "feat: unfinished child follow-up")
+
+	runGit(t, dir, "checkout", "main")
+	runGit(t, dir, "merge", "--ff-only", "child-landing")
+
+	report, err := svc.RepairFromGit("main", true)
+	if err != nil {
+		t.Fatalf("RepairFromGit(refresh) error = %v", err)
+	}
+	if containsInt(report.RepairedCRIDs, child.ID) {
+		t.Fatalf("expected child CR %d to remain in progress, repaired set = %#v", child.ID, report.RepairedCRIDs)
+	}
+
+	reloadedChild, err := svc.store.LoadCR(child.ID)
+	if err != nil {
+		t.Fatalf("LoadCR(reloaded child) error = %v", err)
+	}
+	if reloadedChild.Status != model.StatusInProgress {
+		t.Fatalf("expected child to remain in progress, got %#v", reloadedChild)
+	}
+
+	reloadedParent, err := svc.store.LoadCR(parent.ID)
+	if err != nil {
+		t.Fatalf("LoadCR(reloaded parent) error = %v", err)
+	}
+	parentTaskIndex := indexOfTask(reloadedParent.Subtasks, parentTask.ID)
+	if parentTaskIndex < 0 {
+		t.Fatalf("expected parent task %d", parentTask.ID)
+	}
+	if reloadedParent.Subtasks[parentTaskIndex].Status != model.TaskStatusDelegated {
+		t.Fatalf("expected parent delegated task to remain delegated, got %#v", reloadedParent.Subtasks[parentTaskIndex])
+	}
+}
+
 func TestStatusCRMarksAggregateParentResolvedAndPendingChildren(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
