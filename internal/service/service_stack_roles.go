@@ -165,14 +165,15 @@ func (s *Service) stackNativityForCRWithReadModel(cr *model.CR, readModel *crRea
 	if cr == nil {
 		return view
 	}
+	normalized := readModel.normalizeCR(*cr)
 
 	children := make([]int, 0)
-	for _, candidate := range readModel.childrenOf(cr.ID) {
+	for _, candidate := range readModel.childrenOf(normalized.ID) {
 		children = append(children, candidate.ID)
 	}
 	sort.Ints(children)
 
-	aggregate := s.aggregateParentViewForCRWithReadModel(cr, readModel)
+	aggregate := s.aggregateParentViewForCRWithReadModel(&normalized, readModel)
 	view.IsAggregateParent = aggregate.IsAggregateParent
 	view.ResolvedChildCRIDs = append([]int(nil), aggregate.ResolvedChildCRIDs...)
 	view.PendingChildCRIDs = append([]int(nil), aggregate.PendingChildCRIDs...)
@@ -181,12 +182,12 @@ func (s *Service) stackNativityForCRWithReadModel(cr *model.CR, readModel *crRea
 	view.ChildCRIDs = append([]int(nil), children...)
 	view.ChildCount = len(children)
 
-	if cr.ParentCRID > 0 {
+	if normalized.ParentCRID > 0 {
 		view.IsChild = true
-		view.ParentCRID = cr.ParentCRID
+		view.ParentCRID = normalized.ParentCRID
 		view.Role = "child"
 		view.RoleLabel = "Child CR"
-		if parent, ok := readModel.crByID(cr.ParentCRID); ok {
+		if parent, ok := readModel.crByID(normalized.ParentCRID); ok {
 			view.ParentTitle = strings.TrimSpace(parent.Title)
 			view.ParentBranch = strings.TrimSpace(parent.Branch)
 			view.ParentStatus = strings.TrimSpace(parent.Status)

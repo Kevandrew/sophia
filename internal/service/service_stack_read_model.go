@@ -53,13 +53,17 @@ func (s *Service) stackLineageForCR(cr *model.CR) []StackLineageNodeView {
 }
 
 func (s *Service) stackLineageForCRWithReadModel(cr *model.CR, readModel *crReadModel) []StackLineageNodeView {
-	if s == nil || cr == nil || cr.ParentCRID <= 0 {
+	if s == nil || cr == nil {
+		return nil
+	}
+	normalized := readModel.normalizeCR(*cr)
+	if normalized.ParentCRID <= 0 {
 		return nil
 	}
 
 	lineage := make([]StackLineageNodeView, 0)
 	visited := map[int]struct{}{}
-	currentID := cr.ParentCRID
+	currentID := normalized.ParentCRID
 	for currentID > 0 {
 		if _, seen := visited[currentID]; seen {
 			break
@@ -115,34 +119,35 @@ func (s *Service) stackTreeForCRWithReadModel(cr *model.CR, readModel *crReadMod
 }
 
 func (s *Service) buildStackTreeNode(cr model.CR, depth int, readModel *crReadModel) StackTreeNodeView {
-	nativity := s.stackNativityForCRWithReadModel(&cr, readModel)
-	aggregate := s.aggregateParentViewForCRWithReadModel(&cr, readModel)
-	assessment := assessAggregateParentTasks(cr.Subtasks)
+	normalized := readModel.normalizeCR(cr)
+	nativity := s.stackNativityForCRWithReadModel(&normalized, readModel)
+	aggregate := s.aggregateParentViewForCRWithReadModel(&normalized, readModel)
+	assessment := assessAggregateParentTasks(normalized.Subtasks)
 	node := StackTreeNodeView{
-		ID:                    cr.ID,
-		UID:                   strings.TrimSpace(cr.UID),
-		Title:                 strings.TrimSpace(cr.Title),
-		Status:                strings.TrimSpace(cr.Status),
-		Branch:                strings.TrimSpace(cr.Branch),
-		BaseRef:               nonEmptyTrimmed(cr.BaseRef, cr.BaseBranch),
-		ParentCRID:            cr.ParentCRID,
+		ID:                    normalized.ID,
+		UID:                   strings.TrimSpace(normalized.UID),
+		Title:                 strings.TrimSpace(normalized.Title),
+		Status:                strings.TrimSpace(normalized.Status),
+		Branch:                strings.TrimSpace(normalized.Branch),
+		BaseRef:               nonEmptyTrimmed(normalized.BaseRef, normalized.BaseBranch),
+		ParentCRID:            normalized.ParentCRID,
 		Depth:                 depth,
 		Role:                  nativity.Role,
 		RoleLabel:             nativity.RoleLabel,
 		IsChild:               nativity.IsChild,
 		IsRootParent:          nativity.IsRootParent,
 		IsAggregateParent:     nativity.IsAggregateParent,
-		TasksTotal:            len(cr.Subtasks),
-		TasksOpen:             countTasksByStatus(cr.Subtasks, model.TaskStatusOpen),
-		TasksDone:             countTasksByStatus(cr.Subtasks, model.TaskStatusDone),
-		TasksDelegated:        countTasksByStatus(cr.Subtasks, model.TaskStatusDelegated),
+		TasksTotal:            len(normalized.Subtasks),
+		TasksOpen:             countTasksByStatus(normalized.Subtasks, model.TaskStatusOpen),
+		TasksDone:             countTasksByStatus(normalized.Subtasks, model.TaskStatusDone),
+		TasksDelegated:        countTasksByStatus(normalized.Subtasks, model.TaskStatusDelegated),
 		TasksDelegatedPending: assessment.PendingDelegatedTaskCount,
-		ChildCount:            len(readModel.childrenOf(cr.ID)),
+		ChildCount:            len(readModel.childrenOf(normalized.ID)),
 		ResolvedChildCount:    len(aggregate.ResolvedChildCRIDs),
 		PendingChildCount:     len(aggregate.PendingChildCRIDs),
 	}
 
-	if children := readModel.childrenOf(cr.ID); len(children) > 0 {
+	if children := readModel.childrenOf(normalized.ID); len(children) > 0 {
 		node.Children = make([]StackTreeNodeView, 0, len(children))
 		for _, child := range children {
 			childNode := s.buildStackTreeNode(child, depth+1, readModel)

@@ -234,6 +234,53 @@ func TestStackCRIncludesChildAndDelegationBlockers(t *testing.T) {
 	}
 }
 
+func TestStackCRUsesInferredParentageWhenStoredParentMissing(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	parent, err := svc.AddCR("Parent", "stack root")
+	if err != nil {
+		t.Fatalf("AddCR(parent) error = %v", err)
+	}
+	setValidContract(t, svc, parent.ID)
+
+	child, _, err := svc.AddCRWithOptionsWithWarnings("Child", "stack child", AddCROptions{ParentCRID: parent.ID})
+	if err != nil {
+		t.Fatalf("AddCR(child) error = %v", err)
+	}
+	setValidContract(t, svc, child.ID)
+
+	loadedChild, err := svc.store.LoadCR(child.ID)
+	if err != nil {
+		t.Fatalf("LoadCR(child) error = %v", err)
+	}
+	loadedChild.ParentCRID = 0
+	if err := svc.store.SaveCR(loadedChild); err != nil {
+		t.Fatalf("SaveCR(clear parent) error = %v", err)
+	}
+
+	stack, err := svc.StackCR(parent.ID)
+	if err != nil {
+		t.Fatalf("StackCR() error = %v", err)
+	}
+	if stack.RootCRID != parent.ID {
+		t.Fatalf("expected root %d, got %#v", parent.ID, stack)
+	}
+	if len(stack.Nodes) != 2 {
+		t.Fatalf("expected 2 stack nodes, got %#v", stack.Nodes)
+	}
+	if stack.Nodes[1].ID != child.ID || stack.Nodes[1].ParentCRID != parent.ID {
+		t.Fatalf("expected inferred parent %d for child node, got %#v", parent.ID, stack.Nodes[1])
+	}
+	if len(stack.Nodes[0].Children) != 1 || stack.Nodes[0].Children[0] != child.ID {
+		t.Fatalf("expected child listed under parent node, got %#v", stack.Nodes[0])
+	}
+}
+
 func TestRepairDelegatedParentTaskStateRepairsMergedAggregateParent(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()

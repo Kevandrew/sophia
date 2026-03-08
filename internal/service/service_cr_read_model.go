@@ -10,6 +10,7 @@ type crReadModel struct {
 	all              []model.CR
 	byID             map[int]model.CR
 	childrenByParent map[int][]model.CR
+	effectiveParents map[int]int
 }
 
 type CRReadModelView struct {
@@ -37,12 +38,20 @@ func buildCRReadModel(crs []model.CR) *crReadModel {
 		all:              append([]model.CR(nil), crs...),
 		byID:             make(map[int]model.CR, len(crs)),
 		childrenByParent: make(map[int][]model.CR),
+		effectiveParents: make(map[int]int, len(crs)),
+	}
+	rm.all = make([]model.CR, 0, len(crs))
+	for _, cr := range crs {
+		rm.effectiveParents[cr.ID] = effectiveParentCRID(cr, crs)
 	}
 	for _, cr := range crs {
-		rm.byID[cr.ID] = cr
-		parentID := effectiveParentCRID(cr, crs)
+		normalized := cr
+		normalized.ParentCRID = rm.effectiveParentID(cr.ID)
+		rm.byID[normalized.ID] = normalized
+		rm.all = append(rm.all, normalized)
+		parentID := normalized.ParentCRID
 		if parentID > 0 {
-			rm.childrenByParent[parentID] = append(rm.childrenByParent[parentID], cr)
+			rm.childrenByParent[parentID] = append(rm.childrenByParent[parentID], normalized)
 		}
 	}
 	for parentID := range rm.childrenByParent {
@@ -66,6 +75,24 @@ func effectiveParentCRID(cr model.CR, all []model.CR) int {
 		return expectedParentID
 	}
 	return cr.ParentCRID
+}
+
+func (rm *crReadModel) effectiveParentID(crID int) int {
+	if rm == nil {
+		return 0
+	}
+	return rm.effectiveParents[crID]
+}
+
+func (rm *crReadModel) normalizeCR(cr model.CR) model.CR {
+	if rm == nil {
+		return cr
+	}
+	if normalized, ok := rm.byID[cr.ID]; ok {
+		return normalized
+	}
+	cr.ParentCRID = rm.effectiveParentID(cr.ID)
+	return cr
 }
 
 func (rm *crReadModel) crByID(id int) (model.CR, bool) {
