@@ -271,39 +271,26 @@ func (s *Service) StackCR(id int) (*StackView, error) {
 	if err != nil {
 		return nil, err
 	}
-	byID := map[int]model.CR{}
-	for _, cr := range crs {
-		byID[cr.ID] = cr
-	}
+	readModel := buildCRReadModel(crs)
+	focusCR := readModel.normalizeCR(*focus)
 
-	root := focus.ID
+	root := focusCR.ID
 	for {
-		current, ok := byID[root]
+		current, ok := readModel.crByID(root)
 		if !ok || current.ParentCRID <= 0 {
 			break
 		}
-		parent, ok := byID[current.ParentCRID]
+		parent, ok := readModel.crByID(current.ParentCRID)
 		if !ok {
 			break
 		}
 		root = parent.ID
 	}
 
-	children := map[int][]int{}
-	for _, cr := range crs {
-		if cr.ParentCRID <= 0 {
-			continue
-		}
-		children[cr.ParentCRID] = append(children[cr.ParentCRID], cr.ID)
-	}
-	for parentID := range children {
-		sort.Ints(children[parentID])
-	}
-
 	nodes := make([]StackNodeView, 0)
 	var visit func(crID, depth int) error
 	visit = func(crID, depth int) error {
-		cr, ok := byID[crID]
+		cr, ok := readModel.crByID(crID)
 		if !ok {
 			return nil
 		}
@@ -319,7 +306,7 @@ func (s *Service) StackCR(id int) (*StackView, error) {
 			Status:                cr.Status,
 			Branch:                cr.Branch,
 			Depth:                 depth,
-			Children:              append([]int(nil), children[cr.ID]...),
+			Children:              childIDsForStack(readModel.childrenOf(cr.ID)),
 			MergeBlocked:          status.MergeBlocked,
 			MergeBlockers:         append([]string(nil), status.MergeBlockers...),
 			TasksTotal:            status.TasksTotal,
@@ -332,7 +319,7 @@ func (s *Service) StackCR(id int) (*StackView, error) {
 			PendingChildCRIDs:     append([]int(nil), status.AggregatePendingChildren...),
 		}
 		nodes = append(nodes, node)
-		for _, childID := range children[cr.ID] {
+		for _, childID := range node.Children {
 			if err := visit(childID, depth+1); err != nil {
 				return err
 			}
@@ -345,7 +332,7 @@ func (s *Service) StackCR(id int) (*StackView, error) {
 
 	return &StackView{
 		RootCRID:  root,
-		FocusCRID: focus.ID,
+		FocusCRID: focusCR.ID,
 		Nodes:     nodes,
 	}, nil
 }
@@ -372,11 +359,17 @@ func (s *Service) mergeBlockersForCR(cr *model.CR, validation *ValidationReport)
 			blockers = append(blockers, fmt.Sprintf("validation: %s", validationErr))
 		}
 	}
-	if cr.ParentCRID > 0 {
-		parent, err := s.store.LoadCR(cr.ParentCRID)
+	parentID := 0
+	if crs, err := s.store.ListCRs(); err == nil {
+		parentID = effectiveParentCRID(*cr, crs)
+	} else {
+		parentID = cr.ParentCRID
+	}
+	if parentID > 0 {
+		parent, err := s.store.LoadCR(parentID)
 		switch {
 		case err != nil:
-			blockers = append(blockers, fmt.Sprintf("parent cr %d is missing", cr.ParentCRID))
+			blockers = append(blockers, fmt.Sprintf("parent cr %d is missing", parentID))
 		case parent.Status != model.StatusMerged && !childDelegatedFromParent(parent, cr.ID):
 			blockers = append(blockers, fmt.Sprintf("CR %d depends on parent CR %d (%s)", cr.ID, parent.ID, parent.Status))
 		}
@@ -403,6 +396,18 @@ func (s *Service) mergeBlockersForCR(cr *model.CR, validation *ValidationReport)
 		}
 	}
 	return dedupeStrings(blockers)
+}
+
+func childIDsForStack(children []model.CR) []int {
+	if len(children) == 0 {
+		return []int{}
+	}
+	ids := make([]int, 0, len(children))
+	for _, child := range children {
+		ids = append(ids, child.ID)
+	}
+	sort.Ints(ids)
+	return ids
 }
 
 func childDelegatedFromParent(parent *model.CR, childCRID int) bool {

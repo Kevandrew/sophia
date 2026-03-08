@@ -18,6 +18,7 @@ import (
 
 	"sophia/internal/model"
 	"sophia/internal/service"
+	"sophia/internal/store"
 )
 
 func TestCRShowJSONUsesLocalhostPreview(t *testing.T) {
@@ -473,6 +474,50 @@ func TestCRShowAndDashboardSnapshotsIncludeStackNativity(t *testing.T) {
 	}
 	if lineage, ok := childRow["stack_lineage"].([]map[string]any); !ok || len(lineage) != 1 {
 		t.Fatalf("expected child row lineage, got %#v", childRow["stack_lineage"])
+	}
+}
+
+func TestCRShowUsesInferredParentageWhenStoredParentMissing(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	svc := service.New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	parent, err := svc.AddCR("Parent", "effective parent")
+	if err != nil {
+		t.Fatalf("AddCR(parent) error = %v", err)
+	}
+	setValidContractCLI(t, svc, parent.ID)
+
+	child, _, err := svc.AddCRWithOptionsWithWarnings("Child", "stored parent drifted", service.AddCROptions{ParentCRID: parent.ID})
+	if err != nil {
+		t.Fatalf("AddCR(child) error = %v", err)
+	}
+	setValidContractCLI(t, svc, child.ID)
+
+	lifecycleStore := store.NewWithSophiaRoot(dir, localMetadataDirForCLI(t, dir))
+	loadedChild, err := lifecycleStore.LoadCR(child.ID)
+	if err != nil {
+		t.Fatalf("LoadCR(child) error = %v", err)
+	}
+	loadedChild.ParentCRID = 0
+	if err := lifecycleStore.SaveCR(loadedChild); err != nil {
+		t.Fatalf("SaveCR(clear parent) error = %v", err)
+	}
+
+	_, payload, err := buildCRShowSnapshot(svc, child.ID, defaultCRShowEventsLimit, defaultCRShowCheckpointsLimit)
+	if err != nil {
+		t.Fatalf("buildCRShowSnapshot(child) error = %v", err)
+	}
+	crPayload := mapStringAny(payload["cr"])
+	if got, _ := crPayload["parent_cr_id"].(int); got != parent.ID {
+		t.Fatalf("expected show payload parent_cr_id=%d, got %#v", parent.ID, crPayload["parent_cr_id"])
+	}
+	childNativity := mapStringAny(payload["stack_nativity"])
+	if got, _ := childNativity["parent_cr_id"].(int); got != parent.ID {
+		t.Fatalf("expected nativity parent_cr_id=%d, got %#v", parent.ID, childNativity["parent_cr_id"])
 	}
 }
 

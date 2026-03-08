@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"sophia/internal/model"
 )
 
 func TestStatusCRBranchContextUnavailableReturnsValidationBlockers(t *testing.T) {
@@ -123,5 +125,53 @@ func TestStatusCRMarksMovedBaseRefAsStale(t *testing.T) {
 	}
 	if len(status.FreshnessSuggestedCommands) != 1 || status.FreshnessSuggestedCommands[0] != "sophia cr refresh 1" {
 		t.Fatalf("expected refresh suggestion, got %#v", status.FreshnessSuggestedCommands)
+	}
+}
+
+func TestStatusCRUsesInferredParentageWhenStoredParentMissing(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	parent, err := svc.AddCR("Parent status", "parent remains the effective base owner")
+	if err != nil {
+		t.Fatalf("AddCR(parent) error = %v", err)
+	}
+	child, _, err := svc.AddCRWithOptionsWithWarnings("Child status", "child keeps base_ref to parent", AddCROptions{ParentCRID: parent.ID})
+	if err != nil {
+		t.Fatalf("AddCR(child) error = %v", err)
+	}
+
+	loadedChild, err := svc.store.LoadCR(child.ID)
+	if err != nil {
+		t.Fatalf("LoadCR(child) error = %v", err)
+	}
+	loadedChild.ParentCRID = 0
+	if err := svc.store.SaveCR(loadedChild); err != nil {
+		t.Fatalf("SaveCR(clear parent) error = %v", err)
+	}
+
+	status, err := svc.StatusCR(child.ID)
+	if err != nil {
+		t.Fatalf("StatusCR() error = %v", err)
+	}
+	if status.ParentCRID != parent.ID {
+		t.Fatalf("expected inferred parent %d, got %#v", parent.ID, status)
+	}
+	if status.ParentStatus != model.StatusInProgress {
+		t.Fatalf("expected parent status %q, got %#v", model.StatusInProgress, status)
+	}
+	foundParentBlocker := false
+	for _, blocker := range status.MergeBlockers {
+		if strings.Contains(blocker, "depends on parent CR") {
+			foundParentBlocker = true
+			break
+		}
+	}
+	if !foundParentBlocker {
+		t.Fatalf("expected parent dependency blocker, got %#v", status.MergeBlockers)
 	}
 }

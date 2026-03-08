@@ -350,7 +350,9 @@ func buildCRShowSnapshot(svc *service.Service, id int, eventsLimit int, checkpoi
 		return nil, nil, fmt.Errorf("cr %d is unavailable", id)
 	}
 	payload := crPackToJSONMap(view)
-	payload["cr"] = crToJSONMap(view.CR)
+	crPayload := crToJSONMap(view.CR)
+	crPayload["parent_cr_id"] = effectiveParentIDFromNativity(view.CR.ParentCRID, view.StackNativity)
+	payload["cr"] = crPayload
 	payload["delegation_launch"] = delegationLaunchToJSONMap(buildCRShowDelegationLaunchView(view))
 	payload["generated_at"] = time.Now().UTC().Format(time.RFC3339)
 	return view, payload, nil
@@ -1003,7 +1005,7 @@ func buildDashboardCRRow(svc *service.Service, readModel *service.CRReadModelVie
 		"base_branch":         result.BaseBranch,
 		"base_ref":            cr.BaseRef,
 		"base_commit":         cr.BaseCommit,
-		"parent_cr_id":        result.ParentCRID,
+		"parent_cr_id":        effectiveParentIDFromNativity(result.ParentCRID, nativity),
 		"risk_tier":           result.RiskTier,
 		"created_at":          result.CreatedAt,
 		"updated_at":          result.UpdatedAt,
