@@ -245,3 +245,85 @@ func TestRefreshCRChildRemainsLocalToThatChild(t *testing.T) {
 		t.Fatalf("expected sibling to remain untouched, got %#v", updatedSibling)
 	}
 }
+
+// fake-eligible: mid-stack refresh should restack descendants of the selected child without touching siblings.
+func TestRefreshCRMiddleNodeCascadeRefreshesDescendants(t *testing.T) {
+	t.Parallel()
+	root := seedCR(1, "Root refresh", seedCROptions{
+		Branch:     "cr-root-refresh-mid",
+		BaseBranch: "main",
+		BaseRef:    "main",
+		BaseCommit: "main-head-old",
+	})
+	child := seedCR(2, "Child refresh", seedCROptions{
+		Branch:     "cr-child-refresh-mid",
+		BaseBranch: "main",
+		BaseRef:    root.Branch,
+		BaseCommit: "root-head-old",
+		ParentCRID: root.ID,
+	})
+	grandchild := seedCR(3, "Grandchild refresh", seedCROptions{
+		Branch:     "cr-grandchild-refresh-mid",
+		BaseBranch: "main",
+		BaseRef:    child.Branch,
+		BaseCommit: "child-head-old",
+		ParentCRID: child.ID,
+	})
+	sibling := seedCR(4, "Sibling refresh", seedCROptions{
+		Branch:     "cr-sibling-refresh-mid",
+		BaseBranch: "main",
+		BaseRef:    root.Branch,
+		BaseCommit: "root-head-old",
+		ParentCRID: root.ID,
+	})
+	h := harnessService(t, runtimeHarnessOptions{
+		Branch: child.Branch,
+		CRs:    []*model.CR{root, child, grandchild, sibling},
+	})
+	h.LifecycleGit.SeedBranch(root.Branch, true)
+	h.LifecycleGit.SeedBranch(child.Branch, true)
+	h.LifecycleGit.SeedBranch(grandchild.Branch, true)
+	h.LifecycleGit.SeedBranch(sibling.Branch, true)
+	h.LifecycleGit.SeedResolve(root.Branch, "root-head-new")
+	h.LifecycleGit.SeedResolve(child.Branch, "child-head-new")
+	h.LifecycleGit.SeedResolve(grandchild.Branch, "grandchild-head-before")
+	h.LifecycleGit.SeedResolve(sibling.Branch, "sibling-head-before")
+
+	dryRun, err := h.Service.RefreshCR(child.ID, RefreshOptions{DryRun: true})
+	if err != nil {
+		t.Fatalf("RefreshCR(child dry-run) error = %v", err)
+	}
+	if dryRun.CascadeCount != 1 || len(dryRun.Entries) != 2 {
+		t.Fatalf("expected child plus one cascaded grandchild entry, got %#v", dryRun)
+	}
+	if dryRun.Entries[1].CRID != grandchild.ID || dryRun.Entries[1].Strategy != RefreshStrategyRestack {
+		t.Fatalf("expected cascaded grandchild restack entry, got %#v", dryRun.Entries[1])
+	}
+
+	view, err := h.Service.RefreshCR(child.ID, RefreshOptions{})
+	if err != nil {
+		t.Fatalf("RefreshCR(child) error = %v", err)
+	}
+	if !view.Applied || view.CascadeCount != 1 || len(view.Entries) != 2 {
+		t.Fatalf("expected applied child cascade, got %#v", view)
+	}
+	if h.MergeGit.Calls("RebaseBranchOnto") != 2 {
+		t.Fatalf("expected two rebases for child and grandchild, got %d", h.MergeGit.Calls("RebaseBranchOnto"))
+	}
+
+	updatedGrandchild, err := h.Store.LoadCR(grandchild.ID)
+	if err != nil {
+		t.Fatalf("LoadCR(grandchild) error = %v", err)
+	}
+	if updatedGrandchild.BaseRef != child.Branch || updatedGrandchild.BaseCommit != "child-head-new" {
+		t.Fatalf("expected grandchild restacked onto refreshed child, got %#v", updatedGrandchild)
+	}
+
+	updatedSibling, err := h.Store.LoadCR(sibling.ID)
+	if err != nil {
+		t.Fatalf("LoadCR(sibling) error = %v", err)
+	}
+	if updatedSibling.BaseRef != root.Branch || updatedSibling.BaseCommit != "root-head-old" {
+		t.Fatalf("expected sibling to remain untouched, got %#v", updatedSibling)
+	}
+}
