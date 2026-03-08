@@ -44,6 +44,24 @@ func TestInitCreatesLayout(t *testing.T) {
 	}
 }
 
+func TestLoadCRReturnsErrNotInitializedBeforeInit(t *testing.T) {
+	t.Parallel()
+	s := New(t.TempDir())
+
+	if _, err := s.LoadCR(1); !errors.Is(err, ErrNotInitialized) {
+		t.Fatalf("expected ErrNotInitialized from LoadCR(), got %v", err)
+	}
+}
+
+func TestListCRsReturnsErrNotInitializedBeforeInit(t *testing.T) {
+	t.Parallel()
+	s := New(t.TempDir())
+
+	if _, err := s.ListCRs(); !errors.Is(err, ErrNotInitialized) {
+		t.Fatalf("expected ErrNotInitialized from ListCRs(), got %v", err)
+	}
+}
+
 func TestNextCRIDDeterministic(t *testing.T) {
 	t.Parallel()
 	s := New(t.TempDir())
