@@ -1,6 +1,7 @@
 package service
 
 import (
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -396,5 +397,74 @@ func TestStatusCRMarksAggregateParentResolvedAndPendingChildren(t *testing.T) {
 	}
 	if got := joinIntIDs(stack.Nodes[0].PendingChildCRIDs); got != strconv.Itoa(childPending.ID) {
 		t.Fatalf("expected stack pending children [%d], got %v", childPending.ID, stack.Nodes[0].PendingChildCRIDs)
+	}
+}
+
+func TestMergeFinalizeBlocksAggregateParentWithDelegatedChildrenPendingEvenWhenPRGateChecksPass(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "SOPHIA.yaml"), []byte("version: v1\nmerge:\n  mode: pr_gate\narchive:\n  enabled: false\n"), 0o644); err != nil {
+		t.Fatalf("write SOPHIA.yaml: %v", err)
+	}
+
+	parent, err := svc.AddCR("Aggregate finalize blocked", "delegated child still pending")
+	if err != nil {
+		t.Fatalf("AddCR(parent) error = %v", err)
+	}
+	loaded, err := svc.store.LoadCR(parent.ID)
+	if err != nil {
+		t.Fatalf("LoadCR(parent) error = %v", err)
+	}
+	loaded.PR.Number = 88
+	loaded.PR.Repo = "acme/repo"
+	loaded.Subtasks = []model.Subtask{{
+		ID:     1,
+		Title:  "Delegated child work",
+		Status: model.TaskStatusDelegated,
+		Delegations: []model.TaskDelegation{
+			{ChildCRID: 401, ChildTaskID: 1},
+		},
+	}}
+	if err := svc.store.SaveCR(loaded); err != nil {
+		t.Fatalf("SaveCR(parent) error = %v", err)
+	}
+
+	svc.overrideGHRunnerForTests(func(_ string, args ...string) (string, error) {
+		if len(args) >= 3 && args[0] == "pr" && args[1] == "view" {
+			payload := map[string]any{
+				"number":      88,
+				"url":         "https://github.com/acme/repo/pull/88",
+				"state":       "OPEN",
+				"isDraft":     false,
+				"headRefOid":  "abc123",
+				"headRefName": strings.TrimSpace(parent.Branch),
+				"baseRefName": "main",
+				"author":      map[string]any{"login": "author"},
+				"latestReviews": []map[string]any{
+					{"state": "APPROVED", "author": map[string]any{"login": "reviewer"}},
+				},
+				"statusCheckRollup": []map[string]any{
+					{"status": "COMPLETED", "conclusion": "SUCCESS"},
+				},
+			}
+			raw, err := json.Marshal(payload)
+			if err != nil {
+				return "", err
+			}
+			return string(raw), nil
+		}
+		if len(args) >= 3 && args[0] == "pr" && args[1] == "merge" {
+			t.Fatalf("expected finalize to block before gh pr merge, got args=%v", args)
+		}
+		return "", nil
+	})
+
+	_, err = svc.MergeFinalizeWithOptions(parent.ID, MergeCROptions{})
+	if err == nil || !strings.Contains(err.Error(), "delegated child CRs pending") {
+		t.Fatalf("expected delegated-child finalize block, got %v", err)
 	}
 }

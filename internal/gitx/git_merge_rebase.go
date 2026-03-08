@@ -6,8 +6,14 @@ import (
 	"os"
 	"os/exec"
 	"sort"
+	"strconv"
 	"strings"
 )
+
+type AheadBehindCounts struct {
+	LeftAhead  int
+	RightAhead int
+}
 
 func (c *Client) RebaseBranchOnto(branch, ontoRef string) error {
 	if err := c.CheckoutBranch(branch); err != nil {
@@ -141,6 +147,28 @@ func (c *Client) IsAncestor(ancestor, descendant string) (bool, error) {
 		return false, fmt.Errorf("git merge-base --is-ancestor %s %s: %w", ancestor, descendant, err)
 	}
 	return false, fmt.Errorf("git merge-base --is-ancestor %s %s: %w: %s", ancestor, descendant, err, trimmed)
+}
+
+func (c *Client) AheadBehind(left, right string) (AheadBehindCounts, error) {
+	left = strings.TrimSpace(left)
+	right = strings.TrimSpace(right)
+	if left == "" || right == "" {
+		return AheadBehindCounts{}, fmt.Errorf("left and right refs are required")
+	}
+	out, err := c.run("rev-list", "--left-right", "--count", left+"..."+right)
+	if err != nil {
+		return AheadBehindCounts{}, err
+	}
+	fields := strings.Fields(strings.TrimSpace(out))
+	if len(fields) != 2 {
+		return AheadBehindCounts{}, fmt.Errorf("parse rev-list ahead/behind %s...%s: unexpected output %q", left, right, strings.TrimSpace(out))
+	}
+	leftAhead, leftErr := strconv.Atoi(fields[0])
+	rightAhead, rightErr := strconv.Atoi(fields[1])
+	if leftErr != nil || rightErr != nil {
+		return AheadBehindCounts{}, fmt.Errorf("parse rev-list ahead/behind %s...%s: unexpected output %q", left, right, strings.TrimSpace(out))
+	}
+	return AheadBehindCounts{LeftAhead: leftAhead, RightAhead: rightAhead}, nil
 }
 
 func (c *Client) MergeNoFF(baseBranch, branch, message string) error {

@@ -1573,6 +1573,11 @@ func TestPRReconcileCreateCreatesDraftPR(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AddCR() error = %v", err)
 	}
+	if err := os.WriteFile(filepath.Join(dir, "reconcile-create.txt"), []byte("change\n"), 0o644); err != nil {
+		t.Fatalf("write reconcile-create.txt: %v", err)
+	}
+	runGit(t, dir, "add", "reconcile-create.txt")
+	runGit(t, dir, "commit", "-m", "feat: reconcile create diff")
 	fakeGH := newFakeGHPRState(t, 9, strings.TrimSpace(cr.Branch), "main", "OPEN", true)
 	svc.overrideGHRunnerForTests(fakeGH.run)
 
