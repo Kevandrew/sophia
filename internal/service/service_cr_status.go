@@ -86,6 +86,13 @@ func (s *Service) WhyCR(id int) (*WhyView, error) {
 	if err != nil {
 		return nil, err
 	}
+	allCRs, err := s.store.ListCRs()
+	if err != nil {
+		return nil, err
+	}
+	readModel := buildCRReadModel(allCRs)
+	normalizedCR := readModel.normalizeCR(*cr)
+	cr = &normalizedCR
 
 	description := strings.TrimSpace(cr.Description)
 	contractWhy := strings.TrimSpace(cr.Contract.Why)
@@ -127,6 +134,13 @@ func (s *Service) StatusCR(id int) (*CRStatusView, error) {
 	if err != nil {
 		return nil, err
 	}
+	allCRs, err := s.store.ListCRs()
+	if err != nil {
+		return nil, err
+	}
+	readModel := buildCRReadModel(allCRs)
+	normalizedCR := readModel.normalizeCR(*cr)
+	cr = &normalizedCR
 
 	currentBranch, _ := statusGit.CurrentBranch()
 	statusEntries, err := statusGit.WorkingTreeStatus()
