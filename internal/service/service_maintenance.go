@@ -692,7 +692,7 @@ func (s *Service) promoteReachableCRsToMerged(baseBranch string, report *RepairR
 		if candidate.Status != model.StatusInProgress {
 			continue
 		}
-		anchor, anchorSource, ok := s.reachableMergeAnchor(candidate, strings.TrimSpace(baseHead))
+		anchor, anchorSource, ok := s.repairMergeProof(candidate, strings.TrimSpace(baseHead))
 		if !ok {
 			continue
 		}
@@ -737,7 +737,7 @@ func (s *Service) promoteReachableCRsToMerged(baseBranch string, report *RepairR
 	return nil
 }
 
-func (s *Service) reachableMergeAnchor(cr model.CR, baseHead string) (*gitx.Commit, string, bool) {
+func (s *Service) repairMergeProof(cr model.CR, baseHead string) (*gitx.Commit, string, bool) {
 	branch := strings.TrimSpace(cr.Branch)
 	baseCommit := strings.TrimSpace(cr.BaseCommit)
 	if branch != "" && s.git.BranchExists(branch) {
@@ -753,22 +753,46 @@ func (s *Service) reachableMergeAnchor(cr model.CR, baseHead string) (*gitx.Comm
 		}
 	}
 
+	return s.completeTaskMergeAnchor(cr, baseHead)
+}
+
+func (s *Service) completeTaskMergeAnchor(cr model.CR, baseHead string) (*gitx.Commit, string, bool) {
+	if len(cr.Subtasks) == 0 {
+		return nil, "", false
+	}
+
+	var anchor *gitx.Commit
 	for i := len(cr.Subtasks) - 1; i >= 0; i-- {
-		commitHash := strings.TrimSpace(cr.Subtasks[i].CheckpointCommit)
-		if commitHash == "" {
-			continue
+		task := cr.Subtasks[i]
+		if strings.TrimSpace(task.Status) != model.TaskStatusDone {
+			return nil, "", false
 		}
+
+		commitHash := strings.TrimSpace(task.CheckpointCommit)
+		if commitHash == "" {
+			if strings.TrimSpace(task.CheckpointReason) != "" &&
+				strings.TrimSpace(task.CheckpointSource) == model.TaskCheckpointSourceTaskNoCheckpoint {
+				continue
+			}
+			return nil, "", false
+		}
+
 		reachable, err := s.git.IsAncestor(commitHash, baseHead)
 		if err != nil || !reachable {
-			continue
+			return nil, "", false
 		}
 		commit, commitErr := s.git.CommitByHash(commitHash)
 		if commitErr != nil || commit == nil {
-			continue
+			return nil, "", false
 		}
-		return commit, "checkpoint_commit", true
+		if anchor == nil {
+			anchor = commit
+		}
 	}
-	return nil, "", false
+	if anchor == nil {
+		return nil, "", false
+	}
+	return anchor, "complete_task_checkpoints", true
 }
 
 func normalizeRepairCommitTimestamp(raw string) (string, string) {
