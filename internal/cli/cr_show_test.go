@@ -817,7 +817,7 @@ func TestCRShowServerSSEInitialSnapshot(t *testing.T) {
 		func(id int) (string, error) {
 			return fmt.Sprintf("<!doctype html><html><body>cr-%d</body></html>", id), nil
 		},
-		func() (map[string]any, error) {
+		func(_ *http.Request) (map[string]any, error) {
 			return map[string]any{"mode": "dashboard", "generated_at": "2026-03-03T00:00:00Z"}, nil
 		},
 		func(id int) (map[string]any, error) {
@@ -865,7 +865,7 @@ func TestCRShowServerSSEUsesCRRouteSnapshot(t *testing.T) {
 		func(id int) (string, error) {
 			return fmt.Sprintf("<!doctype html><html><body>cr-%d</body></html>", id), nil
 		},
-		func() (map[string]any, error) {
+		func(_ *http.Request) (map[string]any, error) {
 			return map[string]any{"mode": "dashboard", "generated_at": "2026-03-03T00:00:00Z"}, nil
 		},
 		func(id int) (map[string]any, error) {
@@ -908,7 +908,7 @@ func TestCRShowServerSnapshotEndpointReturnsJSON(t *testing.T) {
 		func(id int) (string, error) {
 			return fmt.Sprintf("<!doctype html><html><body>cr-%d</body></html>", id), nil
 		},
-		func() (map[string]any, error) {
+		func(_ *http.Request) (map[string]any, error) {
 			return map[string]any{"mode": "dashboard", "counts": map[string]any{"list_total": 3}}, nil
 		},
 		func(id int) (map[string]any, error) {
@@ -949,12 +949,116 @@ func TestCRShowServerSnapshotEndpointReturnsJSON(t *testing.T) {
 	}
 }
 
+func TestCRShowServerSnapshotEndpointUsesDashboardRequestQuery(t *testing.T) {
+	t.Parallel()
+	server, err := startCRShowServerWithLiveRoutes(
+		func() (string, error) { return "<!doctype html><html><body>dashboard</body></html>", nil },
+		nil,
+		func(r *http.Request) (map[string]any, error) {
+			if r == nil {
+				t.Fatalf("expected request")
+			}
+			return map[string]any{
+				"status":         strings.TrimSpace(r.URL.Query().Get("status")),
+				"risk_tier":      strings.TrimSpace(r.URL.Query().Get("risk_tier")),
+				"scope":          strings.TrimSpace(r.URL.Query().Get("scope")),
+				"text":           strings.TrimSpace(r.URL.Query().Get("text")),
+				"selected_cr_id": strings.TrimSpace(r.URL.Query().Get("selected_cr_id")),
+			}, nil
+		},
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("startCRShowServerWithLiveRoutes() error = %v", err)
+	}
+	defer server.Shutdown()
+
+	resp, err := http.Get(server.URL + "/__sophia_snapshot?mode=dashboard&status=open&risk_tier=medium&scope=internal/cli&text=preview&selected_cr_id=42")
+	if err != nil {
+		t.Fatalf("GET dashboard snapshot error = %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected dashboard snapshot status 200, got %d", resp.StatusCode)
+	}
+	bodyRaw, _ := io.ReadAll(resp.Body)
+	body := string(bodyRaw)
+	for _, fragment := range []string{
+		"\"status\":\"open\"",
+		"\"risk_tier\":\"medium\"",
+		"\"scope\":\"internal/cli\"",
+		"\"text\":\"preview\"",
+		"\"selected_cr_id\":\"42\"",
+	} {
+		if !strings.Contains(body, fragment) {
+			t.Fatalf("expected dashboard request fragment %q in %q", fragment, body)
+		}
+	}
+}
+
+func TestCRShowServerSSEUsesDashboardRequestQuery(t *testing.T) {
+	t.Parallel()
+	server, err := startCRShowServerWithLiveRoutes(
+		func() (string, error) { return "<!doctype html><html><body>dashboard</body></html>", nil },
+		nil,
+		func(r *http.Request) (map[string]any, error) {
+			if r == nil {
+				t.Fatalf("expected request")
+			}
+			return map[string]any{
+				"status":         strings.TrimSpace(r.URL.Query().Get("status")),
+				"risk_tier":      strings.TrimSpace(r.URL.Query().Get("risk_tier")),
+				"scope":          strings.TrimSpace(r.URL.Query().Get("scope")),
+				"text":           strings.TrimSpace(r.URL.Query().Get("text")),
+				"selected_cr_id": strings.TrimSpace(r.URL.Query().Get("selected_cr_id")),
+				"generated_at":   "2026-03-03T00:00:00Z",
+			}, nil
+		},
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("startCRShowServerWithLiveRoutes() error = %v", err)
+	}
+	defer server.Shutdown()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, server.URL+"/__sophia_events?mode=dashboard&status=open&risk_tier=medium&scope=internal/cli&text=preview&selected_cr_id=42", nil)
+	if err != nil {
+		t.Fatalf("NewRequestWithContext() error = %v", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("GET /__sophia_events error = %v", err)
+	}
+	defer resp.Body.Close()
+
+	eventName, eventData, readErr := readSSEEvent(bufio.NewReader(resp.Body))
+	if readErr != nil {
+		t.Fatalf("readSSEEvent() error = %v", readErr)
+	}
+	if eventName != "snapshot" {
+		t.Fatalf("expected snapshot event, got %q", eventName)
+	}
+	for _, fragment := range []string{
+		"\"status\":\"open\"",
+		"\"risk_tier\":\"medium\"",
+		"\"scope\":\"internal/cli\"",
+		"\"text\":\"preview\"",
+		"\"selected_cr_id\":\"42\"",
+	} {
+		if !strings.Contains(eventData, fragment) {
+			t.Fatalf("expected dashboard request fragment %q in %q", fragment, eventData)
+		}
+	}
+}
+
 func TestCRShowServerSSENoChangeNoDuplicate(t *testing.T) {
 	t.Parallel()
 	server, err := startCRShowServerWithLiveRoutes(
 		func() (string, error) { return "<!doctype html><html><body>dashboard</body></html>", nil },
 		nil,
-		func() (map[string]any, error) {
+		func(_ *http.Request) (map[string]any, error) {
 			return map[string]any{"stable": true, "generated_at": "2026-03-03T00:00:00Z"}, nil
 		},
 		nil,
@@ -991,7 +1095,7 @@ func TestCRShowServerSSEEmitsOnChange(t *testing.T) {
 	server, err := startCRShowServerWithLiveRoutes(
 		func() (string, error) { return "<!doctype html><html><body>dashboard</body></html>", nil },
 		nil,
-		func() (map[string]any, error) {
+		func(_ *http.Request) (map[string]any, error) {
 			n := atomic.AddInt32(&calls, 1)
 			version := "v1"
 			if n >= 2 {
@@ -1045,7 +1149,7 @@ func TestCRShowServerSSEIgnoresGeneratedAt(t *testing.T) {
 	server, err := startCRShowServerWithLiveRoutes(
 		func() (string, error) { return "<!doctype html><html><body>dashboard</body></html>", nil },
 		nil,
-		func() (map[string]any, error) {
+		func(_ *http.Request) (map[string]any, error) {
 			n := atomic.AddInt32(&calls, 1)
 			return map[string]any{
 				"stable_key":   "same-value",
