@@ -107,7 +107,7 @@ func (s *Service) buildRefreshPlan(cr *model.CR, readModel *crReadModel, strateg
 		Depth:    0,
 		Strategy: strategy,
 	}}
-	if cr.ParentCRID > 0 || readModel == nil {
+	if readModel == nil {
 		return plan
 	}
 	children := readModel.childrenOf(cr.ID)

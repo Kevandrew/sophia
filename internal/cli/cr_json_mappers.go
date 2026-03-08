@@ -179,6 +179,13 @@ func stackNativityToJSONMap(view service.StackNativityView) map[string]any {
 	}
 }
 
+func effectiveParentIDFromNativity(raw int, nativity service.StackNativityView) int {
+	if nativity.ParentCRID > 0 || nativity.IsChild {
+		return nativity.ParentCRID
+	}
+	return raw
+}
+
 func stackLineageToJSONMaps(lineage []service.StackLineageNodeView) []map[string]any {
 	if len(lineage) == 0 {
 		return []map[string]any{}
@@ -1385,7 +1392,7 @@ func crPackToJSONMap(view *service.CRPackView) map[string]any {
 			"base_branch":      view.CR.BaseBranch,
 			"base_ref":         view.CR.BaseRef,
 			"base_commit":      view.CR.BaseCommit,
-			"parent_cr_id":     view.CR.ParentCRID,
+			"parent_cr_id":     effectiveParentIDFromNativity(view.CR.ParentCRID, view.StackNativity),
 			"branch":           view.CR.Branch,
 			"branch_identity":  branchIdentityToJSONMap(view.CR.Branch, view.CR.UID),
 			"merged_at":        view.CR.MergedAt,

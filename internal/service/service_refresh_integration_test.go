@@ -85,3 +85,77 @@ func TestRefreshCRParentCascadeRelinksChildFromBaseRefInRealRepo(t *testing.T) {
 		t.Fatalf("expected child branch %q to contain refreshed parent head %q", child.Branch, parentHead)
 	}
 }
+
+func TestRefreshCRMiddleNodeCascadeRestacksGrandchildInRealRepo(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	runGit(t, dir, "config", "user.name", "Test User")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+
+	parent, err := svc.AddCR("Parent refresh", "root stack node")
+	if err != nil {
+		t.Fatalf("AddCR(parent) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "parent.txt"), []byte("parent one\n"), 0o644); err != nil {
+		t.Fatalf("write parent.txt stage one: %v", err)
+	}
+	runGit(t, dir, "add", "parent.txt")
+	runGit(t, dir, "commit", "-m", "feat: parent work")
+
+	child, _, err := svc.AddCRWithOptionsWithWarnings("Child refresh", "middle stack node", AddCROptions{ParentCRID: parent.ID})
+	if err != nil {
+		t.Fatalf("AddCR(child) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "child.txt"), []byte("child one\n"), 0o644); err != nil {
+		t.Fatalf("write child.txt: %v", err)
+	}
+	runGit(t, dir, "add", "child.txt")
+	runGit(t, dir, "commit", "-m", "feat: child work")
+
+	grandchild, _, err := svc.AddCRWithOptionsWithWarnings("Grandchild refresh", "descendant stack node", AddCROptions{ParentCRID: child.ID})
+	if err != nil {
+		t.Fatalf("AddCR(grandchild) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "grandchild.txt"), []byte("grandchild one\n"), 0o644); err != nil {
+		t.Fatalf("write grandchild.txt: %v", err)
+	}
+	runGit(t, dir, "add", "grandchild.txt")
+	runGit(t, dir, "commit", "-m", "feat: grandchild work")
+
+	runGit(t, dir, "checkout", parent.Branch)
+	if err := os.WriteFile(filepath.Join(dir, "parent.txt"), []byte("parent one\nparent two\n"), 0o644); err != nil {
+		t.Fatalf("write parent.txt stage two: %v", err)
+	}
+	runGit(t, dir, "add", "parent.txt")
+	runGit(t, dir, "commit", "-m", "feat: parent advances")
+
+	view, err := svc.RefreshCR(child.ID, RefreshOptions{})
+	if err != nil {
+		t.Fatalf("RefreshCR(child) error = %v", err)
+	}
+	if !view.Applied || view.CascadeCount != 1 || len(view.Entries) != 2 {
+		t.Fatalf("expected child refresh plus one cascaded grandchild, got %#v", view)
+	}
+	if view.Entries[1].CRID != grandchild.ID || view.Entries[1].Strategy != RefreshStrategyRestack {
+		t.Fatalf("expected cascaded grandchild restack entry, got %#v", view.Entries[1])
+	}
+
+	reloadedGrandchild, err := svc.store.LoadCR(grandchild.ID)
+	if err != nil {
+		t.Fatalf("LoadCR(grandchild after refresh) error = %v", err)
+	}
+	if reloadedGrandchild.BaseRef != child.Branch {
+		t.Fatalf("expected grandchild base_ref %q, got %#v", child.Branch, reloadedGrandchild)
+	}
+	childHead := runGit(t, dir, "rev-parse", "--verify", child.Branch)
+	if reloadedGrandchild.BaseCommit != childHead {
+		t.Fatalf("expected grandchild base_commit %q, got %#v", childHead, reloadedGrandchild)
+	}
+	if !gitRefContainsCommit(t, dir, grandchild.Branch, childHead) {
+		t.Fatalf("expected grandchild branch %q to contain refreshed child head %q", grandchild.Branch, childHead)
+	}
+}
