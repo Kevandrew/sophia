@@ -109,3 +109,83 @@ func TestRepairFromGitPromotesReachableChildCRMergedThroughParentHistory(t *test
 		t.Fatalf("expected repair merge promotion event, got %#v", repairedChild.Events)
 	}
 }
+
+func TestRepairFromGitDoesNotPromoteCRFromPartialCheckpointLanding(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	runGit(t, dir, "config", "user.name", "Test User")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+
+	cr, err := svc.AddCR("Partial landing", "repair should not close unfinished CRs")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+
+	if err := os.WriteFile(filepath.Join(dir, "slice.txt"), []byte("slice one\n"), 0o644); err != nil {
+		t.Fatalf("write slice.txt stage one: %v", err)
+	}
+	runGit(t, dir, "add", "slice.txt")
+	runGit(t, dir, "commit", "-m", "feat: landed slice")
+	checkpointCommit := runGit(t, dir, "rev-parse", "--verify", "HEAD")
+
+	runGit(t, dir, "branch", "landing-slice", checkpointCommit)
+
+	loaded, err := svc.store.LoadCR(cr.ID)
+	if err != nil {
+		t.Fatalf("LoadCR() error = %v", err)
+	}
+	loaded.Subtasks = []model.Subtask{
+		{
+			ID:               1,
+			Title:            "Landed slice",
+			Status:           model.TaskStatusDone,
+			CreatedAt:        harnessTimestamp,
+			UpdatedAt:        harnessTimestamp,
+			CreatedBy:        "Test User <test@example.com>",
+			CompletedAt:      harnessTimestamp,
+			CompletedBy:      "Test User <test@example.com>",
+			CheckpointCommit: checkpointCommit,
+			CheckpointSource: model.TaskCheckpointSourceTaskCheckpoint,
+		},
+		{
+			ID:        2,
+			Title:     "Remaining work",
+			Status:    model.TaskStatusOpen,
+			CreatedAt: harnessTimestamp,
+			UpdatedAt: harnessTimestamp,
+			CreatedBy: "Test User <test@example.com>",
+		},
+	}
+	if err := svc.store.SaveCR(loaded); err != nil {
+		t.Fatalf("SaveCR() error = %v", err)
+	}
+
+	if err := os.WriteFile(filepath.Join(dir, "slice.txt"), []byte("slice one\nslice two\n"), 0o644); err != nil {
+		t.Fatalf("write slice.txt stage two: %v", err)
+	}
+	runGit(t, dir, "add", "slice.txt")
+	runGit(t, dir, "commit", "-m", "feat: unfinished follow-up")
+
+	runGit(t, dir, "checkout", "main")
+	runGit(t, dir, "merge", "--ff-only", "landing-slice")
+
+	report, err := svc.RepairFromGit("main", true)
+	if err != nil {
+		t.Fatalf("RepairFromGit(refresh) error = %v", err)
+	}
+	if containsInt(report.RepairedCRIDs, cr.ID) {
+		t.Fatalf("expected CR %d to remain in progress, repaired set = %#v", cr.ID, report.RepairedCRIDs)
+	}
+
+	reloaded, err := svc.store.LoadCR(cr.ID)
+	if err != nil {
+		t.Fatalf("LoadCR(reloaded) error = %v", err)
+	}
+	if reloaded.Status != model.StatusInProgress {
+		t.Fatalf("expected CR to remain in progress after partial landing, got %#v", reloaded)
+	}
+}
