@@ -515,6 +515,33 @@ func (s *Service) prReconcileUnlocked(id int, mode string) (*PRReconcileView, er
 	if beforeStatus != nil {
 		beforeLinkage = nonEmptyTrimmed(beforeStatus.LinkageState, prLinkageHealthy)
 	}
+	cr, err = s.store.LoadCR(id)
+	if err != nil {
+		return nil, err
+	}
+	if cr.Status != model.StatusInProgress {
+		afterStatus, _ := s.PRStatus(id)
+		afterLinkage := prLinkageHealthy
+		suggested := []string{}
+		if afterStatus != nil {
+			afterLinkage = nonEmptyTrimmed(afterStatus.LinkageState, prLinkageHealthy)
+			suggested = append([]string(nil), afterStatus.SuggestedCommands...)
+		}
+		return &PRReconcileView{
+			CRID:              cr.ID,
+			CRUID:             strings.TrimSpace(cr.UID),
+			Mode:              mode,
+			Mutated:           false,
+			Action:            "noop",
+			ActionReason:      fmt.Sprintf("CR %d is already %s after PR status refresh", cr.ID, cr.Status),
+			BeforePRNumber:    beforeNumber,
+			AfterPRNumber:     cr.PR.Number,
+			BeforeLinkage:     beforeLinkage,
+			AfterLinkage:      afterLinkage,
+			SuggestedCommands: cleanAndDedupeStrings(suggested),
+			Warnings:          []string{},
+		}, nil
+	}
 	now := s.timestamp()
 	actor := s.git.Actor()
 	action := ""
@@ -714,7 +741,9 @@ func (s *Service) PRStatus(id int) (*PRStatusView, error) {
 	status.GateBlocked, status.GateReasons = evaluatePRGate(policy, status)
 	s.classifyPRLinkageStatus(cr, status)
 	if status.Merged {
-		if reconcileErr := s.reconcileRemoteMergedPR(cr, status); reconcileErr != nil {
+		if status.LinkageState != prLinkageHealthy {
+			status.Warnings = append(status.Warnings, "skipping remote merge reconciliation because linked PR no longer matches CR linkage")
+		} else if reconcileErr := s.reconcileRemoteMergedPR(cr, status); reconcileErr != nil {
 			status.Warnings = append(status.Warnings, fmt.Sprintf("remote merge reconciliation failed: %v", reconcileErr))
 		}
 	}
@@ -835,11 +864,8 @@ func (s *Service) classifyPRLinkageStatus(cr *model.CR, status *PRStatusView) {
 		return
 	}
 	status.LinkageState = prLinkageHealthy
-	if status.Merged {
-		return
-	}
 	state := strings.ToUpper(strings.TrimSpace(status.State))
-	if state == "CLOSED" {
+	if state == "CLOSED" && !status.Merged {
 		status.LinkageState = prLinkageClosed
 		status.ActionRequired = prActionReopenPR
 		status.ActionReason = fmt.Sprintf("linked PR #%d is closed without merge", status.Number)
@@ -854,15 +880,7 @@ func (s *Service) classifyPRLinkageStatus(cr *model.CR, status *PRStatusView) {
 		status.SuggestedCommands = cleanAndDedupeStrings(append(status.SuggestedCommands, prReadyCommand(cr.ID), prUnreadyCommand(cr.ID), prCloseCommand(cr.ID)))
 	}
 
-	expectedBase := strings.TrimSpace(nonEmptyTrimmed(cr.BaseRef, cr.BaseBranch))
-	expectedHead := strings.TrimSpace(cr.Branch)
-	mismatch := []string{}
-	if expectedBase != "" && strings.TrimSpace(status.BaseRefName) != "" && !strings.EqualFold(strings.TrimSpace(status.BaseRefName), expectedBase) {
-		mismatch = append(mismatch, fmt.Sprintf("base ref mismatch (expected %s, observed %s)", expectedBase, strings.TrimSpace(status.BaseRefName)))
-	}
-	if expectedHead != "" && strings.TrimSpace(status.HeadRefName) != "" && !strings.EqualFold(strings.TrimSpace(status.HeadRefName), expectedHead) {
-		mismatch = append(mismatch, fmt.Sprintf("head ref mismatch (expected %s, observed %s)", expectedHead, strings.TrimSpace(status.HeadRefName)))
-	}
+	mismatch := prLinkageMismatches(cr, status)
 	if len(mismatch) == 0 {
 		return
 	}
@@ -872,6 +890,22 @@ func (s *Service) classifyPRLinkageStatus(cr *model.CR, status *PRStatusView) {
 	status.GateBlocked = true
 	status.GateReasons = cleanAndDedupeStrings(append(status.GateReasons, fmt.Sprintf("%s; run `%s`", prGateMismatchReason, prReconcileCommand(cr.ID, prReconcileModeRelink))))
 	status.SuggestedCommands = cleanAndDedupeStrings(append(status.SuggestedCommands, prReconcileCommand(cr.ID, prReconcileModeRelink), prReconcileCommand(cr.ID, prReconcileModeCreate)))
+}
+
+func prLinkageMismatches(cr *model.CR, status *PRStatusView) []string {
+	if cr == nil || status == nil {
+		return nil
+	}
+	expectedBase := strings.TrimSpace(nonEmptyTrimmed(cr.BaseRef, cr.BaseBranch))
+	expectedHead := strings.TrimSpace(cr.Branch)
+	mismatch := []string{}
+	if expectedBase != "" && strings.TrimSpace(status.BaseRefName) != "" && !strings.EqualFold(strings.TrimSpace(status.BaseRefName), expectedBase) {
+		mismatch = append(mismatch, fmt.Sprintf("base ref mismatch (expected %s, observed %s)", expectedBase, strings.TrimSpace(status.BaseRefName)))
+	}
+	if expectedHead != "" && strings.TrimSpace(status.HeadRefName) != "" && !strings.EqualFold(strings.TrimSpace(status.HeadRefName), expectedHead) {
+		mismatch = append(mismatch, fmt.Sprintf("head ref mismatch (expected %s, observed %s)", expectedHead, strings.TrimSpace(status.HeadRefName)))
+	}
+	return mismatch
 }
 
 func evaluatePRGate(policy *model.RepoPolicy, status *PRStatusView) (bool, []string) {
@@ -2527,7 +2561,10 @@ func (s *Service) reconcileRemoteMergedPR(cr *model.CR, status *PRStatusView) er
 			desiredBaseCommit = mergedCommit
 		}
 	}
-	alreadyMerged := cr.Status == model.StatusMerged && strings.TrimSpace(cr.MergedCommit) != ""
+	existingMergedAt := strings.TrimSpace(cr.MergedAt)
+	existingMergedBy := strings.TrimSpace(cr.MergedBy)
+	existingMergedCommit := strings.TrimSpace(cr.MergedCommit)
+	alreadyMerged := cr.Status == model.StatusMerged && (existingMergedCommit != "" || existingMergedAt != "" || existingMergedBy != "")
 	if alreadyMerged && strings.TrimSpace(cr.BaseCommit) == desiredBaseCommit && strings.EqualFold(strings.TrimSpace(cr.PR.State), "MERGED") {
 		return nil
 	}
@@ -2537,9 +2574,6 @@ func (s *Service) reconcileRemoteMergedPR(cr *model.CR, status *PRStatusView) er
 	if mergedAt == "" {
 		mergedAt = now
 	}
-	existingMergedAt := strings.TrimSpace(cr.MergedAt)
-	existingMergedBy := strings.TrimSpace(cr.MergedBy)
-	existingMergedCommit := strings.TrimSpace(cr.MergedCommit)
 	cr.Status = model.StatusMerged
 	if !alreadyMerged || existingMergedAt == "" {
 		cr.MergedAt = mergedAt
@@ -2547,7 +2581,7 @@ func (s *Service) reconcileRemoteMergedPR(cr *model.CR, status *PRStatusView) er
 	if !alreadyMerged || existingMergedBy == "" {
 		cr.MergedBy = actor
 	}
-	if !alreadyMerged || existingMergedCommit == "" || status.MergedCommitExact {
+	if status.MergedCommitExact {
 		cr.MergedCommit = mergedCommit
 	}
 	cr.BaseCommit = desiredBaseCommit
