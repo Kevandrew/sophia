@@ -353,3 +353,116 @@ func TestPRStatusMergedFallbackHeadDoesNotCanonizeMergedCommitWhenUnset(t *testi
 		t.Fatalf("expected repeated fallback-only PRStatus to avoid duplicate merge events, before=%d after=%d", eventCount, len(reloadedAgain.Events))
 	}
 }
+
+func TestMergedChildStatusAndDoctorStayHealthyAfterParentBranchDeletion(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	runGit(t, dir, "config", "user.name", "Test User")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+
+	parent, err := svc.AddCR("Parent merge cleanup", "merged children should stay healthy after parent branch cleanup")
+	if err != nil {
+		t.Fatalf("AddCR(parent) error = %v", err)
+	}
+	setValidContract(t, svc, parent.ID)
+	parentTask, err := svc.AddTask(parent.ID, "Delegate implementation")
+	if err != nil {
+		t.Fatalf("AddTask(parent) error = %v", err)
+	}
+	setValidTaskContract(t, svc, parent.ID, parentTask.ID)
+
+	if err := os.WriteFile(filepath.Join(dir, "parent-cleanup.txt"), []byte("parent\n"), 0o644); err != nil {
+		t.Fatalf("write parent-cleanup.txt: %v", err)
+	}
+	runGit(t, dir, "add", "parent-cleanup.txt")
+	runGit(t, dir, "commit", "-m", "feat: parent setup")
+
+	child, _, err := svc.AddCRWithOptionsWithWarnings("Child merge cleanup", "delegated child remains healthy after parent cleanup", AddCROptions{ParentCRID: parent.ID})
+	if err != nil {
+		t.Fatalf("AddCR(child) error = %v", err)
+	}
+	setValidContract(t, svc, child.ID)
+	if _, err := svc.DelegateTaskToChild(parent.ID, parentTask.ID, child.ID); err != nil {
+		t.Fatalf("DelegateTaskToChild() error = %v", err)
+	}
+
+	if err := os.WriteFile(filepath.Join(dir, "child-cleanup.txt"), []byte("child\n"), 0o644); err != nil {
+		t.Fatalf("write child-cleanup.txt: %v", err)
+	}
+	runGit(t, dir, "add", "child-cleanup.txt")
+	runGit(t, dir, "commit", "-m", "feat: child implementation")
+
+	if _, err := svc.MergeCR(child.ID, false, ""); err != nil {
+		t.Fatalf("MergeCR(child) error = %v", err)
+	}
+	if _, err := svc.MergeCR(parent.ID, false, ""); err != nil {
+		t.Fatalf("MergeCR(parent) error = %v", err)
+	}
+	if svc.git.BranchExists(parent.Branch) {
+		t.Fatalf("expected parent branch %q deleted after merge", parent.Branch)
+	}
+
+	status, err := svc.StatusCR(child.ID)
+	if err != nil {
+		t.Fatalf("StatusCR(child) error = %v", err)
+	}
+	if status.Status != model.StatusMerged {
+		t.Fatalf("expected child status merged, got %q", status.Status)
+	}
+	if status.FreshnessState != "current" {
+		t.Fatalf("expected child freshness=current after parent branch cleanup, got %q (%s)", status.FreshnessState, status.FreshnessReason)
+	}
+	if len(status.FreshnessSuggestedCommands) != 0 {
+		t.Fatalf("expected no refresh suggestion for merged child after parent branch cleanup, got %#v", status.FreshnessSuggestedCommands)
+	}
+
+	report, err := svc.DoctorCR(child.ID)
+	if err != nil {
+		t.Fatalf("DoctorCR(child) error = %v", err)
+	}
+	if hasCRFindingCode(report.Findings, "base_ref_unresolved") {
+		t.Fatalf("expected merged child to avoid base_ref_unresolved after parent branch cleanup, got %#v", report.Findings)
+	}
+}
+
+func TestDoctorCRMergedStillFlagsUnresolvedBaseRefWithoutHistoricalParentMatch(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	svc := New(dir)
+	if _, err := svc.Init("main", ""); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	runGit(t, dir, "config", "user.name", "Test User")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+
+	cr, err := svc.AddCR("Broken merged metadata", "only real historical parent cleanup should suppress unresolved base ref")
+	if err != nil {
+		t.Fatalf("AddCR() error = %v", err)
+	}
+	loaded, err := svc.store.LoadCR(cr.ID)
+	if err != nil {
+		t.Fatalf("LoadCR() error = %v", err)
+	}
+	head := strings.TrimSpace(runGit(t, dir, "rev-parse", "HEAD"))
+	loaded.Status = model.StatusMerged
+	loaded.BaseRef = "codex/non-existent-parent-branch"
+	loaded.BaseCommit = head
+	loaded.MergedCommit = head
+	if err := svc.store.SaveCR(loaded); err != nil {
+		t.Fatalf("SaveCR() error = %v", err)
+	}
+
+	report, err := svc.DoctorCR(cr.ID)
+	if err != nil {
+		t.Fatalf("DoctorCR() error = %v", err)
+	}
+	if !hasCRFindingCode(report.Findings, "base_ref_unresolved") {
+		t.Fatalf("expected unresolved base_ref finding for malformed merged metadata, got %#v", report.Findings)
+	}
+}
