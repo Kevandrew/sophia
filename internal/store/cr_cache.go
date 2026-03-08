@@ -22,6 +22,9 @@ type crMetadataCache struct {
 }
 
 func (s *Store) cachedCRByID(id int) (*model.CR, error) {
+	if err := s.EnsureInitialized(); err != nil {
+		return nil, err
+	}
 	s.crFilesMu.Lock()
 	defer s.crFilesMu.Unlock()
 	if err := s.refreshCRCacheLocked(); err != nil {
@@ -38,6 +41,9 @@ func (s *Store) cachedCRByID(id int) (*model.CR, error) {
 }
 
 func (s *Store) cachedCRs() ([]model.CR, error) {
+	if err := s.EnsureInitialized(); err != nil {
+		return nil, err
+	}
 	s.crFilesMu.Lock()
 	defer s.crFilesMu.Unlock()
 	if err := s.refreshCRCacheLocked(); err != nil {
