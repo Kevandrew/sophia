@@ -232,6 +232,9 @@ func (s *Service) StatusCR(id int) (*CRStatusView, error) {
 			view.FreshnessReason = "Merged CR has no recorded base ref."
 		case mergedAnchor == "":
 			view.FreshnessReason = fmt.Sprintf("Merged CR base ref %q has no recorded merge/base anchor.", baseRef)
+		case s.mergedHistoricalParentRefMissing(cr):
+			view.FreshnessState = "current"
+			view.FreshnessReason = fmt.Sprintf("CR is merged; historical parent branch %q has been cleaned up after merge.", baseRef)
 		default:
 			resolvedBase, resolveErr := statusGit.ResolveRef(baseRef)
 			if resolveErr != nil {
@@ -319,6 +322,35 @@ func (s *Service) StatusCR(id int) (*CRStatusView, error) {
 	}
 
 	return view, nil
+}
+
+func (s *Service) mergedHistoricalParentRefMissing(cr *model.CR) bool {
+	if s == nil || cr == nil || strings.TrimSpace(cr.Status) != model.StatusMerged {
+		return false
+	}
+	baseRef := strings.TrimSpace(cr.BaseRef)
+	if baseRef == "" || s.git.BranchExists(baseRef) {
+		return false
+	}
+	allCRs, err := s.store.ListCRs()
+	if err != nil {
+		return false
+	}
+	parentID := expectedParentCRIDFromBaseRef(baseRef, cr.ID, allCRs)
+	if parentID <= 0 && cr.ParentCRID > 0 {
+		parentID = cr.ParentCRID
+	}
+	if parentID <= 0 {
+		return false
+	}
+	for _, candidate := range allCRs {
+		if candidate.ID != parentID {
+			continue
+		}
+		return strings.TrimSpace(candidate.Status) == model.StatusMerged &&
+			strings.TrimSpace(candidate.Branch) == baseRef
+	}
+	return false
 }
 
 func (s *Service) ImpactCR(id int) (*ImpactReport, error) {
