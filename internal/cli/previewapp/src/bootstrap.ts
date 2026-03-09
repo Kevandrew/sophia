@@ -3,7 +3,9 @@ export interface PreviewBootstrap {
   cr_id?: number;
   selected_cr_id?: number;
   snapshot_url?: string;
+  snapshot_root?: string;
   events_url?: string;
+  events_root?: string;
   close_url?: string;
   delegate_launch_url?: string;
 }
