@@ -163,8 +163,8 @@ func TestCRShowJSONWithoutContextFallsBackToDashboard(t *testing.T) {
 	if got, _ := env.Data["view_mode"].(string); got != "localhost_dashboard" {
 		t.Fatalf("expected localhost_dashboard view_mode, got %#v", env.Data["view_mode"])
 	}
-	if got, _ := env.Data["template_source"].(string); got != "embedded:internal/cli/templates/cr_list.html" {
-		t.Fatalf("expected cr_list template source, got %#v", env.Data["template_source"])
+	if got, _ := env.Data["template_source"].(string); got != "embedded:internal/cli/templates/cr_preview_shell.html" {
+		t.Fatalf("expected preview shell template source, got %#v", env.Data["template_source"])
 	}
 	if _, exists := env.Data["selected_cr_id"]; !exists {
 		t.Fatalf("expected selected_cr_id in dashboard envelope, got %#v", env.Data)
@@ -521,9 +521,9 @@ func TestCRShowUsesInferredParentageWhenStoredParentMissing(t *testing.T) {
 	}
 }
 
-func TestCRShowTemplateIsSingleFileWithInlineAssets(t *testing.T) {
+func TestCRShowTemplateUsesPreviewShellAssets(t *testing.T) {
 	t.Parallel()
-	doc, err := buildCRShowHTMLDocument(embeddedCRShowHTMLTemplate, map[string]any{
+	doc, err := buildCRShowHTMLDocument(embeddedCRPreviewShellHTMLTemplate, map[string]any{
 		"generated_at": "2026-03-03T00:00:00Z",
 		"cr_id":        101,
 		"snapshot_url": "/__sophia_snapshot?mode=cr&id=101",
@@ -534,19 +534,11 @@ func TestCRShowTemplateIsSingleFileWithInlineAssets(t *testing.T) {
 	}
 
 	for _, required := range []string{
-		"<style>",
-		"<script id=\"cr-show-bootstrap\" type=\"application/json\">",
-		"Raw JSON Payload",
+		"<script id=\"cr-preview-bootstrap\" type=\"application/json\">",
+		"/__sophia_assets/app.css",
+		"/__sophia_assets/app.js",
 		"read-only local report",
 		"id=\"close-preview-btn\"",
-		"Stack Role",
-		"Lineage",
-		"id=\"task-section-label\"",
-		"id=\"tasks-list\"",
-		"<span class=\"section-label\">Delegation</span>",
-		"id=\"delegation-current\"",
-		"id=\"delegation-history\"",
-		"EventSource",
 		"/__sophia_snapshot?mode=cr",
 	} {
 		if !strings.Contains(doc, required) {
@@ -554,8 +546,8 @@ func TestCRShowTemplateIsSingleFileWithInlineAssets(t *testing.T) {
 		}
 	}
 	for _, forbidden := range []string{
-		"<script src=\"http://",
-		"<script src=\"https://",
+		"<script type=\"module\" src=\"http://",
+		"<script type=\"module\" src=\"https://",
 	} {
 		if strings.Contains(doc, forbidden) {
 			t.Fatalf("expected no remote script dependency in template; found %q", forbidden)
@@ -563,9 +555,9 @@ func TestCRShowTemplateIsSingleFileWithInlineAssets(t *testing.T) {
 	}
 }
 
-func TestCRListTemplateIsSingleFileWithInlineAssets(t *testing.T) {
+func TestCRListTemplateUsesPreviewShellAssets(t *testing.T) {
 	t.Parallel()
-	doc, err := buildCRListHTMLDocument(embeddedCRListHTMLTemplate, map[string]any{
+	doc, err := buildCRListHTMLDocument(embeddedCRPreviewShellHTMLTemplate, map[string]any{
 		"generated_at":   "2026-03-03T00:00:00Z",
 		"selected_cr_id": 101,
 		"snapshot_url":   "/__sophia_snapshot?mode=dashboard",
@@ -576,12 +568,11 @@ func TestCRListTemplateIsSingleFileWithInlineAssets(t *testing.T) {
 	}
 
 	for _, required := range []string{
-		"<style>",
-		"<script id=\"cr-list-bootstrap\" type=\"application/json\">",
-		"Raw JSON Payload",
+		"<script id=\"cr-preview-bootstrap\" type=\"application/json\">",
+		"/__sophia_assets/app.css",
+		"/__sophia_assets/app.js",
 		"read-only local report",
 		"id=\"close-preview-btn\"",
-		"EventSource",
 		"/__sophia_snapshot?mode=dashboard",
 	} {
 		if !strings.Contains(doc, required) {
@@ -589,8 +580,8 @@ func TestCRListTemplateIsSingleFileWithInlineAssets(t *testing.T) {
 		}
 	}
 	for _, forbidden := range []string{
-		"<script src=\"http://",
-		"<script src=\"https://",
+		"<script type=\"module\" src=\"http://",
+		"<script type=\"module\" src=\"https://",
 	} {
 		if strings.Contains(doc, forbidden) {
 			t.Fatalf("expected no remote script dependency in template; found %q", forbidden)
@@ -637,6 +628,54 @@ func TestCRShowServerSupportsCloseEndpoint(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatalf("timed out waiting for close signal")
+	}
+}
+
+func TestCRShowServerServesEmbeddedPreviewAssets(t *testing.T) {
+	t.Parallel()
+	server, err := startCRShowServerWithLiveRoutes(
+		func() (string, error) { return "<!doctype html><html><body>dashboard</body></html>", nil },
+		nil,
+		nil,
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("startCRShowServerWithLiveRoutes() error = %v", err)
+	}
+	defer server.Shutdown()
+
+	respJS, err := http.Get(server.URL + "/__sophia_assets/app.js")
+	if err != nil {
+		t.Fatalf("GET /__sophia_assets/app.js error = %v", err)
+	}
+	defer respJS.Body.Close()
+	if respJS.StatusCode != http.StatusOK {
+		t.Fatalf("expected asset JS status 200, got %d", respJS.StatusCode)
+	}
+	bodyJSRaw, _ := io.ReadAll(respJS.Body)
+	bodyJS := string(bodyJSRaw)
+	if !strings.Contains(bodyJS, "cr-preview-bootstrap") {
+		t.Fatalf("expected JS bundle to contain preview bootstrap reader, got %q", bodyJS[:min(len(bodyJS), 120)])
+	}
+	if got := respJS.Header.Get("Content-Type"); !strings.Contains(got, "text/javascript") {
+		t.Fatalf("expected JS content type, got %q", got)
+	}
+
+	respCSS, err := http.Get(server.URL + "/__sophia_assets/app.css")
+	if err != nil {
+		t.Fatalf("GET /__sophia_assets/app.css error = %v", err)
+	}
+	defer respCSS.Body.Close()
+	if respCSS.StatusCode != http.StatusOK {
+		t.Fatalf("expected asset CSS status 200, got %d", respCSS.StatusCode)
+	}
+	bodyCSSRaw, _ := io.ReadAll(respCSS.Body)
+	bodyCSS := string(bodyCSSRaw)
+	if !strings.Contains(bodyCSS, ".preview-app-shell") {
+		t.Fatalf("expected CSS bundle to contain preview shell styles, got %q", bodyCSS)
+	}
+	if got := respCSS.Header.Get("Content-Type"); !strings.Contains(got, "text/css") {
+		t.Fatalf("expected CSS content type, got %q", got)
 	}
 }
 

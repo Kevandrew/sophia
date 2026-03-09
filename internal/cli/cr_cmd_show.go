@@ -168,7 +168,7 @@ func runCRShowPerCR(cmd *cobra.Command, asJSON bool, noOpen bool, svc *service.S
 	if err != nil {
 		return commandError(cmd, asJSON, err)
 	}
-	const templateSource = "embedded:internal/cli/templates/cr_show.html"
+	const templateSource = "embedded:internal/cli/templates/cr_preview_shell.html"
 
 	var preview *crShowPreviewSession
 	if !noOpen {
@@ -179,14 +179,14 @@ func runCRShowPerCR(cmd *cobra.Command, asJSON bool, noOpen bool, svc *service.S
 				if snapshotErr != nil {
 					return "", snapshotErr
 				}
-				return buildCRListHTMLDocument(embeddedCRListHTMLTemplate, buildCRShowBootstrap(crShowModeDashboard, 0))
+				return buildCRListHTMLDocument(embeddedCRPreviewShellHTMLTemplate, buildCRShowBootstrap(crShowModeDashboard, id))
 			},
 			func(routeCRID int) (string, error) {
 				view, _, snapshotErr := buildCRShowSnapshot(svc, routeCRID, eventsLimit, checkpointsLimit)
 				if snapshotErr != nil {
 					return "", snapshotErr
 				}
-				return buildCRShowHTMLDocument(embeddedCRShowHTMLTemplate, buildCRShowBootstrap(crShowModePerCR, view.CR.ID))
+				return buildCRShowHTMLDocument(embeddedCRPreviewShellHTMLTemplate, buildCRShowBootstrap(crShowModePerCR, view.CR.ID))
 			},
 			func(r *http.Request) (map[string]any, error) {
 				requestQuery, requestSelectedHint := resolveCRShowDashboardRequest(r, model.CRSearchQuery{}, id)
@@ -257,7 +257,7 @@ func runCRShowDashboard(cmd *cobra.Command, asJSON bool, noOpen bool, svc *servi
 	if err != nil {
 		return commandError(cmd, asJSON, err)
 	}
-	const templateSource = "embedded:internal/cli/templates/cr_list.html"
+	const templateSource = "embedded:internal/cli/templates/cr_preview_shell.html"
 
 	var preview *crShowPreviewSession
 	if !noOpen {
@@ -268,14 +268,14 @@ func runCRShowDashboard(cmd *cobra.Command, asJSON bool, noOpen bool, svc *servi
 				if snapshotErr != nil {
 					return "", snapshotErr
 				}
-				return buildCRListHTMLDocument(embeddedCRListHTMLTemplate, buildCRShowBootstrap(crShowModeDashboard, selectedCRID))
+				return buildCRListHTMLDocument(embeddedCRPreviewShellHTMLTemplate, buildCRShowBootstrap(crShowModeDashboard, selectedCRID))
 			},
 			func(routeCRID int) (string, error) {
 				view, _, snapshotErr := buildCRShowSnapshot(svc, routeCRID, eventsLimit, checkpointsLimit)
 				if snapshotErr != nil {
 					return "", snapshotErr
 				}
-				return buildCRShowHTMLDocument(embeddedCRShowHTMLTemplate, buildCRShowBootstrap(crShowModePerCR, view.CR.ID))
+				return buildCRShowHTMLDocument(embeddedCRPreviewShellHTMLTemplate, buildCRShowBootstrap(crShowModePerCR, view.CR.ID))
 			},
 			func(r *http.Request) (map[string]any, error) {
 				requestQuery, requestSelectedHint := resolveCRShowDashboardRequest(r, query, selectedHint)
@@ -1094,6 +1094,7 @@ func buildCRShowBootstrap(mode crShowMode, id int) map[string]any {
 		"mode":          string(mode),
 		"close_url":     "/__sophia_close",
 		"snapshot_root": "/__sophia_snapshot",
+		"events_root":   "/__sophia_events",
 	}
 	switch mode {
 	case crShowModePerCR:
@@ -1206,6 +1207,28 @@ func startCRShowServerWithLiveRoutesAndLaunch(
 	}
 
 	mux := http.NewServeMux()
+	mux.HandleFunc("/__sophia_assets/app.js", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			w.Header().Set("Allow", http.MethodGet)
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Cache-Control", "no-store, max-age=0")
+		w.Header().Set("Pragma", "no-cache")
+		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+		_, _ = io.WriteString(w, embeddedCRPreviewAppJS)
+	})
+	mux.HandleFunc("/__sophia_assets/app.css", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			w.Header().Set("Allow", http.MethodGet)
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Cache-Control", "no-store, max-age=0")
+		w.Header().Set("Pragma", "no-cache")
+		w.Header().Set("Content-Type", "text/css; charset=utf-8")
+		_, _ = io.WriteString(w, embeddedCRPreviewAppCSS)
+	})
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		path := strings.Trim(strings.TrimSpace(r.URL.Path), "/")
 		render := renderRoot
@@ -1622,3 +1645,12 @@ var embeddedCRShowHTMLTemplate string
 
 //go:embed templates/cr_list.html
 var embeddedCRListHTMLTemplate string
+
+//go:embed templates/cr_preview_shell.html
+var embeddedCRPreviewShellHTMLTemplate string
+
+//go:embed previewapp/dist/assets/app.js
+var embeddedCRPreviewAppJS string
+
+//go:embed previewapp/dist/assets/app.css
+var embeddedCRPreviewAppCSS string
