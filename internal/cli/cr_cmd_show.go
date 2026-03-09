@@ -1094,6 +1094,7 @@ func buildCRShowBootstrap(mode crShowMode, id int) map[string]any {
 		"mode":          string(mode),
 		"close_url":     "/__sophia_close",
 		"snapshot_root": "/__sophia_snapshot",
+		"events_root":   "/__sophia_events",
 	}
 	switch mode {
 	case crShowModePerCR:
