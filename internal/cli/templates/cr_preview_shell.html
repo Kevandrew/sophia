@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>__TITLE__</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap"
+    rel="stylesheet">
+  <link rel="stylesheet" href="/__sophia_assets/app.css" />
+  <style>
+    body {
+      min-height: 100vh;
+    }
+
+    .preview-shell-chrome {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 18px 24px;
+    }
+
+    .preview-shell-brand {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .preview-shell-brand strong {
+      font-family: "IBM Plex Mono", ui-monospace, monospace;
+      font-size: 12px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+    }
+
+    .preview-shell-brand span {
+      color: rgba(24, 24, 22, 0.62);
+      font-size: 13px;
+    }
+
+    .preview-shell-actions {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .preview-shell-generated {
+      color: rgba(24, 24, 22, 0.62);
+      font-family: "IBM Plex Mono", ui-monospace, monospace;
+      font-size: 12px;
+    }
+
+    #close-preview-btn {
+      border: 1px solid rgba(24, 24, 22, 0.14);
+      border-radius: 999px;
+      background: white;
+      padding: 10px 16px;
+      font: inherit;
+      cursor: pointer;
+    }
+
+    #close-preview-btn:hover {
+      border-color: rgba(24, 24, 22, 0.28);
+    }
+  </style>
+</head>
+
+<body>
+  <header class="preview-shell-chrome">
+    <div class="preview-shell-brand">
+      <strong>Sophia Preview</strong>
+      <span>Go-served frontend shell · read-only local report</span>
+    </div>
+    <div class="preview-shell-actions">
+      <span class="preview-shell-generated">Generated __GENERATED_AT__</span>
+      <button id="close-preview-btn" type="button">Close Preview</button>
+    </div>
+  </header>
+  <main id="cr-preview-root">
+    <div class="preview-app-shell">
+      <section class="preview-panel">
+        <p class="eyebrow">Local Preview Shell</p>
+        <h1>Loading frontend assets from the Go preview runtime…</h1>
+        <p class="body">If this message persists, the preview shell failed to boot.</p>
+      </section>
+    </div>
+  </main>
+  <script id="cr-preview-bootstrap" type="application/json">__BOOTSTRAP_JSON__</script>
+  <script type="module" src="/__sophia_assets/app.js"></script>
+</body>
+
+</html>
